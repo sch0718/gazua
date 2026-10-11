@@ -1,0 +1,18 @@
+services:
+  proxy:
+    build: .
+    restart: unless-stopped
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS를 설정해 주세요}
+      PROXY_TOKEN: ${PROXY_TOKEN:-}
+    expose:
+      - "8787"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?TUNNEL_TOKEN을 설정해 주세요}
+    depends_on:
+      - proxy
