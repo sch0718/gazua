@@ -1079,7 +1079,7 @@ setInterval(()=>{ if(!state.holiday && state.nowMin<SPAN && state.scrub==null) r
 /* =========================================================
  * 13. 자동 데모 (가상 손가락)
  * ======================================================= */
-const demo={running:false, token:0};
+const demo={running:false, token:0, restartTimer:null};
 const finger=$('#finger'), cap=$('#caption');
 window.DEMO_FAST = new URLSearchParams(location.search).has('fast'); // 검증용: 대기 없이 끝까지 실행
 const sleep=ms=>window.DEMO_FAST ? new Promise(r=>{ const c=new MessageChannel(); c.port1.onmessage=()=>r(); c.port2.postMessage(0); }) : new Promise(r=>setTimeout(r,ms));
@@ -1137,6 +1137,7 @@ const SCRIPT = [
   ['이제 직접 눌러 보세요. 아래 시각 슬라이더와 ⋯ 버튼으로 날짜·공급자·테마도 바꿀 수 있어요.', async()=>{ await moveTo('#timeSlider'); await w(2600); }],
 ];
 async function runDemo(){
+  clearTimeout(demo.restartTimer); demo.restartTimer=null;
   demo.running=true; const my=++demo.token; capIdx=0; capTotal=SCRIPT.length;
   const theme=state.theme, conv=state.conv;
   closeSheet(); $('#dockPanel').hidden=true; state=initialState(); state.theme=theme; state.conv=conv; render(); scrollTo({top:0,behavior:'smooth'});
@@ -1146,14 +1147,19 @@ async function runDemo(){
   try{ for(const [text,fn] of SCRIPT){ if(my!==demo.token) break; caption(text); await fn(); await w(300); } completed = my===demo.token; }
   catch(err){ if(err.message!=='stopped') console.warn(err); }
   finally{ if(my===demo.token) stopDemo(); }
-  if(completed && window.GAZUA_MOTION) setTimeout(()=>{ if(!demo.running) runDemo(); }, 2500); // 모션 모드: 끝까지 재생되면 반복
+  if(completed && window.GAZUA_MOTION){
+    const token=demo.token;
+    demo.restartTimer=setTimeout(()=>{ if(token!==demo.token) return; demo.restartTimer=null; if(!demo.running) runDemo(); },2500);
+  }
 }
-function stopDemo(){ demo.running=false; demo.token++; finger.classList.remove('show','press','hold','drag'); cap.hidden=true; $('#playBtn').textContent='▶ 데모 재생'; $('#playBtn').classList.remove('stop'); clearScrub(); }
+function stopDemo(){ clearTimeout(demo.restartTimer); demo.restartTimer=null; demo.running=false; demo.token++; finger.classList.remove('show','press','hold','drag'); cap.hidden=true; $('#playBtn').textContent='▶ 데모 재생'; $('#playBtn').classList.remove('stop'); clearScrub(); }
 $('#playBtn').addEventListener('click', ()=> demo.running ? stopDemo() : runDemo());
-window.addEventListener('pointerdown', e=>{ if(demo.running && e.isTrusted && !e.target.closest('[data-demo-ctl]')){ stopDemo(); snack('데모를 멈췄어요. 직접 조작해 보세요'); } }, true);
+function stopDemoOnInput(e){ if((demo.running || demo.restartTimer!==null) && e.isTrusted && !e.target.closest('#playBtn')){ stopDemo(); snack('데모를 멈췄어요. 직접 조작해 보세요'); } }
+window.addEventListener('pointerdown', stopDemoOnInput, true);
+window.addEventListener('keydown', stopDemoOnInput, true);
 
 render();
-if(window.GAZUA_MOTION || new URLSearchParams(location.search).has('demo')) setTimeout(runDemo, 600);
+if(window.GAZUA_MOTION || new URLSearchParams(location.search).has('demo')) demo.restartTimer=setTimeout(runDemo, 600);
 </script>
 </body>
 </html>
