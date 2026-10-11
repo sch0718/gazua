@@ -10,19 +10,29 @@ export function maskTail(v: string): string {
 export type UrlResult = { ok: true; url: string } | { ok: false; reason: string };
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+const NEED_HTTPS = '프록시 URL은 https://로 시작해야 해요';
+const LOCAL_DEV_ONLY = `${NEED_HTTPS} · http://localhost 프록시는 개발 서버(pnpm dev)에서만 쓸 수 있어요`;
 
-/** 앞뒤 공백·끝 슬래시를 지운다. https만(로컬 개발 주소는 http도). 빈 값은 '지움'. */
-export function normalizeProxyUrl(raw: string): UrlResult {
+/**
+ * 앞뒤 공백·끝 슬래시를 지운다. 빈 값은 '지움'. https만 받는다.
+ * 빌드의 CSP(connect-src 'self' https:)가 http를 막으므로, http://localhost 프록시는 CSP를 넓힌
+ * 개발 서버(allowLocalHttp, 기본은 import.meta.env.DEV)에서만 받는다(csp.config.ts).
+ */
+export function normalizeProxyUrl(raw: string, opts: { allowLocalHttp?: boolean } = {}): UrlResult {
+  const allowLocalHttp = opts.allowLocalHttp ?? import.meta.env.DEV;
   const trimmed = trimCredential(raw);
   if (trimmed === '') return { ok: true, url: '' };
   let u: URL;
   try {
     u = new URL(trimmed);
   } catch {
-    return { ok: false, reason: '프록시 URL은 https://로 시작해야 해요' };
+    return { ok: false, reason: NEED_HTTPS };
   }
-  const secure = u.protocol === 'https:' || (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname));
-  if (!secure) return { ok: false, reason: '프록시 URL은 https://로 시작해야 해요' };
+  if (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname)) {
+    if (!allowLocalHttp) return { ok: false, reason: LOCAL_DEV_ONLY };
+  } else if (u.protocol !== 'https:') {
+    return { ok: false, reason: NEED_HTTPS };
+  }
   if (u.search || u.hash || u.username || u.password) return { ok: false, reason: '프록시 URL에는 주소만 넣어 주세요' };
   return { ok: true, url: `${u.origin}${u.pathname.replace(/\/+$/, '')}` };
 }

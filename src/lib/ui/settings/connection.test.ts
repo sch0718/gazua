@@ -13,11 +13,30 @@ describe('normalizeProxyUrl', () => {
   it('trims, drops trailing slashes and requires https (http only for localhost)', () => {
     expect(normalizeProxyUrl('  https://p.example.net/ \n')).toEqual({ ok: true, url: 'https://p.example.net' });
     expect(normalizeProxyUrl('https://p.example.net/base//')).toEqual({ ok: true, url: 'https://p.example.net/base' });
-    expect(normalizeProxyUrl('http://localhost:8787')).toEqual({ ok: true, url: 'http://localhost:8787' });
     expect(normalizeProxyUrl('')).toEqual({ ok: true, url: '' });
     expect(normalizeProxyUrl('http://p.example.net')).toEqual({ ok: false, reason: '프록시 URL은 https://로 시작해야 해요' });
     expect(normalizeProxyUrl('p.example.net')).toEqual({ ok: false, reason: '프록시 URL은 https://로 시작해야 해요' });
     expect(normalizeProxyUrl('https://p.example.net/?q=1')).toEqual({ ok: false, reason: '프록시 URL에는 주소만 넣어 주세요' });
+  });
+});
+
+describe('normalizeProxyUrl: plain http matches the CSP (connect-src https: only in builds)', () => {
+  const LOCAL_ONLY_DEV = '프록시 URL은 https://로 시작해야 해요 · http://localhost 프록시는 개발 서버(pnpm dev)에서만 쓸 수 있어요';
+
+  it('a build rejects http even for localhost, saying https is required and pointing at the dev server', () => {
+    for (const url of ['http://localhost:8787', 'http://127.0.0.1:8787/', 'http://[::1]:8787']) {
+      expect(normalizeProxyUrl(url, { allowLocalHttp: false })).toEqual({ ok: false, reason: LOCAL_ONLY_DEV });
+    }
+    expect(normalizeProxyUrl('http://p.example.net', { allowLocalHttp: false })).toEqual({
+      ok: false,
+      reason: '프록시 URL은 https://로 시작해야 해요',
+    });
+  });
+
+  it('the dev server (whose CSP allows local http) accepts http://localhost and 127.0.0.1 only', () => {
+    expect(normalizeProxyUrl('http://localhost:8787', { allowLocalHttp: true })).toEqual({ ok: true, url: 'http://localhost:8787' });
+    expect(normalizeProxyUrl('http://127.0.0.1:8787/', { allowLocalHttp: true })).toEqual({ ok: true, url: 'http://127.0.0.1:8787' });
+    expect(normalizeProxyUrl('http://p.example.net', { allowLocalHttp: true })).toMatchObject({ ok: false });
   });
 });
 
