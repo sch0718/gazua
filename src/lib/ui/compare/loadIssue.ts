@@ -26,6 +26,7 @@ export type IssueView =
 const PRIORITY: ErrorCode[] = [
   'offline',
   'proxy-unreachable',
+  'proxy-redirect',
   'cors-blocked',
   'origin-not-allowed',
   'proxy-token-invalid',
@@ -50,6 +51,7 @@ export function dominantFault(faults: LoadFault[]): LoadFault | null {
 /** 어느 종목에서 나도 화면 전체의 문제인 코드(연결·키·권한). */
 const BANNER_CODES: ErrorCode[] = [
   'proxy-unreachable',
+  'proxy-redirect',
   'cors-blocked',
   'origin-not-allowed',
   'proxy-token-invalid',

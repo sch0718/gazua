@@ -1,5 +1,6 @@
 export type ErrorCode =
   | 'proxy-unreachable'
+  | 'proxy-redirect'
   | 'cors-blocked'
   | 'origin-not-allowed'
   | 'proxy-token-invalid'
@@ -75,6 +76,10 @@ export interface ErrorDescription {
 const DESCRIPTIONS: Record<ErrorCode, ErrorDescription> = {
   'proxy-unreachable': {
     title: '프록시에 연결할 수 없어요',
+    action: { label: '진단 열기', target: 'diagnostics' },
+  },
+  'proxy-redirect': {
+    title: '프록시가 요청을 다른 주소로 보내려 해서 멈췄어요. 프록시 URL을 확인해 주세요',
     action: { label: '진단 열기', target: 'diagnostics' },
   },
   'cors-blocked': {

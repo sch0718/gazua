@@ -5,7 +5,7 @@
 // 단계의 hint·error에는 키·토큰을 절대 넣지 않는다(고정 문구와 출처만).
 import type { Secrets } from '../state/secrets';
 import { ApiError, classify, kisBodyCode, type ErrorCode } from './errors';
-import { createProxyClient, type ProxyClient } from './http';
+import { createProxyClient, isRedirect, type ProxyClient } from './http';
 import { parseKisToken } from './kis';
 import { parseTossToken } from './toss';
 import type { TokenInfo } from './types';
@@ -59,6 +59,7 @@ export const IP_HINT = '토스증권 WTS › 설정 › Open API › 허용 IP �
 /** 실패 단계에 붙일 해결책. 출처가 필요한 문구는 corsHint로 만든다. */
 const HINTS: Record<ErrorCode, string> = {
   'proxy-unreachable': '프록시 주소가 맞는지, 프록시가 켜져 있는지 확인해 주세요',
+  'proxy-redirect': '프록시가 다른 주소로 보내려 해요. 프록시 URL이 맞는지(끝 경로·http/https) 확인해 주세요',
   timeout: '프록시가 응답하지 않아요. 프록시가 켜져 있는지 확인해 주세요',
   offline: '인터넷 연결을 확인해 주세요',
   'cors-blocked': '',
@@ -133,7 +134,8 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
-      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal });
+      // 리다이렉트는 따라가지 않는다(프록시 토큰·키가 다른 출처로 가지 않게).
+      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect: 'manual' });
     } catch (e) {
       if (controller.signal.aborted) throw new StepFailure('timeout');
       throw e;
@@ -164,6 +166,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         if (e instanceof StepFailure) throw e;
         throw new StepFailure('cors-blocked');
       }
+      if (isRedirect(res)) throw new StepFailure('proxy-redirect');
       if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, await readJson(res), provider));
     },
     3: async () => {

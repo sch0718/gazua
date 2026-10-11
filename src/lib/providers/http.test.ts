@@ -45,6 +45,11 @@ describe('describeError', () => {
     ['timeout', '응답이 늦어요', { label: '진단 열기', target: 'diagnostics' }],
     ['upstream', '증권사 서버에서 오류가 났어요', undefined],
     ['offline', '오프라인이에요', undefined],
+    [
+      'proxy-redirect',
+      '프록시가 요청을 다른 주소로 보내려 해서 멈췄어요. 프록시 URL을 확인해 주세요',
+      { label: '진단 열기', target: 'diagnostics' },
+    ],
   ];
   it.each(rows)('%s', (code, title, action) => {
     const d = describeError(code);
@@ -180,6 +185,32 @@ describe('createProxyClient', () => {
     const err = await pending;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe('timeout');
+  });
+
+  it('never follows redirects: an opaque redirect becomes proxy-redirect without a second request', async () => {
+    const opaque = { type: 'opaqueredirect', status: 0, ok: false, headers: new Headers() } as unknown as Response;
+    const fetchImpl = vi.fn(async () => opaque);
+    const client = createProxyClient({ baseUrl: 'https://p.example', proxyToken: 'TOKEN-VALUE', fetchImpl });
+    const err = await client
+      .request('kis', 'GET', '/x', { headers: { appkey: 'KEY', appsecret: 'SECRET' } })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('proxy-redirect');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://p.example/kis/x');
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('treats a readable 3xx (e.g. a stub that ignores redirect: manual) as proxy-redirect too', async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string, _init?: RequestInit) => new Response(null, { status: 307, headers: { location: 'https://evil.example/x' } }),
+    );
+    const client = createProxyClient({ baseUrl: 'https://p.example', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const err = await client.request('toss', 'POST', '/oauth2/token', { body: new URLSearchParams({ a: '1' }) }).catch((e) => e);
+    expect(err.code).toBe('proxy-redirect');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls.every(([u]) => String(u).startsWith('https://p.example/'))).toBe(true);
   });
 
   it('never leaks secrets into error messages', async () => {

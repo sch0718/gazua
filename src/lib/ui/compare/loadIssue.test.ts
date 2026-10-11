@@ -35,6 +35,18 @@ describe('issueView', () => {
     });
   });
 
+  it('proxy redirect → error banner from describeError, ranked as a connection problem', () => {
+    expect(issueView(issue({ code: 'proxy-redirect', allFailed: false }), NOW)).toEqual({
+      kind: 'banner',
+      tone: 'error',
+      text: '프록시가 요청을 다른 주소로 보내려 해서 멈췄어요. 프록시 URL을 확인해 주세요',
+      action: { label: '진단 열기', target: 'diagnostics' },
+    });
+    const f = (code: LoadIssue['code']) => ({ code, at: NOW });
+    expect(dominantFault([f('upstream'), f('proxy-redirect'), f('invalid-credentials')])?.code).toBe('proxy-redirect');
+    expect(dominantFault([f('proxy-redirect'), f('offline')])?.code).toBe('offline');
+  });
+
   it('invalid credentials → error banner with 키 다시 입력', () => {
     expect(issueView(issue({ code: 'invalid-credentials', allFailed: false }), NOW)).toEqual({
       kind: 'banner',

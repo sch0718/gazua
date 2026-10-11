@@ -53,6 +53,11 @@ function retryAfterMs(headers: Headers): number | undefined {
   return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : undefined;
 }
 
+/** `redirect: 'manual'`의 결과(opaqueredirect, status 0) 또는 읽을 수 있는 3xx. */
+export function isRedirect(res: Response): boolean {
+  return res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400);
+}
+
 async function readJson(res: Response): Promise<unknown> {
   const type = res.headers.get('content-type') ?? '';
   if (!/json/i.test(type)) return null;
@@ -92,9 +97,12 @@ export function createProxyClient(cfg: ProxyClientConfig): ProxyClient {
         let res: Response;
         let json: unknown;
         try {
-          res = await (cfg.fetchImpl ?? fetch)(url, { method, headers, body, signal: controller.signal });
+          // 리다이렉트는 따라가지 않는다: 다른 출처로 가면 증권사 키·프록시 토큰·토큰 발급 본문이 그대로 넘어간다.
+          res = await (cfg.fetchImpl ?? fetch)(url, { method, headers, body, signal: controller.signal, redirect: 'manual' });
+          if (isRedirect(res)) throw new ApiError('proxy-redirect');
           json = await readJson(res);
         } catch (e) {
+          if (e instanceof ApiError) throw e;
           if (isAbort(e) || controller.signal.aborted) throw new ApiError('timeout');
           if (e instanceof TypeError) throw new ApiError(cfg.typeErrorCode ?? 'proxy-unreachable');
           throw new ApiError('proxy-unreachable');

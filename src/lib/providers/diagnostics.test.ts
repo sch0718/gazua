@@ -172,6 +172,27 @@ describe('runDiagnostics', () => {
     expect(steps[3]).toMatchObject({ status: 'fail', error: 'upstream' });
   });
 
+  it('② a redirecting /health fails as proxy-redirect; health checks never follow redirects', async () => {
+    const opaque = () => ({ type: 'opaqueredirect', status: 0, ok: false, headers: new Headers() }) as unknown as Response;
+    const f = fakeFetch({ health: opaque, healthNoCors: opaque });
+    const steps = await run('kis', KIS, f).done;
+    expect(steps.map((s) => s.status)).toEqual(['ok', 'fail', 'skipped', 'skipped']);
+    expect(steps[1].error).toBe('proxy-redirect');
+    expect(steps[1].hint).toBe('프록시가 다른 주소로 보내려 해요. 프록시 URL이 맞는지(끝 경로·http/https) 확인해 주세요');
+    for (const [, init] of f.mock.calls) expect(init?.redirect).toBe('manual');
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it('③ a redirected token request stops with proxy-redirect and the keys go nowhere else', async () => {
+    const f = fakeFetch({
+      token: () => ({ type: 'opaqueredirect', status: 0, ok: false, headers: new Headers() }) as unknown as Response,
+    });
+    const steps = await run('toss', TOSS, f).done;
+    expect(steps.map((s) => s.status)).toEqual(['ok', 'ok', 'fail', 'skipped']);
+    expect(steps[2].error).toBe('proxy-redirect');
+    expect(f.mock.calls.every(([u]) => String(u).startsWith(PROXY))).toBe(true);
+  });
+
   it('a blank proxy URL fails step ① without any request', async () => {
     const f = fakeFetch({});
     const steps = await runDiagnostics({ proxyUrl: '  ', provider: 'kis', secrets: KIS, fetchImpl: f, onStep: () => {} });
