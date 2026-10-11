@@ -5,7 +5,7 @@ import { autoVenueAt, sessionLabelAt, tradableIntervals, type TradeInterval, typ
 import { ApiError } from '../providers/errors';
 import type { MarketDataProvider, ProviderCapabilities, StockMeta } from '../providers/types';
 import type { Period } from '../state/schema';
-import { addDays, kstDate, kstEpoch } from '../time/kst';
+import { addDays, kstDate } from '../time/kst';
 import type { CandleCache } from './candleCache';
 import type { IndexAvailability } from './metricRegistry';
 import type { Candle } from './metrics';
@@ -30,7 +30,7 @@ export interface DailyMemo {
   set(key: string, v: Candle[], now: number, ttlMs: number): void;
 }
 
-/** 키 `provider|symbol|venue|from|to`. 만료 항목은 get에서 지운다. */
+/** 키 `provider|symbol|venue|from|to`. 만료 항목은 get에서, 그리고 set할 때 모두 지운다. */
 export function createDailyMemo(): DailyMemo {
   const entries = new Map<string, { v: Candle[]; expiresAt: number }>();
   return {
@@ -44,6 +44,8 @@ export function createDailyMemo(): DailyMemo {
       return e.v;
     },
     set(key, v, now, ttlMs) {
+      // 지난 날짜 키(키에 today가 들어 있다)가 쌓이지 않게 만료 항목을 정리한다.
+      for (const [k, e] of entries) if (now >= e.expiresAt) entries.delete(k);
       entries.set(key, { v, expiresAt: now + ttlMs });
     },
   };
@@ -143,8 +145,8 @@ function segmentsOf(bars: { t: number; venue: Venue }[], barMs: number): SeriesS
 
 /**
  * 1분봉(원래 가격)과 일봉(수정주가)의 비율. 지난 거래일 1일 차트에서만 1이 아닐 수 있다.
- * 비교 봉: 플래그가 false면 KRX 종가 단일가 구간 안의 마지막 봉(없으면 그 구간 끝 전의 마지막 KRX 봉),
- * true면 KRX 구간 안의 마지막 봉. KRX 구간·봉이 없거나 |factor − 1| ≤ 1%면 1.
+ * 비교 봉: 플래그가 false면 KRX 종가 단일가 구간 안의 마지막 봉, true면 KRX 구간 안의 마지막 봉.
+ * KRX 구간이나 비교 봉이 없거나(종가 단일가 구간에 봉이 없는 경우 포함) |factor − 1| ≤ 1%면 1.
  * `includesAfterMarket`은 테스트용으로만 바꾼다.
  */
 export function adjustmentFactor(args: {
@@ -171,8 +173,8 @@ export function adjustmentFactor(args: {
     // 종가 단일가: 첫 KRX 접속매매 구간 뒤에 오는 마지막 KRX 단일가 구간(시가 단일가는 앞에 온다)
     const firstContinuous = krx.find((i) => i.kind === 'continuous');
     const closing = krx.filter((i) => i.kind === 'auction' && firstContinuous && i.start > firstContinuous.start).at(-1);
-    const cutoff = closing?.end ?? kstEpoch(tradingDate, '15:30:00');
-    bar = (closing ? krxBars.filter((c) => inside(c.t, [closing])).at(-1) : undefined) ?? krxBars.filter((c) => c.t < cutoff).at(-1);
+    // 다른 봉으로 대신하지 않는다(정규장 마지막 봉은 종가와 달라 평소에도 1%를 넘을 수 있다).
+    bar = closing ? krxBars.filter((c) => inside(c.t, [closing])).at(-1) : undefined;
   }
   const dailyClose = daily.find((c) => dateOf(c) === tradingDate)?.c;
   if (!bar || dailyClose === undefined || bar.c === 0) return 1;
@@ -216,11 +218,23 @@ async function cachedFetch(
   ttlMs: number | null,
   fetch: () => Promise<Candle[]>,
 ): Promise<Candle[]> {
-  const hit = await cache.get(key);
+  // 저장소 오류는 조회를 막지 않는다(스펙 11): 읽기 실패는 미스, 쓰기는 최선 노력.
+  let hit: Candle[] | undefined;
+  try {
+    hit = await cache.get(key);
+  } catch {
+    hit = undefined;
+  }
   if (hit) return hit;
   const v = await fetch();
   // 빈 응답은 저장하지 않는다(지난 날짜가 영구히 비어 보이지 않게).
-  if (v.length > 0) await cache.put(key, v, ttlMs);
+  if (v.length > 0) {
+    try {
+      await cache.put(key, v, ttlMs);
+    } catch {
+      // 저장 실패는 무시한다.
+    }
+  }
   return v;
 }
 
@@ -234,13 +248,30 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
   const intervals = tradableIntervals(sessions, meta, v.mode);
 
   const dailyTtl = ctx.inSession ? DAILY_TTL_IN_SESSION_MS : DAILY_TTL_OUTSIDE_MS;
-  const daily = async (venue: Venue): Promise<Candle[]> => {
-    const key = `${provider.id}|${meta.symbol}|${venue}|${plan.lookbackFrom}|${ctx.today}`;
-    const hit = memo.get(key, now);
-    if (hit) return hit;
-    const bars = await provider.getCandles({ symbol: meta.symbol, venue, interval: '1d', from: plan.lookbackFrom, to: ctx.today });
-    memo.set(key, bars, now, dailyTtl);
-    return bars;
+  const fetchDaily = (venue: Venue) =>
+    provider.getCandles({ symbol: meta.symbol, venue, interval: '1d', from: plan.lookbackFrom, to: ctx.today });
+  /**
+   * 기준 일봉과 시리즈 일봉. 거래소가 다르면(NXT 모드) 두 응답을 한 쌍의 메모 키로 함께 받고 함께 만료시킨다.
+   * 기준 종가와 봉이 서로 다른 시각의 수정주가에서 나오지 않게 하기 위함이다.
+   */
+  const dailyPair = async (): Promise<{ base: Candle[]; series: Candle[] }> => {
+    if (v.series === v.base) {
+      const key = `${provider.id}|${meta.symbol}|${v.base}|${plan.lookbackFrom}|${ctx.today}`;
+      const hit = memo.get(key, now);
+      if (hit) return { base: hit, series: hit };
+      const bars = await fetchDaily(v.base);
+      memo.set(key, bars, now, dailyTtl);
+      return { base: bars, series: bars };
+    }
+    // 두 항목을 같은 시각·같은 TTL로 함께 쓰므로 함께 만료된다. 한쪽만 있으면 둘 다 다시 받는다.
+    const pairKey = `${provider.id}|${meta.symbol}|PAIR:${v.base}+${v.series}|${plan.lookbackFrom}|${ctx.today}`;
+    const baseHit = memo.get(`${pairKey}|base`, now);
+    const seriesHit = memo.get(`${pairKey}|series`, now);
+    if (baseHit && seriesHit) return { base: baseHit, series: seriesHit };
+    const [base, series] = await Promise.all([fetchDaily(v.base), fetchDaily(v.series)]);
+    memo.set(`${pairKey}|base`, base, now, dailyTtl);
+    memo.set(`${pairKey}|series`, series, now, dailyTtl);
+    return { base, series };
   };
   const minutes = (venue: Venue): Promise<Candle[]> =>
     cachedFetch(
@@ -251,9 +282,8 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
     );
 
   const isD1 = period.unit === 'D';
-  const [baseDaily, seriesDaily, minuteSets] = await Promise.all([
-    daily(v.base),
-    v.series === v.base ? undefined : daily(v.series),
+  const [{ base: baseDaily, series: seriesDaily }, minuteSets] = await Promise.all([
+    dailyPair(),
     isD1 ? Promise.all(v.minutes.map(async (venue) => ({ venue, bars: await minutes(venue) }))) : [],
   ]);
 
@@ -262,7 +292,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
   const result = {
     symbol: meta.symbol,
     tradingDate,
-    daily: seriesDaily ?? baseDaily,
+    daily: seriesDaily,
     intervals,
     computedAt: now,
     ...(meta.sharesOutstanding !== undefined ? { sharesOutstanding: meta.sharesOutstanding } : {}),

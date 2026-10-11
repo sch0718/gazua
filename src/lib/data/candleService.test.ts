@@ -12,7 +12,7 @@ import type { CandleQuery, MarketDataProvider, StockMeta, TokenInfo } from '../p
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import type { Period } from '../state/schema';
 import { addDays, kstDate, kstEpoch, kstWeekday } from '../time/kst';
-import { createCandleCache } from './candleCache';
+import { createCandleCache, type CandleCache } from './candleCache';
 import {
   DAILY_CLOSE_INCLUDES_AFTER_MARKET,
   adjustmentFactor,
@@ -315,6 +315,40 @@ describe('daily: one request, memo, adjusted prices', () => {
     expect(memo.get('k', 59_999)).toEqual(v);
     expect(memo.get('k', 60_000)).toBeUndefined();
     expect(memo.get('k', 0)).toBeUndefined(); // 만료된 키는 get에서 지워졌다
+
+    // set은 다른 만료 항목(예: 어제 날짜 키)도 정리한다
+    memo.set('2026-10-07', v, 0, 60_000);
+    memo.set('2026-10-08', v, 120_000, 60_000);
+    expect(memo.get('2026-10-07', 0)).toBeUndefined();
+    expect(memo.get('2026-10-08', 120_000)).toEqual(v);
+  });
+
+  it('NXT mode memoizes base and series daily as one pair', async () => {
+    const clock = { now: THU_10 };
+    const f = fakeProvider({ now: () => clock.now });
+    const d = deps(clock);
+    const load = (venueMode: VenueMode) =>
+      loadSeries({ provider: f.provider, ...d, meta: meta(), period: W1, venueMode, now: clock.now });
+    const dailyVenues = () => f.calls.filter((c) => c.interval === '1d').map((c) => c.venue);
+
+    await load('KRX');
+    expect(dailyVenues()).toEqual(['KRX']);
+    // KRX 단독 메모가 살아 있어도 NXT 모드는 기준·시리즈 일봉을 함께 받는다
+    clock.now += 30_000;
+    await load('NXT');
+    expect(dailyVenues().sort()).toEqual(['KRX', 'KRX', 'NXT']);
+    clock.now += 20_000;
+    await load('NXT');
+    await load('KRX');
+    expect(dailyVenues()).toHaveLength(3);
+    // KRX 단독 메모가 만료돼도 쌍은 쌍대로 유지된다(30초 뒤 함께 만료)
+    clock.now += 20_000;
+    await load('KRX');
+    await load('NXT');
+    expect(dailyVenues()).toHaveLength(4);
+    clock.now += 20_000;
+    await load('NXT');
+    expect(dailyVenues().slice(4).sort()).toEqual(['KRX', 'NXT']);
   });
 
   it('paged daily refetches when overlapping day disagrees', async () => {
@@ -428,8 +462,8 @@ describe('adjustmentFactor', () => {
   it('is the daily close divided by the closing-auction bar when they disagree', () => {
     expect(DAILY_CLOSE_INCLUDES_AFTER_MARKET).toBe(false);
     expect(adjustmentFactor({ ...base, daily: daily(50), minutes: [bar('15:19', 99), bar('15:29', 100)], intervals: krx })).toBe(0.5);
-    // 종가 단일가 구간에 봉이 없으면 15:30 전 마지막 KRX 봉
-    expect(adjustmentFactor({ ...base, daily: daily(50), minutes: [bar('15:19', 100), bar('16:30', 120)], intervals: krx })).toBe(0.5);
+    // 종가 단일가 구간에 봉이 없으면 다른 봉으로 대신하지 않고 1
+    expect(adjustmentFactor({ ...base, daily: daily(50), minutes: [bar('15:19', 100), bar('16:30', 120)], intervals: krx })).toBe(1);
   });
 
   it('adjustmentFactor stays 1 on normal days and undefined comparisons', () => {
@@ -481,6 +515,27 @@ describe('adjustmentFactor', () => {
 });
 
 describe('minute cache', () => {
+  it('cache failures degrade to provider fetches', async () => {
+    const broken: CandleCache = {
+      get: async () => {
+        throw new Error('idb read failed');
+      },
+      put: async () => {
+        throw new Error('quota exceeded');
+      },
+      evict: async () => {},
+      clear: async () => {},
+      estimateBytes: async () => 0,
+    };
+    const clock = { now: SUN };
+    const f = fakeProvider({ now: () => clock.now });
+    const s = await loadSeries({ provider: f.provider, cache: broken, memo: createDailyMemo(), meta: meta(), period: D1, venueMode: 'AUTO', now: SUN });
+    expect(s.candles.length).toBeGreaterThan(0);
+    expect(f.count('1m')).toBe(2);
+    const idx = await loadIndexSeries({ provider: f.provider, cache: broken, index: 'KOSPI', period: W1, now: SUN });
+    expect(idx?.candles.length).toBeGreaterThan(0);
+  });
+
   it('past trading day minutes come from the cache; today refetches after 61s', async () => {
     const clock = { now: kstEpoch('2026-10-08', '07:30:00') }; // 첫 세션 전 → 지난 거래일 10/7
     const f = fakeProvider({ now: () => clock.now });

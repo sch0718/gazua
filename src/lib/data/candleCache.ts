@@ -35,12 +35,48 @@ function symbolKeyOf(key: string): string {
 
 export function createCandleCache(dbName = 'gazua-cache', now: () => number = Date.now): CandleCache {
   let dbPromise: Promise<IDBPDatabase<CacheSchema>> | undefined;
-  const db = () =>
-    (dbPromise ??= openDB<CacheSchema>(dbName, 1, {
+  const reset = () => {
+    dbPromise = undefined;
+  };
+  // async로 감싸 동기 throw(사생활 보호 모드 등)도 거부로 바꾸고, 실패하면 다음 호출이 다시 연다.
+  const open = async () =>
+    openDB<CacheSchema>(dbName, 1, {
       upgrade(d) {
         d.createObjectStore(STORE, { keyPath: 'key' });
       },
-    }));
+      // 다른 탭이 새 버전을 열려고 하면 닫고 비켜 준다. 다음 호출이 다시 연다.
+      blocking() {
+        const closing = dbPromise;
+        reset();
+        void closing?.then((d) => d.close());
+      },
+      terminated: reset,
+    });
+  const db = (): Promise<IDBPDatabase<CacheSchema>> => {
+    if (!dbPromise) {
+      const p = open();
+      dbPromise = p;
+      p.catch(() => {
+        if (dbPromise === p) reset();
+      });
+    }
+    return dbPromise;
+  };
+
+  const isExpired = (rec: CandleRecord, t: number) => rec.expiresAt !== null && rec.expiresAt <= t;
+
+  /** 만료된 레코드를 모두 지우고 남은 레코드를 돌려준다. */
+  async function purgeExpired(): Promise<CandleRecord[]> {
+    const tx = (await db()).transaction(STORE, 'readwrite');
+    const t = now();
+    const live: CandleRecord[] = [];
+    for (const rec of await tx.store.getAll()) {
+      if (isExpired(rec, t)) await tx.store.delete(rec.key);
+      else live.push(rec);
+    }
+    await tx.done;
+    return live;
+  }
 
   return {
     async get(key) {
@@ -49,7 +85,7 @@ export function createCandleCache(dbName = 'gazua-cache', now: () => number = Da
       let result: Candle[] | undefined;
       if (rec) {
         const t = now();
-        if (rec.expiresAt !== null && t >= rec.expiresAt) {
+        if (isExpired(rec, t)) {
           await tx.store.delete(key);
         } else {
           await tx.store.put({ ...rec, lastAccess: t });
@@ -74,10 +110,10 @@ export function createCandleCache(dbName = 'gazua-cache', now: () => number = Da
     },
 
     async evict(maxBytes) {
-      const tx = (await db()).transaction(STORE, 'readwrite');
+      const live = await purgeExpired();
       const groups = new Map<string, { keys: string[]; bytes: number; lastAccess: number }>();
       let total = 0;
-      for (const rec of await tx.store.getAll()) {
+      for (const rec of live) {
         const g = groups.get(rec.symbolKey) ?? { keys: [], bytes: 0, lastAccess: -Infinity };
         g.keys.push(rec.key);
         g.bytes += rec.bytes;
@@ -85,6 +121,8 @@ export function createCandleCache(dbName = 'gazua-cache', now: () => number = Da
         groups.set(rec.symbolKey, g);
         total += rec.bytes;
       }
+      if (total <= maxBytes) return;
+      const tx = (await db()).transaction(STORE, 'readwrite');
       const oldestFirst = [...groups.values()].sort((a, b) => a.lastAccess - b.lastAccess);
       for (const g of oldestFirst) {
         if (total <= maxBytes) break;
@@ -99,8 +137,8 @@ export function createCandleCache(dbName = 'gazua-cache', now: () => number = Da
     },
 
     async estimateBytes() {
-      const all = await (await db()).getAll(STORE);
-      return all.reduce((sum, r) => sum + r.bytes, 0);
+      const live = await purgeExpired();
+      return live.reduce((sum, r) => sum + r.bytes, 0);
     },
   };
 }

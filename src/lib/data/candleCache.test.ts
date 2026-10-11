@@ -81,4 +81,37 @@ describe('candle cache', () => {
     expect(await cache.get('kis|B|KRX|1m|2026-10-08')).toBeUndefined();
     expect(await cache.get('kis|C|KRX|1m|2026-10-08')).toBeUndefined();
   });
+
+  it('reclaims expired records in estimateBytes and evict', async () => {
+    const clock = { now: 1_000 };
+    const cache = createCandleCache('gazua-cache', () => clock.now);
+    const v = [bar(1)];
+    const one = JSON.stringify(v).length;
+    await cache.put('kis|A|KRX|1m|2026-10-08', v, 60_000);
+    await cache.put('kis|B|KRX|1m|2026-10-07', v, null);
+    expect(await cache.estimateBytes()).toBe(2 * one);
+    clock.now += 61_000;
+    expect(await cache.estimateBytes()).toBe(one);
+
+    await cache.put('kis|C|KRX|1m|2026-10-08', v, 60_000);
+    clock.now += 61_000;
+    // 만료된 C만 지우면 한도 안이므로 영구 항목 B는 남는다
+    await cache.evict(one);
+    expect(await cache.get('kis|B|KRX|1m|2026-10-07')).toEqual(v);
+    expect(await cache.estimateBytes()).toBe(one);
+  });
+
+  it('retries opening the database after a failed open', async () => {
+    const factory = globalThis.indexedDB;
+    const realOpen = factory.open.bind(factory);
+    let failures = 1;
+    factory.open = (...a: Parameters<IDBFactory['open']>) => {
+      if (failures-- > 0) throw new DOMException('open blocked', 'InvalidStateError');
+      return realOpen(...a);
+    };
+    const cache = createCandleCache();
+    await expect(cache.get('kis|A|KRX|1m|2026-10-08')).rejects.toThrow('open blocked');
+    await cache.put('kis|A|KRX|1m|2026-10-08', [bar(1)], null);
+    expect(await cache.get('kis|A|KRX|1m|2026-10-08')).toEqual([bar(1)]);
+  });
 });
