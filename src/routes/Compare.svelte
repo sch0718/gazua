@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import type { ChartSeriesInput } from '../lib/chart/lineData';
   import { indexAvailabilityFor } from '../lib/data/candleService';
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
@@ -13,6 +14,7 @@
   import { addItem, createGroup, moveItem, toggleHidden } from '../lib/state/watchlist';
   import { kstDate } from '../lib/time/kst';
   import ChartPanel from '../lib/ui/compare/ChartPanel.svelte';
+  import CompareSheets, { type CompareSheet } from '../lib/ui/compare/CompareSheets.svelte';
   import Controls from '../lib/ui/compare/Controls.svelte';
   import EmptyState from '../lib/ui/compare/EmptyState.svelte';
   import GroupTabs from '../lib/ui/compare/GroupTabs.svelte';
@@ -26,6 +28,7 @@
   import { effectiveVenueMode } from '../lib/ui/compare/venue';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import StockDetailSheet from '../sheets/StockDetailSheet.svelte';
 
   // 비교(홈) 화면, 스펙 7.2·7.6. 데이터 흐름은 compareController, 표시 규칙은 compare/*.ts에 있다.
   let {
@@ -34,6 +37,7 @@
     sessions,
     isOpenToday,
     barEnd,
+    wide: wideOverride,
   }: {
     app: App;
     /** 1초마다 바뀌는 현재 시각 */
@@ -43,11 +47,15 @@
     isOpenToday: boolean;
     /** 앱 바 오른쪽(상태 칩·설정) */
     barEnd: Snippet;
+    /** ≥1024 배치 여부. 없으면 미디어 쿼리로 정한다(테스트에서 고정할 때 쓴다). */
+    wide?: boolean;
   } = $props();
 
-  /** 시트는 Task 19에서 그린다. 여기서는 어떤 시트를 열지만 기억한다. */
-  let openSheet = $state<'add' | 'metric' | 'detail' | null>(null);
+  let openSheet = $state<CompareSheet>(null);
   let selected = $state<string | null>(null);
+  const wideQuery = typeof matchMedia === 'function' ? new MediaQuery('min-width: 1024px') : null;
+  // ≥1024에서는 종목 상세를 시트가 아니라 오른쪽 패널 안에 그린다(스펙 7.6).
+  const wide = $derived(wideOverride ?? wideQuery?.current ?? false);
 
   const inSessionAt = (t: number) => isOpenToday && sessionLabelAt(sessions, t) !== null;
   // 컨트롤러는 시계를 구독하지 않는다(1초마다 다시 계산하지 않게).
@@ -91,7 +99,7 @@
   const mode = $derived<'intraday' | 'daily'>(period.unit === 'D' ? 'intraday' : 'daily');
   const indexOf = (symbol: string) => indexForMeta(ctl.metas[symbol], benchmark);
 
-  const availability = $derived.by(() => {
+  const metricCtx = $derived.by(() => {
     const indexLoad = indexLoadOf(items.map((i) => ctl.indexes[indexOf(i.symbol)]));
     const index = indexAvailabilityFor({
       caps: app.provider.capabilities,
@@ -102,8 +110,9 @@
     });
     const metasKnown = items.some((i) => ctl.metas[i.symbol]);
     const hasShares = !metasKnown || items.some((i) => ctl.metas[i.symbol]?.sharesOutstanding !== undefined);
-    return metricAvailability(app.settings.metric, { period, index, hasShares });
+    return { period, index, hasShares };
   });
+  const availability = $derived(metricAvailability(app.settings.metric, metricCtx));
   // 지금 고를 수 없는 지표(지수 없음·발행주식수 없음 등)는 등락률로 보여 주고, 헤드라인 아래에 그 사실과 이유를 알린다.
   const metric = $derived(availability.ok ? app.settings.metric : 'change');
   const fallbackNote = $derived.by(() => {
@@ -207,7 +216,7 @@
 
   function select(symbol: string) {
     selected = symbol;
-    openSheet = 'detail';
+    if (!wide) openSheet = 'detail';
   }
 
   // ── 당겨서 새로고침 ────────────────────────────────────
@@ -228,6 +237,7 @@
   {#snippet rail()}
     <Rail {app}>
       <button type="button" class="ritem add" onclick={addGroup}>＋ 새 그룹</button>
+      <button type="button" class="ritem add" aria-haspopup="dialog" onclick={() => (openSheet = 'group')}>그룹 관리</button>
       {#if group}
         <div class="rlabel">{group.name} 종목</div>
         {#each group.items as it (it.symbol)}
@@ -247,6 +257,7 @@
       currentId={group?.id}
       onselect={(id) => app.navigate({ name: 'compare', groupId: id })}
       onadd={addGroup}
+      onmanage={() => (openSheet = 'group')}
     />
     <span class="title">{group?.name ?? '가즈아'}</span>
     {@render barEnd()}
@@ -322,7 +333,18 @@
     onreorder={reorder}
     onopenadd={() => (openSheet = 'add')}
   />
+  {#if wide && group}
+    {#if selected && items.some((i) => i.symbol === selected)}
+      {@const s = selected}
+      {@const series = ctl.entries[s]?.series ?? null}
+      <StockDetailSheet inline {app} groupId={group.id} symbol={s} meta={ctl.metas[s]} {series} {now} {sessions} {isOpenToday} onclose={() => (selected = null)} />
+    {:else}
+      <p class="pick-hint">리더보드에서 종목을 누르면 여기서 상세를 볼 수 있어요</p>
+    {/if}
+  {/if}
 {/snippet}
+
+<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} />
 
 <style>
   .compare {
@@ -382,5 +404,10 @@
   }
   .add {
     color: var(--t3);
+  }
+  .pick-hint {
+    padding: 12px;
+    color: var(--t3);
+    font-size: 13px;
   }
 </style>

@@ -11,7 +11,10 @@ export const profileKeys = {
   watchlists: (id: string) => `p:${id}:watchlists`,
   secrets: (id: string) => `p:${id}:secrets`,
   token: (id: string, provider: 'kis' | 'toss') => `p:${id}:token:${provider}`,
+  recent: (id: string) => `p:${id}:recent`,
 };
+
+export const RECENT_MAX = 5;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -29,6 +32,13 @@ export function loadWatchlists(st: SafeStorage, id: string): Watchlists {
   const w: Watchlists = { groups: [{ id: crypto.randomUUID(), name: DEFAULT_GROUP_NAME, items: [] }] };
   st.set(profileKeys.watchlists(id), w);
   return w;
+}
+
+/** 최근 추가한 종목(최신순, 최대 5개). 깨졌으면 빈 목록. */
+export function loadRecent(st: SafeStorage, id: string): string[] {
+  const raw = st.get<unknown>(profileKeys.recent(id), null);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((s): s is string => typeof s === 'string').slice(0, RECENT_MAX);
 }
 
 /** 저장된 키. 잠긴 형태면 `locked`, 평문이면 `plain`. */

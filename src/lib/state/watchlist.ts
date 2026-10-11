@@ -76,6 +76,19 @@ export function moveItem(g: Group, from: number, to: number): Group {
   return { ...g, items };
 }
 
+/** Moves the group at `from` so that it ends up at index `to`. */
+export function moveGroup(w: Watchlists, from: number, to: number): Watchlists {
+  const last = w.groups.length - 1;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from > last || to > last) {
+    throw new RangeError(`moveGroup out of range: ${from} -> ${to}`);
+  }
+  if (from === to) return w;
+  const groups = [...w.groups];
+  const [moved] = groups.splice(from, 1);
+  groups.splice(to, 0, moved);
+  return { ...w, groups };
+}
+
 function cleanName(name: string): string {
   const trimmed = name.trim();
   if (trimmed === '') throw new Error('group name must not be empty');

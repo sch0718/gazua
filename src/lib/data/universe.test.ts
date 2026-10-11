@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadUniverse, searchUniverse, toChosung, type UniverseItem } from './universe';
+import { loadUniverse, matchSpan, searchUniverse, toChosung, type UniverseItem } from './universe';
 
 const items: UniverseItem[] = [
   { s: '000660', n: 'SK하이닉스', m: 'KOSPI', t: 'STOCK' },
@@ -100,5 +100,19 @@ describe('loadUniverse', () => {
   it('throws on HTTP errors', async () => {
     const fetchImpl = async () => new Response('x', { status: 404 });
     await expect(loadUniverse(fetchImpl as unknown as typeof fetch)).rejects.toThrow();
+  });
+});
+
+describe('matchSpan', () => {
+  it('finds where a name, chosung or mixed query matches, for highlighting', () => {
+    expect(matchSpan('한미반도체', 'ㅎㅁ')).toEqual({ start: 0, length: 2 });
+    expect(matchSpan('한미반도체', '반도')).toEqual({ start: 2, length: 2 });
+    expect(matchSpan('SK하이닉스', 'sk')).toEqual({ start: 0, length: 2 });
+    expect(matchSpan('삼성전자', ' ㅈㅈ ')).toEqual({ start: 2, length: 2 });
+  });
+
+  it('returns null when only the code matched or the query is blank', () => {
+    expect(matchSpan('삼성전자', '0059')).toBeNull();
+    expect(matchSpan('삼성전자', '  ')).toBeNull();
   });
 });

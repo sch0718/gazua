@@ -10,6 +10,8 @@ import { createProvider } from '../providers/factory';
 import type { MarketDataProvider, TokenInfo } from '../providers/types';
 import { applyColorConvention, applyTheme } from '../ui/theme';
 import {
+  RECENT_MAX,
+  loadRecent,
   loadSettings,
   loadStoredSecrets,
   loadWatchlists,
@@ -42,6 +44,8 @@ export interface App {
   readonly meta: Meta;
   readonly settings: Settings;
   readonly watchlists: Watchlists;
+  /** 이 프로필에서 최근 추가한 종목(최신순, 최대 5개) */
+  readonly recent: string[];
   /** 잠금 상태면 null. 잠금 모드에서 복호화한 값은 메모리에만 있다. */
   readonly secrets: Secrets | null;
   readonly provider: MarketDataProvider;
@@ -51,6 +55,7 @@ export interface App {
   /** keyLock은 평문 키가 저장돼 있으면 켤 수 없고, 암호화된 키가 있으면 끌 수 없다(Error). */
   updateSettings(p: Partial<Settings>): void;
   setWatchlists(w: Watchlists): void;
+  addRecent(symbol: string): void;
   switchProfile(id: string): void;
   addProfile(name: string): Profile;
   unlock(passphrase: string): Promise<void>;
@@ -98,6 +103,7 @@ export function createApp(deps: AppDeps): App {
   const first = loadProfile(initialMeta.activeProfileId);
   let settings = $state.raw<Settings>(first.settings);
   let watchlists = $state.raw<Watchlists>(first.watchlists);
+  let recent = $state.raw<string[]>(first.recent);
   let locked: LockedSecrets | null = first.locked;
   let secrets = $state.raw<Secrets | null>(first.secrets);
   let provider = $state.raw<MarketDataProvider>(buildProvider());
@@ -111,6 +117,7 @@ export function createApp(deps: AppDeps): App {
     return {
       settings: loadSettings(storage, id),
       watchlists: loadWatchlists(storage, id),
+      recent: loadRecent(storage, id),
       secrets: stored.plain,
       locked: stored.locked,
     };
@@ -234,6 +241,9 @@ export function createApp(deps: AppDeps): App {
     get watchlists() {
       return watchlists;
     },
+    get recent() {
+      return recent;
+    },
     get secrets() {
       return secrets;
     },
@@ -287,6 +297,11 @@ export function createApp(deps: AppDeps): App {
       write(profileKeys.watchlists(activeId()), w);
     },
 
+    addRecent(symbol) {
+      recent = [symbol, ...recent.filter((s) => s !== symbol)].slice(0, RECENT_MAX);
+      write(profileKeys.recent(activeId()), recent);
+    },
+
     switchProfile(id) {
       if (!meta.profiles.some((p) => p.id === id)) throw new Error(`no profile ${id}`);
       meta = { ...meta, activeProfileId: id };
@@ -295,6 +310,7 @@ export function createApp(deps: AppDeps): App {
       const loaded = loadProfile(id);
       settings = loaded.settings;
       watchlists = loaded.watchlists;
+      recent = loaded.recent;
       secrets = loaded.secrets;
       locked = loaded.locked;
       rebuild();

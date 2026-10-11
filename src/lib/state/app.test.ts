@@ -194,6 +194,28 @@ describe('createApp — settings, watchlists and routing', () => {
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:watchlists')!)).toEqual(lists('a', 'b'));
   });
 
+  it('addRecent keeps the 5 most recent symbols per profile, newest first, and persists them', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p2:recent', ['999999']);
+    const app = make(backing);
+    app.switchProfile('p1');
+    expect(app.recent).toEqual([]);
+    for (const s of ['A', 'B', 'C', 'D', 'E', 'F']) app.addRecent(s);
+    app.addRecent('C');
+    expect(app.recent).toEqual(['C', 'F', 'E', 'D', 'B']);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:recent')!)).toEqual(['C', 'F', 'E', 'D', 'B']);
+    app.switchProfile('p2');
+    expect(app.recent).toEqual(['999999']);
+  });
+
+  it('ignores a corrupt recent list', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:recent', { nope: 1 });
+    expect(make(backing).recent).toEqual([]);
+  });
+
   it('follows hash changes and normalises unknown groups', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);

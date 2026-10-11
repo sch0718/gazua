@@ -118,3 +118,55 @@ describe('Compare (demo provider)', () => {
     await vi.waitFor(() => expect(screen.getByText(/^2주 · 등락률 · 기준 \d+\/\d+ 종가$/)).toBeTruthy(), { timeout: 3000 });
   });
 });
+
+describe('Compare sheets', () => {
+  it('the metric chip opens 비교 지표; choosing a metric saves it and closes', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await fireEvent.click(screen.getByRole('button', { name: /^등락률/ }));
+    const dialog = screen.getByRole('dialog', { name: '비교 지표' });
+    expect(within(dialog).getByRole('button', { name: /^변동성 / }).getAttribute('aria-disabled')).toBe('true');
+    await fireEvent.click(within(dialog).getByRole('button', { name: /^고점 대비 하락률 / }));
+    expect(app.settings.metric).toBe('drawdown');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('＋ 종목 추가 opens the add sheet for the current group', async () => {
+    const app = makeApp(EXAMPLE);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await fireEvent.click(board().getByRole('button', { name: '＋ 종목 추가' }));
+    const dialog = screen.getByRole('dialog', { name: '종목 추가' });
+    expect(within(dialog).getByText('반도체 그룹 · 4/8 · 4개 더 추가할 수 있어요')).toBeTruthy();
+  });
+
+  it('below 1024 a row opens the detail sheet; deleting closes it and removes the row', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    await fireEvent.click(rowOf('SK하이닉스').querySelector('.main-btn')!);
+    const dialog = screen.getByRole('dialog', { name: '종목 상세' });
+    expect(within(dialog).getByText('SK하이닉스')).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930']);
+  });
+
+  it('at ≥1024 the detail renders inline in the side panel, not as a sheet', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(screen.getByText('리더보드에서 종목을 누르면 여기서 상세를 볼 수 있어요')).toBeTruthy();
+    await fireEvent.click(rowOf('SK하이닉스').querySelector('.main-btn')!);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const panel = screen.getByRole('region', { name: '선택한 종목' });
+    expect(within(panel).getByText('SK하이닉스')).toBeTruthy();
+    expect(panel.closest('aside')).toBeTruthy();
+  });
+
+  it('그룹 관리 opens from the ⋯ button next to the group tabs', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await fireEvent.click(screen.getAllByRole('button', { name: '그룹 관리' })[0]);
+    expect(screen.getByRole('dialog', { name: '그룹 관리' })).toBeTruthy();
+  });
+});

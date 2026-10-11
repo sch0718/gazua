@@ -1,17 +1,19 @@
 <script lang="ts">
   import type { Group } from '../../state/schema';
 
-  // 앱 바의 그룹 탭(가로 스크롤) + 새 그룹. ≥1024에서는 레일이 그룹을 보여 주므로 숨긴다.
+  // 앱 바의 그룹 탭(가로 스크롤) + 새 그룹 + 그룹 관리. ≥1024에서는 레일이 그룹을 보여 주므로 숨긴다.
   let {
     groups,
     currentId,
     onselect,
     onadd,
+    onmanage,
   }: {
     groups: Group[];
     currentId: string | undefined;
     onselect: (id: string) => void;
     onadd: () => void;
+    onmanage: () => void;
   } = $props();
 </script>
 
@@ -29,6 +31,7 @@
     </button>
   {/each}
   <button type="button" class="tab add" aria-label="새 그룹" onclick={onadd}>＋</button>
+  <button type="button" class="tab add" aria-label="그룹 관리" aria-haspopup="dialog" onclick={onmanage}>⋯</button>
 </div>
 
 <style>

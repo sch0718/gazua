@@ -5,6 +5,7 @@ import {
   addItem,
   createGroup,
   deleteGroup,
+  moveGroup,
   moveItem,
   removeItem,
   renameGroup,
@@ -171,5 +172,14 @@ describe('groups', () => {
   it('restoreGroup does not duplicate a group that is already present', () => {
     const { removed } = deleteGroup(w2, 'g1');
     expect(restoreGroup(w2, removed)).toEqual(w2);
+  });
+
+  it('moveGroup moves a group to the target index; out of range throws', () => {
+    const w3: Watchlists = { groups: [...w2.groups, { id: 'g3', name: '셋', items: [] }] };
+    expect(moveGroup(w3, 0, 2).groups.map((g) => g.id)).toEqual(['g2', 'g3', 'g1']);
+    expect(moveGroup(w3, 2, 1).groups.map((g) => g.id)).toEqual(['g1', 'g3', 'g2']);
+    expect(moveGroup(w3, 1, 1)).toBe(w3);
+    expect(() => moveGroup(w3, 0, 3)).toThrow(RangeError);
+    expect(() => moveGroup(w3, -1, 0)).toThrow(RangeError);
   });
 });

@@ -58,6 +58,16 @@ function matchAt(name: string, query: string, pos: number): { usedJamo: boolean 
   return { usedJamo };
 }
 
+/** 이름에서 질의가 처음 맞는 자리(강조 표시용). 코드로만 맞았거나 질의가 비었으면 null. */
+export function matchSpan(name: string, q: string): { start: number; length: number } | null {
+  const query = q.trim();
+  if (!query) return null;
+  for (let pos = 0; pos + query.length <= name.length; pos++) {
+    if (matchAt(name, query, pos)) return { start: pos, length: query.length };
+  }
+  return null;
+}
+
 // 순위: 코드 일치 > 이름 접두 > 초성 접두 > 이름 포함 > 초성 포함
 const RANK_CODE = 0;
 const RANK_NAME_PREFIX = 1;
