@@ -20,8 +20,10 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@testing-library/svelte": "^5.4.2",
     "fake-indexeddb": "^6.2.5",
     "fflate": "^0.8.3",
+    "jsdom": "^29",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "typescript": "^5.9.3",
@@ -29,6 +31,7 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
-    "idb": "^8.0.4"
+    "idb": "^8.0.4",
+    "lightweight-charts": "^5.2.1"
   }
 }
