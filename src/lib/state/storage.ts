@@ -7,6 +7,8 @@ export interface SafeStorage {
   /** false once running on the in-memory fallback (no/failed backing storage). */
   readonly persistent: boolean;
   readonly issues: StorageIssue[];
+  /** 읽은 JSON의 모양·값이 틀려 기본값으로 바꿨을 때(저장소 배너로 알린다). */
+  reportCorrupt(key: string): void;
 }
 
 const PREFIX = 'gazua:v1:';
@@ -84,5 +86,8 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
       return persistent;
     },
     issues,
+    reportCorrupt(key) {
+      report(key, 'corrupt');
+    },
   };
 }

@@ -157,6 +157,20 @@ describe('importData', () => {
     expect(s.keyLock).toBe(false);
     expect('evil' in s).toBe(false);
   });
+
+  it('a period the app cannot step through ([ ] shortcuts), e.g. W9, falls back to the default', () => {
+    const { st } = source();
+    const json = JSON.stringify({
+      format: 'gazua-export',
+      schemaVersion: 1,
+      profile: { name: '회사' },
+      settings: { period: { unit: 'W', n: 9 } },
+      watchlists: LISTS,
+    });
+    const res = importData(st, json);
+    if (!res.ok) throw new Error('import failed');
+    expect(loadSettings(st, res.profileId).period).toEqual(DEFAULT_SETTINGS.period);
+  });
 });
 
 describe('importData — hardening', () => {

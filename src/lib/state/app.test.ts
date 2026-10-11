@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { kstEpoch } from '../time/kst';
+import { stepPeriod } from '../market/periods';
 import { createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
@@ -148,6 +149,54 @@ describe('createApp — banners', () => {
     expect(app.banners).toHaveLength(1);
     expect(app.banners[0].text).toBe('저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요');
     expect(app.settings).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it('stored settings are validated on load: period W9 falls back (no [ ] crash) and the corrupt banner shows', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, metric: 'excess', period: { unit: 'W', n: 9 }, theme: 'neon' });
+    const app = make(backing);
+    expect(app.settings.period).toEqual(DEFAULT_SETTINGS.period);
+    expect(app.settings.theme).toBe(DEFAULT_SETTINGS.theme);
+    expect(app.settings.metric).toBe('excess'); // 맞는 값은 그대로
+    expect(() => stepPeriod(app.settings.period, 1)).not.toThrow();
+    expect(() => stepPeriod(app.settings.period, -1)).not.toThrow();
+    expect(app.banners.map((b) => b.id)).toContain('corrupt:p:p1:settings');
+  });
+
+  it('older settings missing fields are filled with defaults without a banner', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { provider: 'demo', period: { unit: 'M', n: 3 } });
+    const app = make(backing);
+    expect(app.settings).toEqual({ ...DEFAULT_SETTINGS, provider: 'demo', period: { unit: 'M', n: 3 } });
+    expect(app.banners.filter((b) => b.id.startsWith('corrupt'))).toEqual([]);
+  });
+
+  it('stored watchlists are validated on load: bad items/groups are dropped with the corrupt banner', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true });
+    seed(backing, 'p:p1:watchlists', {
+      groups: [
+        {
+          id: 'g1',
+          name: '반도체',
+          items: [
+            { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 },
+            { symbol: '000660', colorSlot: 9, hidden: false, addedAt: 1 },
+            { symbol: '005930', colorSlot: 2, hidden: false, addedAt: 1 },
+          ],
+        },
+        { id: 'g2', name: 7, items: [] },
+        null,
+      ],
+    });
+    const app = make(backing);
+    expect(app.watchlists).toEqual({
+      groups: [{ id: 'g1', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] }],
+    });
+    expect(app.banners.map((b) => b.id)).toContain('corrupt:p:p1:watchlists');
   });
 
   it('demo provider while onboarded shows the demo banner whose action opens settings', () => {

@@ -14,7 +14,7 @@ import {
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import type { SafeStorage } from './storage';
 import { kstDate } from '../time/kst';
-import { normalizeProxyUrl } from '../ui/settings/connection';
+import { sanitizeSettings, validWatchlists } from './validate';
 
 export const EXPORT_FORMAT = 'gazua-export';
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -95,81 +95,6 @@ export function exportFileName(profileName: string, now: number): string {
 
 // ── 가져오기 검증 ──────────────────────────────────────────
 
-const ENUMS: Partial<Record<keyof Settings, readonly unknown[]>> = {
-  provider: ['kis', 'toss', 'demo'],
-  venueMode: ['AUTO', 'KRX', 'NXT', 'UNIFIED'],
-  metric: ['change', 'drawdown', 'excess', 'rvol', 'mcap', 'volatility', 'rsi'],
-  benchmark: ['AUTO', 'KOSPI', 'KOSDAQ'],
-  theme: ['system', 'light', 'dark'],
-  colorConvention: ['kr', 'global'],
-};
-
-function validField(key: keyof Settings, v: unknown): boolean {
-  const allowed = ENUMS[key];
-  if (allowed) return allowed.includes(v);
-  switch (key) {
-    case 'proxyUrl':
-      return isString(v);
-    case 'period':
-      return (
-        isRecord(v) &&
-        ['D', 'W', 'M', 'Y'].includes(v.unit as string) &&
-        typeof v.n === 'number' &&
-        Number.isInteger(v.n) &&
-        v.n >= 1
-      );
-    case 'lastGroupId':
-      return v === null || isString(v);
-    case 'onboarded':
-      return typeof v === 'boolean';
-    default:
-      return false;
-  }
-}
-
-/** 아는 필드만, 값이 맞을 때만 가져온다. 나머지는 기본값. keyLock은 키의 형태로 정한다. */
-function sanitizeSettings(raw: Row, keyLock: boolean): Settings {
-  const out: Settings = { ...DEFAULT_SETTINGS };
-  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
-    if (key === 'keyLock') continue;
-    if (key in raw && validField(key, raw[key])) (out as unknown as Row)[key] = raw[key];
-  }
-  out.keyLock = keyLock;
-  const url = normalizeProxyUrl(out.proxyUrl);
-  out.proxyUrl = url.ok ? url.url : '';
-  return out;
-}
-
-function validItem(v: unknown): v is WatchItem {
-  return (
-    isRecord(v) &&
-    isString(v.symbol) &&
-    typeof v.colorSlot === 'number' &&
-    Number.isInteger(v.colorSlot) &&
-    v.colorSlot >= 1 &&
-    v.colorSlot <= 8 &&
-    typeof v.hidden === 'boolean' &&
-    typeof v.addedAt === 'number'
-  );
-}
-
-function validWatchlists(v: unknown): Watchlists | null {
-  if (!isRecord(v) || !Array.isArray(v.groups)) return null;
-  const ids = new Set<string>();
-  const groups: Group[] = [];
-  for (const g of v.groups) {
-    if (!isRecord(g) || !isString(g.id) || g.id === '' || !isString(g.name) || !Array.isArray(g.items)) return null;
-    if (ids.has(g.id) || g.items.length > 8 || !g.items.every(validItem)) return null;
-    // 한 그룹 안에서 종목과 색 슬롯은 겹치지 않는다.
-    if (new Set(g.items.map((i) => i.symbol)).size !== g.items.length) return null;
-    if (new Set(g.items.map((i) => i.colorSlot)).size !== g.items.length) return null;
-    ids.add(g.id);
-    const items = g.items.map(({ symbol, colorSlot, hidden, addedAt }) => ({ symbol, colorSlot, hidden, addedAt }));
-    groups.push({ id: g.id, name: g.name, items });
-  }
-  return { groups };
-}
-
 const fail = (reason: string): ImportResult => ({ ok: false, reason });
 
 /** 새 프로필 `{이름} (가져옴)`을 만든다. 지금 쓰는 프로필은 바꾸지 않는다. */
@@ -194,7 +119,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
     if (!secrets) return fail(IMPORT_BAD_FORMAT);
   }
   const locked = secrets !== null && isLocked(secrets);
-  const settings = sanitizeSettings(file.settings, locked);
+  const { settings } = sanitizeSettings(file.settings, locked);
 
   const rawName = isRecord(file.profile) && isString(file.profile.name) ? file.profile.name.trim() : '';
   const name = rawName ? [...rawName].slice(0, NAME_MAX).join('').trim() : DEFAULT_PROFILE_NAME;

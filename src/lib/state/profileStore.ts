@@ -2,6 +2,7 @@
 import type { TokenInfo, TokenStore } from '../providers/types';
 import { DEFAULT_SETTINGS, type Settings, type Watchlists } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
+import { sanitizeSettings, sanitizeWatchlists } from './validate';
 import type { SafeStorage } from './storage';
 
 export const DEFAULT_GROUP_NAME = '내 관심';
@@ -19,16 +20,37 @@ export const RECENT_MAX = 5;
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** 저장된 설정에 빠진 필드는 기본값으로 채운다. 깨졌거나 객체가 아니면 기본값. */
+/**
+ * 저장된 설정을 가져오기와 같은 규칙으로 검증한다. 빠진 필드는 기본값(오래된 형식, 알리지 않음),
+ * 틀린 값·객체가 아닌 값은 기본값으로 바꾸고 저장소 배너로 알린다. 저장된 값은 덮어쓰지 않는다.
+ */
 export function loadSettings(st: SafeStorage, id: string): Settings {
-  const raw = st.get<unknown>(profileKeys.settings(id), null);
-  return isRecord(raw) ? { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) } : { ...DEFAULT_SETTINGS };
+  const key = profileKeys.settings(id);
+  const raw = st.get<unknown>(key, null);
+  if (raw === null) return { ...DEFAULT_SETTINGS };
+  if (!isRecord(raw)) {
+    st.reportCorrupt(key);
+    return { ...DEFAULT_SETTINGS };
+  }
+  const keyLock = typeof raw.keyLock === 'boolean' ? raw.keyLock : DEFAULT_SETTINGS.keyLock;
+  const { settings, invalid } = sanitizeSettings(raw, keyLock);
+  if (invalid.length > 0) st.reportCorrupt(key);
+  return settings;
 }
 
-/** 없거나 깨졌으면 빈 그룹 '내 관심' 하나를 만들어 저장한다(그룹 id가 재시작해도 같도록). */
+/**
+ * 맞는 그룹·종목만 남긴다(틀린 것이 있으면 저장소 배너). 없거나 모양부터 깨졌으면 빈 그룹 '내 관심' 하나를
+ * 만들어 저장한다(그룹 id가 재시작해도 같도록).
+ */
 export function loadWatchlists(st: SafeStorage, id: string): Watchlists {
-  const raw = st.get<unknown>(profileKeys.watchlists(id), null);
-  if (isRecord(raw) && Array.isArray(raw.groups)) return raw as unknown as Watchlists;
+  const key = profileKeys.watchlists(id);
+  const raw = st.get<unknown>(key, null);
+  const checked = sanitizeWatchlists(raw);
+  if (checked) {
+    if (checked.repaired) st.reportCorrupt(key);
+    return checked.watchlists;
+  }
+  if (raw !== null) st.reportCorrupt(key);
   const w: Watchlists = { groups: [{ id: crypto.randomUUID(), name: DEFAULT_GROUP_NAME, items: [] }] };
   st.set(profileKeys.watchlists(id), w);
   return w;
