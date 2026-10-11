@@ -104,6 +104,9 @@
   /** 시리즈를 다시 만드는 중(효과 본문·정리). 이때 온 크로스헤어는 끝난 뒤 전달한다. */
   let rebuilding = false;
   let pendingCrosshair: { t: number | null } | null = null;
+  /** 같은 데이터 묶음을 다시 그릴 때(주기 갱신) 사용자가 맞춘 확대·이동을 되살린다. 묶음이 바뀌면 다시 맞춘다. */
+  let fitKey: string | null = null;
+  let keptRange: { from: number; to: number } | null = null;
 
   let plotWidth = $state(0);
   let endLabels = $state.raw<EndLabel[]>([]);
@@ -189,8 +192,10 @@
         horzLine: { visible: false, labelVisible: false },
         vertLine: { color: p.t1, width: 1, style: LineStyle.Solid, labelBackgroundColor: p.t1 },
       },
-      handleScroll: false,
-      handleScale: false,
+      // 스펙 7.6: 가로 스와이프(마우스 끌기) = 이동, 두 손가락 = 확대, 길게 누르기 = 스크럽(LWC 터치 크로스헤어).
+      // 휠과 세로 스와이프는 페이지 스크롤에 남겨 둔다.
+      handleScroll: { horzTouchDrag: true, vertTouchDrag: false, pressedMouseMove: true, mouseWheel: false },
+      handleScale: { pinch: true, mouseWheel: false, axisPressedMouseMove: false, axisDoubleClickReset: true },
       localization: {
         locale: 'ko-KR',
         priceFormatter: (v: number) => formatValue(u, v),
@@ -251,7 +256,8 @@
       if (!b.last) continue;
       const x = ts.timeToCoordinate(b.last.time as UTCTimestamp);
       const y = b.solid.priceToCoordinate(b.last.value);
-      if (x === null || y === null) continue;
+      // 확대·이동으로 마지막 점이 보이는 범위 밖이면 라벨도 감춘다.
+      if (x === null || y === null || x < 0 || x > plotWidth) continue;
       placed.push({ id: b.input.id, text: b.input.label, x, y });
     }
     placed.sort((a, b) => a.y - b.y);
@@ -305,6 +311,7 @@
       height: plotEl.clientHeight,
     });
     c.subscribeCrosshairMove(onCrosshairMove);
+    // 확대·이동·크기 변경 때 차트 밖에 그리는 것(세션 레인·끝 라벨)을 다시 배치한다. 띠(primitive)는 그릴 때 좌표를 다시 읽는다.
     c.timeScale().subscribeVisibleLogicalRangeChange(scheduleOverlay);
     c.timeScale().subscribeSizeChange(scheduleOverlay);
     const observer = new ResizeObserver(() => {
@@ -316,6 +323,8 @@
     chart = c;
     return () => {
       observer.disconnect();
+      c.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleOverlay);
+      c.timeScale().unsubscribeSizeChange(scheduleOverlay);
       if (frame !== 0) cancelAnimationFrame(frame);
       chart = null;
       built = [];
@@ -445,12 +454,19 @@
     }
     first?.attachPrimitive(new SessionBandsPrimitive(bandsInput, bandColors));
 
-    fitRange(c);
+    // 기간·모드·종목 묶음이 바뀌면 전체를 맞추고, 같은 묶음의 주기 갱신이면 보던 범위를 유지한다.
+    const key = [mode, unit, gridStart ?? '', openDays.join(','), series.map((s) => s.id).join(',')].join('|');
+    if (key === fitKey && keptRange) c.timeScale().setVisibleLogicalRange(keptRange);
+    else fitRange(c);
+    fitKey = key;
+    keptRange = null;
     built = nextBuilt;
     scheduleOverlay();
 
     return () => {
       if (chart !== c) return;
+      const range = c.timeScale().getVisibleLogicalRange();
+      keptRange = range ? { from: range.from, to: range.to } : null;
       rebuilding = true;
       try {
         for (const s of created) c.removeSeries(s);

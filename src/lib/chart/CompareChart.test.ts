@@ -73,3 +73,71 @@ describe('CompareChart start value', () => {
     expect(dotted.find((d) => d.time === toChartTime(at('09:30')))?.value).toBe(1);
   });
 });
+
+describe('CompareChart zoom and pan (spec §7.6: 두 손가락 = 확대, 가로 스와이프 = 이동)', () => {
+  const laneRects = (c: HTMLElement) =>
+    [...c.querySelectorAll('g[data-lane] rect')].map((r) => ({
+      label: r.getAttribute('aria-label'),
+      x: Number(r.getAttribute('x')),
+      w: Number(r.getAttribute('width')),
+    }));
+
+  it('enables pinch zoom and horizontal touch/mouse drag, but not the mouse wheel or vertical touch drag', async () => {
+    render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    await vi.waitFor(() => expect(lwcCharts[0]?.addSeriesCalls).toBe(2));
+    expect(lwcCharts[0].options.handleScroll).toEqual({ horzTouchDrag: true, vertTouchDrag: false, pressedMouseMove: true, mouseWheel: false });
+    expect(lwcCharts[0].options.handleScale).toEqual({ pinch: true, mouseWheel: false, axisPressedMouseMove: false, axisDoubleClickReset: true });
+  });
+
+  it('session lanes follow a visible-range change and stay inside the plot; the chart unsubscribes on destroy', async () => {
+    const { container, unmount } = render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    const chart = lwcCharts[0];
+    chart.scale = { offset: 0, spacing: 300 / 720 };
+    await vi.waitFor(() => expect(laneRects(container).length).toBeGreaterThan(0));
+    const krx = () => laneRects(container).find((r) => r.label === 'KRX 09:00–15:20')!;
+    const before = krx().x;
+
+    // 두 배 확대하고 오른쪽으로 옮긴 것처럼: 08:00이 왼쪽 밖으로 나간다.
+    chart.scale = { offset: -150, spacing: 600 / 720 };
+    chart.fireVisibleRange();
+    await vi.waitFor(() => expect(krx().x).not.toBe(before));
+    for (const r of laneRects(container)) {
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.w).toBeLessThanOrEqual(300);
+    }
+
+    expect(chart.rangeSubscribers).toBe(1);
+    expect(chart.sizeSubscribers).toBe(1);
+    unmount();
+    expect(chart.rangeSubscribers).toBe(0);
+    expect(chart.sizeSubscribers).toBe(0);
+  });
+
+  it('end labels outside the visible plot are hidden', async () => {
+    const { container } = render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    const chart = lwcCharts[0];
+    chart.priceToY = () => 50;
+    chart.timeToX = () => 120;
+    chart.fireVisibleRange();
+    await vi.waitFor(() => expect(container.querySelector('.end-label')?.textContent).toBe('A'));
+    chart.timeToX = () => 420; // 이동해서 마지막 점이 오른쪽 밖으로 나갔다
+    chart.fireVisibleRange();
+    await vi.waitFor(() => expect(container.querySelector('.end-label')).toBeNull());
+  });
+
+  it('a rebuild of the same data set keeps the user’s zoom; a different data set fits again', async () => {
+    const { rerender } = render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    await vi.waitFor(() => expect(lwcCharts[0]?.addSeriesCalls).toBe(2));
+    const chart = lwcCharts[0];
+    expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
+    chart.visibleRange = { from: 100, to: 200 }; // 사용자가 확대했다
+
+    await rerender({ series: [input('A', 1)], sessions }); // 주기 갱신: 새 배열, 같은 종목
+    await vi.waitFor(() => expect(chart.addSeriesCalls).toBe(4));
+    expect(chart.visibleRange).toEqual({ from: 100, to: 200 });
+
+    await rerender({ series: [input('A', 1), input('B', 2)], sessions }); // 종목이 바뀌었다
+    await vi.waitFor(() => expect(chart.addSeriesCalls).toBe(8));
+    expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
+  });
+});

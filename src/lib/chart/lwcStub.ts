@@ -12,6 +12,21 @@ export interface StubChart {
   removed: boolean;
   /** addSeries 호출 수(시리즈를 다시 만든 횟수 확인용) */
   addSeriesCalls: number;
+  /** createChart·applyOptions로 받은 옵션(얕게 합침) */
+  options: Record<string, unknown>;
+  /** logicalToCoordinate(l) = offset + l × spacing. 확대·이동을 흉내 낼 때 바꾼다. */
+  scale: { offset: number; spacing: number };
+  /** setVisibleLogicalRange로 정한 범위(fitContent면 'fit') */
+  visibleRange: { from: number; to: number } | 'fit' | null;
+  /** 시간 → x. 기본은 null(라벨을 그리지 않음) */
+  timeToX: (time: number) => number | null;
+  /** 가격 → y. 기본은 null */
+  priceToY: (price: number) => number | null;
+  /** 보이는 범위 구독자 수(정리 확인용) */
+  readonly rangeSubscribers: number;
+  readonly sizeSubscribers: number;
+  /** 보이는 범위가 바뀐 것처럼 구독자를 부른다 */
+  fireVisibleRange(): void;
 }
 
 export const lwcCharts: StubChart[] = [];
@@ -22,8 +37,28 @@ export const lwcCharts: StubChart[] = [];
  */
 export const lwcStubHooks: { crosshairOnSetData: { time?: number } | null } = { crosshairOnSetData: null };
 
-function createChart(): unknown {
-  const chart: StubChart = { series: [], removed: false, addSeriesCalls: 0 };
+function createChart(_el: unknown, initial: Record<string, unknown> = {}): unknown {
+  const rangeHandlers = new Set<() => void>();
+  const sizeHandlers = new Set<() => void>();
+  const chart: StubChart = {
+    series: [],
+    removed: false,
+    addSeriesCalls: 0,
+    options: { ...initial },
+    scale: { offset: 0, spacing: 1 },
+    visibleRange: null,
+    timeToX: () => null,
+    priceToY: () => null,
+    get rangeSubscribers() {
+      return rangeHandlers.size;
+    },
+    get sizeSubscribers() {
+      return sizeHandlers.size;
+    },
+    fireVisibleRange() {
+      for (const h of rangeHandlers) h();
+    },
+  };
   const byApi = new Map<unknown, StubSeries>();
   const crosshair: ((p: { time?: number }) => void)[] = [];
   const fireCrosshair = () => {
@@ -32,13 +67,20 @@ function createChart(): unknown {
   };
   lwcCharts.push(chart);
   const timeScale = {
-    subscribeVisibleLogicalRangeChange: () => {},
-    subscribeSizeChange: () => {},
+    subscribeVisibleLogicalRangeChange: (h: () => void) => rangeHandlers.add(h),
+    unsubscribeVisibleLogicalRangeChange: (h: () => void) => rangeHandlers.delete(h),
+    subscribeSizeChange: (h: () => void) => sizeHandlers.add(h),
+    unsubscribeSizeChange: (h: () => void) => sizeHandlers.delete(h),
     width: () => 300,
-    logicalToCoordinate: (l: number) => l,
-    timeToCoordinate: () => null,
-    setVisibleLogicalRange: () => {},
-    fitContent: () => {},
+    logicalToCoordinate: (l: number) => chart.scale.offset + l * chart.scale.spacing,
+    timeToCoordinate: (time: number) => chart.timeToX(time),
+    getVisibleLogicalRange: () => (chart.visibleRange === 'fit' ? null : chart.visibleRange),
+    setVisibleLogicalRange: (r: { from: number; to: number }) => {
+      chart.visibleRange = { from: r.from, to: r.to };
+    },
+    fitContent: () => {
+      chart.visibleRange = 'fit';
+    },
   };
   return {
     subscribeCrosshairMove: (h: (p: { time?: number }) => void) => {
@@ -46,7 +88,9 @@ function createChart(): unknown {
     },
     timeScale: () => timeScale,
     resize: () => {},
-    applyOptions: () => {},
+    applyOptions: (o: Record<string, unknown>) => {
+      chart.options = { ...chart.options, ...o };
+    },
     remove: () => {
       chart.removed = true;
     },
@@ -62,7 +106,7 @@ function createChart(): unknown {
         createPriceLine: () => {},
         applyOptions: () => {},
         attachPrimitive: () => {},
-        priceToCoordinate: () => null,
+        priceToCoordinate: (price: number) => chart.priceToY(price),
       };
       byApi.set(api, s);
       return api;

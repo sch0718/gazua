@@ -66,8 +66,10 @@
     const a = xOf(seg.start);
     const b = xOf(seg.end);
     if (a === null && b === null) return null;
-    const x1 = a ?? 0;
-    const x2 = b ?? width;
+    // 차트를 확대·이동하면 보이는 범위 밖으로 나간 부분은 자른다.
+    const x1 = Math.max(0, a ?? 0);
+    const x2 = Math.min(width, b ?? width);
+    if (x2 <= x1) return null;
     const range = `${hm(seg.start)}–${hm(seg.end)}`;
     if (seg.kind === 'gap') {
       return { x: x1 + 0.5, w: Math.max(0, x2 - x1 - 1), fill: 'url(#lane-hatch)', label: `거래 불가 ${range}` };
