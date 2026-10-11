@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { kstEpoch, kstMinuteOfDay } from '../time/kst';
 import { runProviderContract } from './contract';
 import { createDemoProvider } from './demo';
+import { indexForMeta } from '../ui/compare/compareController.svelte';
 
 const SUN = kstEpoch('2026-10-11', '12:00:00');
 const make = (now = SUN, seed = 1) => createDemoProvider({ seed, now: () => now });
@@ -50,6 +51,22 @@ describe('demo provider', () => {
     // 같은 코드의 나머지 값은 목록 유무와 상관없이 같다(결정적).
     const [plain] = await make().getStockMeta(['009150']);
     expect({ ...plain, name: '삼성전기' }).toEqual(byId['009150']);
+  });
+
+  it('takes the market from the universe, so a KOSDAQ stock gets the KOSDAQ benchmark; KNOWN keep their own market', async () => {
+    const universe = async () => [
+      { s: '247540', n: '에코프로비엠', m: 'KOSDAQ', t: 'STOCK' as const },
+      { s: '009150', n: '삼성전기', m: 'KOSPI', t: 'STOCK' as const },
+      { s: '042700', n: '한미반도체', m: 'KOSDAQ', t: 'STOCK' as const },
+    ];
+    const p = createDemoProvider({ seed: 1, now: () => SUN, universe });
+    const byId = Object.fromEntries((await p.getStockMeta(['247540', '009150', '042700', '000660'])).map((m) => [m.symbol, m]));
+    expect(byId['247540']).toMatchObject({ name: '에코프로비엠', market: 'KOSDAQ' });
+    expect(indexForMeta(byId['247540'], 'AUTO')).toBe('KOSDAQ');
+    expect(byId['009150'].market).toBe('KOSPI');
+    // KNOWN 종목은 실제 시장(universe.json 기준 모두 KOSPI)을 그대로 쓴다.
+    expect(byId['042700'].market).toBe('KOSPI');
+    expect(byId['000660'].market).toBe('KOSPI');
   });
 
   it('falls back to the code when the universe cannot be loaded, and skips loading when every symbol is KNOWN', async () => {

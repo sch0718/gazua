@@ -13,13 +13,23 @@ const HOLIDAYS = new Set(['2026-09-24', '2026-09-25', '2026-10-09']);
 const ANCHOR = '2025-01-01';
 const PREV_CLOSE_LOOKBACK_DAYS = 15;
 
-const KNOWN: Record<string, { name: string; securityType: StockMeta['securityType']; nxt: boolean; base: number; shares: number }> = {
-  '005930': { name: '삼성전자', securityType: 'STOCK', nxt: true, base: 72_000, shares: 5919637922 },
-  '000660': { name: 'SK하이닉스', securityType: 'STOCK', nxt: true, base: 195_000, shares: 728002365 },
-  '042700': { name: '한미반도체', securityType: 'STOCK', nxt: false, base: 120_000, shares: 97100000 },
-  '000990': { name: 'DB하이텍', securityType: 'STOCK', nxt: true, base: 48_000, shares: 44400000 },
-  '069500': { name: 'KODEX 200', securityType: 'ETF', nxt: false, base: 36_000, shares: 100000000 },
+// market은 universe.json(KRX 종목 마스터)의 시장 값과 같다.
+const KNOWN: Record<
+  string,
+  { name: string; market: StockMeta['market']; securityType: StockMeta['securityType']; nxt: boolean; base: number; shares: number }
+> = {
+  '005930': { name: '삼성전자', market: 'KOSPI', securityType: 'STOCK', nxt: true, base: 72_000, shares: 5919637922 },
+  '000660': { name: 'SK하이닉스', market: 'KOSPI', securityType: 'STOCK', nxt: true, base: 195_000, shares: 728002365 },
+  '042700': { name: '한미반도체', market: 'KOSPI', securityType: 'STOCK', nxt: false, base: 120_000, shares: 97100000 },
+  '000990': { name: 'DB하이텍', market: 'KOSPI', securityType: 'STOCK', nxt: true, base: 48_000, shares: 44400000 },
+  '069500': { name: 'KODEX 200', market: 'KOSPI', securityType: 'ETF', nxt: false, base: 36_000, shares: 100000000 },
 };
+
+/** universe.json의 시장 값(m). 목록에 없으면 KOSPI(이전과 같은 기본값). */
+function marketOf(listed?: UniverseItem): StockMeta['market'] {
+  if (!listed) return 'KOSPI';
+  return listed.m === 'KOSDAQ' ? 'KOSDAQ' : listed.m === 'KOSPI' ? 'KOSPI' : 'KR_ETC';
+}
 
 const INDEX_BASE = { KOSPI: 2_650, KOSDAQ: 850 } as const;
 
@@ -61,14 +71,15 @@ interface CloseSeries {
   closes: Map<string, number>;
 }
 
-/** `listed`는 종목 목록(universe.json)의 항목. KNOWN에 없는 종목의 이름·종류를 실제 값으로 채운다. */
+/** `listed`는 종목 목록(universe.json)의 항목. KNOWN에 없는 종목의 이름·시장·종류를 실제 값으로 채운다. */
 function metaFor(symbol: string, listed?: UniverseItem): StockMeta {
   const known = KNOWN[symbol];
-  const common = { krxSuspended: false, nxtSuspended: null, liquidationTrading: false, market: 'KOSPI' as const };
+  const common = { krxSuspended: false, nxtSuspended: null, liquidationTrading: false };
   if (known) {
     return {
       symbol,
       name: known.name,
+      market: known.market,
       securityType: known.securityType,
       nxtSupported: known.nxt,
       sharesOutstanding: known.shares,
@@ -79,6 +90,7 @@ function metaFor(symbol: string, listed?: UniverseItem): StockMeta {
   return {
     symbol,
     name: listed?.n ?? symbol,
+    market: marketOf(listed),
     securityType: listed?.t ?? 'STOCK',
     nxtSupported: (h & 1) === 1,
     sharesOutstanding: 10_000_000 + (hashString(`shares|${symbol}`) % 990_000_000),
