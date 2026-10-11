@@ -24,6 +24,10 @@ type Handler = (url: string, init: RequestInit | undefined) => Response | Promis
 function fakeFetch(routes: { health?: Handler; healthNoCors?: Handler; token?: Handler; price?: Handler }) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    // Fetch 표준: no-cors 요청의 redirect 모드가 follow가 아니면 네트워크 오류다(Chromium도 TypeError).
+    if (init?.mode === 'no-cors' && init.redirect !== undefined && init.redirect !== 'follow') {
+      throw new TypeError('Request mode is "no-cors" but the redirect mode is not "follow"');
+    }
     if (url === `${PROXY}/health`) {
       const h = init?.mode === 'no-cors' ? routes.healthNoCors : routes.health;
       return h ? h(url, init) : new Response(null, { status: 200 });
@@ -172,14 +176,19 @@ describe('runDiagnostics', () => {
     expect(steps[3]).toMatchObject({ status: 'fail', error: 'upstream' });
   });
 
-  it('② a redirecting /health fails as proxy-redirect; health checks never follow redirects', async () => {
+  it('② a redirecting /health fails as proxy-redirect; only the ① no-cors liveness check (no keys, no token) follows', async () => {
     const opaque = () => ({ type: 'opaqueredirect', status: 0, ok: false, headers: new Headers() }) as unknown as Response;
-    const f = fakeFetch({ health: opaque, healthNoCors: opaque });
+    const followed = () => ({ type: 'opaque', status: 0, ok: false, headers: new Headers() }) as unknown as Response;
+    const f = fakeFetch({ health: opaque, healthNoCors: followed });
     const steps = await run('kis', KIS, f).done;
     expect(steps.map((s) => s.status)).toEqual(['ok', 'fail', 'skipped', 'skipped']);
     expect(steps[1].error).toBe('proxy-redirect');
     expect(steps[1].hint).toBe('프록시가 다른 주소로 보내려 해요. 프록시 URL이 맞는지(끝 경로·http/https) 확인해 주세요');
-    for (const [, init] of f.mock.calls) expect(init?.redirect).toBe('manual');
+    const [first, ...rest] = f.mock.calls.map(([, init]) => init);
+    expect(first).toMatchObject({ mode: 'no-cors' });
+    expect(first?.redirect ?? 'follow').toBe('follow');
+    expect(new Headers(first?.headers).has('x-proxy-token')).toBe(false);
+    for (const init of rest) expect(init?.redirect).toBe('manual');
     expect(f).toHaveBeenCalledTimes(2);
   });
 

@@ -134,8 +134,11 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
-      // 리다이렉트는 따라가지 않는다(프록시 토큰·키가 다른 출처로 가지 않게).
-      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect: 'manual' });
+      // ②의 CORS 확인은 리다이렉트를 따라가지 않는다(프록시 클라이언트와 같은 규칙).
+      // ①의 no-cors 생존 확인은 follow로 둔다: Fetch 표준상 no-cors + manual은 네트워크 오류이고,
+      // 이 요청에는 키·토큰이 없어 따라가도 넘길 자격증명이 없다.
+      const redirect: RequestRedirect = init.mode === 'no-cors' ? 'follow' : 'manual';
+      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect });
     } catch (e) {
       if (controller.signal.aborted) throw new StepFailure('timeout');
       throw e;
