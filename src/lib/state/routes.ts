@@ -1,8 +1,12 @@
 export type RouteName = 'compare' | 'settings' | 'onboarding' | 'unlock' | 'profiles';
 
+export type SettingsSection = 'connection' | 'diagnostics';
+
 export interface Route {
   name: RouteName;
   groupId?: string;
+  /** 설정: 열자마자 보여 줄 구역(오류 배너의 `진단 열기`·`키 다시 입력`). 해시에는 남기지 않는다. */
+  section?: SettingsSection;
 }
 
 /** `#/compare/:groupId`, `#/settings`, `#/onboarding`. 그 밖의 해시는 null. */

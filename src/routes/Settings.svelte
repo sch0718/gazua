@@ -15,6 +15,17 @@
 
   let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
 
+  // 비교 화면의 오류 배너(`진단 열기`·`키 다시 입력`)로 들어오면 그 구역으로 옮기고 제목에 초점을 둔다.
+  const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag' } as const;
+  $effect(() => {
+    const section = app.route.section;
+    if (!section) return;
+    const h = document.getElementById(SECTION_IDS[section]);
+    if (!h) return;
+    h.scrollIntoView?.({ block: 'start' });
+    h.focus({ preventScroll: true });
+  });
+
   const THEMES = [
     { value: 'system', label: '시스템' },
     { value: 'light', label: '라이트' },
@@ -55,12 +66,12 @@
         </section>
 
         <section aria-labelledby="set-connection">
-          <h2 id="set-connection">연결</h2>
+          <h2 id="set-connection" tabindex="-1">연결</h2>
           <ConnectionForm {app} />
         </section>
 
         <section aria-labelledby="set-diag">
-          <h2 id="set-diag">연결 진단</h2>
+          <h2 id="set-diag" tabindex="-1">연결 진단</h2>
           <Diagnostics {app} />
         </section>
 

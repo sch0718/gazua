@@ -8,14 +8,17 @@ import { ApiError } from '../../providers/errors';
 import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
 import type { Period, Settings } from '../../state/schema';
+import { dominantFault, type LoadFault, type LoadIssue } from './loadIssue';
 import { quoteVenue } from './venue';
 
-export type SnapshotSeries = LoadedSeries & { stale: boolean };
+export type SnapshotSeries = LoadedSeries & { stale: boolean; staleError?: ApiError };
 export type IndexName = 'KOSPI' | 'KOSDAQ';
 
 export interface SeriesEntry {
   series: SnapshotSeries | null;
   error: string | null;
+  /** 마지막 시도가 ApiError로 실패했으면 그 코드(마지막 성공 결과를 stale로 보여 줄 때도). */
+  fault?: LoadFault;
 }
 
 export interface IndexEntry {
@@ -54,6 +57,13 @@ export interface CompareController {
   readonly entries: Record<string, SeriesEntry>;
   readonly indexes: Partial<Record<IndexName, IndexEntry>>;
   readonly quotes: Record<string, Quote>;
+  /**
+   * 지금 그룹의 마지막 로딩에서 가장 중요한 오류(스펙 11절 배너용). 오류가 없으면 null.
+   * allFailed면 새로 받은 종목이 하나도 없다(● 실시간을 보이지 않는다).
+   */
+  readonly issue: LoadIssue | null;
+  /** 마지막으로 새 시리즈를 받은 시각(이 화면 키 기준). 없으면 null */
+  readonly lastOkAt: number | null;
   /** 화면을 바꾼 뒤 첫 로딩 중일 때만. 주기 갱신은 조용히 한다. */
   readonly progress: { done: number; total: number } | null;
   /** 바뀐 것만 다시 받는다. 반응형 효과 안에서 부를 때는 untrack으로 감싼다. */
@@ -91,6 +101,11 @@ export function indexForMeta(meta: StockMeta | undefined, benchmark: Settings['b
   return meta?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
 }
 
+function faultOf(e: unknown, at: number): LoadFault | undefined {
+  if (!(e instanceof ApiError)) return undefined;
+  return e.retryAfterMs === undefined ? { code: e.code, at } : { code: e.code, at, retryAfterMs: e.retryAfterMs };
+}
+
 const pick = <T>(rec: Record<string, T>, keys: string[]): Record<string, T> =>
   Object.fromEntries(Object.entries(rec).filter(([k]) => keys.includes(k)));
 
@@ -102,6 +117,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
   let quotes = $state.raw<Record<string, Quote>>({});
   let progress = $state.raw<{ done: number; total: number } | null>(null);
+  /** 마지막으로 새 시리즈를 받은 시각 */
+  let lastOkAt = $state.raw<number | null>(null);
 
   let query: CompareQuery | null = null;
   /** 시리즈 키(공급자·데이터·기간·거래소)가 바뀔 때마다 올린다. 이전 키의 늦은 결과는 버린다. */
@@ -156,15 +173,18 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   doc?.addEventListener('visibilitychange', onVisibility);
 
   // ── 메타 ────────────────────────────────────────────────
-  async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<void> {
+  /** 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다). 호출 자체가 실패하면 그 이유를 돌려준다. */
+  async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<LoadFault | undefined> {
     const missing = symbols.filter((s) => !metas[s]);
-    if (missing.length === 0) return;
+    if (missing.length === 0) return undefined;
     try {
       const list = await provider.getStockMeta(missing);
-      if (query?.provider !== provider) return;
+      if (query?.provider !== provider) return undefined;
       metas = { ...metas, ...Object.fromEntries(list.map((m) => [m.symbol, m])) };
-    } catch {
+      return undefined;
+    } catch (e) {
       // 메타를 못 받은 종목은 행에 오류로 보인다.
+      return faultOf(e, deps.now());
     }
   }
 
@@ -178,7 +198,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
     if (showProgress) bumpProgress(symbols.length, 0);
     inflight++;
     try {
-      await ensureMetas(q.provider, symbols);
+      const metaFault = await ensureMetas(q.provider, symbols);
       if (g !== generation) return;
       syncIndexes(false);
       // 새로 보이는 종목은 5초를 기다리지 않고 현재가를 받는다.
@@ -188,7 +208,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
           const meta = metas[symbol];
           let entry: SeriesEntry;
           if (!meta) {
-            entry = { series: null, error: META_ERROR };
+            entry = metaFault ? { series: null, error: META_ERROR, fault: metaFault } : { series: null, error: META_ERROR };
           } else {
             try {
               const series = await q.data.snapshots.load({
@@ -200,9 +220,12 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
                 venueMode: q.venueMode,
                 now: deps.now(),
               });
-              entry = { series, error: null };
+              const fault = series.stale ? faultOf(series.staleError, deps.now()) : undefined;
+              entry = fault ? { series, error: null, fault } : { series, error: null };
+              if (!series.stale && !destroyed && g === generation) lastOkAt = deps.now();
             } catch (e) {
-              entry = { series: null, error: errorText(e) };
+              const fault = faultOf(e, deps.now());
+              entry = fault ? { series: null, error: errorText(e), fault } : { series: null, error: errorText(e) };
             }
           }
           if (destroyed || g !== generation) return;
@@ -299,6 +322,19 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
     get progress() {
       return progress;
     },
+    get lastOkAt() {
+      return lastOkAt;
+    },
+    get issue() {
+      // entries를 먼저 읽어 둔다: 첫 렌더(아직 query 없음)에도 반응형 의존성이 생기게.
+      const all = entries;
+      const symbols = query?.symbols ?? [];
+      const current = symbols.flatMap((s) => (all[s] ? [all[s]] : []));
+      const worst = dominantFault(current.flatMap((e) => (e.fault ? [e.fault] : [])));
+      if (!worst) return null;
+      const allFailed = current.length === symbols.length && current.every((e) => e.series === null || e.series.stale);
+      return { ...worst, allFailed, lastOkAt };
+    },
 
     setQuery(q) {
       if (destroyed) return;
@@ -319,6 +355,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
         entries = {};
         quotes = {};
         indexes = {};
+        lastOkAt = null;
         inflight = 0;
         total = 0;
         done = 0;

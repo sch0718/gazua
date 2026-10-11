@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDailyMemo, createSeriesSnapshots, type LoadSeriesArgs } from '../../data/candleService';
 import { sessionsForDay } from '../../market/sessions';
 import { createDemoProvider } from '../../providers/demo';
+import { ApiError } from '../../providers/errors';
 import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
@@ -172,6 +173,56 @@ describe('compareController', () => {
     t.resolveAll();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
+  });
+
+  it('exposes the dominant error of the last load and whether every row failed', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toBeNull();
+    t.pending.get('005930')!.reject(new ApiError('upstream'));
+    t.pending.get('000660')!.reject(new ApiError('invalid-credentials', undefined, { status: 401 }));
+    t.pending.get('042700')!.reject(new ApiError('rate-limited', undefined, { retryAfterMs: 3000 }));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toMatchObject({ code: 'invalid-credentials', allFailed: true, lastOkAt: null, at: NOW });
+
+    // 다음 갱신에서 한 종목만 성공하면 allFailed가 풀리고, 모두 성공하면 문제가 사라진다.
+    t.setNow(NOW + RELOAD_IN_SESSION_MS);
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    t.pending.get('005930')!.resolve(snap('005930'));
+    t.pending.get('000660')!.reject(new ApiError('rate-limited', undefined, { retryAfterMs: 3000 }));
+    t.pending.get('042700')!.reject(new ApiError('upstream'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toMatchObject({ code: 'rate-limited', allFailed: false, retryAfterMs: 3000, lastOkAt: NOW + RELOAD_IN_SESSION_MS });
+
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toBeNull();
+  });
+
+  it('a stale row (last good result kept) still reports why the reload failed', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll({ stale: true, staleError: new ApiError('proxy-unreachable') });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['005930'].series?.stale).toBe(true);
+    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable', allFailed: true });
+  });
+
+  it('a meta call that throws reports its error code for every row', async () => {
+    const provider = createDemoProvider({ seed: 1, now: () => NOW });
+    provider.getStockMeta = async () => {
+      throw new ApiError('proxy-unreachable');
+    };
+    const t = track(setup({ provider }));
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['005930']).toMatchObject({ series: null, error: META_ERROR });
+    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable', allFailed: true });
   });
 
   it('stale rows ignore live quotes', async () => {

@@ -137,13 +137,22 @@ describe('createProxyClient', () => {
     expect(err.retryAfterMs).toBeUndefined();
   });
 
-  it('maps fetch TypeError to cors-blocked', async () => {
+  it('maps a bare fetch TypeError to proxy-unreachable in the app (proxy down, DNS)', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError('Failed to fetch');
     });
     const client = createProxyClient({ baseUrl: 'https://p.example', fetchImpl });
     const err = await client.request('kis', 'GET', '/x').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('proxy-unreachable');
+  });
+
+  it('maps fetch TypeError to cors-blocked when asked (diagnostics, after ① proved the proxy is up)', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const client = createProxyClient({ baseUrl: 'https://p.example', fetchImpl, typeErrorCode: 'cors-blocked' });
+    const err = await client.request('kis', 'GET', '/x').catch((e) => e);
     expect(err.code).toBe('cors-blocked');
   });
 

@@ -220,6 +220,7 @@ export function createApp(deps: AppDeps): App {
   }
 
   function normalize(r: Route): Route {
+    if (r.name === 'settings' && r.section) return { name: 'settings', section: r.section };
     if (r.name !== 'compare') return { name: r.name };
     const ids = watchlists.groups.map((g) => g.id);
     if (r.groupId && ids.includes(r.groupId)) return { name: 'compare', groupId: r.groupId };

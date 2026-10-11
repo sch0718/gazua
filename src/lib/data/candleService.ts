@@ -398,7 +398,8 @@ export function indexAvailabilityFor(args: {
 // ── 마지막 성공 결과 ───────────────────────────────────────────
 
 export interface SeriesSnapshots {
-  load(args: LoadSeriesArgs): Promise<LoadedSeries & { stale: boolean }>;
+  /** stale이면 staleError에 이번에 받지 못한 이유(ApiError일 때만)를 담는다. */
+  load(args: LoadSeriesArgs): Promise<LoadedSeries & { stale: boolean; staleError?: ApiError }>;
 }
 
 /**
@@ -416,7 +417,9 @@ export function createSeriesSnapshots(): SeriesSnapshots {
         return { ...result, stale: false };
       } catch (e) {
         const snap = last.get(key);
-        if (snap && kstDate(snap.computedAt) === kstDate(args.now)) return { ...snap, stale: true };
+        if (snap && kstDate(snap.computedAt) === kstDate(args.now)) {
+          return { ...snap, stale: true, ...(e instanceof ApiError ? { staleError: e } : {}) };
+        }
         throw e;
       }
     },

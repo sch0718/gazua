@@ -52,4 +52,15 @@ describe('Headline', () => {
     const c = setup({ anyStale: true });
     expect(text(c.querySelector('.fresh'))).toBe('● 실시간 17:42:05 · 일부 종목은 이전 데이터예요');
   });
+
+  it('a failed last load hides ● 실시간 and says when the shown data is from', () => {
+    const c = setup({ loadFailed: true, lastOkAt: at('17:20') });
+    expect(text(c.querySelector('.fresh'))).toBe('◌ 17:20 기준 · 새로 받지 못했어요');
+    expect(c.querySelector('.live')).toBeNull();
+  });
+
+  it('a failed first load (nothing shown yet) has no ● 실시간 either', () => {
+    const c = setup({ loadFailed: true, lastOkAt: null, tradingDate: null });
+    expect(text(c.querySelector('.fresh'))).toBe('◌ 새로 받지 못했어요');
+  });
 });

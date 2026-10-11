@@ -14,6 +14,8 @@
     inSession,
     closeAt,
     anyStale,
+    loadFailed = false,
+    lastOkAt = null,
   }: {
     period: Period;
     metricLabel: string;
@@ -25,10 +27,13 @@
     inSession: boolean;
     closeAt: number | null;
     anyStale: boolean;
+    /** 마지막 로딩이 모두 실패했다(● 실시간을 감춘다) */
+    loadFailed?: boolean;
+    lastOkAt?: number | null;
   } = $props();
 
   const label = $derived(headlineLabel({ period, metricLabel, scrubT, tradingDate, today, baseDate }));
-  const fresh = $derived(freshnessText({ now, inSession, tradingDate, today, closeAt, anyStale }));
+  const fresh = $derived(freshnessText({ now, inSession, tradingDate, today, closeAt, anyStale, loadFailed, lastOkAt }));
 </script>
 
 <div class="head">

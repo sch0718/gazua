@@ -29,6 +29,11 @@ export interface ProxyClientConfig {
   proxyToken?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * fetch가 TypeError로 실패할 때의 코드. 앱에서는 프록시가 꺼졌거나 주소를 못 찾는 경우가 대부분이라
+   * 기본은 proxy-unreachable이다. CORS 판정은 연결 진단(① no-cors로 프록시 생존을 확인한 뒤)이 한다.
+   */
+  typeErrorCode?: 'proxy-unreachable' | 'cors-blocked';
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -91,7 +96,7 @@ export function createProxyClient(cfg: ProxyClientConfig): ProxyClient {
           json = await readJson(res);
         } catch (e) {
           if (isAbort(e) || controller.signal.aborted) throw new ApiError('timeout');
-          if (e instanceof TypeError) throw new ApiError('cors-blocked');
+          if (e instanceof TypeError) throw new ApiError(cfg.typeErrorCode ?? 'proxy-unreachable');
           throw new ApiError('proxy-unreachable');
         }
         if (res.status < 200 || res.status >= 300) {

@@ -7,6 +7,7 @@ import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
 import { createSafeStorage } from '../lib/state/storage';
 import { memoryBacking, seed } from '../lib/state/testStorage';
@@ -278,5 +279,76 @@ describe('Compare sheets', () => {
     const table = screen.getByRole('table', { name: '등락률 표 · 1일' });
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['시각', '삼성전자', 'SK하이닉스']);
     expect(within(table).getAllByRole('row').length).toBeGreaterThan(2);
+  });
+});
+
+describe('Compare load errors (spec §11)', () => {
+  function failAll(app: App, err: () => Error, only?: string) {
+    const real = app.provider.getCandles.bind(app.provider);
+    return vi.spyOn(app.provider, 'getCandles').mockImplementation(async (q) => {
+      if (only === undefined || q.symbol === only) throw err();
+      return real(q);
+    });
+  }
+  // 진행률(`불러오는 중 n/m`)만 본다. 툴바 안내 `잠시 천천히 불러오는 중`과 겹치지 않게.
+  const loaded = () => vi.waitFor(() => expect(screen.queryByText(/불러오는 중 \d/)).toBeNull(), { timeout: 3000 });
+
+  it('proxy unreachable: top banner with 진단 열기 → settings diagnostics; no ● 실시간', async () => {
+    const app = makeApp(EXAMPLE);
+    failAll(app, () => new ApiError('proxy-unreachable'));
+    const { container } = render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toContain('프록시에 연결할 수 없어요');
+    expect(container.querySelector('.fresh')?.textContent).not.toContain('실시간');
+    expect(container.querySelector('.fresh')?.textContent).toContain('새로 받지 못했어요');
+    await fireEvent.click(within(banner).getByRole('button', { name: '진단 열기' }));
+    expect(app.route).toEqual({ name: 'settings', section: 'diagnostics' });
+  });
+
+  it('invalid credentials: 키가 맞지 않아요 with 키 다시 입력 → settings connection', async () => {
+    const app = makeApp(EXAMPLE);
+    failAll(app, () => new ApiError('invalid-credentials', undefined, { status: 401 }));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const banner = await screen.findByRole('alert');
+    expect(banner.textContent).toContain('키가 맞지 않아요');
+    await fireEvent.click(within(banner).getByRole('button', { name: '키 다시 입력' }));
+    expect(app.route).toEqual({ name: 'settings', section: 'connection' });
+  });
+
+  it('rate limited on one row: toolbar 잠시 천천히 불러오는 중, no banner, others stay live', async () => {
+    const app = makeApp(EXAMPLE);
+    failAll(app, () => new ApiError('rate-limited', undefined, { status: 429 }), '042700');
+    const { container } = render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    expect(await screen.findByText('잠시 천천히 불러오는 중')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.querySelector('.fresh')?.textContent).toContain('실시간');
+  });
+
+  it('a row-level error (upstream on one stock) shows no banner', async () => {
+    const app = makeApp(EXAMPLE);
+    failAll(app, () => new ApiError('upstream'), '042700');
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('잠시 천천히 불러오는 중')).toBeNull();
+  });
+
+  it('going back online refreshes now; the listener is removed on unmount', async () => {
+    const app = makeApp(['005930']);
+    // 시리즈는 캐시에 있을 수 있으니 새로고침이 늘 다시 부르는 현재가 조회로 센다.
+    const spy = vi.spyOn(app.provider, 'getQuotes');
+    const { unmount } = render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const before = spy.mock.calls.length;
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(before));
+    unmount();
+    const after = spy.mock.calls.length;
+    window.dispatchEvent(new Event('online'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy.mock.calls.length).toBe(after);
   });
 });

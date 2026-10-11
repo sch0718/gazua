@@ -125,7 +125,8 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
     onStep(steps);
   };
 
-  const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl });
+  // ①·②를 지난 뒤의 TypeError는 사전 요청(사용자 지정 헤더) 거부일 가능성이 커서 CORS로 본다.
+  const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl, typeErrorCode: 'cors-blocked' });
   let token: TokenInfo | null = null;
 
   async function health(init: RequestInit): Promise<Response> {

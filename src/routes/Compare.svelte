@@ -21,6 +21,9 @@
   import GroupTabs from '../lib/ui/compare/GroupTabs.svelte';
   import Headline from '../lib/ui/compare/Headline.svelte';
   import Leaderboard from '../lib/ui/compare/Leaderboard.svelte';
+  import { issueView } from '../lib/ui/compare/loadIssue';
+  import type { ErrorActionTarget } from '../lib/providers/errors';
+  import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
   import { kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
@@ -152,6 +155,34 @@
   const markers = $derived(tradingDate !== null && fetchPlanFor(period, tradingDate).markers);
   const baseDate = $derived(loaded[0] ? baseDateFor(loaded[0], period) : null);
   const closeAt = $derived(tradingDate ? lastSessionEnd(sessionsOn(tradingDate, today, sessions)) : null);
+
+  // ── 오류 안내(스펙 11절) ─────────────────────────────────
+  // 연결·키 문제는 상단 배너(해결 행동 버튼), 호출 한도는 툴바 안내, 종목 단위 오류는 그 행에만.
+  const issueNotice = $derived(issueView(ctl.issue, now));
+  // 지금 그룹의 종목을 하나도 새로 받지 못했으면 장중이어도 ● 실시간을 보이지 않는다.
+  const loadFailed = $derived(
+    items.length > 0 &&
+      items.every((i) => {
+        const e = ctl.entries[i.symbol];
+        return e !== undefined && (e.series === null || e.series.stale);
+      }),
+  );
+  function runIssueAction(target: ErrorActionTarget) {
+    if (target === 'diagnostics') app.navigate({ name: 'settings', section: 'diagnostics' });
+    else if (target === 'credentials') app.navigate({ name: 'settings', section: 'connection' });
+    else {
+      void navigator.clipboard?.writeText(location.origin).then(
+        () => showSnackbar('허용할 주소를 복사했어요'),
+        () => showSnackbar(`복사하지 못했어요 · ${location.origin}`),
+      );
+    }
+  }
+  // 다시 온라인이 되면 바로 새로 받는다.
+  onMount(() => {
+    const online = () => void ctl.refresh();
+    window.addEventListener('online', online);
+    return () => window.removeEventListener('online', online);
+  });
 
   // ── 스크럽과 리더보드 ───────────────────────────────────
   let scrubT = $state<number | null>(null);
@@ -300,6 +331,15 @@
 
   {#snippet main()}
     <div class="compare" data-sheet={openSheet} use:pullToRefresh={{ onrefresh: refreshNow, onpull: (d) => (pull = d) }}>
+      {#if issueNotice?.kind === 'banner'}
+        {@const action = issueNotice.action}
+        <Banner
+          message={issueNotice.text}
+          tone={issueNotice.tone}
+          actionLabel={action?.label}
+          onaction={action ? () => runIssueAction(action.target) : undefined}
+        />
+      {/if}
       {#if pull > 0 || refreshing}
         <div class="pull" role="status">
           {refreshing ? '새로 불러오는 중' : pull > PULL_THRESHOLD_PX ? '놓으면 새로고침해요' : '당겨서 새로고침'}
@@ -319,6 +359,8 @@
           inSession={inSessionAt(now)}
           {closeAt}
           anyStale={loaded.some((s) => s.stale)}
+          {loadFailed}
+          lastOkAt={ctl.lastOkAt}
         />
         {#if fallbackNote}
           <p class="fallback" role="status">{fallbackNote}</p>
@@ -338,6 +380,9 @@
           <DataTable series={chartSeries} {mode} {unit} metricLabel={metricDef.label} periodLabel={periodLabel(period)} conv={app.settings.colorConvention} />
         </div>
         <div class="controls-slot">
+          {#if issueNotice?.kind === 'toolbar'}
+            <p class="slow" role="status">{issueNotice.text}</p>
+          {/if}
           <Controls
             {period}
             {venueMode}
@@ -399,6 +444,12 @@
     .controls-slot {
       order: 1;
     }
+  }
+  .slow {
+    margin: 0;
+    padding: 2px var(--gutter);
+    font-size: 12.5px;
+    color: var(--warn);
   }
   .fallback {
     margin: 2px 0 0;

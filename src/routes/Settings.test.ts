@@ -13,10 +13,10 @@ const NOW = kstEpoch('2026-10-12', '10:00:00');
 const barEnd = createRawSnippet(() => ({ render: () => '<span></span>' }));
 
 let apps: App[] = [];
-function setup(settings: Partial<SettingsT> = {}) {
+function setup(settings: Partial<SettingsT> = {}, section?: 'connection' | 'diagnostics') {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '내 관심', items: [] }], now: NOW, settings });
   apps.push(app);
-  app.navigate({ name: 'settings' });
+  app.navigate(section ? { name: 'settings', section } : { name: 'settings' });
   render(Settings, { app, barEnd });
   return app;
 }
@@ -28,6 +28,16 @@ afterEach(() => {
 });
 
 describe('Settings', () => {
+  it('opening with a section (from a compare error banner) moves focus to that section heading', async () => {
+    setup({}, 'diagnostics');
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('연결 진단'));
+  });
+
+  it('opening the connection section focuses 연결', async () => {
+    setup({}, 'connection');
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('연결'));
+  });
+
   it('shows the sections in order and the profile note at the top', () => {
     setup();
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);

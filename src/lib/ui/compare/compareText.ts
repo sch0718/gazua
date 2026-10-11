@@ -63,6 +63,7 @@ export function headlineLabel(a: {
 }
 
 export const STALE_NOTE = '일부 종목은 이전 데이터예요';
+export const FAILED_NOTE = '새로 받지 못했어요';
 
 /** 신선도 줄. live면 앞에 ●, 아니면 ◌를 붙여 보여 준다. */
 export function freshnessText(a: {
@@ -73,8 +74,16 @@ export function freshnessText(a: {
   /** 보여 주는 거래일의 마지막 세션 끝(epoch ms) */
   closeAt: number | null;
   anyStale: boolean;
+  /** 마지막 로딩에서 새로 받은 종목이 하나도 없다. 그러면 장중이어도 ● 실시간을 보이지 않는다. */
+  loadFailed?: boolean;
+  /** 마지막으로 새 데이터를 받은 시각 */
+  lastOkAt?: number | null;
 }): { live: boolean; text: string } {
   const stale = a.anyStale ? ` · ${STALE_NOTE}` : '';
+  if (a.inSession && a.loadFailed) {
+    const since = a.lastOkAt == null ? '' : `${kstHHMM(a.lastOkAt)} 기준 · `;
+    return { live: false, text: `${since}${FAILED_NOTE}` };
+  }
   if (a.inSession) return { live: true, text: `실시간 ${kstHHMMSS(a.now)}${stale}` };
   if (a.tradingDate === null) return { live: false, text: stale.replace(/^ · /, '') };
   const until = a.closeAt === null ? a.now : Math.min(a.now, a.closeAt);
