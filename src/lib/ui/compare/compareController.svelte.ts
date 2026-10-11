@@ -79,8 +79,8 @@ export interface CompareController {
   /** 초과수익에 쓰는 지수: 벤치마크가 자동이면 종목 시장의 지수. */
   indexFor(symbol: string): IndexName;
   /**
-   * 종목 시리즈와 같은 시점의 지수(초과수익용). 새로 받은 종목은 지금 지수와 짝짓되, 지수가 갱신에 실패해
-   * 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 받을 때의 지수를
+   * 종목 시리즈와 같은 시점의 지수(초과수익용). 새로 받은 종목은 지금 지수와 짝짓되, 지수가 갱신에 실패했거나
+   * 다시 받는 중이라 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 받을 때의 지수를
    * 계속 쓴다(값이 바뀌지 않게). 그런 지수가 없으면 series는 null.
    */
   excessIndex(symbol: string, index: IndexName): ExcessIndex;
@@ -434,7 +434,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const entry = indexes[index];
       const series = entries[symbol]?.series;
       if (!series || !entry) return NO_INDEX;
-      if (!series.stale) return pairOf(entry.series, entry.stale === true);
+      // 지수를 다시 받는 중(loading)이면 아직 이전 지수다. 새 종목 봉을 그 값으로 이어 붙이지 않게 마지막 봉까지만 쓴다.
+      if (!series.stale) return pairOf(entry.series, entry.stale === true || entry.status === 'loading');
       const attempt = attemptAtOrBefore(indexAttempts[index] ?? [], series.computedAt);
       return attempt ? pairOf(attempt.series, attempt.stale) : NO_INDEX;
     },

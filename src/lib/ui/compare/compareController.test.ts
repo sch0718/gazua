@@ -430,6 +430,32 @@ describe('compareController', () => {
       expect(staleIndexAt([t.ctl.indexes.KOSPI])).toBe(NOW);
     });
 
+    it('a fresh stock that lands while the index is still reloading stops at the previous index’s last bar', async () => {
+      const t = track(setup());
+      indexMock.mockResolvedValueOnce(indexSeries(102, 100, NOW));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+
+      t.setNow(NOW + 60_000);
+      let releaseIndex!: (s: LoadedSeries) => void;
+      indexMock.mockReturnValueOnce(new Promise<LoadedSeries>((r) => (releaseIndex = r)));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110), bar(NOW, 120)], computedAt: NOW + 60_000 });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.computedAt).toBe(NOW + 60_000));
+      expect(t.ctl.indexes.KOSPI?.status).toBe('loading');
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8, null]);
+
+      const next = indexSeries(102, 100, NOW + 60_000);
+      releaseIndex({ ...next, candles: [bar(NOW - 60_000, 102), bar(NOW, 103)] });
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.status).toBe('ok'));
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8, 17]);
+    });
+
     it('(b) a stale stock snapshot keeps the excess of its own load when the index’s in-progress bar moves', async () => {
       const t = track(setup());
       indexMock.mockResolvedValueOnce(indexSeries(1010, 1000, NOW));
