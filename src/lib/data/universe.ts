@@ -1,7 +1,7 @@
 import type { SecurityType } from '../market/sessions';
 
 export interface UniverseItem {
-  /** 단축코드 6자리 */
+  /** 단축코드 (주식·ETF·리츠 6자리, ETN은 Q + 6자리) */
   s: string;
   /** 종목명 */
   n: string;

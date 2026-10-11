@@ -6,7 +6,8 @@
 
 const TAIL_LENGTH = { KOSPI: 227, KOSDAQ: 221 };
 const GROUP_TYPE = { ST: 'STOCK', EF: 'ETF', EN: 'ETN', RT: 'REIT' };
-const SYMBOL_PATTERN = /^[0-9A-Z]{6}$/;
+// 주식·ETF·리츠는 6자리, ETN은 'Q' + 6자리(7자). 펀드(F7…)·워런트(J…) 등은 걸러진다.
+const SYMBOL_PATTERN = /^(?:[0-9A-Z]{6}|Q[0-9A-Z]{6})$/;
 const NL = 0x0a;
 const CR = 0x0d;
 
