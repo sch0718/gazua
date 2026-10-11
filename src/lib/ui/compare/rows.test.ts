@@ -118,6 +118,21 @@ describe('buildRows', () => {
     expect(rows[1].badges).toEqual(['거래정지']);
   });
 
+  it('NXT mode badges NXT 거래정지 (detail-sheet wording); a suspended NXT is not shown as an available NXT', () => {
+    const suspended = meta('A', { nxtSupported: true, nxtSuspended: true });
+    const [nxtMode] = buildRows([src('A', { meta: suspended })], { scrubT: null, venueMode: 'NXT' });
+    expect(nxtMode.badges).toEqual(['NXT 거래정지']);
+    expect(nxtMode.nxt).toBe(false);
+    const [krxMode] = buildRows([src('A', { meta: suspended })], { scrubT: null, venueMode: 'KRX' });
+    expect(krxMode.badges).toEqual([]);
+    expect(krxMode.nxt).toBe(false);
+    const [both] = buildRows([src('A', { meta: { ...suspended, krxSuspended: true } })], { scrubT: null, venueMode: 'NXT' });
+    expect(both.badges).toEqual(['거래정지']);
+    const [ok] = buildRows([src('A', { meta: meta('A', { nxtSuspended: false }) })], { scrubT: null, venueMode: 'NXT' });
+    expect(ok.badges).toEqual([]);
+    expect(ok.nxt).toBe(true);
+  });
+
   it('error rows carry the error; rows still loading are marked loading', () => {
     const rows = buildRows(
       [src('A', { series: null, points: null, error: '불러오지 못했어요' }), src('B', { series: null, points: null, meta: undefined })],

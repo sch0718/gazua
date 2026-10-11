@@ -10,7 +10,7 @@ export interface LeaderRow {
   symbol: string;
   name: string;
   slot: SeriesSlot;
-  /** 둘째 줄 배지(ETF·ETN·KRX 대체·거래정지) */
+  /** 둘째 줄 배지(ETF·ETN·KRX 대체·거래정지·NXT 거래정지) */
   badges: string[];
   value: number | null;
   price: number | null;
@@ -18,7 +18,7 @@ export interface LeaderRow {
   error?: string;
   /** 마지막 성공 결과를 보여 주는 중이면 그 결과의 계산 시각 */
   staleAt?: number;
-  /** 이름 옆 NXT 배지 */
+  /** 이름 옆 NXT 배지(NXT 지원이고 NXT가 정지되지 않았을 때) */
   nxt?: boolean;
   /** 아직 결과도 오류도 없다 */
   loading?: boolean;
@@ -59,7 +59,9 @@ function badgesOf(s: RowSource, venueMode: VenueMode): string[] {
   const type = s.meta?.securityType;
   if (type === 'ETF' || type === 'ETN') out.push(type);
   if (venueMode === 'NXT' && s.series?.intervals.some((iv) => iv.fallback)) out.push('KRX 대체');
+  // NXT 모드에서 NXT만 정지면 종목 상세와 같은 말로 `NXT 거래정지`. KRX가 정지면(둘 다 포함) `거래정지`.
   if (s.meta?.krxSuspended) out.push('거래정지');
+  else if (venueMode === 'NXT' && s.meta?.nxtSuspended === true) out.push('NXT 거래정지');
   return out;
 }
 
@@ -74,7 +76,8 @@ export function buildRows(sources: RowSource[], opts: { scrubT: number | null; v
       price: priceOf(s, opts.scrubT),
       hidden: s.item.hidden,
     };
-    if (s.meta) row.nxt = s.meta.nxtSupported;
+    // NXT가 정지된 종목은 NXT 배지를 보이지 않는다(거래할 수 있는 것처럼 보이지 않게).
+    if (s.meta) row.nxt = s.meta.nxtSupported && s.meta.nxtSuspended !== true;
     if (s.error) row.error = s.error;
     else if (!s.series) row.loading = true;
     if (s.series?.stale) row.staleAt = s.series.computedAt;
