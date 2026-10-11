@@ -280,11 +280,22 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       const body = isRecord(result) ? result : {};
       const today = isRecord(body.today) ? body.today : {};
       const next = isRecord(body.nextBusinessDay) ? text(body.nextBusinessDay.date) : '';
-      if (text(today.date) !== x) throw upstream('Toss calendar returned a different date');
+      const todayDate = text(today.date);
       if (!DATE_RE.test(next) || next <= x) throw upstream('Toss calendar has no later business day');
-      calendarCache.set(x, mapCalendarDay(x, today));
-      // 다음 영업일 전까지의 날짜는 전부 휴장이다.
-      for (let d = addDays(x, 1); d < next; d = addDays(d, 1)) calendarCache.set(d, { date: d, isOpen: false });
+      if (todayDate === x) {
+        calendarCache.set(x, mapCalendarDay(x, today));
+      } else {
+        // 서버가 휴장일 조회를 영업일로 당겨 답하면 x는 휴장으로 보고, 응답의 today가 범위 안이면 그날의 실제 값을 쓴다.
+        if (!DATE_RE.test(todayDate) || next <= todayDate) throw upstream('Toss calendar returned an inconsistent day');
+        calendarCache.set(x, { date: x, isOpen: false });
+        if (todayDate > x && todayDate <= to && !calendarCache.has(todayDate)) {
+          calendarCache.set(todayDate, mapCalendarDay(todayDate, today));
+        }
+      }
+      // 다음 영업일 전까지의 날짜는 전부 휴장이다(위에서 실제 값을 기록한 날은 건드리지 않는다).
+      for (let d = addDays(x, 1); d < next; d = addDays(d, 1)) {
+        if (!calendarCache.has(d)) calendarCache.set(d, { date: d, isOpen: false });
+      }
       x = next;
     }
   }

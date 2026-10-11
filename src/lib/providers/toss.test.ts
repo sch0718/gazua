@@ -769,11 +769,43 @@ describe('toss provider: trading days', () => {
     expect(client.dataCalls).toHaveLength(1);
   });
 
-  it('fails as upstream when the returned day is not the requested date', async () => {
+  it('when the API snaps a weekend query to the next business day, the weekend is closed and that day keeps its real data', async () => {
+    const monday = calendarOctober['2026-10-06'].result.today; // pretend 10-06 is the following business day
+    const { provider, client } = setup((c) => {
+      if (c.path !== '/api/v1/market-calendar/KR') return undefined;
+      if (c.query.date === '2026-10-03') return ok({ ...calendarOctober['2026-10-06'].result, today: monday });
+      return calendarOctober[c.query.date as keyof typeof calendarOctober];
+    });
+    const days = await provider.getTradingDays('2026-10-03', '2026-10-06');
+    expect(days.map((d) => [d.date, d.isOpen])).toEqual([
+      ['2026-10-03', false],
+      ['2026-10-04', false],
+      ['2026-10-05', false],
+      ['2026-10-06', true],
+    ]);
+    expect(days[3].integrated?.regularStart).toBe(kstEpoch('2026-10-06', '09:00:00'));
+    expect(client.dataCalls.map((c) => c.query.date)).toEqual(['2026-10-03']);
+  });
+
+  it('fails as upstream when nextBusinessDay is not after the requested date (loop guard)', async () => {
+    for (const next of ['2026-10-05', '2026-10-04']) {
+      const { provider, client } = setup((c) =>
+        c.path === '/api/v1/market-calendar/KR'
+          ? ok({ today: { date: c.query.date, integrated: null }, nextBusinessDay: { date: next } })
+          : undefined,
+      );
+      await expect(provider.getTradingDays('2026-10-05', '2026-10-11')).rejects.toMatchObject({ code: 'upstream' });
+      expect(client.dataCalls).toHaveLength(1);
+    }
+  });
+
+  it('fails as upstream when a snapped today is not before its own nextBusinessDay', async () => {
     const { provider } = setup((c) =>
-      c.path === '/api/v1/market-calendar/KR' ? calendarBusinessDay : undefined,
+      c.path === '/api/v1/market-calendar/KR'
+        ? ok({ today: { date: '2026-10-07', integrated: null }, nextBusinessDay: { date: '2026-10-06' } })
+        : undefined,
     );
-    await expect(provider.getTradingDays('2026-10-05', '2026-10-05')).rejects.toMatchObject({ code: 'upstream' });
+    await expect(provider.getTradingDays('2026-10-03', '2026-10-03')).rejects.toMatchObject({ code: 'upstream' });
   });
 });
 
