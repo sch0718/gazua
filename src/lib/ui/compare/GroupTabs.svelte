@@ -17,19 +17,22 @@
   } = $props();
 </script>
 
-<div class="tabs" role="tablist" aria-label="관심 그룹">
-  {#each groups as g (g.id)}
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      class:on={g.id === currentId}
-      aria-selected={g.id === currentId}
-      onclick={() => onselect(g.id)}
-    >
-      {g.name}
-    </button>
-  {/each}
+<div class="tabs">
+  <!-- tablist의 자식은 tab뿐이어야 하므로(aria-required-children) 새 그룹·그룹 관리 버튼은 바깥에 둔다. -->
+  <div class="list" role="tablist" aria-label="관심 그룹">
+    {#each groups as g (g.id)}
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        class:on={g.id === currentId}
+        aria-selected={g.id === currentId}
+        onclick={() => onselect(g.id)}
+      >
+        {g.name}
+      </button>
+    {/each}
+  </div>
   <button type="button" class="tab add" aria-label="새 그룹" onclick={onadd}>＋</button>
   <button type="button" class="tab add" aria-label="그룹 관리" aria-haspopup="dialog" onclick={onmanage}>⋯</button>
 </div>
@@ -45,6 +48,10 @@
   }
   .tabs::-webkit-scrollbar {
     display: none;
+  }
+  .list {
+    display: flex;
+    gap: 2px;
   }
   .tab {
     font-size: 18px;

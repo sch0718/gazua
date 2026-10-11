@@ -25,7 +25,7 @@ describe('tokens.css', () => {
   it('uses the spec 8.2 palette values', () => {
     expect(light).toContain('--bg: #f6f7f9');
     expect(light).toContain('--accent: #5b47e0');
-    expect(light).toContain('--up: #e02e3c');
+    expect(light).toContain('--up: #d4202f'); // 스펙 8.2의 #e02e3c에서 AA 대비를 맞추려고 조정
     expect(darkSet).toContain('--bg: #0e0f11');
     expect(darkSet).toContain('--accent: #8b7bff');
     expect(darkSet).toContain('--down: #4c8dff');
@@ -43,6 +43,46 @@ describe('tokens.css', () => {
   });
 
   it('swaps up/down under .global-colors', () => {
-    expect(block(':root.global-colors')).toMatch(/--up: #0ca30c/);
+    expect(block(':root.global-colors')).toMatch(/--up: #0a7d0a/);
+  });
+
+  describe('text contrast (WCAG AA 4.5:1) on bg, surface and surface 2', () => {
+    const lum = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const token = (b: string, name: string) => b.match(new RegExp(`--${name}: (#[0-9a-f]{6})`))![1];
+
+    it.each([
+      ['light', light],
+      ['dark', darkSet],
+    ])('%s: --t2, --t3, --ok, --warn, --err', (_, b) => {
+      for (const bg of ['bg', 'surface', 'surface2']) {
+        for (const fg of ['t2', 't3', 'ok', 'warn', 'err']) {
+          expect(ratio(token(b, fg), token(b, bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it('light: kr --up and --down', () => {
+      for (const bg of ['bg', 'surface', 'surface2']) {
+        for (const fg of ['up', 'down']) {
+          expect(ratio(token(light, fg), token(light, bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+
+    it('global-colors up/down text stays readable in light mode', () => {
+      const g = block(':root.global-colors');
+      for (const bg of ['bg', 'surface', 'surface2']) {
+        for (const fg of ['up', 'down']) {
+          expect(ratio(token(g, fg), token(light, bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
   });
 });

@@ -11,16 +11,16 @@
   --line: #e3e5e9;
   --t1: #111317;
   --t2: #5b6069;
-  --t3: #8a9099;
+  --t3: #676d77; /* WCAG AA(4.5:1) 이상: 흰 표면·표면 2·배경 모두 */
   --accent: #5b47e0;
   --accent-soft: rgba(91, 71, 224, 0.1);
   --on-accent: #ffffff;
   --snack-action: #b9acff; /* 반전 배경(스낵바) 위의 강조색 */
-  --up: #e02e3c;
+  --up: #d4202f; /* 스펙 8.2의 #e02e3c는 표면 2(hover 행)에서 4.02:1이라 AA 미달 → 4.59:1로 조정 */
   --down: #1d5fd6;
-  --ok: #0ca30c;
-  --warn: #b77900;
-  --err: #d03b3b;
+  --ok: #0a7d0a;
+  --warn: #855600;
+  --err: #b82a2a;
   --band: rgba(17, 19, 23, 0.045);
   --hatch: rgba(17, 19, 23, 0.24);
   --grid: rgba(17, 19, 23, 0.07);
@@ -68,7 +68,7 @@
     --line: #2a2d33;
     --t1: #f2f3f5;
     --t2: #a4a8b0;
-    --t3: #6d727b;
+    --t3: #868b94;
     --accent: #8b7bff;
     --accent-soft: rgba(139, 123, 255, 0.14);
     --on-accent: #0e0f11;
@@ -102,7 +102,7 @@
   --line: #2a2d33;
   --t1: #f2f3f5;
   --t2: #a4a8b0;
-  --t3: #6d727b;
+  --t3: #868b94;
   --accent: #8b7bff;
   --accent-soft: rgba(139, 123, 255, 0.14);
   --on-accent: #0e0f11;
@@ -130,8 +130,8 @@
 /* 글로벌 색 관례: 초록▲ / 빨강▼. 클래스 이름(up/down)은 그대로 두고 색만 바꾼다.
    다크 값은 선택자 특이도를 맞추려고 아래에 따로 둔다. */
 :root.global-colors {
-  --up: #0ca30c;
-  --down: #d03b3b;
+  --up: #0a7d0a;
+  --down: #c42f2f;
 }
 @media (prefers-color-scheme: dark) {
   :root.global-colors:not([data-theme='light']) {

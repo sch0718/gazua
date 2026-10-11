@@ -73,7 +73,7 @@
   const LIGHT = {
     s: ['#eb6834', '#1baf7a', '#4a3aa7', '#eda100', '#e87ba4', '#008300', '#2a78d6', '#e34948'],
     t1: '#111317',
-    t3: '#8a9099',
+    t3: '#676d77',
     grid: 'rgba(17,19,23,.07)',
     band: 'rgba(17,19,23,.045)',
     hatch: 'rgba(17,19,23,.22)',
@@ -462,7 +462,8 @@
 </script>
 
 <div class="compare-chart">
-  <div class="plot" bind:this={plotEl} role="img" aria-label="종목 비교 차트">
+  <!-- role="img"는 자식을 장식으로 만들어, 차트 라이브러리가 넣는 TradingView 출처 링크(포커스 가능)와 충돌한다(axe nested-interactive). -->
+  <div class="plot" bind:this={plotEl} role="group" aria-label="종목 비교 차트">
     <div class="lwc" bind:this={canvasEl}></div>
     {#each shownLabels as l (l.id)}
       <span

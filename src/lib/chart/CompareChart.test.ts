@@ -55,3 +55,11 @@ describe('CompareChart crosshair during a rebuild', () => {
     expect(lwcCharts[0].series).toHaveLength(2);
   });
 });
+
+describe('CompareChart semantics', () => {
+  it('labels the plot as a group, not an image, so the library’s focusable attribution link stays valid', () => {
+    render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    expect(screen.getByRole('group', { name: '종목 비교 차트' })).toBeTruthy();
+    expect(screen.queryByRole('img', { name: '종목 비교 차트' })).toBeNull();
+  });
+});
