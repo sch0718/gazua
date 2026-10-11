@@ -69,8 +69,8 @@
     --t1: #f2f3f5;
     --t2: #a4a8b0;
     --t3: #868b94;
-    --accent: #8b7bff;
-    --accent-soft: rgba(139, 123, 255, 0.14);
+    --accent: #a093ff; /* 스펙 8.2의 #8b7bff는 hover 행 위 NXT 배지(accent-soft 위)에서 4.01:1 → AA */
+    --accent-soft: rgba(160, 147, 255, 0.14);
     --on-accent: #0e0f11;
     --snack-action: #5b47e0;
     --up: #ff5a5f;
@@ -103,8 +103,8 @@
   --t1: #f2f3f5;
   --t2: #a4a8b0;
   --t3: #868b94;
-  --accent: #8b7bff;
-  --accent-soft: rgba(139, 123, 255, 0.14);
+  --accent: #a093ff; /* 스펙 8.2의 #8b7bff는 hover 행 위 NXT 배지(accent-soft 위)에서 4.01:1 → AA */
+  --accent-soft: rgba(160, 147, 255, 0.14);
   --on-accent: #0e0f11;
   --snack-action: #5b47e0;
   --up: #ff5a5f;

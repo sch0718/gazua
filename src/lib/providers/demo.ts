@@ -1,6 +1,7 @@
 // 키가 없을 때와 E2E 테스트에서 쓰는 결정적 데모 공급자.
 // 같은 seed·같은 now이면 언제나 같은 데이터를 낸다(외부 입력·Math.random 없음).
 import type { Candle } from '../data/metrics';
+import type { UniverseItem } from '../data/universe';
 import { sessionsForDay, type TradingDay } from '../market/sessions';
 import { tradableIntervals, type TradableMeta, type Venue } from '../market/tradable';
 import { addDays, kstDate, kstEpoch, kstWeekday } from '../time/kst';
@@ -60,7 +61,8 @@ interface CloseSeries {
   closes: Map<string, number>;
 }
 
-function metaFor(symbol: string): StockMeta {
+/** `listed`는 종목 목록(universe.json)의 항목. KNOWN에 없는 종목의 이름·종류를 실제 값으로 채운다. */
+function metaFor(symbol: string, listed?: UniverseItem): StockMeta {
   const known = KNOWN[symbol];
   const common = { krxSuspended: false, nxtSuspended: null, liquidationTrading: false, market: 'KOSPI' as const };
   if (known) {
@@ -76,15 +78,20 @@ function metaFor(symbol: string): StockMeta {
   const h = hashString(symbol);
   return {
     symbol,
-    name: symbol,
-    securityType: 'STOCK',
+    name: listed?.n ?? symbol,
+    securityType: listed?.t ?? 'STOCK',
     nxtSupported: (h & 1) === 1,
     sharesOutstanding: 10_000_000 + (hashString(`shares|${symbol}`) % 990_000_000),
     ...common,
   };
 }
 
-export function createDemoProvider(opts: { seed: number; now: () => number }): MarketDataProvider {
+export function createDemoProvider(opts: {
+  seed: number;
+  now: () => number;
+  /** 종목 목록. 없거나 못 받으면 KNOWN에 없는 종목은 코드를 이름으로 쓴다(테스트는 오프라인으로 돌린다). */
+  universe?: () => Promise<UniverseItem[]>;
+}): MarketDataProvider {
   const { seed, now } = opts;
   const rngFor = (...parts: Array<string | number>) => mulberry32(hashString([seed, ...parts].join('|')));
   const roundTo = (inst: Instrument, x: number) => (inst.decimals === 0 ? Math.round(x) : Math.round(x * 100) / 100);
@@ -282,7 +289,15 @@ export function createDemoProvider(opts: { seed: number; now: () => number }): M
       indexMinutePastDays: true,
     },
     async getStockMeta(symbols) {
-      return symbols.map(metaFor);
+      const listed = new Map<string, UniverseItem>();
+      if (opts.universe && symbols.some((s) => !KNOWN[s])) {
+        try {
+          for (const u of await opts.universe()) listed.set(u.s, u);
+        } catch {
+          // 목록을 못 받으면 코드를 이름으로 쓴다.
+        }
+      }
+      return symbols.map((s) => metaFor(s, listed.get(s)));
     },
     async getCandles(q: CandleQuery) {
       return candlesFor(stockInstrument(q.symbol), q.venue, q.interval, q.from, q.to);

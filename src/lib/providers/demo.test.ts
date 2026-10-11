@@ -35,6 +35,39 @@ describe('demo provider', () => {
     }
   });
 
+  it('names stocks outside KNOWN from the universe (name and security type), keeping KNOWN entries as they are', async () => {
+    const universe = async () => [
+      { s: '009150', n: '삼성전기', m: 'KOSPI', t: 'STOCK' as const },
+      { s: '069660', n: 'KODEX 레버리지', m: 'KOSPI', t: 'ETF' as const },
+      { s: '005930', n: '다른 이름', m: 'KOSPI', t: 'ETF' as const },
+    ];
+    const p = createDemoProvider({ seed: 1, now: () => SUN, universe });
+    const byId = Object.fromEntries((await p.getStockMeta(['005930', '009150', '069660', '123456'])).map((m) => [m.symbol, m]));
+    expect(byId['009150']).toMatchObject({ name: '삼성전기', securityType: 'STOCK' });
+    expect(byId['069660']).toMatchObject({ name: 'KODEX 레버리지', securityType: 'ETF' });
+    expect(byId['005930']).toMatchObject({ name: '삼성전자', securityType: 'STOCK' });
+    expect(byId['123456']).toMatchObject({ name: '123456', securityType: 'STOCK' });
+    // 같은 코드의 나머지 값은 목록 유무와 상관없이 같다(결정적).
+    const [plain] = await make().getStockMeta(['009150']);
+    expect({ ...plain, name: '삼성전기' }).toEqual(byId['009150']);
+  });
+
+  it('falls back to the code when the universe cannot be loaded, and skips loading when every symbol is KNOWN', async () => {
+    let calls = 0;
+    const failing = createDemoProvider({
+      seed: 1,
+      now: () => SUN,
+      universe: async () => {
+        calls++;
+        throw new Error('offline');
+      },
+    });
+    expect((await failing.getStockMeta(['009150']))[0].name).toBe('009150');
+    expect(calls).toBe(1);
+    await failing.getStockMeta(['005930', '000660']);
+    expect(calls).toBe(1);
+  });
+
   it('gives every meta a positive integer sharesOutstanding, deterministically', async () => {
     const p = make();
     const symbols = ['005930', '000660', '042700', '000990', '069500', '123456', '654321', 'ABC'];

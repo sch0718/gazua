@@ -1,6 +1,7 @@
 import { createRequestQueue } from '../data/requestQueue';
 import type { Settings } from '../state/schema';
 import type { Secrets } from '../state/secrets';
+import { sharedUniverse } from '../../sheets/universeSource';
 import { createDemoProvider } from './demo';
 import { createProxyClient } from './http';
 import { createKisProvider } from './kis';
@@ -26,7 +27,7 @@ export function createProvider(
   deps: ProviderFactoryDeps,
 ): MarketDataProvider {
   const { now, fetchImpl } = deps;
-  const demo = () => createDemoProvider({ seed: 1, now });
+  const demo = () => createDemoProvider({ seed: 1, now, universe: sharedUniverse });
   if (s.provider === 'demo' || s.proxyUrl.trim() === '' || !secrets) return demo();
 
   const client = () => createProxyClient({ baseUrl: s.proxyUrl.trim(), proxyToken: secrets.proxyToken, fetchImpl });
