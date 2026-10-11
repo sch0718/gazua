@@ -1,0 +1,152 @@
+import { describe, expect, it } from 'vitest';
+import { createSafeStorage } from './storage';
+import { DEFAULT_SETTINGS, loadMeta } from './schema';
+
+function makeBacking(): Storage & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return {
+    data,
+    get length() {
+      return data.size;
+    },
+    clear: () => data.clear(),
+    getItem: (k: string) => (data.has(k) ? data.get(k)! : null),
+    key: (i: number) => [...data.keys()][i] ?? null,
+    removeItem: (k: string) => void data.delete(k),
+    setItem: (k: string, v: string) => void data.set(k, String(v)),
+  };
+}
+
+describe('createSafeStorage', () => {
+  it('prefixes keys with gazua:v1: and round-trips JSON', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    st.set('p:p1:settings', { a: 1 });
+    expect(backing.getItem('gazua:v1:p:p1:settings')).toBe('{"a":1}');
+    expect(st.get('p:p1:settings', null)).toEqual({ a: 1 });
+    expect(st.persistent).toBe(true);
+    expect(st.issues).toEqual([]);
+  });
+
+  it('returns the fallback for missing keys', () => {
+    const st = createSafeStorage(makeBacking());
+    expect(st.get('nope', 42)).toBe(42);
+  });
+
+  it('remove deletes the stored value', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    st.set('x', 1);
+    st.remove('x');
+    expect(backing.getItem('gazua:v1:x')).toBeNull();
+    expect(st.get('x', 0)).toBe(0);
+  });
+
+  it('memory fallback when setItem throws', () => {
+    const st = createSafeStorage({
+      ...makeBacking(),
+      setItem: () => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      },
+    } as Storage);
+    st.set('x', 1);
+    expect(st.get('x', 0)).toBe(1);
+    expect(st.persistent).toBe(false);
+    expect(st.issues).toContainEqual({ key: 'x', kind: 'write-failed' });
+  });
+
+  it('keeps reading earlier persisted values after falling back to memory', () => {
+    const backing = makeBacking();
+    backing.setItem('gazua:v1:old', '7');
+    let fail = false;
+    const st = createSafeStorage({
+      ...backing,
+      getItem: (k: string) => backing.getItem(k),
+      setItem: (k: string, v: string) => {
+        if (fail) throw new DOMException('quota', 'QuotaExceededError');
+        backing.setItem(k, v);
+      },
+    } as Storage);
+    fail = true;
+    st.set('new', 1);
+    expect(st.get('old', 0)).toBe(7);
+    expect(st.get('new', 0)).toBe(1);
+  });
+
+  it('remove stays effective when the backing removeItem throws', () => {
+    const backing = makeBacking();
+    backing.setItem('gazua:v1:x', '1');
+    const st = createSafeStorage({
+      ...backing,
+      getItem: (k: string) => backing.getItem(k),
+      removeItem: () => {
+        throw new Error('nope');
+      },
+    } as Storage);
+    st.remove('x');
+    expect(st.get('x', 0)).toBe(0);
+  });
+
+  it('null backing starts in memory mode', () => {
+    const st = createSafeStorage(null);
+    expect(st.persistent).toBe(false);
+    st.set('a', { b: 2 });
+    expect(st.get('a', null)).toEqual({ b: 2 });
+    st.remove('a');
+    expect(st.get('a', 'gone')).toBe('gone');
+    expect(st.issues).toEqual([]);
+  });
+
+  it('corrupted JSON falls back to defaults and reports', () => {
+    const backing = makeBacking();
+    backing.setItem('gazua:v1:p:p1:settings', '{oops');
+    const st = createSafeStorage(backing);
+    expect(st.get('p:p1:settings', DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
+    expect(st.issues).toContainEqual({ key: 'p:p1:settings', kind: 'corrupt' });
+  });
+
+  it('reports a corrupt key only once', () => {
+    const backing = makeBacking();
+    backing.setItem('gazua:v1:k', '{oops');
+    const st = createSafeStorage(backing);
+    st.get('k', 0);
+    st.get('k', 0);
+    expect(st.issues).toEqual([{ key: 'k', kind: 'corrupt' }]);
+  });
+});
+
+describe('loadMeta', () => {
+  it('creates default profile on first run', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    const meta = loadMeta(st);
+    expect(meta.schemaVersion).toBe(1);
+    expect(meta.profiles[0].name).toBe('내 프로필');
+    expect(meta.activeProfileId).toBe(meta.profiles[0].id);
+    expect(backing.getItem('gazua:v1:meta')).not.toBeNull();
+    expect(loadMeta(st)).toEqual(meta);
+  });
+
+  it('replaces structurally invalid stored meta with a default profile', () => {
+    const backing = makeBacking();
+    backing.setItem('gazua:v1:meta', '{"schemaVersion":1,"activeProfileId":"zz","profiles":[]}');
+    const meta = loadMeta(createSafeStorage(backing));
+    expect(meta.profiles).toHaveLength(1);
+    expect(meta.activeProfileId).toBe(meta.profiles[0].id);
+  });
+});
+
+describe('DEFAULT_SETTINGS', () => {
+  it('has the specified defaults', () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      provider: 'demo',
+      venueMode: 'AUTO',
+      period: { unit: 'D', n: 1 },
+      metric: 'change',
+      theme: 'system',
+      colorConvention: 'kr',
+      keyLock: false,
+      onboarded: false,
+    });
+  });
+});
