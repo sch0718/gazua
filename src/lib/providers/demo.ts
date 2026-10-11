@@ -12,12 +12,12 @@ const HOLIDAYS = new Set(['2026-09-24', '2026-09-25', '2026-10-09']);
 const ANCHOR = '2025-01-01';
 const PREV_CLOSE_LOOKBACK_DAYS = 15;
 
-const KNOWN: Record<string, { name: string; securityType: StockMeta['securityType']; nxt: boolean; base: number }> = {
-  '005930': { name: '삼성전자', securityType: 'STOCK', nxt: true, base: 72_000 },
-  '000660': { name: 'SK하이닉스', securityType: 'STOCK', nxt: true, base: 195_000 },
-  '042700': { name: '한미반도체', securityType: 'STOCK', nxt: false, base: 120_000 },
-  '000990': { name: 'DB하이텍', securityType: 'STOCK', nxt: true, base: 48_000 },
-  '069500': { name: 'KODEX 200', securityType: 'ETF', nxt: false, base: 36_000 },
+const KNOWN: Record<string, { name: string; securityType: StockMeta['securityType']; nxt: boolean; base: number; shares: number }> = {
+  '005930': { name: '삼성전자', securityType: 'STOCK', nxt: true, base: 72_000, shares: 5919637922 },
+  '000660': { name: 'SK하이닉스', securityType: 'STOCK', nxt: true, base: 195_000, shares: 728002365 },
+  '042700': { name: '한미반도체', securityType: 'STOCK', nxt: false, base: 120_000, shares: 97100000 },
+  '000990': { name: 'DB하이텍', securityType: 'STOCK', nxt: true, base: 48_000, shares: 44400000 },
+  '069500': { name: 'KODEX 200', securityType: 'ETF', nxt: false, base: 36_000, shares: 100000000 },
 };
 
 const INDEX_BASE = { KOSPI: 2_650, KOSDAQ: 850 } as const;
@@ -64,9 +64,24 @@ function metaFor(symbol: string): StockMeta {
   const known = KNOWN[symbol];
   const common = { krxSuspended: false, nxtSuspended: null, liquidationTrading: false, market: 'KOSPI' as const };
   if (known) {
-    return { symbol, name: known.name, securityType: known.securityType, nxtSupported: known.nxt, ...common };
+    return {
+      symbol,
+      name: known.name,
+      securityType: known.securityType,
+      nxtSupported: known.nxt,
+      sharesOutstanding: known.shares,
+      ...common,
+    };
   }
-  return { symbol, name: symbol, securityType: 'STOCK', nxtSupported: (hashString(symbol) & 1) === 1, ...common };
+  const h = hashString(symbol);
+  return {
+    symbol,
+    name: symbol,
+    securityType: 'STOCK',
+    nxtSupported: (h & 1) === 1,
+    sharesOutstanding: 10_000_000 + (hashString(`shares|${symbol}`) % 990_000_000),
+    ...common,
+  };
 }
 
 export function createDemoProvider(opts: { seed: number; now: () => number }): MarketDataProvider {

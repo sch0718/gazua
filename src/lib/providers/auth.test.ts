@@ -125,4 +125,23 @@ describe('createTokenManager', () => {
     expect(await mgr.get()).toBe('fresh');
     expect(store.saved.map((t) => t.accessToken)).toEqual(['fresh']);
   });
+
+  it('still returns the token when store.save throws, and re-issues after expiry', async () => {
+    let now = 0;
+    let n = 0;
+    const issue = vi.fn(async () => ({ accessToken: `tok${++n}`, expiresAt: now + 100_000 }));
+    const store: TokenStore = {
+      load: () => null,
+      save: () => {
+        throw new Error('quota');
+      },
+    };
+    const mgr = createTokenManager(issue, store, () => now);
+    expect(await mgr.get()).toBe('tok1');
+    expect(await mgr.get()).toBe('tok1');
+    expect(issue).toHaveBeenCalledTimes(1);
+    now = 50_000; // 50_000ms left (< 60s)
+    expect(await mgr.get()).toBe('tok2');
+    expect(issue).toHaveBeenCalledTimes(2);
+  });
 });

@@ -35,6 +35,17 @@ describe('demo provider', () => {
     }
   });
 
+  it('gives every meta a positive integer sharesOutstanding, deterministically', async () => {
+    const p = make();
+    const symbols = ['005930', '000660', '042700', '000990', '069500', '123456', '654321', 'ABC'];
+    const metas = await p.getStockMeta(symbols);
+    for (const m of metas) {
+      expect(Number.isInteger(m.sharesOutstanding) && m.sharesOutstanding! > 0).toBe(true);
+    }
+    expect(metas[0].sharesOutstanding).toBe(5919637922);
+    expect(await make(SUN, 2).getStockMeta(symbols)).toEqual(metas);
+  });
+
   it('closes weekends and demo holidays', async () => {
     const days = await make().getTradingDays('2026-09-23', '2026-10-11');
     const open = Object.fromEntries(days.map((d) => [d.date, d.isOpen]));

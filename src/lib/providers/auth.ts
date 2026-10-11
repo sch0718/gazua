@@ -28,7 +28,11 @@ export function createTokenManager(
       (token) => {
         if (mine === generation) {
           current = token;
-          store.save(token);
+          try {
+            store.save(token);
+          } catch {
+            // 저장 실패(용량 초과·시크릿 모드 등)가 유효한 토큰을 버리게 하지 않는다.
+          }
         }
         if (inflight === p) inflight = null;
         return token;
