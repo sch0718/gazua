@@ -1131,16 +1131,18 @@ async function runDemo(){
   closeSheet(); $('#dockPanel').hidden=true; state=initialState(); state.theme=theme; state.conv=conv; render(); scrollTo({top:0,behavior:'smooth'});
   $('#playBtn').textContent='■ 데모 정지'; $('#playBtn').classList.add('stop');
   finger.classList.add('show'); placeFinger(innerWidth/2, innerHeight*0.6);
-  try{ for(const [text,fn] of SCRIPT){ if(my!==demo.token) break; caption(text); await fn(); await w(300); } }
+  let completed=false;
+  try{ for(const [text,fn] of SCRIPT){ if(my!==demo.token) break; caption(text); await fn(); await w(300); } completed = my===demo.token; }
   catch(err){ if(err.message!=='stopped') console.warn(err); }
   finally{ if(my===demo.token) stopDemo(); }
+  if(completed && window.GAZUA_MOTION) setTimeout(()=>{ if(!demo.running) runDemo(); }, 2500); // 모션 모드: 끝까지 재생되면 반복
 }
 function stopDemo(){ demo.running=false; demo.token++; finger.classList.remove('show','press','hold','drag'); cap.hidden=true; $('#playBtn').textContent='▶ 데모 재생'; $('#playBtn').classList.remove('stop'); clearScrub(); }
 $('#playBtn').addEventListener('click', ()=> demo.running ? stopDemo() : runDemo());
 window.addEventListener('pointerdown', e=>{ if(demo.running && e.isTrusted && !e.target.closest('[data-demo-ctl]')){ stopDemo(); snack('데모를 멈췄어요. 직접 조작해 보세요'); } }, true);
 
 render();
-if(new URLSearchParams(location.search).has('demo')) setTimeout(runDemo, 600);
+if(window.GAZUA_MOTION || new URLSearchParams(location.search).has('demo')) setTimeout(runDemo, 600);
 </script>
 </body>
 </html>
