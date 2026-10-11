@@ -57,6 +57,17 @@ describe('DataTools', () => {
     expect(await screen.findByText("'내 프로필 (가져옴)' 프로필을 만들었어요")).toBeTruthy();
   });
 
+  it('refuses files over 1 MB without reading them', async () => {
+    const { app } = await setup();
+    const big = new File(['x'], 'big.json', { type: 'application/json' });
+    Object.defineProperty(big, 'size', { value: 1024 * 1024 + 1 });
+    const text = vi.spyOn(big, 'text');
+    await fireEvent.change(screen.getByLabelText('가져올 파일'), { target: { files: [big] } });
+    expect(await screen.findByText('파일이 너무 커요')).toBeTruthy();
+    expect(text).not.toHaveBeenCalled();
+    expect(app.meta.profiles).toHaveLength(1);
+  });
+
   it('shows cache usage in MB and clears the cache', async () => {
     const { app, estimate } = await setup();
     expect(await screen.findByText('1.5 MB')).toBeTruthy();

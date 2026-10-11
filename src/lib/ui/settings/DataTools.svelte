@@ -20,6 +20,8 @@
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 8);
+  /** 내보낸 파일은 수십 KB다. 그보다 훨씬 큰 파일은 읽지 않는다. */
+  const MAX_IMPORT_BYTES = 1024 * 1024;
   let includeSecrets = $state(false);
   let usage = $state<number | null>(null);
   let clearing = $state(false);
@@ -62,6 +64,10 @@
     const file = input.files?.[0];
     input.value = '';
     if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) {
+      showSnackbar('파일이 너무 커요');
+      return;
+    }
     let text: string;
     try {
       text = await file.text();

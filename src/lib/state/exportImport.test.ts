@@ -159,6 +159,44 @@ describe('importData', () => {
   });
 });
 
+describe('importData — hardening', () => {
+  const file = (extra: Record<string, unknown>) =>
+    JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: {}, watchlists: LISTS, ...extra });
+
+  it('normalises the proxy URL and drops an unusable one', () => {
+    const { st } = source();
+    const a = importData(st, file({ settings: { proxyUrl: ' https://p.example.net/ ' } }));
+    expect(a.ok && loadSettings(st, a.profileId).proxyUrl).toBe('https://p.example.net');
+    const b = importData(st, file({ settings: { proxyUrl: 'javascript:alert(1)' } }));
+    expect(b.ok && loadSettings(st, b.profileId).proxyUrl).toBe('');
+  });
+
+  it('copies only the known fields of a locked blob', async () => {
+    const { st } = source();
+    const locked = await lockSecrets(SECRETS, 'pass1234');
+    const res = importData(st, file({ secrets: { ...locked, extra: 'x'.repeat(10) } }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(st.get(profileKeys.secrets(res.profileId), null)).toEqual(locked);
+  });
+
+  it('caps the profile name at 30 characters', () => {
+    const { st } = source();
+    const res = importData(st, file({ profile: { name: '가'.repeat(50) } }));
+    const meta = st.get<Meta>(META_KEY, META);
+    expect(res.ok && meta.profiles.at(-1)!.name).toBe(`${'가'.repeat(30)} (가져옴)`);
+  });
+
+  it('rejects duplicate symbols or colour slots within a group', () => {
+    const { st } = source();
+    const item = (symbol: string, colorSlot: number) => ({ symbol, colorSlot, hidden: false, addedAt: 1 });
+    const dupSymbol = { groups: [{ id: 'g', name: 'n', items: [item('005930', 1), item('005930', 2)] }] };
+    const dupSlot = { groups: [{ id: 'g', name: 'n', items: [item('005930', 1), item('000660', 1)] }] };
+    expect(importData(st, file({ watchlists: dupSymbol }))).toEqual({ ok: false, reason: '파일 형식이 맞지 않아요' });
+    expect(importData(st, file({ watchlists: dupSlot }))).toEqual({ ok: false, reason: '파일 형식이 맞지 않아요' });
+  });
+});
+
 describe('exportFileName', () => {
   it('uses the profile name and the KST date, replacing characters files cannot have', () => {
     expect(exportFileName('내 프로필', kstEpoch('2026-10-12', '23:30:00'))).toBe('gazua-내 프로필-2026-10-12.json');

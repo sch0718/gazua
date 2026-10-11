@@ -87,7 +87,9 @@
   {:else if route.name === 'unlock'}
     <Unlock {app} />
   {:else if route.name === 'onboarding'}
-    <Onboarding {app} />
+    {#key app.meta.activeProfileId}
+      <Onboarding {app} />
+    {/key}
   {:else if route.name === 'compare'}
     <Compare {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />
   {:else}

@@ -178,6 +178,36 @@ describe('runDiagnostics', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it('hands the issued token to onToken only after all four steps succeed', async () => {
+    const got: unknown[] = [];
+    const ok = fakeFetch({ token: () => json(tossToken), price: () => json(tossPrices) });
+    await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: ok, origin: ORIGIN, onStep: () => {}, now: () => 1000, onToken: (t) => got.push(t) });
+    expect(got).toEqual([{ accessToken: 'test-access-token', expiresAt: 1000 + 86400 * 1000 }]);
+
+    const failing = fakeFetch({ token: () => json(tossToken), price: () => json({ result: [] }) });
+    await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: failing, origin: ORIGIN, onStep: () => {}, onToken: (t) => got.push(t) });
+    expect(got).toHaveLength(1);
+  });
+
+  it('KIS token expiry comes from access_token_token_expired', async () => {
+    const got: unknown[] = [];
+    const f = fakeFetch({ token: () => json(kisToken), price: () => json(kisPrice) });
+    await runDiagnostics({ proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: ORIGIN, onStep: () => {}, onToken: (t) => got.push(t) });
+    expect(got).toHaveLength(1);
+    expect((got[0] as { accessToken: string }).accessToken).toBe('test-access-token');
+  });
+
+  it('says 현재 주소 when the origin is unknown', async () => {
+    const f = fakeFetch({
+      health: () => {
+        throw new TypeError('Failed to fetch');
+      },
+    });
+    const steps = await runDiagnostics({ proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: '', onStep: () => {} });
+    expect(steps[1].hint).toBe('프록시 ALLOWED_ORIGINS에 현재 주소를 넣어 주세요');
+    expect(steps[1].copy).toBeUndefined();
+  });
+
   it('never puts keys, secrets or tokens into the steps', async () => {
     const outputs: string[] = [];
     for (const token of [

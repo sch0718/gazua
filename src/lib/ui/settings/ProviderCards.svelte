@@ -97,11 +97,12 @@
       <span class="body">
         <b id="{uid}-{c.id}-name">{c.name}</b>
         {#if c.badge}<span class="badge">{c.badge}</span>{/if}
-        <ul id="{uid}-{c.id}-lines">
+        <!-- 버튼 안에는 구조 요소(ul·li)를 둘 수 없어 span으로 줄을 만든다. -->
+        <span class="lines" id="{uid}-{c.id}-lines">
           {#each c.lines as l (l.text)}
-            <li class:y={l.ok} class:n={!l.ok}><span aria-hidden="true">{l.ok ? '✓' : '–'}</span> {l.text}</li>
+            <span class="line" class:y={l.ok} class:n={!l.ok}><span class="mark" aria-hidden="true">{l.ok ? '✓' : '–'}</span> {l.text}</span>
           {/each}
-        </ul>
+        </span>
       </span>
     </button>
   {/each}
@@ -153,19 +154,23 @@
     background: var(--accent-soft);
     vertical-align: 2px;
   }
-  ul {
-    list-style: none;
+  .body,
+  .lines,
+  .line {
+    display: block;
+  }
+  .lines {
     font-size: 12.5px;
     color: var(--t2);
     margin-top: 4px;
   }
-  li span {
+  .mark {
     font-weight: 700;
   }
-  li.y span {
+  .y .mark {
     color: var(--ok);
   }
-  li.n span {
+  .n .mark {
     color: var(--t3);
   }
 </style>

@@ -41,66 +41,69 @@
   {/snippet}
 
   {#snippet main()}
-    <div class="settings">
-      <div class="note">
-        <b>프로필은 편의 기능이지 보안 경계가 아니에요</b>
-        <span>키와 설정은 이 브라우저에만 저장돼요. 같은 브라우저를 쓰는 사람은 저장된 키를 볼 수 있으니, 키는 암호로 잠가 두세요.</span>
-      </div>
-
-      <section aria-labelledby="set-provider">
-        <h2 id="set-provider">데이터 공급자</h2>
-        <ProviderCards value={app.settings.provider} onchange={(provider) => app.updateSettings({ provider })} />
-      </section>
-
-      <section aria-labelledby="set-connection">
-        <h2 id="set-connection">연결</h2>
-        <ConnectionForm {app} />
-      </section>
-
-      <section aria-labelledby="set-diag">
-        <h2 id="set-diag">연결 진단</h2>
-        <Diagnostics {app} />
-      </section>
-
-      <section aria-labelledby="set-lock">
-        <h2 id="set-lock">키 보호</h2>
-        <KeyLock {app} />
-      </section>
-
-      <section aria-labelledby="set-display">
-        <h2 id="set-display">표시</h2>
-        <div class="card">
-          <div class="row">
-            <span>테마</span>
-            <Segmented
-              label="테마"
-              options={THEMES}
-              value={app.settings.theme}
-              onchange={(v) => app.updateSettings({ theme: v as Settings['theme'] })}
-            />
-          </div>
-          <div class="row">
-            <span>상승·하락 색</span>
-            <Segmented
-              label="상승·하락 색"
-              options={COLORS}
-              value={app.settings.colorConvention}
-              onchange={(v) => app.updateSettings({ colorConvention: v as Settings['colorConvention'] })}
-            />
-          </div>
+    <!-- 프로필이 바뀌면 입력 중인 값·진단 결과·닫은 권장 배너를 모두 새로 시작한다(다른 프로필에 저장되지 않게). -->
+    {#key app.meta.activeProfileId}
+      <div class="settings">
+        <div class="note">
+          <b>프로필은 편의 기능이지 보안 경계가 아니에요</b>
+          <span>키와 설정은 이 브라우저에만 저장돼요. 같은 브라우저를 쓰는 사람은 저장된 키를 볼 수 있으니, 키는 암호로 잠가 두세요.</span>
         </div>
-      </section>
 
-      <section aria-labelledby="set-data">
-        <h2 id="set-data">데이터</h2>
-        <DataTools {app} />
-      </section>
+        <section aria-labelledby="set-provider">
+          <h2 id="set-provider">데이터 공급자</h2>
+          <ProviderCards value={app.settings.provider} onchange={(provider) => app.updateSettings({ provider })} />
+        </section>
 
-      <section aria-labelledby="set-profiles">
-        <h2 id="set-profiles">프로필</h2>
-        <Profiles {app} />
-      </section>
-    </div>
+        <section aria-labelledby="set-connection">
+          <h2 id="set-connection">연결</h2>
+          <ConnectionForm {app} />
+        </section>
+
+        <section aria-labelledby="set-diag">
+          <h2 id="set-diag">연결 진단</h2>
+          <Diagnostics {app} />
+        </section>
+
+        <section aria-labelledby="set-lock">
+          <h2 id="set-lock">키 보호</h2>
+          <KeyLock {app} />
+        </section>
+
+        <section aria-labelledby="set-display">
+          <h2 id="set-display">표시</h2>
+          <div class="card">
+            <div class="row">
+              <span>테마</span>
+              <Segmented
+                label="테마"
+                options={THEMES}
+                value={app.settings.theme}
+                onchange={(v) => app.updateSettings({ theme: v as Settings['theme'] })}
+              />
+            </div>
+            <div class="row">
+              <span>상승·하락 색</span>
+              <Segmented
+                label="상승·하락 색"
+                options={COLORS}
+                value={app.settings.colorConvention}
+                onchange={(v) => app.updateSettings({ colorConvention: v as Settings['colorConvention'] })}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="set-data">
+          <h2 id="set-data">데이터</h2>
+          <DataTools {app} />
+        </section>
+
+        <section aria-labelledby="set-profiles">
+          <h2 id="set-profiles">프로필</h2>
+          <Profiles {app} />
+        </section>
+      </div>
+    {/key}
   {/snippet}
 </Layout>
 

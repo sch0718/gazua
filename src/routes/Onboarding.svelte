@@ -1,7 +1,7 @@
 <script lang="ts">
   // 첫 실행 온보딩(스펙 7.5, 목업 ⑥): ① 환영 → ② 공급자 → ③ 프록시 → ④ 키 → ⑤ 진단.
   // 어느 단계에서든 `데모로 둘러보기`로 빠져나가면 데모 모드로 들어가고 상단에 데모 배너가 뜬다.
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { App } from '../lib/state/app.svelte';
   import { createGroup, addItem } from '../lib/state/watchlist';
   import type { Group } from '../lib/state/schema';
@@ -29,6 +29,16 @@
   let diagnosed = $state(false);
 
   const provider = $derived(app.settings.provider);
+
+  // 단계가 바뀌면 새 단계의 제목으로 포커스를 옮긴다(스크린리더가 새 내용을 읽도록). 처음 열 때는 옮기지 않는다.
+  let heading = $state<HTMLElement>();
+  let shownStep = untrack(() => step);
+  $effect(() => {
+    const current = step;
+    if (current === shownStep) return;
+    shownStep = current;
+    void tick().then(() => heading?.focus());
+  });
 
   function go(n: number) {
     step = Math.min(STEPS, Math.max(1, n));
@@ -108,14 +118,14 @@
 
   <section class="body">
     {#if step === 1}
-      <h1 class="page-title">가즈아</h1>
+      <h1 class="page-title" tabindex="-1" bind:this={heading}>가즈아</h1>
       <p class="sub">관심 종목을 한 차트에 겹쳐 놓고, 어느 종목이 더 올랐는지 한눈에 비교해요.</p>
       <div class="actions">
         <button type="button" class="primary" onclick={() => go(2)}>내 API로 시작</button>
         <button type="button" class="ghost" onclick={demo}>데모로 둘러보기</button>
       </div>
     {:else if step === 2}
-      <h1 class="page-title">어디서 시세를<br />가져올까요?</h1>
+      <h1 class="page-title" tabindex="-1" bind:this={heading}>어디서 시세를<br />가져올까요?</h1>
       <p class="sub">키와 설정은 이 브라우저에만 저장돼요. 서버로 보내지 않아요.</p>
       <ProviderCards variant="onboarding" value={choice} onchange={(v) => (choice = v)} />
       <div class="actions">
@@ -124,7 +134,7 @@
         </button>
       </div>
     {:else if step === 3}
-      <h1 class="page-title">프록시 주소를<br />알려 주세요</h1>
+      <h1 class="page-title" tabindex="-1" bind:this={heading}>프록시 주소를<br />알려 주세요</h1>
       <p class="sub">
         {#if provider === 'toss'}
           토스증권은 허용한 IP에서만 호출돼요. 집 PC·NAS처럼 고정 IP가 있는 곳에 프록시를 띄워 주세요.
@@ -135,7 +145,7 @@
       <a class="guide" href={README} target="_blank" rel="noopener noreferrer">배포 방법 보기</a>
       <ConnectionForm {app} section="proxy" submitLabel="다음 — 키 입력" onsaved={() => go(4)} />
     {:else if step === 4}
-      <h1 class="page-title">키를 넣어 주세요</h1>
+      <h1 class="page-title" tabindex="-1" bind:this={heading}>키를 넣어 주세요</h1>
       {#if lockPrompt}
         <p class="sub">키를 저장했어요. 토스 키로는 주문도 할 수 있으니 암호로 잠가 두면 안전해요.</p>
         <KeyLock {app} />
@@ -157,7 +167,7 @@
         <ConnectionForm {app} section="keys" submitLabel="다음 — 연결 진단" onsaved={keysSaved} />
       {/if}
     {:else}
-      <h1 class="page-title">연결을 확인할게요</h1>
+      <h1 class="page-title" tabindex="-1" bind:this={heading}>연결을 확인할게요</h1>
       <p class="sub">프록시 → CORS → 토큰 → 시세 순서로 확인해요. 막히면 무엇을 고치면 되는지 알려 드려요.</p>
       <Diagnostics {app} {fetchImpl} onsuccess={() => (diagnosed = true)} />
       {#if diagnosed}
@@ -217,6 +227,9 @@
     flex-direction: column;
     gap: 12px;
     padding: 0 20px;
+  }
+  .page-title:focus {
+    outline: none;
   }
   .page-title {
     font-size: 26px;

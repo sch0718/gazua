@@ -519,3 +519,73 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(app.importData('{')).toEqual({ ok: false, reason: '파일 형식이 맞지 않아요' });
   });
 });
+
+describe('createApp — adoptToken', () => {
+  const ADOPTED = { accessToken: 'adopted-token', expiresAt: NOW + 6 * 60 * 60 * 1000 };
+  const tokenPosts = (f: ReturnType<typeof fakeKisFetch>) =>
+    f.mock.calls.filter(([u]) => String(u).includes('/oauth2/tokenP')).length;
+  const authOf = (f: ReturnType<typeof fakeKisFetch>) =>
+    new Headers((f.mock.calls.at(-1) as unknown as [unknown, RequestInit])[1].headers).get('authorization');
+
+  function plainBacking() {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:secrets', SECRETS);
+    return backing;
+  }
+
+  it('plain mode: the next provider call uses the adopted token without POSTing the token endpoint', async () => {
+    const backing = plainBacking();
+    const fetchImpl = fakeKisFetch();
+    const app = make(backing, { fetchImpl });
+    app.adoptToken('kis', ADOPTED);
+    await app.provider.getQuotes(['005930'], 'KRX');
+    expect(tokenPosts(fetchImpl)).toBe(0);
+    expect(authOf(fetchImpl)).toBe('Bearer adopted-token');
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:token:kis')!)).toEqual(ADOPTED);
+  });
+
+  it('works even after the current provider already loaded its (empty) token store', async () => {
+    const fetchImpl = fakeKisFetch();
+    const app = make(plainBacking(), { fetchImpl });
+    await app.provider.getQuotes(['005930'], 'KRX');
+    expect(tokenPosts(fetchImpl)).toBe(1);
+    app.adoptToken('kis', ADOPTED);
+    await app.provider.getQuotes(['005930'], 'KRX');
+    expect(tokenPosts(fetchImpl)).toBe(1);
+    expect(authOf(fetchImpl)).toBe('Bearer adopted-token');
+  });
+
+  it('lock mode keeps the adopted token in memory only', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const fetchImpl = fakeKisFetch();
+    const app = make(backing, { fetchImpl });
+    await app.unlock('correct horse');
+    app.adoptToken('kis', ADOPTED);
+    await app.provider.getQuotes(['005930'], 'KRX');
+    expect(tokenPosts(fetchImpl)).toBe(0);
+    expect(backing.dump()).not.toContain(':token:');
+    expect(backing.dump()).not.toContain('adopted-token');
+  });
+
+  it('ignores a token for a provider that is not the current one', async () => {
+    const backing = plainBacking();
+    const fetchImpl = fakeKisFetch();
+    const app = make(backing, { fetchImpl });
+    const before = app.provider;
+    app.adoptToken('toss', ADOPTED);
+    expect(app.provider).toBe(before);
+    expect(backing.dump()).not.toContain(':token:');
+
+    const demo = memoryBacking();
+    seed(demo, 'meta', META_ONE);
+    seed(demo, 'p:p1:settings', { onboarded: true, provider: 'kis' });
+    const noKeys = make(demo);
+    noKeys.adoptToken('kis', ADOPTED);
+    expect(demo.dump()).not.toContain(':token:');
+  });
+});

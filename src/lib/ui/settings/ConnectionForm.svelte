@@ -34,6 +34,21 @@
   let passphrase = $state('');
   let editing = $state<Record<string, boolean>>({});
   let error = $state<string | null>(null);
+  /** 오류가 가리키는 칸(aria-invalid). */
+  let errorField = $state<'url' | 'keys' | 'pass' | null>(null);
+  const errorId = `${uid}-error`;
+
+  function fail(field: 'url' | 'keys' | 'pass' | null, message: string) {
+    errorField = field;
+    error = message;
+  }
+
+  /** 오류가 이 칸을 가리키면 aria-invalid·aria-describedby를 단다. */
+  function invalid(field: 'url' | 'keys' | 'pass') {
+    return errorField === field && error
+      ? { 'aria-invalid': 'true' as const, 'aria-describedby': errorId }
+      : {};
+  }
   let busy = $state(false);
 
   /** 공급자를 바꾸면 입력 중이던 키를 버린다. */
@@ -45,6 +60,7 @@
     keyB = '';
     editing = {};
     error = null;
+    errorField = null;
   });
 
   function savedKey(name: string): string {
@@ -73,21 +89,22 @@
     e.preventDefault();
     if (busy) return;
     error = null;
+    errorField = null;
 
     let url = app.settings.proxyUrl;
     if (showProxy) {
       const r = normalizeProxyUrl(proxyUrl);
-      if (!r.ok) return void (error = r.reason);
-      if (section === 'proxy' && r.url === '') return void (error = '프록시 URL을 입력해 주세요');
+      if (!r.ok) return fail('url', r.reason);
+      if (section === 'proxy' && r.url === '') return fail('url', '프록시 URL을 입력해 주세요');
       url = r.url;
     }
 
     let next: Secrets = { ...(app.secrets ?? {}) };
     if (showKeys && fields) {
       const merged = mergeKeys(app.secrets, provider as 'kis' | 'toss', keyA, keyB);
-      if (!merged.ok) return void (error = merged.reason);
+      if (!merged.ok) return fail('keys', merged.reason);
       if (merged.secrets) next = { ...merged.secrets };
-      else if (section === 'keys' && !savedKey(fields[0].name)) return void (error = '키를 입력해 주세요');
+      else if (section === 'keys' && !savedKey(fields[0].name)) return fail('keys', '키를 입력해 주세요');
     }
     if (showProxy) {
       const token = trimCredential(proxyToken);
@@ -99,8 +116,8 @@
     try {
       const lockPass = app.settings.keyLock && dirtySecrets ? passphrase : undefined;
       if (lockPass !== undefined) {
-        if (lockPass === '') return void (error = '키가 잠겨 있어요. 암호를 입력해 주세요');
-        if (!(await app.verifyPassphrase(lockPass))) return void (error = '암호가 맞지 않아요');
+        if (lockPass === '') return fail('pass', '키가 잠겨 있어요. 암호를 입력해 주세요');
+        if (!(await app.verifyPassphrase(lockPass))) return fail('pass', '암호가 맞지 않아요');
       }
       if (showProxy && url !== app.settings.proxyUrl) app.updateSettings({ proxyUrl: url });
       if (dirtySecrets) await app.setSecrets(next, lockPass);
@@ -114,14 +131,21 @@
       if (section === 'all') showSnackbar('저장했어요');
       onsaved?.();
     } catch {
-      error = '저장하지 못했어요. 다시 시도해 주세요';
+      fail(null, '저장하지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
   }
 </script>
 
-{#snippet secretField(id: string, label: string, saved: string, value: string, set: (v: string) => void)}
+{#snippet secretField(
+  id: string,
+  label: string,
+  saved: string,
+  value: string,
+  set: (v: string) => void,
+  kind: 'keys' | null,
+)}
   <div class="field">
     {#if saved && !editing[id]}
       <span class="label">{label}</span>
@@ -140,6 +164,7 @@
         autocapitalize="off"
         spellcheck="false"
         {value}
+        {...kind ? invalid(kind) : {}}
         oninput={(e) => set(e.currentTarget.value)}
         onpaste={(e) => pasteTrimmed(e, set)}
       />
@@ -160,10 +185,11 @@
         spellcheck="false"
         placeholder="https://gazua-proxy.example.workers.dev"
         bind:value={proxyUrl}
+        {...invalid('url')}
         onpaste={(e) => pasteTrimmed(e, (v) => (proxyUrl = v))}
       />
     </div>
-    {@render secretField('token', '프록시 토큰 (선택)', savedToken, proxyToken, (v) => (proxyToken = v))}
+    {@render secretField('token', '프록시 토큰 (선택)', savedToken, proxyToken, (v) => (proxyToken = v), null)}
     {#if savedToken && !editing.token}
       <button type="button" class="link small" onclick={() => (clearToken = true)}>프록시 토큰 지우기</button>
     {/if}
@@ -171,8 +197,8 @@
 
   {#if showKeys}
     {#if fields}
-      {@render secretField(fields[0].name, fields[0].label, savedKey(fields[0].name), keyA, (v) => (keyA = v))}
-      {@render secretField(fields[1].name, fields[1].label, savedKey(fields[1].name), keyB, (v) => (keyB = v))}
+      {@render secretField(fields[0].name, fields[0].label, savedKey(fields[0].name), keyA, (v) => (keyA = v), 'keys')}
+      {@render secretField(fields[1].name, fields[1].label, savedKey(fields[1].name), keyB, (v) => (keyB = v), 'keys')}
     {:else}
       <p class="note">데모 데이터는 키 없이 볼 수 있어요. 공급자를 고르면 키를 넣을 수 있어요.</p>
     {/if}
@@ -181,11 +207,17 @@
   {#if needsPassphrase}
     <div class="field">
       <label for="{uid}-pass">잠금 암호</label>
-      <input id="{uid}-pass" type="password" autocomplete="current-password" bind:value={passphrase} />
+      <input
+        id="{uid}-pass"
+        type="password"
+        autocomplete="current-password"
+        bind:value={passphrase}
+        {...invalid('pass')}
+      />
     </div>
   {/if}
 
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}<p id={errorId} class="error" role="alert">{error}</p>{/if}
   <div class="actions">
     <button type="submit" class="primary" disabled={busy}>{submitLabel}</button>
   </div>

@@ -119,6 +119,13 @@ describe('Onboarding', () => {
     expect(progress().getAttribute('aria-valuenow')).toBe('5');
   });
 
+  it('moves focus to the new step heading', async () => {
+    setup();
+    await click('내 API로 시작');
+    await waitFor(() => expect(document.activeElement?.tagName).toBe('H1'));
+    expect(document.activeElement?.textContent).toContain('어디서 시세를');
+  });
+
   it('the back button returns to the previous step', async () => {
     setup();
     await click('내 API로 시작');

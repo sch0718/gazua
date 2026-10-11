@@ -132,6 +132,14 @@ function mapCalendarDay(date: string, day: Row): TradingDay {
   return { date, isOpen: true, integrated: times };
 }
 
+/** `/oauth2/token` 응답 → 토큰(만료 = 받은 시각 + expires_in초). 모양이 틀리면 null. */
+export function parseTossToken(json: unknown, receivedAt: number): TokenInfo | null {
+  const accessToken = isRecord(json) ? text(json.access_token) : '';
+  const expiresIn = isRecord(json) ? toNumber(json.expires_in) : undefined;
+  if (!accessToken || expiresIn === undefined || expiresIn <= 0) return null;
+  return { accessToken, expiresAt: receivedAt + expiresIn * 1000 };
+}
+
 export function createTossProvider(deps: TossDeps): MarketDataProvider {
   const { client, queue, creds, now } = deps;
 
@@ -143,11 +151,9 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
         client_secret: creds.clientSecret,
       }),
     });
-    const json = res.json;
-    const accessToken = isRecord(json) ? text(json.access_token) : '';
-    const expiresIn = isRecord(json) ? toNumber(json.expires_in) : undefined;
-    if (!accessToken || expiresIn === undefined || expiresIn <= 0) throw upstream('Toss token response is malformed');
-    return { accessToken, expiresAt: now() + expiresIn * 1000 };
+    const token = parseTossToken(res.json, now());
+    if (!token) throw upstream('Toss token response is malformed');
+    return token;
   }
 
   const tokens = createTokenManager(issueToken, deps.tokenStore, now);

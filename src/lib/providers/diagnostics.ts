@@ -1,9 +1,13 @@
 // 연결 진단(스펙 7.4): ① 프록시 응답 → ② CORS 허용 → ③ 토큰 발급 → ④ 시세 조회(삼성전자).
-// 받은 토큰은 이 진단 안에서만 쓰고 버린다(앱의 토큰 저장소에 넣지 않는다).
+// 받은 토큰은 저장하지 않는다. 네 단계가 모두 성공했을 때만 onToken으로 호출자에게 넘긴다
+// (호출자가 앱의 토큰 저장소에 넣어 KIS의 1분 1회 발급 제한에 걸리지 않게).
 // 단계의 hint·error에는 키·토큰을 절대 넣지 않는다(고정 문구와 출처만).
 import type { Secrets } from '../state/secrets';
 import { ApiError, classify, kisBodyCode, type ErrorCode } from './errors';
 import { createProxyClient, type ProxyClient } from './http';
+import { parseKisToken } from './kis';
+import { parseTossToken } from './toss';
+import type { TokenInfo } from './types';
 
 export type DiagLabel = '프록시 응답' | 'CORS 허용' | '토큰 발급' | '시세 조회 (삼성전자)';
 
@@ -30,6 +34,10 @@ export interface DiagnosticsArgs {
   origin?: string;
   /** ms 측정용 시계. 기본값 performance.now. */
   clock?: () => number;
+  /** 토큰 만료 시각 계산용 epoch ms. 기본값 Date.now. */
+  now?: () => number;
+  /** 네 단계가 모두 성공하면 ③에서 받은 토큰을 넘긴다. */
+  onToken?: (t: TokenInfo) => void;
 }
 
 const LABELS: Record<DiagStep['id'], DiagLabel> = {
@@ -64,7 +72,8 @@ const HINTS: Record<ErrorCode, string> = {
   upstream: '증권사 서버에서 오류가 났어요. 잠시 뒤 다시 진단해 주세요',
 };
 
-const corsHint = (origin: string) => `프록시 ALLOWED_ORIGINS에 ${origin}을 넣어 주세요`;
+const corsHint = (origin: string) =>
+  origin ? `프록시 ALLOWED_ORIGINS에 ${origin}을 넣어 주세요` : '프록시 ALLOWED_ORIGINS에 현재 주소를 넣어 주세요';
 
 /** 단계 실패. code·hint만 담는다. */
 class StepFailure extends Error {
@@ -104,6 +113,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
   const { provider, secrets, onStep } = args;
   const fetchImpl = args.fetchImpl ?? ((input, init) => fetch(input, init));
   const clock = args.clock ?? (() => performance.now());
+  const now = args.now ?? (() => Date.now());
   const origin = args.origin ?? globalThis.location?.origin ?? '';
   const base = args.proxyUrl.trim().replace(/\/+$/, '');
   const proxyToken = args.proxyToken ?? secrets.proxyToken;
@@ -115,7 +125,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
   };
 
   const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl });
-  let accessToken = '';
+  let token: TokenInfo | null = null;
 
   async function health(init: RequestInit): Promise<Response> {
     const controller = new AbortController();
@@ -161,7 +171,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         const res = await client.request('kis', 'POST', '/oauth2/tokenP', {
           body: { grant_type: 'client_credentials', appkey: kis.appKey, appsecret: kis.appSecret },
         });
-        accessToken = isRecord(res.json) ? text(res.json.access_token) : '';
+        token = parseKisToken(res.json);
       } else {
         const toss = secrets.toss;
         if (!toss || !filled(toss.clientId) || !filled(toss.clientSecret)) throw new StepFailure('invalid-credentials', '키를 입력해 주세요');
@@ -172,12 +182,12 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
             client_secret: toss.clientSecret,
           }),
         });
-        accessToken = isRecord(res.json) ? text(res.json.access_token) : '';
+        token = parseTossToken(res.json, now());
       }
-      if (!accessToken) throw new StepFailure('upstream');
+      if (!token) throw new StepFailure('upstream');
     },
     4: async () => {
-      const authorization = `Bearer ${accessToken}`;
+      const authorization = `Bearer ${token!.accessToken}`;
       if (provider === 'kis') {
         const kis = secrets.kis!;
         const res = await client.request('kis', 'GET', KIS_PRICE_PATH, {
@@ -232,5 +242,6 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       break;
     }
   }
+  if (token && steps.every((s) => s.status === 'ok')) args.onToken?.(token);
   return steps;
 }

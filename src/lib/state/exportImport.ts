@@ -14,11 +14,14 @@ import {
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import type { SafeStorage } from './storage';
 import { kstDate } from '../time/kst';
+import { normalizeProxyUrl } from '../ui/settings/connection';
 
 export const EXPORT_FORMAT = 'gazua-export';
 export const EXPORT_SCHEMA_VERSION = 1;
 export const IMPORT_BAD_FORMAT = '파일 형식이 맞지 않아요';
 export const IMPORT_BAD_VERSION = '지원하지 않는 버전이에요';
+/** 프로필 이름 최대 길이(프로필 추가 입력 칸과 같다). */
+const NAME_MAX = 30;
 
 export interface ExportFile {
   format: typeof EXPORT_FORMAT;
@@ -55,6 +58,11 @@ function plainSecrets(v: unknown): Secrets | null {
   return out;
 }
 
+/** 잠긴 키에서 아는 필드만 복사한다. */
+function lockedCopy(l: LockedSecrets): LockedSecrets {
+  return { enc: l.enc, iv: l.iv, salt: l.salt, kdf: l.kdf, iter: l.iter };
+}
+
 function profileName(st: SafeStorage, profileId: string): string {
   const meta = st.get<unknown>(META_KEY, null);
   const profiles = isRecord(meta) && Array.isArray(meta.profiles) ? meta.profiles : [];
@@ -73,9 +81,7 @@ export function exportData(st: SafeStorage, profileId: string, includeSecrets: b
   };
   if (includeSecrets) {
     const raw = st.get<unknown>(profileKeys.secrets(profileId), null);
-    const secrets = isLocked(raw)
-      ? { enc: raw.enc, iv: raw.iv, salt: raw.salt, kdf: raw.kdf, iter: raw.iter }
-      : plainSecrets(raw);
+    const secrets = isLocked(raw) ? lockedCopy(raw) : plainSecrets(raw);
     if (secrets) file.secrets = secrets;
   }
   return JSON.stringify(file, null, 2);
@@ -129,6 +135,8 @@ function sanitizeSettings(raw: Row, keyLock: boolean): Settings {
     if (key in raw && validField(key, raw[key])) (out as unknown as Row)[key] = raw[key];
   }
   out.keyLock = keyLock;
+  const url = normalizeProxyUrl(out.proxyUrl);
+  out.proxyUrl = url.ok ? url.url : '';
   return out;
 }
 
@@ -152,6 +160,9 @@ function validWatchlists(v: unknown): Watchlists | null {
   for (const g of v.groups) {
     if (!isRecord(g) || !isString(g.id) || g.id === '' || !isString(g.name) || !Array.isArray(g.items)) return null;
     if (ids.has(g.id) || g.items.length > 8 || !g.items.every(validItem)) return null;
+    // 한 그룹 안에서 종목과 색 슬롯은 겹치지 않는다.
+    if (new Set(g.items.map((i) => i.symbol)).size !== g.items.length) return null;
+    if (new Set(g.items.map((i) => i.colorSlot)).size !== g.items.length) return null;
     ids.add(g.id);
     const items = g.items.map(({ symbol, colorSlot, hidden, addedAt }) => ({ symbol, colorSlot, hidden, addedAt }));
     groups.push({ id: g.id, name: g.name, items });
@@ -179,13 +190,14 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
 
   let secrets: Secrets | LockedSecrets | null = null;
   if (file.secrets !== undefined) {
-    secrets = isLocked(file.secrets) ? file.secrets : plainSecrets(file.secrets);
+    secrets = isLocked(file.secrets) ? lockedCopy(file.secrets) : plainSecrets(file.secrets);
     if (!secrets) return fail(IMPORT_BAD_FORMAT);
   }
   const locked = secrets !== null && isLocked(secrets);
   const settings = sanitizeSettings(file.settings, locked);
 
-  const name = isRecord(file.profile) && isString(file.profile.name) && file.profile.name.trim() ? file.profile.name.trim() : DEFAULT_PROFILE_NAME;
+  const rawName = isRecord(file.profile) && isString(file.profile.name) ? file.profile.name.trim() : '';
+  const name = rawName ? [...rawName].slice(0, NAME_MAX).join('').trim() : DEFAULT_PROFILE_NAME;
   const id = crypto.randomUUID();
   st.set(profileKeys.settings(id), settings);
   st.set(profileKeys.watchlists(id), watchlists);

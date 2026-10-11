@@ -27,15 +27,27 @@
     const p = provider;
     if (p === 'demo' || running) return;
     const id = ++runId;
+    const secretsAtStart = app.secrets;
+    const urlAtStart = app.settings.proxyUrl;
     running = true;
     try {
       const result = await runDiagnostics({
-        proxyUrl: app.settings.proxyUrl,
+        proxyUrl: urlAtStart,
         provider: p,
-        secrets: app.secrets ?? {},
+        secrets: secretsAtStart ?? {},
         fetchImpl,
         onStep: (s) => {
           if (id === runId) steps = s;
+        },
+        // 성공한 진단의 토큰을 앱이 이어 쓴다(KIS 토큰은 1분에 한 번만 받을 수 있다).
+        // 진단 도중 공급자·키·프록시가 바뀌었으면 넘기지 않는다.
+        onToken: (t) => {
+          const same =
+            id === runId &&
+            app.settings.provider === p &&
+            app.secrets === secretsAtStart &&
+            app.settings.proxyUrl === urlAtStart;
+          if (same) app.adoptToken(p, t);
         },
       });
       if (id !== runId) return;
@@ -60,32 +72,34 @@
   {#if provider === 'demo'}
     <p class="note">데모 데이터는 진단할 연결이 없어요. 공급자를 고르고 프록시와 키를 넣어 주세요.</p>
   {:else}
-    {#if steps}
-      <ul class="diag" aria-live="polite">
-        {#each steps as s (s.id)}
-          <li class={s.status}>
-            <span class="ck" aria-hidden="true">
-              {s.status === 'ok' ? '✓' : s.status === 'fail' ? '!' : s.status === 'running' ? '…' : s.id}
-            </span>
-            <span class="label">{MARKS[s.id - 1]} {s.label}</span>
-            <span class="ms num">
-              {#if s.status === 'ok'}{s.ms}ms{:else if s.status === 'running'}확인 중{:else if s.status === 'fail'}실패{:else if s.status === 'skipped'}건너뜀{/if}
-            </span>
-          </li>
-          {#if s.status === 'fail' && s.error}
-            <li class="fix">
-              <b>{describeError(s.error).title}</b>
-              {#if s.hint}<span>{s.hint}</span>{/if}
-              {#if s.copy}
-                <button type="button" class="link" onclick={() => copy(s.copy!)}>허용할 주소 복사</button>
-              {/if}
+    <div aria-live="polite">
+      {#if steps}
+        <ul class="diag">
+          {#each steps as s (s.id)}
+            <li class={s.status}>
+              <span class="ck" aria-hidden="true">
+                {s.status === 'ok' ? '✓' : s.status === 'fail' ? '!' : s.status === 'running' ? '…' : s.id}
+              </span>
+              <span class="label">{MARKS[s.id - 1]} {s.label}</span>
+              <span class="ms num">
+                {#if s.status === 'ok'}{s.ms}ms{:else if s.status === 'running'}확인 중{:else if s.status === 'fail'}실패{:else if s.status === 'skipped'}건너뜀{/if}
+              </span>
             </li>
-          {/if}
-        {/each}
-      </ul>
-    {:else}
-      <p class="note">프록시 → CORS → 토큰 → 시세 순서로 어디서 막히는지 확인해요.</p>
-    {/if}
+            {#if s.status === 'fail' && s.error}
+              <li class="fix">
+                <b>{describeError(s.error).title}</b>
+                {#if s.hint}<span>{s.hint}</span>{/if}
+                {#if s.copy}
+                  <button type="button" class="link" onclick={() => copy(s.copy!)}>허용할 주소 복사</button>
+                {/if}
+              </li>
+            {/if}
+          {/each}
+        </ul>
+      {:else}
+        <p class="note">프록시 → CORS → 토큰 → 시세 순서로 어디서 막히는지 확인해요.</p>
+      {/if}
+    </div>
     <button type="button" class="wide" disabled={running} onclick={start}>
       {running ? '진단 중…' : steps ? '다시 진단' : '진단 시작'}
     </button>

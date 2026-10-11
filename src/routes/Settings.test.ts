@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeTestApp } from '../sheets/testApp';
@@ -40,6 +40,8 @@ describe('Settings', () => {
     const group = screen.getByRole('radiogroup', { name: '데이터 공급자' });
     expect(within(group).getByText('Cloudflare Worker 프록시(무료)')).toBeTruthy();
     expect(within(group).getByText('고정 IP 프록시 필요(집 PC·NAS)')).toBeTruthy();
+    // 버튼(role=radio) 안에는 목록 같은 구조 요소를 넣지 않는다.
+    expect(group.querySelector('[role="radio"] ul, [role="radio"] li')).toBeNull();
     await fireEvent.click(within(group).getByRole('radio', { name: '토스증권' }));
     expect(app.settings.provider).toBe('toss');
     expect(within(group).getByRole('radio', { name: '토스증권' }).getAttribute('aria-checked')).toBe('true');
@@ -52,6 +54,26 @@ describe('Settings', () => {
     expect(screen.queryByText('토스 키는 주문 권한이 있어요. 암호로 잠그는 걸 권해요')).toBeNull();
     await app.setSecrets({ toss: { clientId: 'cid-1234', clientSecret: 'csec-5678' } });
     expect(await screen.findByText('토스 키는 주문 권한이 있어요. 암호로 잠그는 걸 권해요')).toBeTruthy();
+  });
+
+  it('switching profiles resets the forms and the diagnosis results', async () => {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '내 관심', items: [] }], now: NOW, settings: { provider: 'kis' } });
+    apps.push(app);
+    const other = app.addProfile('회사');
+    app.switchProfile(other.id);
+    app.updateSettings({ provider: 'kis', proxyUrl: 'https://two.example', onboarded: true });
+    app.switchProfile('p1');
+    app.navigate({ name: 'settings' });
+    render(Settings, { app, barEnd });
+
+    await fireEvent.click(screen.getByRole('button', { name: '진단 시작' }));
+    expect(await screen.findByRole('button', { name: '다시 진단' })).toBeTruthy();
+    await fireEvent.input(screen.getByLabelText('프록시 URL'), { target: { value: 'https://typed.example' } });
+
+    app.switchProfile(other.id);
+    await waitFor(() => expect((screen.getByLabelText('프록시 URL') as HTMLInputElement).value).toBe('https://two.example'));
+    expect(screen.getByRole('button', { name: '진단 시작' })).toBeTruthy();
+    expect(screen.queryByText('프록시 URL을 입력해 주세요')).toBeNull();
   });
 
   it('display settings change theme and color convention', async () => {

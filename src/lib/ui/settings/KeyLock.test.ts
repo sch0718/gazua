@@ -40,7 +40,11 @@ describe('KeyLock', () => {
     await fireEvent.input(field('암호'), { target: { value: 'pass1234' } });
     await fireEvent.input(field('암호 확인'), { target: { value: 'pass9999' } });
     await fireEvent.click(screen.getByRole('button', { name: '잠그기' }));
-    expect((await screen.findByRole('alert')).textContent).toBe('암호가 서로 달라요');
+    const mismatch = await screen.findByRole('alert');
+    expect(mismatch.textContent).toBe('암호가 서로 달라요');
+    expect(field('암호 확인').getAttribute('aria-invalid')).toBe('true');
+    expect(field('암호 확인').getAttribute('aria-describedby')).toBe(mismatch.id);
+    expect(field('암호').getAttribute('aria-invalid')).toBeNull();
     expect(app.settings.keyLock).toBe(false);
 
     await fireEvent.input(field('암호 확인'), { target: { value: 'pass1234' } });
@@ -60,7 +64,10 @@ describe('KeyLock', () => {
     expect(screen.getByRole('dialog', { name: '잠금 끄기' })).toBeTruthy();
     await fireEvent.input(field('현재 암호'), { target: { value: 'wrong' } });
     await fireEvent.click(screen.getByRole('button', { name: '끄기' }));
-    expect((await screen.findByRole('alert')).textContent).toBe('암호가 맞지 않아요');
+    const wrong = await screen.findByRole('alert');
+    expect(wrong.textContent).toBe('암호가 맞지 않아요');
+    expect(field('현재 암호').getAttribute('aria-invalid')).toBe('true');
+    expect(field('현재 암호').getAttribute('aria-describedby')).toBe(wrong.id);
     expect(app.settings.keyLock).toBe(true);
 
     await fireEvent.input(field('현재 암호'), { target: { value: 'pass1234' } });

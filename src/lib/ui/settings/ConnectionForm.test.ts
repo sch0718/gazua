@@ -53,7 +53,11 @@ describe('ConnectionForm', () => {
     const app = setup();
     await fireEvent.input(input('프록시 URL'), { target: { value: 'http://p.example.net' } });
     await fireEvent.click(screen.getByRole('button', { name: '저장' }));
-    expect((await screen.findByRole('alert')).textContent).toBe('프록시 URL은 https://로 시작해야 해요');
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('프록시 URL은 https://로 시작해야 해요');
+    expect(input('프록시 URL').getAttribute('aria-invalid')).toBe('true');
+    expect(input('프록시 URL').getAttribute('aria-describedby')).toBe(alert.id);
+    expect(input('App Key').getAttribute('aria-invalid')).toBeNull();
     expect(app.settings.proxyUrl).toBe('');
 
     await fireEvent.input(input('프록시 URL'), { target: { value: ' https://p.example.net/ ' } });
@@ -80,7 +84,10 @@ describe('ConnectionForm', () => {
     await fireEvent.input(input('App Key'), { target: { value: 'newKey-1111' } });
     await fireEvent.input(input('잠금 암호'), { target: { value: 'nope' } });
     await fireEvent.click(screen.getByRole('button', { name: '저장' }));
-    expect((await screen.findByRole('alert')).textContent).toBe('암호가 맞지 않아요');
+    const wrong = await screen.findByRole('alert');
+    expect(wrong.textContent).toBe('암호가 맞지 않아요');
+    expect(input('잠금 암호').getAttribute('aria-invalid')).toBe('true');
+    expect(input('잠금 암호').getAttribute('aria-describedby')).toBe(wrong.id);
     expect(app.secrets?.kis?.appKey).toBe('oldKey-0000');
 
     await fireEvent.input(input('잠금 암호'), { target: { value: 'pass1234' } });

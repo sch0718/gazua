@@ -201,6 +201,14 @@ function datesBetween(from: string, to: string): string[] {
   return out;
 }
 
+/** `/oauth2/tokenP` 응답 → 토큰. 모양이 틀리면 null. 만료 시각은 KST 문자열이다. */
+export function parseKisToken(json: unknown): TokenInfo | null {
+  const accessToken = isRecord(json) ? text(json.access_token) : '';
+  const expired = isRecord(json) ? /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(text(json.access_token_token_expired)) : null;
+  if (!accessToken || !expired) return null;
+  return { accessToken, expiresAt: kstEpoch(expired[1], expired[2]) };
+}
+
 export function createKisProvider(deps: KisDeps): MarketDataProvider {
   const { client, queue, creds, now } = deps;
 
@@ -208,11 +216,9 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
     const res = await client.request('kis', 'POST', '/oauth2/tokenP', {
       body: { grant_type: 'client_credentials', appkey: creds.appKey, appsecret: creds.appSecret },
     });
-    const json = res.json;
-    const accessToken = isRecord(json) ? text(json.access_token) : '';
-    const expired = isRecord(json) ? /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(text(json.access_token_token_expired)) : null;
-    if (!accessToken || !expired) throw upstream('KIS token response is malformed');
-    return { accessToken, expiresAt: kstEpoch(expired[1], expired[2]) };
+    const token = parseKisToken(res.json);
+    if (!token) throw upstream('KIS token response is malformed');
+    return token;
   }
 
   const tokens = createTokenManager(issueToken, deps.tokenStore, now);

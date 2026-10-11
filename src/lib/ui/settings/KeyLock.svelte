@@ -18,6 +18,20 @@
   let pass = $state('');
   let confirmPass = $state('');
   let error = $state<string | null>(null);
+  /** 오류가 가리키는 칸. */
+  let errorField = $state<'new' | 'confirm' | 'current' | null>(null);
+  const errorId = `${uid}-error`;
+
+  function fail(field: 'new' | 'confirm' | 'current' | null, message: string) {
+    errorField = field;
+    error = message;
+  }
+
+  function invalid(field: 'new' | 'confirm' | 'current') {
+    return errorField === field && error
+      ? { 'aria-invalid': 'true' as const, 'aria-describedby': errorId }
+      : {};
+  }
   let busy = $state(false);
   let dismissed = $state(false);
 
@@ -29,6 +43,7 @@
     pass = '';
     confirmPass = '';
     error = null;
+    errorField = null;
     dialog = kind;
   }
 
@@ -38,6 +53,7 @@
     pass = '';
     confirmPass = '';
     error = null;
+    errorField = null;
   }
 
   /** 다른 화면(예: 권장 배너)에서 잠금 대화상자를 연다. */
@@ -58,8 +74,8 @@
   async function lock(e: SubmitEvent) {
     e.preventDefault();
     if (busy) return;
-    if (pass.length < MIN_LENGTH) return void (error = `암호를 ${MIN_LENGTH}자 이상 입력해 주세요`);
-    if (pass !== confirmPass) return void (error = '암호가 서로 달라요');
+    if (pass.length < MIN_LENGTH) return fail('new', `암호를 ${MIN_LENGTH}자 이상 입력해 주세요`);
+    if (pass !== confirmPass) return fail('confirm', '암호가 서로 달라요');
     busy = true;
     try {
       await app.setSecrets(app.secrets ?? {}, pass);
@@ -67,7 +83,7 @@
       close();
       showSnackbar('키를 암호로 잠갔어요');
     } catch {
-      error = '잠그지 못했어요. 다시 시도해 주세요';
+      fail(null, '잠그지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
@@ -79,7 +95,7 @@
     busy = true;
     try {
       if (!(await app.verifyPassphrase(pass))) {
-        error = '암호가 맞지 않아요';
+        fail('current', '암호가 맞지 않아요');
         return;
       }
       app.disableKeyLock();
@@ -87,7 +103,7 @@
       close();
       showSnackbar('잠금을 껐어요');
     } catch {
-      error = '잠금을 끄지 못했어요. 다시 시도해 주세요';
+      fail(null, '잠금을 끄지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
@@ -125,10 +141,10 @@
   <form class="sheet-form" onsubmit={lock} novalidate>
     <p class="hint">암호를 잊으면 키를 다시 입력해야 해요. 암호는 어디에도 저장하지 않아요.</p>
     <label for="{uid}-new">암호</label>
-    <input id="{uid}-new" type="password" autocomplete="new-password" bind:value={pass} data-autofocus />
+    <input id="{uid}-new" type="password" autocomplete="new-password" bind:value={pass} {...invalid('new')} data-autofocus />
     <label for="{uid}-confirm">암호 확인</label>
-    <input id="{uid}-confirm" type="password" autocomplete="new-password" bind:value={confirmPass} />
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    <input id="{uid}-confirm" type="password" autocomplete="new-password" bind:value={confirmPass} {...invalid('confirm')} />
+    {#if error}<p id={errorId} class="error" role="alert">{error}</p>{/if}
     <div class="row end">
       <button type="button" class="ghost" onclick={close}>취소</button>
       <button type="submit" class="accent" disabled={busy}>{busy ? '잠그는 중…' : '잠그기'}</button>
@@ -140,8 +156,8 @@
   <form class="sheet-form" onsubmit={unlockOff} novalidate>
     <p class="hint">잠금을 끄면 키를 이 브라우저에 암호 없이 저장해요.</p>
     <label for="{uid}-current">현재 암호</label>
-    <input id="{uid}-current" type="password" autocomplete="current-password" bind:value={pass} data-autofocus />
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    <input id="{uid}-current" type="password" autocomplete="current-password" bind:value={pass} {...invalid('current')} data-autofocus />
+    {#if error}<p id={errorId} class="error" role="alert">{error}</p>{/if}
     <div class="row end">
       <button type="button" class="ghost" onclick={close}>취소</button>
       <button type="submit" class="accent" disabled={busy || pass === ''}>끄기</button>

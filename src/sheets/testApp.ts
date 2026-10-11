@@ -15,6 +15,7 @@ export function makeTestApp(opts: {
   now: number;
   settings?: Partial<Settings>;
   recent?: string[];
+  fetchImpl?: typeof fetch;
 }): App {
   const backing = memoryBacking();
   seed(backing, 'meta', META);
@@ -22,5 +23,10 @@ export function makeTestApp(opts: {
   seed(backing, 'p:p1:watchlists', { groups: opts.groups });
   if (opts.recent) seed(backing, 'p:p1:recent', opts.recent);
   location.hash = `#/compare/${opts.groups[0]?.id ?? ''}`;
-  return createApp({ storage: createSafeStorage(backing), now: () => opts.now, cache: memoryCache() });
+  return createApp({
+    storage: createSafeStorage(backing),
+    now: () => opts.now,
+    cache: memoryCache(),
+    fetchImpl: opts.fetchImpl,
+  });
 }

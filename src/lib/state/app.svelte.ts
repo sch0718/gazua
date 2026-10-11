@@ -7,7 +7,7 @@ import {
   type SeriesSnapshots,
 } from '../data/candleService';
 import { createProvider } from '../providers/factory';
-import type { MarketDataProvider, TokenInfo } from '../providers/types';
+import type { MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
 import { applyColorConvention, applyTheme } from '../ui/theme';
 import {
   RECENT_MAX,
@@ -74,6 +74,11 @@ export interface App {
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
   /** 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다. */
   disableKeyLock(): void;
+  /**
+   * 연결 진단이 받은 토큰을 지금 공급자의 토큰 저장소에 넣는다(잠금 모드면 메모리에만).
+   * 지금 공급자가 그 공급자가 아니면(데모로 대체됐거나 공급자가 바뀌었으면) 무시한다.
+   */
+  adoptToken(provider: 'kis' | 'toss', token: TokenInfo): void;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. */
@@ -153,18 +158,22 @@ export function createApp(deps: AppDeps): App {
     return settings.keyLock || locked !== null;
   }
 
+  /** 지금 세대 공급자의 토큰 저장소. 세대가 바뀌면(공급자 교체) 저장하지 않는다. */
+  function tokenStoreFor(id: string, p: 'kis' | 'toss', generation: number): TokenStore {
+    const current = () => generation === providerGeneration;
+    return lockMode()
+      ? memoryTokenStore(memoryTokens, `${id}:${p}`, current)
+      : // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
+        storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
+  }
+
   function buildProvider(): MarketDataProvider {
     const id = activeId();
     const generation = providerGeneration;
-    const current = () => generation === providerGeneration;
     return createProvider(settings, secrets, {
       now,
       fetchImpl,
-      tokenStore: (p) =>
-        lockMode()
-          ? memoryTokenStore(memoryTokens, `${id}:${p}`, current)
-          : // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
-            storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode()),
+      tokenStore: (p) => tokenStoreFor(id, p, generation),
     });
   }
 
@@ -432,6 +441,13 @@ export function createApp(deps: AppDeps): App {
       settings = { ...settings, keyLock: false };
       write(profileKeys.settings(id), settings);
       forgetTokens(id);
+      rebuild();
+    },
+
+    adoptToken(p, token) {
+      if (settings.provider !== p || provider.id !== p) return;
+      tokenStoreFor(activeId(), p, providerGeneration).save(token);
+      // 토큰 관리자는 저장소를 처음 한 번만 읽으므로, 새 공급자를 만들어 다음 호출이 이 토큰을 쓰게 한다.
       rebuild();
     },
 
