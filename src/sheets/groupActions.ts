@@ -15,11 +15,28 @@ import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 /** App이 이 모양을 만족한다. */
 export interface WatchlistStore {
   readonly watchlists: Watchlists;
+  /** 되돌리기는 지운 때와 같은 프로필에서만 한다. */
+  readonly meta: { readonly activeProfileId: string };
   setWatchlists(w: Watchlists): void;
 }
 
 export const FULL_MESSAGE = '한 차트에 8개까지 비교할 수 있어요';
 const UNDO = '되돌리기';
+
+/** 되돌리기 동작: 프로필이 바뀌었으면 그 프로필을 건드리지 않고 알린다. */
+function undoAction(s: WatchlistStore, run: () => void) {
+  const profile = s.meta.activeProfileId;
+  return {
+    label: UNDO,
+    run: () => {
+      if (s.meta.activeProfileId !== profile) {
+        showSnackbar('다른 프로필에서는 되돌릴 수 없어요');
+        return;
+      }
+      run();
+    },
+  };
+}
 
 const findGroup = (s: WatchlistStore, id: string) => s.watchlists.groups.find((g) => g.id === id);
 
@@ -72,7 +89,7 @@ export function removeWithUndo(s: WatchlistStore, groupId: string, symbol: strin
   if (!g || !g.items.some((i) => i.symbol === symbol)) return false;
   const { group, removed } = removeItem(g, symbol);
   saveGroups(s, [group]);
-  showSnackbar(`${name}을(를) 삭제했어요`, { label: UNDO, run: () => restore(s, groupId, removed) });
+  showSnackbar(`${name}을(를) 삭제했어요`, undoAction(s, () => restore(s, groupId, removed)));
   return true;
 }
 
@@ -105,12 +122,12 @@ export function deleteGroupWithUndo(s: WatchlistStore, groupId: string): boolean
   if (s.watchlists.groups.length <= 1 || !findGroup(s, groupId)) return false;
   const { watchlists, removed } = deleteGroup(s.watchlists, groupId);
   s.setWatchlists(watchlists);
-  showSnackbar('그룹을 삭제했어요', {
-    label: UNDO,
-    run: () => {
+  showSnackbar(
+    '그룹을 삭제했어요',
+    undoAction(s, () => {
       s.setWatchlists(restoreGroup(s.watchlists, removed));
       showSnackbar('되돌렸어요');
-    },
-  });
+    }),
+  );
   return true;
 }

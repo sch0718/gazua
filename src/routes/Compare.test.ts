@@ -163,6 +163,19 @@ describe('Compare sheets', () => {
     expect(panel.closest('aside')).toBeTruthy();
   });
 
+  it('becoming ≥1024 while the detail sheet is open closes it (the detail is inline there) and it stays closed', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2));
+    const view = render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: false });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    await fireEvent.click(rowOf('SK하이닉스').querySelector('.main-btn')!);
+    expect(screen.getByRole('dialog', { name: '종목 상세' })).toBeTruthy();
+    await view.rerender({ app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('region', { name: '선택한 종목' })).toBeTruthy();
+    await view.rerender({ app, now: NOW, sessions, isOpenToday: true, barEnd, wide: false });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('그룹 관리 opens from the ⋯ button next to the group tabs', async () => {
     const app = makeApp(EXAMPLE.slice(0, 1));
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });

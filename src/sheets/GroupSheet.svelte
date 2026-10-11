@@ -17,6 +17,15 @@
   let renameError = $state(false);
   let confirming = $state<Group | null>(null);
   let cancelBtn = $state<HTMLButtonElement>();
+  const errorId = `group-rename-error-${Math.random().toString(36).slice(2, 9)}`;
+
+  // 시트는 닫혀도 이 컴포넌트는 남는다. 열고 닫을 때 진행 중이던 이름 바꾸기·삭제 확인을 버린다.
+  $effect(() => {
+    void open;
+    editing = null;
+    renameError = false;
+    confirming = null;
+  });
 
   async function startRename(g: Group) {
     editing = g.id;
@@ -85,10 +94,11 @@
               bind:value={draft}
               aria-label="그룹 이름"
               aria-invalid={renameError}
+              aria-describedby={renameError ? errorId : undefined}
               onkeydown={onRenameKey}
               onblur={commitRename}
             />
-            {#if renameError}<span class="err" role="alert">이름을 입력해 주세요</span>{/if}
+            {#if renameError}<span class="err" id={errorId} role="alert">이름을 입력해 주세요</span>{/if}
           </div>
         {:else}
           <div class="info">

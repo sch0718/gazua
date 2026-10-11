@@ -64,10 +64,13 @@ describe('AddStockSheet', () => {
     setup(EIGHT);
     await search('삼성');
     await vi.waitFor(() => rowOf('삼성전자'));
-    expect(screen.getByText('한 차트에 8개까지 비교할 수 있어요')).toBeTruthy();
+    const note = screen.getByText('한 차트에 8개까지 비교할 수 있어요');
     const plus = screen.getAllByRole('button', { name: /추가$/ });
     expect(plus.length).toBeGreaterThan(0);
-    for (const b of plus) expect(b.getAttribute('aria-disabled')).toBe('true');
+    for (const b of plus) {
+      expect(b.getAttribute('aria-disabled')).toBe('true');
+      expect(b.getAttribute('aria-describedby')).toBe(note.id);
+    }
     await fireEvent.click(plus[0]);
     expect(currentSnackbar()?.message).toBe('한 차트에 8개까지 비교할 수 있어요');
   });

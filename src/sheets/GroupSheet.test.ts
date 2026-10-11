@@ -21,8 +21,8 @@ function setup(groups: Group[] = TWO) {
   apps.push(app);
   app.navigate({ name: 'compare', groupId: 'g1' });
   render(SnackbarHost);
-  render(GroupSheet, { open: true, app, onclose: vi.fn() });
-  return app;
+  const view = render(GroupSheet, { open: true, app, onclose: vi.fn() });
+  return Object.assign(app, { rerender: view.rerender });
 }
 const rowOf = (name: string) => screen.getByText(name, { selector: '.name' }).closest('li')!;
 const names = (app: App) => app.watchlists.groups.map((g) => g.name);
@@ -53,7 +53,25 @@ describe('GroupSheet', () => {
     await fireEvent.input(again, { target: { value: '   ' } });
     await fireEvent.keyDown(again, { key: 'Enter' });
     expect(names(app)).toEqual(['칩', '배당']);
-    expect(screen.getByText('이름을 입력해 주세요')).toBeTruthy();
+    const error = screen.getByText('이름을 입력해 주세요');
+    expect(again.getAttribute('aria-describedby')).toBe(error.id);
+    expect(again.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('closing and reopening forgets an open delete prompt and an unfinished rename', async () => {
+    const app = setup();
+    await fireEvent.click(screen.getByRole('button', { name: '반도체 삭제' }));
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    await app.rerender({ open: false, app, onclose: vi.fn() });
+    await app.rerender({ open: true, app, onclose: vi.fn() });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: '배당 이름 바꾸기' }));
+    expect(screen.getByRole('textbox', { name: '그룹 이름' })).toBeTruthy();
+    await app.rerender({ open: false, app, onclose: vi.fn() });
+    await app.rerender({ open: true, app, onclose: vi.fn() });
+    expect(screen.queryByRole('textbox', { name: '그룹 이름' })).toBeNull();
+    expect(names(app)).toEqual(['반도체', '배당']);
   });
 
   it('moves groups up and down; the ends are disabled', async () => {

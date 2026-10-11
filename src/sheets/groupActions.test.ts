@@ -12,13 +12,21 @@ const group = (id: string, symbols: string[]): Group => ({
   items: symbols.map((s, i) => item(s, (i + 1) as Slot)),
 });
 
-function store(initial: Watchlists): WatchlistStore {
+function store(initial: Watchlists): WatchlistStore & { switchTo(id: string, w: Watchlists): void } {
   let w = initial;
+  let profile = 'p1';
   return {
     get watchlists() {
       return w;
     },
+    get meta() {
+      return { activeProfileId: profile };
+    },
     setWatchlists(next) {
+      w = next;
+    },
+    switchTo(id, next) {
+      profile = id;
       w = next;
     },
   };
@@ -78,6 +86,16 @@ describe('removeWithUndo', () => {
     expect(currentSnackbar()?.message).toBe('되돌렸어요 · 색이 겹쳐 새 색을 줬어요');
   });
 
+  it('item undo after switching profiles is refused', () => {
+    const s = store({ groups: [group('g1', ['A', 'B'])] });
+    removeWithUndo(s, 'g1', 'A', 'A');
+    const other: Watchlists = { groups: [group('g1', [])] };
+    s.switchTo('p2', other);
+    runSnackbarAction();
+    expect(s.watchlists).toBe(other);
+    expect(currentSnackbar()?.message).toBe('다른 프로필에서는 되돌릴 수 없어요');
+  });
+
   it('undo after the group itself was deleted says it cannot restore', () => {
     const s = store({ groups: [group('g1', ['A']), group('g2', [])] });
     removeWithUndo(s, 'g1', 'A', 'A');
@@ -122,6 +140,16 @@ describe('deleteGroupWithUndo', () => {
     runSnackbarAction();
     expect(s.watchlists.groups.map((g) => g.id)).toEqual(['g1', 'g2']);
     expect(symbolsOf(s)).toEqual(['A']);
+  });
+
+  it('undo after switching profiles is refused and leaves the other profile alone', () => {
+    const s = store({ groups: [group('g1', ['A']), group('g2', [])] });
+    deleteGroupWithUndo(s, 'g1');
+    const other: Watchlists = { groups: [{ id: 'x1', name: '다른', items: [] }] };
+    s.switchTo('p2', other);
+    runSnackbarAction();
+    expect(s.watchlists).toBe(other);
+    expect(currentSnackbar()?.message).toBe('다른 프로필에서는 되돌릴 수 없어요');
   });
 
   it('never deletes the last group', () => {

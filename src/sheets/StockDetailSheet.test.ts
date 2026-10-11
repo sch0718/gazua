@@ -162,6 +162,7 @@ describe('StockDetailSheet', () => {
     await fireEvent.click(screen.getByRole('button', { name: '그룹 이동' }));
     const full = screen.getByRole('button', { name: '배당 (8/8)' });
     expect(full.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(full.getAttribute('aria-describedby')!)?.textContent).toBe('가득 참');
     await fireEvent.click(full);
     expect(g1(app).items.map((i) => i.symbol)).toEqual(['005930']);
     expect(screen.getByRole('status').textContent).toContain('한 차트에 8개까지 비교할 수 있어요');

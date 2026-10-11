@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { DaySession } from '../../market/sessions';
   import type { App } from '../../state/app.svelte';
   import type { Group } from '../../state/schema';
@@ -36,6 +37,10 @@
   } = $props();
 
   const close = () => (sheet = null);
+  // ≥1024가 되면 상세는 오른쪽 패널에 보이므로 열린 상세 시트를 닫는다(다시 좁아져도 저절로 열리지 않게).
+  $effect(() => {
+    if (wide && untrack(() => sheet) === 'detail') sheet = null;
+  });
   const detailSymbol = $derived(selected && group?.items.some((i) => i.symbol === selected) ? selected : null);
 </script>
 

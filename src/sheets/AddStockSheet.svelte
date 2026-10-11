@@ -30,6 +30,7 @@
   } = $props();
 
   const RESULT_LIMIT = 30;
+  const limitId = `add-limit-${Math.random().toString(36).slice(2, 9)}`;
 
   let universe = $state.raw<UniverseItem[] | null>(null);
   let failed = $state(false);
@@ -99,7 +100,7 @@
     />
   </label>
   {#if full}
-    <p class="limit" role="status">{FULL_MESSAGE}</p>
+    <p class="limit" id={limitId} role="status">{FULL_MESSAGE}</p>
   {/if}
 
   {#if failed}
@@ -133,6 +134,7 @@
             class:done={has}
             aria-label="{item.n} {has ? '추가됨' : '추가'}"
             aria-disabled={!has && full ? 'true' : undefined}
+            aria-describedby={!has && full ? limitId : undefined}
             onclick={() => add(item)}
           >
             {has ? '✓' : '＋'}

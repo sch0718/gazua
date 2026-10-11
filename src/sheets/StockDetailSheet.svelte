@@ -162,9 +162,19 @@
       {:else}
         {#each others as g (g.id)}
           {@const isFull = g.items.length >= MAX_ITEMS}
-          <button type="button" class="ritem" aria-disabled={isFull ? 'true' : undefined} onclick={() => moveTo(g.id)}>
-            {g.name} ({g.items.length}/{MAX_ITEMS})
-          </button>
+          {@const whyId = `move-full-${g.id}`}
+          <div class="target">
+            <button
+              type="button"
+              class="ritem"
+              aria-disabled={isFull ? 'true' : undefined}
+              aria-describedby={isFull ? whyId : undefined}
+              onclick={() => moveTo(g.id)}
+            >
+              {g.name} ({g.items.length}/{MAX_ITEMS})
+            </button>
+            {#if isFull}<span class="why" id={whyId}>가득 참</span>{/if}
+          </div>
         {/each}
       {/if}
     </div>
@@ -320,7 +330,19 @@
     flex-direction: column;
     gap: 2px;
   }
+  .target {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .why {
+    font-size: 12px;
+    color: var(--t3);
+    padding-right: 12px;
+    white-space: nowrap;
+  }
   .ritem {
+    flex: 1;
     text-align: left;
     padding: 10px 12px;
     min-height: var(--touch);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { sessionsForDay, type DaySession, type TradingDay } from './lib/market/sessions';
   import { createApp } from './lib/state/app.svelte';
   import { createClock } from './lib/state/clock.svelte';
@@ -7,6 +7,7 @@
   import { kstDate } from './lib/time/kst';
   import Banner from './lib/ui/components/Banner.svelte';
   import SnackbarHost from './lib/ui/components/SnackbarHost.svelte';
+  import { dismissSnackbar } from './lib/ui/components/snackbarStore.svelte';
   import Layout from './lib/ui/Layout.svelte';
   import Rail from './lib/ui/Rail.svelte';
   import StatusChip from './lib/ui/StatusChip.svelte';
@@ -63,6 +64,12 @@
   });
 
   const route = $derived(app.route);
+
+  // 프로필을 바꾸면 이전 프로필의 스낵바(되돌리기 포함)를 닫는다.
+  $effect(() => {
+    void app.meta.activeProfileId;
+    untrack(dismissSnackbar);
+  });
 
   function startDemo() {
     app.updateSettings({ provider: 'demo', onboarded: true });
