@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
-import { formatMetricValue, freshnessText, headlineLabel, staleBadge } from './compareText';
+import { formatMetricValue, freshnessText, headlineLabel, prevDayBadge, staleBadge } from './compareText';
 
 const TODAY = '2026-10-12';
 const at = (d: string, hhmm: string, ss = '00') => kstEpoch(d, `${hhmm}:${ss}`);
@@ -94,5 +94,14 @@ describe('formatMetricValue', () => {
     expect(formatMetricValue(-0.5, '%')).toBe('▼ -0.50%');
     expect(formatMetricValue(1.5, 'x')).toBe('1.50x');
     expect(formatMetricValue(426.31, '조')).toBe('426.3조');
+  });
+});
+
+describe('prevDayBadge', () => {
+  it('names the previous trading day the row still shows', () => {
+    expect(prevDayBadge('2026-10-08')).toEqual({
+      text: '10/8 거래일 값',
+      label: '10월 8일 거래일 값이에요, 이번 거래일 데이터를 새로 받지 못했어요',
+    });
   });
 });

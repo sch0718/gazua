@@ -26,7 +26,7 @@
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
   import { kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
-  import { EXAMPLE_SYMBOLS, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
+  import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
@@ -101,8 +101,10 @@
   // ── 불러온 상태에서 뽑는 값 ──────────────────────────────
   const today = $derived(kstDate(now));
   const loaded = $derived(items.flatMap((i) => ctl.entries[i.symbol]?.series ?? []));
-  const tradingDate = $derived(loaded[0]?.tradingDate ?? null);
   const mode = $derived<'intraday' | 'daily'>(period.unit === 'D' ? 'intraday' : 'daily');
+  // 1일 차트는 가장 최근 거래일의 분봉 격자를 쓴다. 다른 거래일의 결과(갱신 실패로 남은 전 거래일)는 그리지 않는다.
+  const tradingDate = $derived(chartTradingDate(loaded, mode));
+  const onChartDay = (s: { tradingDate: string }) => mode !== 'intraday' || s.tradingDate === tradingDate;
   const indexOf = (symbol: string) => indexForMeta(ctl.metas[symbol], benchmark);
 
   const metricCtx = $derived.by(() => {
@@ -143,7 +145,7 @@
     items.flatMap((i) => {
       const series = ctl.entries[i.symbol]?.series;
       const points = pointsBySymbol[i.symbol];
-      if (!series || !points) return [];
+      if (!series || !points || !onChartDay(series)) return [];
       const label = ctl.metas[i.symbol]?.name ?? i.symbol;
       // 일봉 차트의 거래정지 띠는 지표 값이 아니라 실제 봉이 있는 날로 판정한다.
       const bars = mode === 'daily' ? series.candles.map((c) => c.t) : undefined;
@@ -153,7 +155,10 @@
   const chartSessions = $derived(tradingDate && mode === 'intraday' ? sessionsOn(tradingDate, today, sessions) : []);
   const openDays = $derived(mode === 'daily' ? openDaysOf(loaded) : []);
   const markers = $derived(tradingDate !== null && fetchPlanFor(period, tradingDate).markers);
-  const baseDate = $derived(loaded[0] ? baseDateFor(loaded[0], period) : null);
+  const baseDate = $derived.by(() => {
+    const first = loaded.find(onChartDay);
+    return first ? baseDateFor(first, period) : null;
+  });
   const closeAt = $derived(tradingDate ? lastSessionEnd(sessionsOn(tradingDate, today, sessions)) : null);
 
   // ── 오류 안내(스펙 11절) ─────────────────────────────────
@@ -201,7 +206,7 @@
           quote: ctl.quotes[item.symbol],
         };
       }),
-      { scrubT, venueMode: effectiveVenueMode(venues, venueMode) },
+      { scrubT, venueMode: effectiveVenueMode(venues, venueMode), chartDate: mode === 'intraday' ? tradingDate : null },
     ),
   );
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));

@@ -18,6 +18,8 @@ export interface LeaderRow {
   error?: string;
   /** 마지막 성공 결과를 보여 주는 중이면 그 결과의 계산 시각 */
   staleAt?: number;
+  /** 1일 차트의 거래일과 다른(이전) 거래일의 결과면 그 거래일. 이 종목은 차트에 그리지 않는다. */
+  prevDay?: string;
   /** 이름 옆 NXT 배지(NXT 지원이고 NXT가 정지되지 않았을 때) */
   nxt?: boolean;
   /** 아직 결과도 오류도 없다 */
@@ -65,7 +67,15 @@ function badgesOf(s: RowSource, venueMode: VenueMode): string[] {
   return out;
 }
 
-export function buildRows(sources: RowSource[], opts: { scrubT: number | null; venueMode: VenueMode }): LeaderRow[] {
+export function buildRows(
+  sources: RowSource[],
+  opts: {
+    scrubT: number | null;
+    venueMode: VenueMode;
+    /** 1일 차트가 보여 주는 거래일. 다른 거래일의 시리즈는 이전 값으로 표시한다(일봉에서는 주지 않는다). */
+    chartDate?: string | null;
+  },
+): LeaderRow[] {
   return sources.map((s): LeaderRow => {
     const row: LeaderRow = {
       symbol: s.item.symbol,
@@ -81,6 +91,10 @@ export function buildRows(sources: RowSource[], opts: { scrubT: number | null; v
     if (s.error) row.error = s.error;
     else if (!s.series) row.loading = true;
     if (s.series?.stale) row.staleAt = s.series.computedAt;
+    if (s.series && opts.chartDate && s.series.tradingDate !== opts.chartDate) {
+      row.staleAt = s.series.computedAt;
+      row.prevDay = s.series.tradingDate;
+    }
     return row;
   });
 }

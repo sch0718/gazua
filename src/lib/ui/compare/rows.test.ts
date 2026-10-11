@@ -54,6 +54,24 @@ const src = (symbol: string, over: Partial<RowSource> = {}): RowSource => ({
   ...over,
 });
 
+describe('buildRows — previous trading day on the intraday chart', () => {
+  it('a series from another trading day than the chart is marked stale with that day; same-day rows are not', () => {
+    const old = series('A', { tradingDate: '2026-10-08', stale: true, computedAt: at('07:50') });
+    const rows = buildRows([src('A', { series: old }), src('B')], { scrubT: null, venueMode: 'AUTO', chartDate: '2026-10-12' });
+    expect(rows[0].staleAt).toBe(at('07:50'));
+    expect(rows[0].prevDay).toBe('2026-10-08');
+    expect(rows[0].value).toBe(2);
+    expect(rows[1].prevDay).toBeUndefined();
+    expect(rows[1].staleAt).toBeUndefined();
+  });
+
+  it('without a chart date (daily mode) nothing is marked', () => {
+    const old = series('A', { tradingDate: '2026-10-08' });
+    const rows = buildRows([src('A', { series: old })], { scrubT: null, venueMode: 'AUTO' });
+    expect(rows[0].prevDay).toBeUndefined();
+  });
+});
+
 describe('valueAt', () => {
   const ps: Point[] = [
     { t: 1, v: 1 },

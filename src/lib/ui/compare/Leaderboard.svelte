@@ -1,7 +1,7 @@
 <script lang="ts">
   import Badge from '../components/Badge.svelte';
   import { fmtWon, trendClass } from '../format';
-  import { formatMetricValue, staleBadge, type MetricUnit } from './compareText';
+  import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
   import { sortRows, type LeaderRow } from './rows';
 
   // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 스크럽 중에는 frozenOrder를 지킨다.
@@ -157,7 +157,7 @@
   <ul bind:this={listEl}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
-      {@const stale = r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}
+      {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}
       <li
         class="lrow"
         data-symbol={r.symbol}

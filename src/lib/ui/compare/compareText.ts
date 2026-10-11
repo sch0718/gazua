@@ -102,6 +102,15 @@ export function staleBadge(computedAt: number, now: number): { text: string; lab
   return { text: `${kstHHMM(computedAt)} 기준`, label: `${p.h}시 ${p.m}분 기준 데이터, 새로 받지 못했어요` };
 }
 
+/** 1일 차트와 다른(이전) 거래일의 결과를 보여 주는 행의 배지. 그 종목은 차트에 그리지 않는다. */
+export function prevDayBadge(tradingDate: string): { text: string; label: string } {
+  const [, m, d] = tradingDate.split('-').map(Number);
+  return {
+    text: `${monthDay(tradingDate)} 거래일 값`,
+    label: `${m}월 ${d}일 거래일 값이에요, 이번 거래일 데이터를 새로 받지 못했어요`,
+  };
+}
+
 /** 리더보드 지표 값. %는 ▲▼ 기호와 함께. */
 export function formatMetricValue(v: number, unit: MetricUnit): string {
   switch (unit) {

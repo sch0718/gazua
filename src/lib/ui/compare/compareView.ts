@@ -29,6 +29,16 @@ export function lastSessionEnd(sessions: DaySession[]): number | null {
   return sessions.length === 0 ? null : Math.max(...sessions.map((s) => s.end));
 }
 
+/**
+ * 차트가 보여 주는 거래일. 1일(분봉)은 불러온 시리즈 중 가장 최근 거래일(갱신에 실패해 전 거래일 결과를 쓰는 종목이
+ * 있어도 오늘 분봉 격자를 쓴다). 일봉은 첫 시리즈의 거래일.
+ */
+export function chartTradingDate(loaded: Pick<LoadedSeries, 'tradingDate'>[], mode: 'intraday' | 'daily'): string | null {
+  if (loaded.length === 0) return null;
+  if (mode === 'daily') return loaded[0].tradingDate;
+  return loaded.reduce((latest, s) => (s.tradingDate > latest ? s.tradingDate : latest), loaded[0].tradingDate);
+}
+
 /** 일봉 차트 X축의 거래일: 불러온 종목 봉 날짜의 합집합. */
 export function openDaysOf(series: LoadedSeries[]): string[] {
   return [...new Set(series.flatMap((s) => s.candles.map((c) => kstDate(c.t))))].sort();

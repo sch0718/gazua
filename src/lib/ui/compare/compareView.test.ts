@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedSeries } from '../../data/candleService';
 import { sessionsForDay } from '../../market/sessions';
 import { kstEpoch } from '../../time/kst';
-import { indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from './compareView';
+import { chartTradingDate, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from './compareView';
 
 const DAY = '2026-10-12';
 const at = (hhmm: string) => kstEpoch(DAY, `${hhmm}:00`);
@@ -35,6 +35,13 @@ describe('compareView', () => {
       '2026-10-08',
       '2026-10-12',
     ]);
+  });
+
+  it('chartTradingDate: intraday uses the latest trading date among loaded series; daily keeps the first', () => {
+    const d = (tradingDate: string) => ({ tradingDate }) as LoadedSeries;
+    expect(chartTradingDate([d('2026-10-08'), d('2026-10-12'), d('2026-10-08')], 'intraday')).toBe('2026-10-12');
+    expect(chartTradingDate([d('2026-10-08'), d('2026-10-12')], 'daily')).toBe('2026-10-08');
+    expect(chartTradingDate([], 'intraday')).toBeNull();
   });
 
   it('indexLoadOf: failed > null > ok', () => {

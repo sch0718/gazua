@@ -80,6 +80,28 @@ describe('Compare (demo provider)', () => {
     expect(lwcCharts.at(-1)?.series.length).toBe(6);
   });
 
+  it('intraday: a stale previous-day snapshot stays off today’s chart; the fresh stock keeps its real values', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2));
+    const snaps = app.data.snapshots;
+    const real = snaps.load.bind(snaps);
+    // 005930: 장 시작 전(07:50)에 받은 전 거래일(10/8) 결과를 갱신 실패로 그대로 쓰는 중. 000660: 오늘(10/12) 결과.
+    vi.spyOn(snaps, 'load').mockImplementation(async (args) => {
+      if (args.meta.symbol !== '005930') return real(args);
+      const prev = await real({ ...args, now: kstEpoch(DAY, '07:50:00') });
+      return { ...prev, stale: true };
+    });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    const chart = lwcCharts.at(-1)!;
+    // 000660만 그린다(점선 + 실선).
+    expect(chart.series.length).toBe(2);
+    const values = chart.series.flatMap((s) => s.data as { time: number; value?: number }[]).map((d) => d.value);
+    expect(values.some((v) => typeof v === 'number' && v !== 0)).toBe(true);
+    expect(within(rowOf('삼성전자')).getByText('10/8 거래일 값')).toBeTruthy();
+    expect(within(rowOf('SK하이닉스')).queryByText(/거래일 값|기준$/)).toBeNull();
+    expect(screen.getByText('오늘 · 등락률 · 기준 전일 종가')).toBeTruthy();
+  });
+
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {
     const app = makeApp(EXAMPLE.slice(0, 2), { metric: 'excess' });
     // 지수 봉을 주지 않는 공급자(토스 지수 미지원과 같은 경우)
