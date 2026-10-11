@@ -9,6 +9,7 @@ import type { AppData } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
 import {
   RELOAD_IN_SESSION_MS,
+  META_ERROR,
   RELOAD_OUTSIDE_MS,
   createCompareController,
   type CompareController,
@@ -143,6 +144,34 @@ describe('compareController', () => {
     expect(t.ctl.entries['042700']).toEqual({ series: null, error: '불러오지 못했어요' });
     expect(t.ctl.entries['005930'].series).not.toBeNull();
     expect(t.ctl.progress).toBeNull();
+  });
+
+  it('one symbol without meta errors only its own row and is retried on the next reload', async () => {
+    const provider = createDemoProvider({ seed: 1, now: () => NOW });
+    const base = provider.getStockMeta.bind(provider);
+    let broken = true;
+    const metaCalls: string[][] = [];
+    // 계약: 받지 못한 종목은 빼고 나머지를 돌려준다(상장폐지·만기 ETN 등).
+    provider.getStockMeta = async (symbols) => {
+      metaCalls.push(symbols);
+      return (await base(symbols)).filter((m) => !(broken && m.symbol === '042700'));
+    };
+    const t = track(setup({ provider }));
+    t.ctl.setQuery(t.query({ symbols: ['005930', '000660', '042700', '069500'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load).toHaveBeenCalledTimes(3);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['042700']).toEqual({ series: null, error: META_ERROR });
+    for (const s of ['005930', '000660', '069500']) expect(t.ctl.entries[s].series?.symbol).toBe(s);
+    expect(t.ctl.progress).toBeNull();
+
+    broken = false;
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    expect(metaCalls.at(-1)).toEqual(['042700']);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
   });
 
   it('stale rows ignore live quotes', async () => {

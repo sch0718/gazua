@@ -46,7 +46,10 @@ export interface CandleQuery {
 export interface MarketDataProvider {
   id: 'kis' | 'toss' | 'demo';
   capabilities: ProviderCapabilities;
-  /** 요청 순서를 보존한다. */
+  /**
+   * 요청 순서를 보존한다. 받지 못한 종목(상장폐지·만기 ETN·거절된 코드)은 빼고 나머지를 돌려준다.
+   * 한 종목도 받지 못했을 때만 오류를 던질 수 있다(연결·키 문제).
+   */
   getStockMeta(symbols: string[]): Promise<StockMeta[]>;
   /** t 오름차순, t = 봉 시작. */
   getCandles(q: CandleQuery): Promise<Candle[]>;

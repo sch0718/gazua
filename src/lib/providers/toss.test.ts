@@ -491,9 +491,15 @@ describe('toss provider: stock meta', () => {
     expect(client.dataCalls.map((c) => c.query.symbols.split(',').length)).toEqual([200, 50]);
   });
 
-  it('fails as upstream when a requested symbol is missing from the response', async () => {
-    const { provider } = setup((c) => (c.path === '/api/v1/stocks' ? ok([]) : undefined));
-    await expect(provider.getStockMeta(['005930'])).rejects.toMatchObject({ code: 'upstream' });
+  it('omits a requested symbol missing from the response and keeps the rest', async () => {
+    const { provider } = setup((c) => (c.path === '/api/v1/stocks' ? ok(stocks069500.result) : undefined));
+    expect((await provider.getStockMeta(['005930', '069500'])).map((m) => m.symbol)).toEqual(['069500']);
+    expect(await provider.getStockMeta(['005930'])).toEqual([]);
+  });
+
+  it('still fails a quote batch with a missing symbol as upstream', async () => {
+    const { provider } = setup((c) => (c.path === '/api/v1/prices' ? ok([]) : undefined));
+    await expect(provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'upstream' });
   });
 });
 

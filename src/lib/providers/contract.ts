@@ -77,6 +77,14 @@ export function runProviderContract(name: string, make: () => MarketDataProvider
       for (const m of metas) expect(typeof m.nxtSupported).toBe('boolean');
     });
 
+    it('getStockMeta returns only requested symbols, in request order, each at most once', async () => {
+      const requested = ['069500', '005930', '000660'];
+      const got = (await provider.getStockMeta(requested)).map((m) => m.symbol);
+      // 받지 못한 종목은 빠질 수 있지만(행 단위 오류), 순서는 요청 순서의 부분열이어야 한다.
+      expect(got).toEqual(requested.filter((s) => got.includes(s)));
+      expect(new Set(got).size).toBe(got.length);
+    });
+
     it('returns exactly one quote per requested symbol', async () => {
       const symbols = ['005930', '000660', '069500'];
       const quotes = await provider.getQuotes(symbols, primaryVenue());

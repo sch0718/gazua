@@ -250,7 +250,15 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       .sort((a, b) => a.t - b.t);
   }
 
-  async function stockRows(symbols: string[], path: string, group: Group, priority: Priority, what: string) {
+  /** 요청 순서대로 행을 돌려준다. skipMissing이면 응답에 없는 종목은 빼고, 아니면 upstream 오류. */
+  async function stockRows(
+    symbols: string[],
+    path: string,
+    group: Group,
+    priority: Priority,
+    what: string,
+    skipMissing = false,
+  ): Promise<{ symbol: string; row: Row }[]> {
     const unique = [...new Set(symbols)];
     const pages = await Promise.all(
       chunk(unique, BATCH_SIZE).map((batch) =>
@@ -259,10 +267,11 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     );
     const bySymbol = new Map<string, Row>();
     for (const row of pages.flat()) bySymbol.set(text(row.symbol), row);
-    return symbols.map((s) => {
-      const row = bySymbol.get(s);
-      if (!row) throw upstream(`Toss ${what} response is missing a requested symbol`);
-      return row;
+    return symbols.flatMap((symbol) => {
+      const row = bySymbol.get(symbol);
+      if (row) return [{ symbol, row }];
+      if (skipMissing) return [];
+      throw upstream(`Toss ${what} response is missing a requested symbol`);
     });
   }
 
@@ -318,12 +327,13 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     },
 
     async getStockMeta(symbols) {
-      const rows = await stockRows(symbols, '/api/v1/stocks', 'STOCK', 1, 'stock');
-      return rows.map((row, i): StockMeta => {
+      // 상장폐지·만기 ETN처럼 응답에 없는 종목은 빼고 나머지를 돌려준다.
+      const rows = await stockRows(symbols, '/api/v1/stocks', 'STOCK', 1, 'stock', true);
+      return rows.map(({ symbol, row }): StockMeta => {
         const detail = isRecord(row.koreanMarketDetail) ? row.koreanMarketDetail : {};
         const meta: StockMeta = {
-          symbol: symbols[i],
-          name: text(row.name) || symbols[i],
+          symbol,
+          name: text(row.name) || symbol,
           market: marketOf(text(row.market)),
           securityType: securityTypeOf(text(row.securityType)),
           nxtSupported: detail.nxtSupported === true,
@@ -340,11 +350,11 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     async getQuotes(symbols, venue) {
       requireUnified(venue);
       const rows = await stockRows(symbols, '/api/v1/prices', 'MARKET_DATA', 0, 'price');
-      return rows.map((row, i): Quote => {
+      return rows.map(({ symbol, row }): Quote => {
         const price = toNumber(row.lastPrice);
         if (price === undefined) throw upstream('Toss quote has no price');
         const ts = Date.parse(text(row.timestamp));
-        return { symbol: symbols[i], venue: 'UNIFIED', price, ts: Number.isNaN(ts) ? null : ts };
+        return { symbol, venue: 'UNIFIED', price, ts: Number.isNaN(ts) ? null : ts };
       });
     },
 

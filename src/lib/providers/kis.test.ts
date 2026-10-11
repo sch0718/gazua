@@ -416,6 +416,21 @@ describe('kis provider: stock meta', () => {
     const b = setup(infoWith({ cptt_trad_tr_psbl_yn: 'N', nxt_tr_stop_yn: 'Y' }));
     expect((await b.provider.getStockMeta(['005930']))[0]).toMatchObject({ nxtSupported: false, nxtSuspended: null });
   });
+
+  it('omits a symbol KIS rejects and returns the rest in request order', async () => {
+    const reject = (c: Call): Json | undefined =>
+      c.query.PDNO === '999999' || c.query.FID_INPUT_ISCD === '999999'
+        ? { rt_cd: '1', msg_cd: 'EGW00001', msg1: '조회할 자료가 없습니다' }
+        : undefined;
+    const { provider } = setup(reject);
+    const metas = await provider.getStockMeta(['069500', '999999', '005930']);
+    expect(metas.map((m) => m.symbol)).toEqual(['069500', '005930']);
+  });
+
+  it('rejects when no symbol could be resolved (e.g. the proxy is down)', async () => {
+    const { provider } = setup((c) => (c.method === 'GET' ? { rt_cd: '1', msg_cd: 'EGW00001', msg1: 'x' } : undefined));
+    await expect(provider.getStockMeta(['005930', '069500'])).rejects.toBeInstanceOf(ApiError);
+  });
 });
 
 describe('kis provider: minute candles', () => {

@@ -430,7 +430,15 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
       indexMinutePastDays: false,
     },
 
-    getStockMeta: (symbols) => Promise.all(symbols.map(metaFor)),
+    // 종목마다 따로 받는다. 상장폐지·만기 ETN처럼 한 종목이 거절돼도 나머지는 돌려준다.
+    // 하나도 못 받으면(프록시·키 문제 등) 첫 오류를 그대로 던진다.
+    async getStockMeta(symbols) {
+      const settled = await Promise.allSettled(symbols.map(metaFor));
+      const metas = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+      const firstError = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (metas.length === 0 && firstError) throw firstError.reason;
+      return metas;
+    },
 
     getQuotes: (symbols, venue) => Promise.all(symbols.map((s) => quoteFor(s, venue))),
 
