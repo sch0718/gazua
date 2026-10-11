@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "universe": "node scripts/build-universe.mjs",
+    "prebuild": "node scripts/build-universe.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "fake-indexeddb": "^6.2.5",
+    "fflate": "^0.8.3",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "typescript": "^5.9.3",
