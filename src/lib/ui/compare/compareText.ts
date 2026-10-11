@@ -111,6 +111,13 @@ export function prevDayBadge(tradingDate: string): { text: string; label: string
   };
 }
 
+/** 이전 지수로 초과수익을 계산하는 중일 때 헤드라인 아래 안내. */
+export function indexStaleNote(computedAt: number, now: number): string {
+  const date = kstDate(computedAt);
+  const day = date === kstDate(now) ? '' : `${monthDay(date)} `;
+  return `지수는 ${day}${kstHHMM(computedAt)} 기준이에요`;
+}
+
 /** 리더보드 지표 값. %는 ▲▼ 기호와 함께. */
 export function formatMetricValue(v: number, unit: MetricUnit): string {
   switch (unit) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
-import { formatMetricValue, freshnessText, headlineLabel, prevDayBadge, staleBadge } from './compareText';
+import { formatMetricValue, freshnessText, headlineLabel, indexStaleNote, prevDayBadge, staleBadge } from './compareText';
 
 const TODAY = '2026-10-12';
 const at = (d: string, hhmm: string, ss = '00') => kstEpoch(d, `${hhmm}:${ss}`);
@@ -103,5 +103,12 @@ describe('prevDayBadge', () => {
       text: '10/8 거래일 값',
       label: '10월 8일 거래일 값이에요, 이번 거래일 데이터를 새로 받지 못했어요',
     });
+  });
+});
+
+describe('indexStaleNote', () => {
+  it('same KST day: 지수는 HH:MM 기준이에요; another day adds M/D', () => {
+    expect(indexStaleNote(at(TODAY, '10:00'), at(TODAY, '10:01'))).toBe('지수는 10:00 기준이에요');
+    expect(indexStaleNote(at('2026-10-08', '15:30'), at(TODAY, '09:00'))).toBe('지수는 10/8 15:30 기준이에요');
   });
 });

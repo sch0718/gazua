@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedSeries } from '../../data/candleService';
 import { sessionsForDay } from '../../market/sessions';
 import { kstEpoch } from '../../time/kst';
-import { chartTradingDate, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from './compareView';
+import { chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from './compareView';
 
 const DAY = '2026-10-12';
 const at = (hhmm: string) => kstEpoch(DAY, `${hhmm}:00`);
@@ -42,6 +42,18 @@ describe('compareView', () => {
     expect(chartTradingDate([d('2026-10-08'), d('2026-10-12'), d('2026-10-08')], 'intraday')).toBe('2026-10-12');
     expect(chartTradingDate([d('2026-10-08'), d('2026-10-12')], 'daily')).toBe('2026-10-08');
     expect(chartTradingDate([], 'intraday')).toBeNull();
+  });
+
+  it('staleIndexAt: the oldest computedAt among stale index entries, else null', () => {
+    const s = (computedAt: number) => ({ computedAt }) as LoadedSeries;
+    expect(staleIndexAt([{ status: 'ok', series: s(5) }, undefined])).toBeNull();
+    expect(
+      staleIndexAt([
+        { status: 'ok', series: s(9), stale: true },
+        { status: 'loading', series: s(7), stale: true },
+        { status: 'ok', series: s(3) },
+      ]),
+    ).toBe(7);
   });
 
   it('indexLoadOf: failed > null > ok', () => {

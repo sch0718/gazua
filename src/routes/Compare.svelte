@@ -25,8 +25,8 @@
   import type { ErrorActionTarget } from '../lib/providers/errors';
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
-  import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
+  import { indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
+  import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
@@ -128,6 +128,8 @@
     const chosen = METRICS.find((m) => m.id === app.settings.metric)?.label ?? app.settings.metric;
     return `${chosen} 대신 등락률을 보여 줘요 · ${availability.reason}`;
   });
+  // 지수 갱신에 실패해 이전 지수로 초과수익을 계산하는 중이면 그 지수가 언제 기준인지 알린다.
+  const indexStaleAtValue = $derived(metric === 'excess' ? staleIndexAt(items.map((i) => ctl.indexes[indexOf(i.symbol)])) : null);
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
 
@@ -136,8 +138,9 @@
     const out: Record<string, Point[] | null> = {};
     for (const i of items) {
       const series = ctl.entries[i.symbol]?.series;
-      const index = metric === 'excess' ? (ctl.indexes[indexOf(i.symbol)]?.series ?? null) : null;
-      out[i.symbol] = series ? metricPoints(series, metric, { index, period }) : null;
+      // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
+      const pair = metric === 'excess' ? ctl.excessIndex(i.symbol, indexOf(i.symbol)) : null;
+      out[i.symbol] = series ? metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period }) : null;
     }
     return out;
   });
@@ -369,6 +372,9 @@
         />
         {#if fallbackNote}
           <p class="fallback" role="status">{fallbackNote}</p>
+        {/if}
+        {#if indexStaleAtValue !== null}
+          <p class="fallback" role="status">{indexStaleNote(indexStaleAtValue, now)}</p>
         {/if}
         <div class="chart-slot">
           <ChartPanel

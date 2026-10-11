@@ -50,3 +50,16 @@ export function indexLoadOf(entries: (IndexEntry | undefined)[]): 'ok' | 'failed
   if (entries.some((e) => e?.status === 'null')) return 'null';
   return 'ok';
 }
+
+/**
+ * 다시 받기에 실패해 이전 지수를 쓰는 중이면 그 지수 중 가장 오래된 계산 시각. 없으면 null.
+ * 초과수익은 끄지 않고(지표가 깜박이지 않게) 헤드라인 아래에 `지수는 HH:MM 기준이에요`로 알린다.
+ */
+export function staleIndexAt(entries: (IndexEntry | undefined)[]): number | null {
+  let oldest: number | null = null;
+  for (const e of entries) {
+    if (!e?.stale || !e.series) continue;
+    if (oldest === null || e.series.computedAt < oldest) oldest = e.series.computedAt;
+  }
+  return oldest;
+}

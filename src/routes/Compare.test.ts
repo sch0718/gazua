@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { loadIndexSeries } from '../lib/data/candleService';
 import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
@@ -15,6 +16,11 @@ import { kstEpoch } from '../lib/time/kst';
 import Compare from './Compare.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
+// 지수 로딩만 테스트에서 실패시킬 수 있게 감싼다(기본은 실제 구현).
+vi.mock('../lib/data/candleService', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../lib/data/candleService')>();
+  return { ...real, loadIndexSeries: vi.fn(real.loadIndexSeries) };
+});
 
 const DAY = '2026-10-12';
 const NOW = kstEpoch(DAY, '10:00:00');
@@ -100,6 +106,19 @@ describe('Compare (demo provider)', () => {
     expect(within(rowOf('삼성전자')).getByText('10/8 거래일 값')).toBeTruthy();
     expect(within(rowOf('SK하이닉스')).queryByText(/거래일 값|기준$/)).toBeNull();
     expect(screen.getByText('오늘 · 등락률 · 기준 전일 종가')).toBeTruthy();
+  });
+
+  it('excess with a failed index refresh stays on and says which time the index is from', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { metric: 'excess' });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    await vi.waitFor(() => expect(screen.getByText('오늘 · 시장 대비 초과수익 · 기준 전일 종가')).toBeTruthy());
+    expect(screen.queryByText(/^지수는 /)).toBeNull();
+    vi.mocked(loadIndexSeries).mockRejectedValueOnce(new Error('down'));
+    window.dispatchEvent(new Event('online'));
+    const note = await screen.findByText('지수는 10:00 기준이에요');
+    expect(note.getAttribute('role')).toBe('status');
+    expect(screen.getByText('오늘 · 시장 대비 초과수익 · 기준 전일 종가')).toBeTruthy();
   });
 
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDailyMemo, createSeriesSnapshots, type LoadSeriesArgs } from '../../data/candleService';
+import {
+  createDailyMemo,
+  createSeriesSnapshots,
+  loadIndexSeries,
+  type LoadedSeries,
+  type LoadSeriesArgs,
+} from '../../data/candleService';
 import { sessionsForDay } from '../../market/sessions';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
@@ -17,9 +23,15 @@ import {
   type CompareQuery,
   type SnapshotSeries,
 } from './compareController.svelte';
-import { indexLoadOf } from './compareView';
+import { indexLoadOf, staleIndexAt } from './compareView';
 import { buildRows } from './rows';
 import { metricPoints } from '../../data/seriesMetrics';
+
+// 지수 로딩만 테스트마다 바꿀 수 있게 감싼다(기본은 실제 구현).
+vi.mock('../../data/candleService', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../data/candleService')>();
+  return { ...real, loadIndexSeries: vi.fn(real.loadIndexSeries) };
+});
 
 const DAY = '2026-10-12';
 const NOW = kstEpoch(DAY, '10:00:00');
@@ -362,6 +374,95 @@ describe('compareController', () => {
     expect(indexLoadOf([t.ctl.indexes.KOSPI])).toBe('ok');
     const after = metricPoints(t.ctl.entries['005930'].series!, 'excess', { index: t.ctl.indexes.KOSPI!.series, period: { unit: 'D', n: 1 } });
     expect(after).toEqual(before);
+  });
+
+  describe('excess pairs stock and index from the same moment', () => {
+    const indexMock = vi.mocked(loadIndexSeries);
+    const D1 = { unit: 'D', n: 1 } as const;
+    const bar = (t: number, c: number) => ({ t, o: c, h: c, l: c, c, v: 1 });
+    const indexSeries = (c: number, base: number, computedAt: number): LoadedSeries => ({
+      symbol: 'INDEX:KOSPI',
+      tradingDate: DAY,
+      base,
+      avgDailyVolume: null,
+      candles: [bar(NOW - 60_000, c)],
+      daily: [],
+      segments: [],
+      intervals: [],
+      computedAt,
+    });
+
+    const excessOf = (t: ReturnType<typeof setup>, symbol: string) => {
+      const pair = t.ctl.excessIndex(symbol, 'KOSPI');
+      return metricPoints(t.ctl.entries[symbol].series!, 'excess', { index: pair.series, indexUntil: pair.until, period: D1 });
+    };
+
+    it('(a) a failed index refresh: no excess beyond the old index’s last bar, and the index entry is stale', async () => {
+      const t = track(setup());
+      const old = indexSeries(102, 100, NOW);
+      indexMock.mockResolvedValueOnce(old);
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+
+      t.setNow(NOW + 60_000);
+      indexMock.mockRejectedValueOnce(new Error('down'));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110), bar(NOW, 120)], computedAt: NOW + 60_000 });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.computedAt).toBe(NOW + 60_000));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.stale).toBe(true));
+      expect(t.ctl.entries['005930'].series?.stale).toBe(false);
+
+      const points = excessOf(t, '005930');
+      expect(points.map((p) => p.v)).toEqual([8, null]);
+      expect(points.some((p) => p.v !== null && Math.abs(p.v - 18) < 1e-9)).toBe(false);
+      const [row] = buildRows([{ item: { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 0 }, series: t.ctl.entries['005930'].series, points }], {
+        scrubT: null,
+        venueMode: 'AUTO',
+      });
+      expect(row.value).toBe(8);
+      // 화면은 초과수익을 끄지 않고, 지수가 언제 기준인지 알린다.
+      expect(indexLoadOf([t.ctl.indexes.KOSPI])).toBe('ok');
+      expect(staleIndexAt([t.ctl.indexes.KOSPI])).toBe(NOW);
+    });
+
+    it('(b) a stale stock snapshot keeps the excess of its own load when the index’s in-progress bar moves', async () => {
+      const t = track(setup());
+      indexMock.mockResolvedValueOnce(indexSeries(1010, 1000, NOW));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+      const before = excessOf(t, '005930');
+      expect(before.map((p) => p.v)).toEqual([9]);
+
+      // 다음 갱신: 종목은 실패해 같은 snapshot(stale)을, 지수는 같은 시각 진행 봉이 1010 → 1020으로 바뀐 새 결과를 받는다.
+      t.setNow(NOW + 60_000);
+      indexMock.mockResolvedValueOnce(indexSeries(1020, 1000, NOW + 60_000));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110)], stale: true });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.stale).toBe(true));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.series?.computedAt).toBe(NOW + 60_000));
+      expect(t.ctl.entries['005930'].series?.stale).toBe(true);
+      expect(excessOf(t, '005930')).toEqual(before);
+
+      // 종목이 다시 새로 받아지면 지금 지수와 짝짓는다.
+      t.setNow(NOW + 120_000);
+      indexMock.mockResolvedValueOnce(indexSeries(1020, 1000, NOW + 120_000));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110)], computedAt: NOW + 120_000 });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.computedAt).toBe(NOW + 120_000));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.series?.computedAt).toBe(NOW + 120_000));
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8]);
+    });
   });
 
   it('an index that never loaded is failed', async () => {

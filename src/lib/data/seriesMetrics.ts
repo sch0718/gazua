@@ -26,7 +26,15 @@ const allNull = (s: LoadedSeries): Point[] => s.candles.map((c) => ({ t: c.t, v:
 export function metricPoints(
   series: LoadedSeries,
   metric: MetricId,
-  opts: { index?: LoadedSeries | null; period: Period },
+  opts: {
+    index?: LoadedSeries | null;
+    /**
+     * 초과수익: 이 시각(지수의 마지막 봉) 뒤의 종목 점은 null. 갱신에 실패해 이전 지수를 쓸 때
+     * 새 종목 봉을 이전 지수 값과 짝짓지 않게 한다.
+     */
+    indexUntil?: number | null;
+    period: Period;
+  },
 ): Point[] {
   const closes = closesOf(series);
   const change = (s: LoadedSeries, points: Point[]) => changePct(points, s.base ?? Number.NaN);
@@ -38,7 +46,9 @@ export function metricPoints(
     case 'excess': {
       const index = opts.index;
       if (!index) return allNull(series);
-      return excessPct(change(series, closes), change(index, closesOf(index)));
+      const points = excessPct(change(series, closes), change(index, closesOf(index)));
+      const until = opts.indexUntil;
+      return until == null ? points : points.map((p) => (p.t > until ? { t: p.t, v: null } : p));
     }
     case 'rvol': {
       if (opts.period.unit === 'D') return rvolIntraday(series.candles, series.avgDailyVolume);

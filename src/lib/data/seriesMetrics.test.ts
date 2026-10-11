@@ -52,6 +52,12 @@ describe('metricPoints', () => {
     expect(values(metricPoints(series(), 'excess', { period: D1, index }))).toEqual([9, 4, 15]);
   });
 
+  it('excess: indexUntil drops stock points after the index’s last bar (a stale index is not carried forward)', () => {
+    const index = series({ symbol: 'INDEX:KOSPI', base: 1000, candles: [bar(at('09:00'), 1010), bar(at('09:01'), 1020)] });
+    expect(values(metricPoints(series(), 'excess', { period: D1, index, indexUntil: at('09:01') }))).toEqual([9, 3, null]);
+    expect(values(metricPoints(series(), 'excess', { period: D1, index, indexUntil: null }))).toEqual([9, 3, 18]);
+  });
+
   it('excess: no index gives all null', () => {
     expect(values(metricPoints(series(), 'excess', { period: D1, index: null }))).toEqual([null, null, null]);
     expect(values(metricPoints(series(), 'excess', { period: D1 }))).toEqual([null, null, null]);
