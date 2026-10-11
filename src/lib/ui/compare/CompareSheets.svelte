@@ -8,8 +8,9 @@
   import MetricSheet, { type MetricCtx } from '../../../sheets/MetricSheet.svelte';
   import StockDetailSheet from '../../../sheets/StockDetailSheet.svelte';
   import type { CompareController } from './compareController.svelte';
+  import ShortcutHelp from './ShortcutHelp.svelte';
 
-  export type CompareSheet = 'add' | 'metric' | 'detail' | 'group' | null;
+  export type CompareSheet = 'add' | 'metric' | 'detail' | 'group' | 'help' | null;
 
   // 비교 화면의 시트들. 종목 상세는 1024 미만에서만 시트(≥1024는 오른쪽 패널 안에 그린다).
   let {
@@ -69,3 +70,4 @@
   onclose={close}
 />
 <GroupSheet open={sheet === 'group'} {app} onclose={close} />
+<ShortcutHelp open={sheet === 'help'} onclose={close} />

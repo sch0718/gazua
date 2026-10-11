@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { ChartSeriesInput } from '../lib/chart/lineData';
   import { indexAvailabilityFor } from '../lib/data/candleService';
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { Point } from '../lib/data/metrics';
   import { baseDateFor, metricPoints } from '../lib/data/seriesMetrics';
-  import { fetchPlanFor } from '../lib/market/periods';
+  import { fetchPlanFor, stepPeriod } from '../lib/market/periods';
   import type { DaySession } from '../lib/market/sessions';
   import { sessionLabelAt } from '../lib/market/tradable';
   import type { App } from '../lib/state/app.svelte';
@@ -14,6 +14,7 @@
   import { addItem, createGroup, moveItem, toggleHidden } from '../lib/state/watchlist';
   import { kstDate } from '../lib/time/kst';
   import ChartPanel from '../lib/ui/compare/ChartPanel.svelte';
+  import DataTable from '../lib/ui/compare/DataTable.svelte';
   import CompareSheets, { type CompareSheet } from '../lib/ui/compare/CompareSheets.svelte';
   import Controls from '../lib/ui/compare/Controls.svelte';
   import EmptyState from '../lib/ui/compare/EmptyState.svelte';
@@ -21,13 +22,15 @@
   import Headline from '../lib/ui/compare/Headline.svelte';
   import Leaderboard from '../lib/ui/compare/Leaderboard.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { kstHHMM, monthDay } from '../lib/ui/compare/compareText';
+  import { kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, indexLoadOf, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, sortRows } from '../lib/ui/compare/rows';
-  import { effectiveVenueMode } from '../lib/ui/compare/venue';
+  import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
+  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import { bindShortcuts } from '../lib/ui/shortcuts';
   import StockDetailSheet from '../sheets/StockDetailSheet.svelte';
 
   // 비교(홈) 화면, 스펙 7.2·7.6. 데이터 흐름은 compareController, 표시 규칙은 compare/*.ts에 있다.
@@ -219,6 +222,36 @@
     if (!wide) openSheet = 'detail';
   }
 
+  // ── 단축키 ─────────────────────────────────────────────
+  // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
+  function whenClosed(run: () => void) {
+    return () => {
+      if (openSheet === null) run();
+    };
+  }
+  onMount(() =>
+    bindShortcuts(document, {
+      search: whenClosed(() => (openSheet = 'add')),
+      prevPeriod: whenClosed(() => app.updateSettings({ period: stepPeriod(app.settings.period, -1) })),
+      nextPeriod: whenClosed(() => app.updateSettings({ period: stepPeriod(app.settings.period, 1) })),
+      metric: whenClosed(() => (openSheet = 'metric')),
+      cycleVenue: whenClosed(() => {
+        const next = nextVenueMode(app.provider.capabilities.venues, app.settings.venueMode);
+        if (next !== effectiveVenueMode(app.provider.capabilities.venues, app.settings.venueMode)) app.updateSettings({ venueMode: next });
+      }),
+      toggleHidden: whenClosed(() => {
+        if (!group || !selected || !items.some((i) => i.symbol === selected)) {
+          showSnackbar('먼저 종목을 선택하세요');
+          return;
+        }
+        saveGroup(toggleHidden(group, selected));
+      }),
+      help: () => {
+        if (openSheet === null) openSheet = 'help';
+      },
+    }),
+  );
+
   // ── 당겨서 새로고침 ────────────────────────────────────
   let pull = $state(0);
   let refreshing = $state(false);
@@ -300,6 +333,7 @@
             theme={app.settings.theme}
             {oncrosshair}
           />
+          <DataTable series={chartSeries} {mode} {unit} metricLabel={metricDef.label} periodLabel={periodLabel(period)} conv={app.settings.colorConvention} />
         </div>
         <div class="controls-slot">
           <Controls

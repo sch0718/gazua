@@ -25,3 +25,16 @@ export function quoteVenue(
   if (mode === 'NXT' && meta && !meta.nxtSupported) return 'KRX';
   return mode;
 }
+
+const CYCLE: VenueMode[] = ['AUTO', 'KRX', 'NXT', 'UNIFIED'];
+
+/** 단축키 `v`: 자동 → KRX → NXT → 통합 순으로, 공급자가 지원하지 않는 모드는 건너뛴다(토스는 통합에 머문다). */
+export function nextVenueMode(venues: readonly Venue[], current: VenueMode): VenueMode {
+  const supported = (m: VenueMode) => effectiveVenueMode(venues, m) === m;
+  const from = CYCLE.indexOf(effectiveVenueMode(venues, current));
+  for (let step = 1; step <= CYCLE.length; step++) {
+    const m = CYCLE[(from + step) % CYCLE.length];
+    if (supported(m)) return m;
+  }
+  return current;
+}
