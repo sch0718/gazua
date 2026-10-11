@@ -37,11 +37,30 @@ const KEYS: Record<string, keyof ShortcutHandlers> = {
   '?': 'help',
 };
 
+/** 한글 자판처럼 e.key가 ASCII가 아닐 때 쓰는 물리 키. 대문자·Shift 조합은 호출하는 쪽에서 가린다. */
+const CODES: Record<string, keyof ShortcutHandlers> = {
+  Slash: 'search',
+  BracketLeft: 'prevPeriod',
+  BracketRight: 'nextPeriod',
+  KeyM: 'metric',
+  KeyV: 'cycleVenue',
+  KeyH: 'toggleHidden',
+};
+const PRINTABLE_ASCII = /^[\x20-\x7e]$/;
+
+/** 눌린 키가 맡은 동작. ASCII 키는 e.key로, 한글 자판 등 그 밖의 키는 물리 키(e.code)로 정한다. */
+function resolve(e: KeyboardEvent): keyof ShortcutHandlers | undefined {
+  if (PRINTABLE_ASCII.test(e.key)) return Object.hasOwn(KEYS, e.key) ? KEYS[e.key] : undefined;
+  if (e.code === 'Slash') return e.shiftKey ? 'help' : 'search';
+  if (e.shiftKey && e.code.startsWith('Bracket')) return undefined;
+  return Object.hasOwn(CODES, e.code) ? CODES[e.code] : undefined;
+}
+
 /** 단축키를 달고, 떼는 함수를 돌려준다. 입력 요소에 포커스가 있거나 Ctrl/Meta/Alt가 눌려 있으면 무시한다. */
 export function bindShortcuts(target: Document, h: ShortcutHandlers): () => void {
   function onkeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return;
-    const name = Object.hasOwn(KEYS, e.key) ? KEYS[e.key] : undefined;
+    const name = resolve(e);
     if (!name) return;
     if (isTextEntry(e.target as Element | null) || isTextEntry(target.activeElement)) return;
     e.preventDefault();

@@ -62,6 +62,8 @@ corepack pnpm --filter proxy test
 
 GitHub Pages로 배포해요. 워크플로는 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)이고 `main`에 push할 때, 수동 실행할 때, 그리고 평일 06:00(KST)에 돌아요. 평일 아침 실행은 종목 유니버스를 새로 받아 다시 배포하는 용도예요.
 
+GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크플로를 자동으로 끄니, 유니버스 갱신이 멈췄다면 Actions 탭에서 워크플로를 다시 켜거나 수동으로 실행해요.
+
 저장소 설정은 한 번 직접 바꿔야 해요.
 
 1. 저장소 **Settings › Pages › Build and deployment › Source**를 `GitHub Actions`로 바꿔요.

@@ -116,4 +116,54 @@ describe('bindShortcuts', () => {
     press(document.body, '/');
     expect(h.search).not.toHaveBeenCalled();
   });
+
+  // 한글 자판(IME)에서는 e.key가 ㅡ·ㅍ·ㅗ처럼 한글 자모로 온다. 물리 키(e.code)로 맞춘다.
+  describe('Korean layout (e.key is a jamo)', () => {
+    it.each([
+      ['ㅡ', 'KeyM', 'metric'],
+      ['ㅍ', 'KeyV', 'cycleVenue'],
+      ['ㅗ', 'KeyH', 'toggleHidden'],
+      ['/', 'Slash', 'search'],
+    ] as const)('%s on %s calls %s', (key, code, name) => {
+      const h = handlers();
+      unbind = bindShortcuts(document, h);
+      const e = press(document.body, key, { code });
+      expect(h[name]).toHaveBeenCalledTimes(1);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('brackets keep working when the layout reports a non-ASCII key', () => {
+      const h = handlers();
+      unbind = bindShortcuts(document, h);
+      press(document.body, 'Process', { code: 'BracketLeft' });
+      press(document.body, 'Process', { code: 'BracketRight' });
+      expect(h.prevPeriod).toHaveBeenCalledTimes(1);
+      expect(h.nextPeriod).toHaveBeenCalledTimes(1);
+    });
+
+    it('Shift+Slash is help, Shift+brackets are not shortcuts', () => {
+      const h = handlers();
+      unbind = bindShortcuts(document, h);
+      press(document.body, 'ㅡ', { code: 'Slash', shiftKey: true });
+      press(document.body, 'ㅡ', { code: 'BracketLeft', shiftKey: true });
+      expect(h.help).toHaveBeenCalledTimes(1);
+      expect(h.prevPeriod).not.toHaveBeenCalled();
+    });
+
+    it('does not use e.code when e.key is a printable ASCII key (AZERTY: KeyM prints a comma)', () => {
+      const h = handlers();
+      unbind = bindShortcuts(document, h);
+      press(document.body, ',', { code: 'KeyM' });
+      expect(h.metric).not.toHaveBeenCalled();
+    });
+
+    it('still ignores jamo typed into an input', () => {
+      const h = handlers();
+      unbind = bindShortcuts(document, h);
+      const el = document.body.appendChild(document.createElement('input'));
+      el.focus();
+      press(el, 'ㅡ', { code: 'KeyM' });
+      expect(h.metric).not.toHaveBeenCalled();
+    });
+  });
 });
