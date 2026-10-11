@@ -1154,7 +1154,14 @@ async function runDemo(){
 }
 function stopDemo(){ clearTimeout(demo.restartTimer); demo.restartTimer=null; demo.running=false; demo.token++; finger.classList.remove('show','press','hold','drag'); cap.hidden=true; $('#playBtn').textContent='▶ 데모 재생'; $('#playBtn').classList.remove('stop'); clearScrub(); }
 $('#playBtn').addEventListener('click', ()=> demo.running ? stopDemo() : runDemo());
-function stopDemoOnInput(e){ if((demo.running || demo.restartTimer!==null) && e.isTrusted && !e.target.closest('#playBtn')){ stopDemo(); snack('데모를 멈췄어요. 직접 조작해 보세요'); } }
+const MODIFIER_KEYS = new Set(['Shift','Meta','Control','Alt','AltGraph','CapsLock','Fn','FnLock','OS']);
+function stopDemoOnInput(e){
+  if(!(demo.running || demo.restartTimer!==null) || !e.isTrusted) return;
+  // 녹화(Shift+Cmd+5)·전체화면·확대 같은 OS·브라우저 단축키와 수정키 단독 입력은 조작이 아니므로 무시
+  if(e.type==='keydown' && (e.metaKey || e.ctrlKey || e.altKey || MODIFIER_KEYS.has(e.key))) return;
+  if(e.target?.closest?.('#playBtn')) return;
+  stopDemo(); snack('데모를 멈췄어요. 직접 조작해 보세요');
+}
 window.addEventListener('pointerdown', stopDemoOnInput, true);
 window.addEventListener('keydown', stopDemoOnInput, true);
 
