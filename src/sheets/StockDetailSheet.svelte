@@ -59,7 +59,7 @@
       const q = list.find((x) => x.symbol === sym);
       if (alive && q) quotes = { ...quotes, [venue]: q };
     };
-    const venues = quoteVenuesFor(p.capabilities.venues, nxtSupported);
+    const venues = quoteVenuesFor(p.capabilities.venues, nxtSupported, app.settings.venueMode);
     // 폴러는 세션 안에서만 시작하자마자 받으므로, 장 밖이면 여기서 한 번 받는다.
     if (!inSessionNow()) {
       for (const venue of venues) {

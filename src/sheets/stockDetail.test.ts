@@ -142,8 +142,32 @@ describe('detailView — status', () => {
 
 describe('quoteVenuesFor', () => {
   it('KRX and NXT for split providers (NXT only if supported), else UNIFIED', () => {
-    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], true)).toEqual(['KRX', 'NXT']);
-    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], false)).toEqual(['KRX']);
-    expect(quoteVenuesFor(['UNIFIED'], true)).toEqual(['UNIFIED']);
+    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], true, 'AUTO')).toEqual(['KRX', 'NXT']);
+    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], false, 'AUTO')).toEqual(['KRX']);
+    expect(quoteVenuesFor(['UNIFIED'], true, 'AUTO')).toEqual(['UNIFIED']);
+  });
+
+  it('adds UNIFIED in 통합 mode when the provider supports it', () => {
+    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], true, 'UNIFIED')).toEqual(['KRX', 'NXT', 'UNIFIED']);
+    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], false, 'UNIFIED')).toEqual(['KRX', 'UNIFIED']);
+    expect(quoteVenuesFor(['KRX', 'NXT'], true, 'UNIFIED')).toEqual(['KRX', 'NXT']);
+    expect(quoteVenuesFor(['KRX', 'NXT', 'UNIFIED'], true, 'KRX')).toEqual(['KRX', 'NXT']);
+  });
+});
+
+describe('detailView — 통합 mode on a KRX/NXT/통합 provider', () => {
+  it('the big price is the unified quote, KRX/NXT cells stay and only the 통합 cell is current', () => {
+    const quotes = { KRX: quote('KRX', 120), NXT: quote('NXT', 125), UNIFIED: quote('UNIFIED', 123) };
+    const v = detailView(input({ venueMode: 'UNIFIED', quotes, series: series({ candles: [candle(at('10:00'), 110)] }) }));
+    expect(v.price).toBe(123);
+    expect(v.sub).toContain('지금 통합 가격');
+    expect(v.cells.map((c) => [c.key, c.value])).toEqual([
+      ['close', '장중'],
+      ['KRX', '120'],
+      ['NXT', '125'],
+      ['UNIFIED', '123'],
+    ]);
+    expect(v.cells.filter((c) => c.current).map((c) => c.key)).toEqual(['UNIFIED']);
+    expect(quoteVenuesFor(input().venues, true, 'UNIFIED')).toContain('UNIFIED');
   });
 });

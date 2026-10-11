@@ -231,3 +231,30 @@ describe('StockDetailSheet quote refresh', () => {
     t.unmount();
   });
 });
+
+describe('StockDetailSheet in 통합 mode', () => {
+  it('asks for the unified quote too and shows it as the big price with the 통합 cell current', async () => {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(EXAMPLE) }], now: at('10:00'), settings: { venueMode: 'UNIFIED' } });
+    apps.push(app);
+    const prices = { KRX: 120, NXT: 125, UNIFIED: 123 } as const;
+    const getQuotes = vi
+      .spyOn(app.provider, 'getQuotes')
+      .mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: prices[venue], ts: null })));
+    render(StockDetailSheet, {
+      app,
+      groupId: 'g1',
+      symbol: '005930',
+      meta: SAMSUNG,
+      series: series({ candles: [candle(at('10:00'), 110)] }),
+      now: at('10:00'),
+      sessions,
+      isOpenToday: true,
+      inline: true,
+      onclose: vi.fn(),
+    });
+    await vi.waitFor(() => expect(document.querySelector('.price-big span')?.textContent).toBe('123원'));
+    expect(getQuotes.mock.calls.map((c) => c[1]).sort()).toEqual(['KRX', 'NXT', 'UNIFIED']);
+    expect(screen.getByText(/지금 통합 가격/)).toBeTruthy();
+    expect([...document.querySelectorAll('.vcmp .cur span')].map((e) => e.textContent)).toEqual(['통합']);
+  });
+});
