@@ -11,6 +11,7 @@ import { kstEpoch } from '../lib/time/kst';
 import type { SnapshotSeries } from '../lib/ui/compare/compareController.svelte';
 import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
 import { dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { QUOTE_INTERVAL_MS } from '../lib/data/quotePoller';
 import StockDetailSheet from './StockDetailSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 
@@ -173,5 +174,60 @@ describe('StockDetailSheet', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByRole('region', { name: '선택한 종목' })).toBeTruthy();
     expect(screen.getByText('삼성전자')).toBeTruthy();
+  });
+});
+
+describe('StockDetailSheet quote refresh', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function mount(now: number) {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(EXAMPLE) }], now });
+    apps.push(app);
+    const quote = { price: 111 };
+    const getQuotes = vi
+      .spyOn(app.provider, 'getQuotes')
+      .mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: quote.price, ts: now })));
+    const r = render(StockDetailSheet, {
+      app,
+      groupId: 'g1',
+      symbol: '005930',
+      meta: SAMSUNG,
+      series: series(),
+      now,
+      sessions,
+      isOpenToday: true,
+      inline: true,
+      onclose: vi.fn(),
+    });
+    const big = () => document.querySelector('.price-big span')?.textContent;
+    return { getQuotes, quote, big, unmount: r.unmount };
+  }
+
+  it('in session it re-fetches on the quote poller interval and shows the new price; unmounting stops it', async () => {
+    vi.useFakeTimers();
+    const t = mount(at('10:00'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.big()).toBe('111원');
+    const first = t.getQuotes.mock.calls.length;
+    expect(first).toBe(2); // KRX, NXT
+    t.quote.price = 120;
+    await vi.advanceTimersByTimeAsync(QUOTE_INTERVAL_MS);
+    expect(t.getQuotes.mock.calls.length).toBe(first * 2);
+    expect(t.big()).toBe('120원');
+    t.unmount();
+    await vi.advanceTimersByTimeAsync(QUOTE_INTERVAL_MS * 3);
+    expect(t.getQuotes.mock.calls.length).toBe(first * 2);
+  });
+
+  it('out of session it fetches once when opened and does not poll', async () => {
+    vi.useFakeTimers();
+    const t = mount(at('21:00'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.getQuotes.mock.calls.length).toBe(2);
+    await vi.advanceTimersByTimeAsync(QUOTE_INTERVAL_MS * 3);
+    expect(t.getQuotes.mock.calls.length).toBe(2);
+    t.unmount();
   });
 });

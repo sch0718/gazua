@@ -22,10 +22,11 @@ export interface QuotePoller {
   refresh(): Promise<void>;
 }
 
-const DEFAULT_INTERVAL_MS = 5000;
+/** 현재가 폴링 주기(리더보드·종목 상세가 함께 쓴다). */
+export const QUOTE_INTERVAL_MS = 5000;
 
 export function createQuotePoller(deps: QuotePollerDeps): QuotePoller {
-  const intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const intervalMs = deps.intervalMs ?? QUOTE_INTERVAL_MS;
   const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;

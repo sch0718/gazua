@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { createQuotePoller } from '../lib/data/quotePoller';
   import type { DaySession } from '../lib/market/sessions';
-  import type { Venue } from '../lib/market/tradable';
+  import { sessionLabelAt, type Venue } from '../lib/market/tradable';
   import type { Quote, StockMeta } from '../lib/providers/types';
   import type { App } from '../lib/state/app.svelte';
   import { MAX_ITEMS } from '../lib/state/watchlist';
@@ -43,27 +45,47 @@
   const provider = $derived(app.provider);
   const nxtSupported = $derived(meta?.nxtSupported ?? false);
 
-  // 열 때(종목·공급자가 바뀔 때) 거래소마다 현재가를 한 번 받는다.
+  // 거래소마다 현재가를 받는다. 장중에는 리더보드와 같은 현재가 폴러(같은 주기·세션 판단·탭 숨김 처리)로 계속 받고,
+  // 장 밖에서는 열 때 한 번만 받는다. 닫거나 종목·공급자가 바뀌면 멈춘다.
   let quotes = $state.raw<Partial<Record<Venue, Quote>>>({});
+  const inSessionNow = () => untrack(() => isOpenToday && sessionLabelAt(sessions, now) !== null);
   $effect(() => {
     if (!active) return;
     const sym = symbol;
     const p = provider;
     let alive = true;
     quotes = {};
-    for (const venue of quoteVenuesFor(p.capabilities.venues, nxtSupported)) {
-      p.getQuotes([sym], venue).then(
-        (list) => {
-          const q = list.find((x) => x.symbol === sym);
-          if (alive && q) quotes = { ...quotes, [venue]: q };
-        },
-        () => {
-          // 받지 못한 거래소는 '—'로 둔다.
-        },
-      );
+    const accept = (venue: Venue, list: Quote[]) => {
+      const q = list.find((x) => x.symbol === sym);
+      if (alive && q) quotes = { ...quotes, [venue]: q };
+    };
+    const venues = quoteVenuesFor(p.capabilities.venues, nxtSupported);
+    // 폴러는 세션 안에서만 시작하자마자 받으므로, 장 밖이면 여기서 한 번 받는다.
+    if (!inSessionNow()) {
+      for (const venue of venues) {
+        p.getQuotes([sym], venue).then(
+          (list) => accept(venue, list),
+          () => {
+            // 받지 못한 거래소는 '—'로 둔다.
+          },
+        );
+      }
     }
+    const pollers = venues.map((venue) =>
+      createQuotePoller({
+        provider: p,
+        symbols: () => [sym],
+        venue: () => venue,
+        inSession: inSessionNow,
+        onQuotes: (list) => accept(venue, list),
+      }),
+    );
+    untrack(() => {
+      for (const poller of pollers) poller.start();
+    });
     return () => {
       alive = false;
+      for (const poller of pollers) poller.stop();
     };
   });
 
