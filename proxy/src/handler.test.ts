@@ -145,6 +145,23 @@ describe('allowlist', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it('blocks path-bypass attempts without calling upstream', async () => {
+    const f = fakeFetch();
+    const paths = [
+      '/toss/api/v1/prices/',
+      '/toss//api/v1/prices',
+      '/toss/api/v1/PRICES',
+      '/toss/api/v1%2Fprices',
+      '/toss/%2e%2e/api/v1/orders',
+    ];
+    for (const path of paths) {
+      const res = await handle(req(path), env, f);
+      expect(res.status, path).toBe(403);
+      expect(await code(res), path).toBe('proxy-path-blocked');
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('allows every listed path', async () => {
     const allowed: Array<[string, string]> = [
       ['POST', '/toss/oauth2/token'],
