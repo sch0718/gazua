@@ -193,17 +193,52 @@ describe('loadSeries: trading date and venues', () => {
     expect(barAt(s, at(d, '10:00'))?.c).toBe(100);
     expect(barAt(s, at(d, '17:00'))?.c).toBe(100);
     expect(barAt(s, at(d, '15:45'))?.c).toBe(200);
-    // 아무도 접속매매하지 않는 시각의 봉은 버린다.
-    expect(barAt(s, at(d, '08:55'))).toBeUndefined();
-    expect(barAt(s, at(d, '15:25'))).toBeUndefined();
+    // 단일가 구간의 봉은 그 구간 거래소(tradableIntervals AUTO)의 것을 남긴다: KRX 시가·종가 단일가.
+    expect(barAt(s, at(d, '08:55'))?.c).toBe(100);
+    expect(barAt(s, at(d, '15:25'))?.c).toBe(100);
     expect(s.candles.map((c) => c.t)).toEqual([...s.candles.map((c) => c.t)].sort((a, b) => a - b));
+    expect(new Set(s.candles.map((c) => c.t)).size).toBe(s.candles.length);
     expect(s.segments).toEqual([
       { start: at(d, '08:00'), end: at(d, '08:50'), venue: 'NXT' },
-      { start: at(d, '09:00'), end: at(d, '15:20'), venue: 'KRX' },
-      { start: at(d, '15:40'), end: at(d, '16:00'), venue: 'NXT' },
+      { start: at(d, '08:50'), end: at(d, '15:30'), venue: 'KRX' },
+      { start: at(d, '15:30'), end: at(d, '16:00'), venue: 'NXT' },
       { start: at(d, '16:00'), end: at(d, '20:00'), venue: 'KRX' },
     ]);
     expect(s.intervals).toEqual(tradableIntervals(sessionsForDay({ date: d, isOpen: true }), meta(), 'AUTO'));
+  });
+
+  it('AUTO 1D of an NXT-unsupported ETF ends at the KRX closing-auction bar (official close)', async () => {
+    const clock = { now: SUN };
+    const d = '2026-10-08';
+    const f = fakeProvider({
+      now: () => clock.now,
+      minute: (venue, t) => (t === at(d, '15:29') ? { c: 123 } : { c: VENUE_PRICE[venue] }),
+    });
+    const etf = meta({ symbol: '069500', securityType: 'ETF', nxtSupported: false });
+    const s = await loadSeries({ provider: f.provider, ...deps(clock), meta: etf, period: D1, venueMode: 'AUTO', now: SUN });
+    expect(s.candles.at(-1)).toMatchObject({ t: at(d, '15:29'), c: 123 });
+    expect(lastPct(s)).toBeCloseTo(((123 - (s.base as number)) / (s.base as number)) * 100, 6);
+    // 시가 단일가 봉도 남고, ETF에 없는 KRX 애프터 봉은 버린다.
+    expect(barAt(s, at(d, '08:45'))?.c).toBe(100);
+    expect(barAt(s, at(d, '08:29'))).toBeUndefined();
+    expect(barAt(s, at(d, '16:30'))).toBeUndefined();
+  });
+
+  it('AUTO 1D of an NXT stock keeps the KRX closing-auction bar, then NXT from 15:40', async () => {
+    const clock = { now: SUN };
+    const d = '2026-10-08';
+    const f = fakeProvider({
+      now: () => clock.now,
+      minute: (venue, t) => (venue === 'KRX' && t === at(d, '15:29') ? { c: 111 } : { c: VENUE_PRICE[venue] }),
+    });
+    const s = await loadSeries({ provider: f.provider, ...deps(clock), meta: meta(), period: D1, venueMode: 'AUTO', now: SUN });
+    expect(barAt(s, at(d, '15:19'))?.c).toBe(100);
+    expect(barAt(s, at(d, '15:29'))?.c).toBe(111);
+    expect(barAt(s, at(d, '15:40'))?.c).toBe(200);
+    const closeIdx = s.candles.findIndex((c) => c.t === at(d, '15:29'));
+    expect(s.candles.slice(closeIdx + 1).every((c) => c.t >= at(d, '15:30'))).toBe(true);
+    // KRX 우선 규칙은 그대로: 정규장 중에는 NXT 봉이 끼지 않는다.
+    expect(s.candles.filter((c) => c.t >= at(d, '09:00') && c.t < at(d, '15:30')).every((c) => c.c !== 200)).toBe(true);
   });
 
   it('AUTO on a stock without NXT fetches only KRX minutes', async () => {

@@ -1,7 +1,7 @@
 // 공급자 봉 → 기간·거래소 모드별 차트 시리즈. 스펙 4.2–4.4, 5.1–5.4.
 import { fetchPlanFor, type FetchPlan } from '../market/periods';
 import { sessionsForDay, type TradingDay } from '../market/sessions';
-import { autoVenueAt, sessionLabelAt, tradableIntervals, type TradeInterval, type Venue, type VenueMode } from '../market/tradable';
+import { sessionLabelAt, tradableIntervals, type TradeInterval, type Venue, type VenueMode } from '../market/tradable';
 import { ApiError } from '../providers/errors';
 import type { MarketDataProvider, ProviderCapabilities, StockMeta } from '../providers/types';
 import type { Period } from '../state/schema';
@@ -303,12 +303,13 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
     return { ...result, base, avgDailyVolume, candles, segments: segmentsOf(candles.map((c) => ({ t: c.t, venue: v.series })), DAY_MS) };
   }
 
-  // 1일 차트: AUTO면 각 시각에 KRX 우선 규칙이 고른 거래소의 봉만 남긴다.
+  // 1일 차트: AUTO면 각 봉 시각을 담은 거래 가능 구간(tradableIntervals AUTO)의 거래소 봉만 남긴다.
+  // 접속매매는 KRX 우선 규칙 그대로이고, 단일가 구간(KRX 시가·종가 단일가)의 봉도 남겨
+  // 15:30 공식 종가가 1일 차트의 마지막 값이 되게 한다. 단일가 구간은 lineData가 점선으로 그린다.
+  const venueAt = (t: number) => intervals.find((i) => i.start <= t && t < i.end)?.venue ?? null;
   const tagged = minuteSets
     .flatMap(({ venue, bars }) =>
-      bars
-        .filter((c) => v.mode !== 'AUTO' || autoVenueAt(sessions, meta, c.t) === venue)
-        .map((c) => ({ c, venue })),
+      bars.filter((c) => v.mode !== 'AUTO' || venueAt(c.t) === venue).map((c) => ({ c, venue })),
     )
     .sort((a, b) => a.c.t - b.c.t);
 
