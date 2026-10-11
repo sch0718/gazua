@@ -314,9 +314,16 @@
     // 확대·이동·크기 변경 때 차트 밖에 그리는 것(세션 레인·끝 라벨)을 다시 배치한다. 띠(primitive)는 그릴 때 좌표를 다시 읽는다.
     c.timeScale().subscribeVisibleLogicalRangeChange(scheduleOverlay);
     c.timeScale().subscribeSizeChange(scheduleOverlay);
+    let lastWidth = plotEl.clientWidth;
     const observer = new ResizeObserver(() => {
-      c.resize(plotEl.clientWidth, plotEl.clientHeight);
-      fitRange(c);
+      const width = plotEl.clientWidth;
+      c.resize(width, plotEl.clientHeight);
+      // 높이만 바뀐 경우(휴대폰 주소창이 접히거나 펴짐)는 다시 맞추지 않는다: 사용자가 맞춘 확대·이동을 지킨다.
+      // 너비가 바뀌면(첫 배치·회전·창 크기) 전체를 다시 맞춘다.
+      if (width !== lastWidth) {
+        lastWidth = width;
+        fitRange(c);
+      }
       scheduleOverlay();
     });
     observer.observe(plotEl);

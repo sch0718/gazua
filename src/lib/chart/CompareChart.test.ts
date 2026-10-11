@@ -141,3 +141,49 @@ describe('CompareChart zoom and pan (spec §7.6: 두 손가락 = 확대, 가로 
     expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
   });
 });
+
+describe('CompareChart resize keeps the user’s zoom', () => {
+  /** 콜백을 직접 부를 수 있는 ResizeObserver. */
+  const observers: Array<() => void> = [];
+  class ManualResizeObserver {
+    constructor(private cb: () => void) {
+      observers.push(() => this.cb());
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  const size = (el: Element, w: number, h: number) => {
+    Object.defineProperty(el, 'clientWidth', { configurable: true, value: w });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: h });
+    for (const fire of observers) fire();
+  };
+
+  beforeEach(() => {
+    observers.length = 0;
+    vi.stubGlobal('ResizeObserver', ManualResizeObserver);
+  });
+
+  it('a height-only resize (mobile address bar) keeps the range; a width change or a new day refits', async () => {
+    const { container, rerender } = render(CompareChartFixture, { series: [input('A', 1)], sessions });
+    await vi.waitFor(() => expect(lwcCharts[0]?.addSeriesCalls).toBe(2));
+    const chart = lwcCharts[0];
+    const plot = container.querySelector('.plot')!;
+    size(plot, 360, 300);
+    expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
+
+    chart.visibleRange = { from: 100, to: 200 }; // 두 손가락으로 확대했다
+    size(plot, 360, 340); // 주소창이 접혀 높이만 바뀌었다
+    expect(chart.visibleRange).toEqual({ from: 100, to: 200 });
+
+    size(plot, 640, 340); // 회전 등으로 너비가 바뀌었다
+    expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
+
+    chart.visibleRange = { from: 100, to: 200 };
+    const other = '2026-10-08';
+    const otherInput = { ...input('A', 1), points: [{ t: kstEpoch(other, '09:00:00'), v: 1 }] };
+    await rerender({ series: [otherInput], sessions: sessionsForDay({ date: other, isOpen: true }) }); // 다른 날(기간 변경)
+    await vi.waitFor(() => expect(chart.addSeriesCalls).toBe(4));
+    expect(chart.visibleRange).toEqual({ from: -0.5, to: 719.5 });
+  });
+});
