@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtPct, fmtTrillion, fmtWon, trendClass } from './format';
+import { fmtMB, fmtPct, fmtTrillion, fmtWon, trendClass } from './format';
 
 describe('fmtPct', () => {
   it('renders null as an em dash', () => expect(fmtPct(null)).toBe('—'));
@@ -54,5 +54,13 @@ describe('trendClass', () => {
   it('treats values that round to 0.00 as flat, like fmtPct', () => {
     expect(trendClass(0.004, 'kr')).toBe('');
     expect(trendClass(-0.004, 'kr')).toBe('');
+  });
+});
+
+describe('fmtMB', () => {
+  it('shows bytes as megabytes with one decimal', () => {
+    expect(fmtMB(0)).toBe('0.0 MB');
+    expect(fmtMB(1572864)).toBe('1.5 MB');
+    expect(fmtMB(Number.NaN)).toBe('—');
   });
 });

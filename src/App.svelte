@@ -8,11 +8,11 @@
   import Banner from './lib/ui/components/Banner.svelte';
   import SnackbarHost from './lib/ui/components/SnackbarHost.svelte';
   import { dismissSnackbar } from './lib/ui/components/snackbarStore.svelte';
-  import Layout from './lib/ui/Layout.svelte';
-  import Rail from './lib/ui/Rail.svelte';
   import StatusChip from './lib/ui/StatusChip.svelte';
   import Compare from './routes/Compare.svelte';
+  import Onboarding from './routes/Onboarding.svelte';
   import ProfilePicker from './routes/ProfilePicker.svelte';
+  import Settings from './routes/Settings.svelte';
   import Unlock from './routes/Unlock.svelte';
 
   const app = createApp({ storage: createSafeStorage(), now: () => Date.now() });
@@ -70,11 +70,6 @@
     void app.meta.activeProfileId;
     untrack(dismissSnackbar);
   });
-
-  function startDemo() {
-    app.updateSettings({ provider: 'demo', onboarded: true });
-    app.navigate({ name: 'compare' });
-  }
 </script>
 
 <div class="shell">
@@ -92,32 +87,11 @@
   {:else if route.name === 'unlock'}
     <Unlock {app} />
   {:else if route.name === 'onboarding'}
-    <section class="placeholder">
-      <h1>가즈아</h1>
-      <p>온보딩은 다음 작업에서 만들어요.</p>
-      <button type="button" class="primary" onclick={startDemo}>데모로 둘러보기</button>
-    </section>
+    <Onboarding {app} />
   {:else if route.name === 'compare'}
     <Compare {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />
   {:else}
-    <Layout>
-      {#snippet rail()}
-        <Rail {app} />
-      {/snippet}
-
-      {#snippet bar()}
-        <span class="title">설정</span>
-        <span class="spacer"></span>
-        {@render barEnd()}
-      {/snippet}
-
-      {#snippet main()}
-        <section class="placeholder">
-          <p>설정 화면은 다음 작업에서 만들어요.</p>
-          <button type="button" class="link" onclick={() => app.navigate({ name: 'compare' })}>비교로 돌아가기</button>
-        </section>
-      {/snippet}
-    </Layout>
+    <Settings {app} {barEnd} />
   {/if}
 </div>
 
@@ -147,44 +121,6 @@
       height: 100vh;
       height: 100dvh;
     }
-  }
-  .placeholder {
-    padding: 32px var(--gutter);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-    color: var(--t2);
-  }
-  .placeholder h1 {
-    color: var(--t1);
-    font-size: 22px;
-    font-weight: 800;
-  }
-  .primary {
-    min-height: var(--touch);
-    padding: 0 16px;
-    border-radius: 12px;
-    background: var(--accent);
-    color: var(--on-accent);
-    font-weight: 700;
-  }
-  .link {
-    min-height: var(--touch);
-    color: var(--accent);
-    font-weight: 700;
-  }
-  .title {
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-  .spacer {
-    flex: 1;
   }
   .icon-btn {
     width: 44px;

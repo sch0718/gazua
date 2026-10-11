@@ -33,3 +33,8 @@ export function trendClass(v: number | null, _conv: 'kr' | 'global'): 'up' | 'do
   if (r === 0) return '';
   return r > 0 ? 'up' : 'down';
 }
+
+/** 바이트를 `x.x MB`로(캐시 사용량). */
+export function fmtMB(bytes: number): string {
+  return Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '—';
+}

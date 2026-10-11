@@ -457,3 +457,65 @@ describe('createApp — key lock', () => {
     expect(picker.route.name).toBe('profiles');
   });
 });
+
+describe('createApp — profiles management, passphrase check, export/import', () => {
+  it('renameProfile trims the name and ignores a blank one', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const app = make(backing);
+    app.renameProfile('p1', '  회사  ');
+    expect(app.meta.profiles[0].name).toBe('회사');
+    app.renameProfile('p1', '   ');
+    expect(app.meta.profiles[0].name).toBe('회사');
+    expect(JSON.parse(backing.getItem('gazua:v1:meta')!).profiles[0].name).toBe('회사');
+  });
+
+  it('deleteProfile removes its keys, refuses the last profile, and switches away from the active one', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    seed(backing, 'p:p2:secrets', SECRETS);
+    seed(backing, 'p:p2:token:kis', { accessToken: 'tok', expiresAt: NOW + 1e6 });
+    const app = make(backing);
+    app.switchProfile('p2');
+    app.deleteProfile('p2');
+    expect(app.meta.activeProfileId).toBe('p1');
+    expect(app.meta.profiles.map((p) => p.id)).toEqual(['p1']);
+    expect(backing.dump()).not.toContain('p:p2:');
+    expect(() => app.deleteProfile('p1')).toThrow();
+    expect(app.meta.profiles).toHaveLength(1);
+  });
+
+  it('verifyPassphrase checks the stored lock without changing state', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing);
+    await app.unlock('correct horse');
+    expect(await app.verifyPassphrase('wrong')).toBe(false);
+    expect(await app.verifyPassphrase('correct horse')).toBe(true);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('exportData/importData go through storage and the imported profile shows up in meta', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const app = make(backing);
+    const json = app.exportData(false);
+    expect(json).not.toContain(SECRETS.kis!.appKey);
+    expect(app.exportData(true)).toContain(SECRETS.kis!.appKey);
+    const res = app.importData(json);
+    expect(res.ok).toBe(true);
+    expect(app.meta.profiles.map((p) => p.name)).toEqual(['내 프로필', '내 프로필 (가져옴)']);
+    expect(app.meta.activeProfileId).toBe('p1');
+    // 이후 meta 쓰기가 가져온 프로필을 지우지 않는다.
+    app.addProfile('셋째');
+    expect(JSON.parse(backing.getItem('gazua:v1:meta')!).profiles).toHaveLength(3);
+    expect(app.importData('{')).toEqual({ ok: false, reason: '파일 형식이 맞지 않아요' });
+  });
+});

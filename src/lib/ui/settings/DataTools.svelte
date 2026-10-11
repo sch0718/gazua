@@ -1,0 +1,201 @@
+<script lang="ts">
+  // 데이터(스펙 7.4): 관심종목 JSON 내보내기·가져오기(키 제외가 기본), 캐시 사용량·비우기.
+  import { onMount } from 'svelte';
+  import type { App } from '../../state/app.svelte';
+  import { exportFileName } from '../../state/exportImport';
+  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { fmtMB } from '../format';
+
+  let {
+    app,
+    download = saveFile,
+    estimate,
+    now = () => Date.now(),
+  }: {
+    app: App;
+    download?: (filename: string, text: string) => void;
+    /** 기본값: navigator.storage.estimate()의 usage, 없으면 봉 캐시 추정치. */
+    estimate?: () => Promise<number>;
+    now?: () => number;
+  } = $props();
+
+  const uid = Math.random().toString(36).slice(2, 8);
+  let includeSecrets = $state(false);
+  let usage = $state<number | null>(null);
+  let clearing = $state(false);
+  let fileInput = $state<HTMLInputElement>();
+
+  function saveFile(filename: string, text: string) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async function storageUsage(): Promise<number> {
+    if (estimate) return estimate();
+    const est = await navigator.storage?.estimate?.();
+    if (est && typeof est.usage === 'number') return est.usage;
+    return app.data.cache.estimateBytes();
+  }
+
+  async function refreshUsage() {
+    try {
+      usage = await storageUsage();
+    } catch {
+      usage = null;
+    }
+  }
+  onMount(refreshUsage);
+
+  function exportNow() {
+    const profile = app.meta.profiles.find((p) => p.id === app.meta.activeProfileId);
+    download(exportFileName(profile?.name ?? '', now()), app.exportData(includeSecrets));
+  }
+
+  async function onFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      showSnackbar('파일을 읽지 못했어요');
+      return;
+    }
+    const res = app.importData(text);
+    if (!res.ok) {
+      showSnackbar(res.reason);
+      return;
+    }
+    const name = app.meta.profiles.find((p) => p.id === res.profileId)?.name ?? '';
+    showSnackbar(`'${name}' 프로필을 만들었어요`, { label: '전환', run: () => app.switchProfile(res.profileId) });
+  }
+
+  async function clearCache() {
+    if (clearing) return;
+    clearing = true;
+    try {
+      await app.data.cache.clear();
+      showSnackbar('캐시를 비웠어요');
+    } catch {
+      showSnackbar('캐시를 비우지 못했어요');
+    } finally {
+      clearing = false;
+      await refreshUsage();
+    }
+  }
+</script>
+
+<div class="card">
+  <div class="row">
+    <div class="text">
+      <b>관심종목 내보내기</b>
+      <p>그룹·설정을 JSON 파일로 저장해요. 키는 빼는 게 기본이에요.</p>
+    </div>
+    <button type="button" class="btn" onclick={exportNow}>내보내기</button>
+  </div>
+  <label class="check" for="{uid}-secrets">
+    <input id="{uid}-secrets" type="checkbox" bind:checked={includeSecrets} />
+    키 포함
+  </label>
+  {#if includeSecrets}
+    <p class="warn" role="note">키가 포함된 파일은 안전하게 보관하세요</p>
+  {/if}
+
+  <div class="row">
+    <div class="text">
+      <b>가져오기</b>
+      <p>내보낸 파일을 새 프로필로 가져와요.</p>
+    </div>
+    <button type="button" class="btn" onclick={() => fileInput?.click()}>가져오기</button>
+    <input
+      bind:this={fileInput}
+      class="sr-only"
+      type="file"
+      accept="application/json,.json"
+      aria-label="가져올 파일"
+      tabindex="-1"
+      onchange={onFile}
+    />
+  </div>
+
+  <div class="row">
+    <div class="text">
+      <b>캐시 사용량</b>
+      <p class="num">{usage === null ? '확인 중…' : fmtMB(usage)}</p>
+    </div>
+    <button type="button" class="btn" disabled={clearing} onclick={clearCache}>캐시 비우기</button>
+  </div>
+</div>
+
+<style>
+  .card {
+    background: var(--surface);
+    border-radius: var(--r-card);
+    padding: 4px 16px 8px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .row:last-child {
+    border-bottom: 0;
+  }
+  .text b {
+    font-size: var(--fs-body);
+  }
+  .text p {
+    font-size: var(--fs-sub);
+    color: var(--t2);
+    margin-top: 2px;
+  }
+  .btn {
+    flex: none;
+    min-height: var(--touch);
+    padding: 0 14px;
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--t1);
+    font-weight: 700;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--touch);
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
+  .check input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+  .warn {
+    font-size: var(--fs-sub);
+    color: var(--warn);
+    padding-bottom: 8px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>

@@ -20,9 +20,10 @@ import {
   removeTokens,
   storageTokenStore,
 } from './profileStore';
+import { exportData, importData, type ImportResult } from './exportImport';
 import { hashFor, parseHash, type Route } from './routes';
 import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
-import { lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
+import { WrongPassphraseError, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
 import type { SafeStorage } from './storage';
 
 export type { Route, RouteName } from './routes';
@@ -58,6 +59,16 @@ export interface App {
   addRecent(symbol: string): void;
   switchProfile(id: string): void;
   addProfile(name: string): Profile;
+  /** 빈 이름은 무시한다. */
+  renameProfile(id: string, name: string): void;
+  /** 프로필과 그 설정·관심종목·키·토큰을 지운다. 마지막 프로필은 지울 수 없다(Error). 지금 쓰는 프로필이면 다른 프로필로 바꾼다. */
+  deleteProfile(id: string): void;
+  /** 저장된 잠금 키를 이 암호로 열 수 있는지(상태는 바꾸지 않는다). 잠긴 키가 없으면 true. */
+  verifyPassphrase(passphrase: string): Promise<boolean>;
+  /** 지금 프로필을 JSON으로. 토큰은 넣지 않고, 키는 includeSecrets일 때만 저장된 형태 그대로. */
+  exportData(includeSecrets: boolean): string;
+  /** 새 프로필 `{이름} (가져옴)`으로 가져온다. 지금 프로필은 그대로. */
+  importData(json: string): ImportResult;
   unlock(passphrase: string): Promise<void>;
   /** passphrase가 있으면 암호화해 저장하고 keyLock을 켠다. 없으면 평문 저장(keyLock이 켜져 있으면 거절). */
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
@@ -224,6 +235,22 @@ export function createApp(deps: AppDeps): App {
     navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
   }
 
+  function switchProfile(id: string) {
+    if (!meta.profiles.some((p) => p.id === id)) throw new Error(`no profile ${id}`);
+    meta = { ...meta, activeProfileId: id };
+    write(META_KEY, meta);
+    profileChosen = true;
+    const loaded = loadProfile(id);
+    settings = loaded.settings;
+    watchlists = loaded.watchlists;
+    recent = loaded.recent;
+    secrets = loaded.secrets;
+    locked = loaded.locked;
+    rebuild();
+    applyDisplay();
+    enter();
+  }
+
   enter();
   applyDisplay();
   win?.addEventListener('hashchange', onHashChange);
@@ -302,21 +329,7 @@ export function createApp(deps: AppDeps): App {
       write(profileKeys.recent(activeId()), recent);
     },
 
-    switchProfile(id) {
-      if (!meta.profiles.some((p) => p.id === id)) throw new Error(`no profile ${id}`);
-      meta = { ...meta, activeProfileId: id };
-      write(META_KEY, meta);
-      profileChosen = true;
-      const loaded = loadProfile(id);
-      settings = loaded.settings;
-      watchlists = loaded.watchlists;
-      recent = loaded.recent;
-      secrets = loaded.secrets;
-      locked = loaded.locked;
-      rebuild();
-      applyDisplay();
-      enter();
-    },
+    switchProfile,
 
     addProfile(name) {
       const profile: Profile = {
@@ -327,6 +340,51 @@ export function createApp(deps: AppDeps): App {
       meta = { ...meta, profiles: [...meta.profiles, profile] };
       write(META_KEY, meta);
       return profile;
+    },
+
+    renameProfile(id, name) {
+      const clean = name.trim();
+      if (!clean || !meta.profiles.some((p) => p.id === id)) return;
+      meta = { ...meta, profiles: meta.profiles.map((p) => (p.id === id ? { ...p, name: clean } : p)) };
+      write(META_KEY, meta);
+    },
+
+    deleteProfile(id) {
+      if (!meta.profiles.some((p) => p.id === id)) throw new Error(`no profile ${id}`);
+      const rest = meta.profiles.filter((p) => p.id !== id);
+      if (rest.length === 0) throw new Error('cannot delete the last profile');
+      if (activeId() === id) switchProfile(rest[0].id);
+      meta = { ...meta, profiles: rest };
+      write(META_KEY, meta);
+      forgetTokens(id);
+      remove(profileKeys.settings(id));
+      remove(profileKeys.watchlists(id));
+      remove(profileKeys.secrets(id));
+      remove(profileKeys.recent(id));
+    },
+
+    async verifyPassphrase(passphrase) {
+      if (!locked) return true;
+      try {
+        await unlockSecrets(locked, passphrase);
+        return true;
+      } catch (e) {
+        if (e instanceof WrongPassphraseError) return false;
+        throw e;
+      }
+    },
+
+    exportData(includeSecrets) {
+      return exportData(storage, activeId(), includeSecrets);
+    },
+
+    importData(json) {
+      const res = importData(storage, json, now);
+      if (res.ok) {
+        meta = loadMeta(storage);
+        storageTick++;
+      }
+      return res;
     },
 
     async unlock(passphrase) {
