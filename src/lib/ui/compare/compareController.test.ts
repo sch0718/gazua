@@ -15,7 +15,9 @@ import {
   type CompareQuery,
   type SnapshotSeries,
 } from './compareController.svelte';
+import { indexLoadOf } from './compareView';
 import { buildRows } from './rows';
+import { metricPoints } from '../../data/seriesMetrics';
 
 const DAY = '2026-10-12';
 const NOW = kstEpoch(DAY, '10:00:00');
@@ -257,6 +259,53 @@ describe('compareController', () => {
     t.resolveAll();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.entries['005930'].series?.tradingDate).toBe(DAY);
+  });
+
+  it('a failed periodic index reload keeps the last good index (excess stays available)', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+    await vi.waitFor(() => {
+      t.resolveAll();
+      expect(t.ctl.entries['005930']).toBeDefined();
+      expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+    });
+    const good = t.ctl.indexes.KOSPI!.series!;
+    const stock = t.ctl.entries['005930'].series!;
+    const before = metricPoints(stock, 'excess', { index: good, period: { unit: 'D', n: 1 } });
+
+    vi.spyOn(t.provider, 'getTradingDays').mockRejectedValue(new Error('down'));
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.stale).toBe(true));
+    expect(t.ctl.indexes.KOSPI).toMatchObject({ status: 'ok', series: good });
+    expect(indexLoadOf([t.ctl.indexes.KOSPI])).toBe('ok');
+    const after = metricPoints(t.ctl.entries['005930'].series!, 'excess', { index: t.ctl.indexes.KOSPI!.series, period: { unit: 'D', n: 1 } });
+    expect(after).toEqual(before);
+  });
+
+  it('an index that never loaded is failed', async () => {
+    const t = track(setup());
+    vi.spyOn(t.provider, 'getTradingDays').mockRejectedValue(new Error('down'));
+    t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.status).toBe('failed'));
+    expect(indexLoadOf([t.ctl.indexes.KOSPI])).toBe('failed');
+  });
+
+  it('a key change cancels the previous key’s reload timer', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(30_000);
+    t.ctl.setQuery(t.query({ symbols: ['005930'], period: { unit: 'W', n: 1 } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load).toHaveBeenCalledTimes(2);
+    // 새 키의 로딩이 끝나지 않은 채 이전 키의 60초 시점을 지나도 추가 로딩이 없다.
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    expect(t.load).toHaveBeenCalledTimes(2);
   });
 
   it('excess loads the market index of each stock (AUTO) or the chosen benchmark', async () => {

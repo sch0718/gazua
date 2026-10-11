@@ -154,6 +154,29 @@ describe('Leaderboard', () => {
     }
   });
 
+  it('after a touch drag that produced no click, the next tap still selects', async () => {
+    vi.useFakeTimers();
+    try {
+      const props = setup([row('A', 3), row('B', 2)]);
+      screen.getAllByRole('listitem').forEach((li, i) => {
+        li.getBoundingClientRect = () => ({ top: i * 60, bottom: i * 60 + 60, left: 0, right: 300, height: 60, width: 300, x: 0, y: i * 60, toJSON: () => ({}) });
+      });
+      const handle = mainBtn('A');
+      await fireEvent.pointerDown(handle, { clientX: 10, clientY: 30, pointerId: 1 });
+      vi.advanceTimersByTime(500);
+      await fireEvent.pointerMove(handle, { clientX: 10, clientY: 90, pointerId: 1 });
+      await fireEvent.pointerUp(handle, { clientX: 10, clientY: 90, pointerId: 1 });
+      expect(props.onreorder).toHaveBeenCalledWith('A', 'B');
+      // 터치 끌기 뒤에는 브라우저가 click을 보내지 않는다. 다음 탭:
+      await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 90, pointerId: 2 });
+      await fireEvent.pointerUp(mainBtn('B'), { clientX: 10, clientY: 90, pointerId: 2 });
+      await fireEvent.click(mainBtn('B'));
+      expect(props.onselect).toHaveBeenCalledWith('B');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a short press does not start a drag', async () => {
     vi.useFakeTimers();
     try {

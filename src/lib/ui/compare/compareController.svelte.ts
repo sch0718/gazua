@@ -21,6 +21,8 @@ export interface SeriesEntry {
 export interface IndexEntry {
   status: 'loading' | 'ok' | 'null' | 'failed';
   series: LoadedSeries | null;
+  /** 다시 받기에 실패해 이전에 받은 지수를 계속 쓰는 중 */
+  stale?: boolean;
 }
 
 export interface CompareQuery {
@@ -236,7 +238,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
     };
     return loadIndexSeries({ provider: q.provider, cache: q.data.cache, index, period: q.period, now: deps.now() }).then(
       (series) => settle(series ? { status: 'ok', series } : { status: 'null', series: null }),
-      () => settle({ status: 'failed', series: null }),
+      // 한 번 받은 지수가 있으면 갱신 실패로 초과수익을 끄지 않는다(이전 지수를 그대로 쓴다).
+      () => settle(prev?.series ? { status: 'ok', series: prev.series, stale: true } : { status: 'failed', series: null }),
     );
   }
 
@@ -311,6 +314,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
         prev.period.n !== q.period.n ||
         prev.venueMode !== q.venueMode;
       if (keyChanged) {
+        clearTimer();
         generation++;
         entries = {};
         quotes = {};

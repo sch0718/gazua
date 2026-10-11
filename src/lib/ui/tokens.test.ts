@@ -38,6 +38,10 @@ describe('tokens.css', () => {
     expect(series(darkAuto)).toEqual(series(darkSet));
   });
 
+  it('html and body turn off the browser’s own pull-to-refresh (the app has its own)', () => {
+    expect(block('html,\nbody')).toContain('overscroll-behavior-y: contain');
+  });
+
   it('swaps up/down under .global-colors', () => {
     expect(block(':root.global-colors')).toMatch(/--up: #0ca30c/);
   });

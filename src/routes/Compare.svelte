@@ -91,7 +91,7 @@
   const mode = $derived<'intraday' | 'daily'>(period.unit === 'D' ? 'intraday' : 'daily');
   const indexOf = (symbol: string) => indexForMeta(ctl.metas[symbol], benchmark);
 
-  const metric = $derived.by(() => {
+  const availability = $derived.by(() => {
     const indexLoad = indexLoadOf(items.map((i) => ctl.indexes[indexOf(i.symbol)]));
     const index = indexAvailabilityFor({
       caps: app.provider.capabilities,
@@ -102,8 +102,14 @@
     });
     const metasKnown = items.some((i) => ctl.metas[i.symbol]);
     const hasShares = !metasKnown || items.some((i) => ctl.metas[i.symbol]?.sharesOutstanding !== undefined);
-    // 지금 고를 수 없는 지표(지수 실패·발행주식수 없음 등)는 등락률로 보여 준다. 사유는 지표 시트가 알린다.
-    return metricAvailability(app.settings.metric, { period, index, hasShares }).ok ? app.settings.metric : 'change';
+    return metricAvailability(app.settings.metric, { period, index, hasShares });
+  });
+  // 지금 고를 수 없는 지표(지수 없음·발행주식수 없음 등)는 등락률로 보여 주고, 헤드라인 아래에 그 사실과 이유를 알린다.
+  const metric = $derived(availability.ok ? app.settings.metric : 'change');
+  const fallbackNote = $derived.by(() => {
+    if (availability.ok) return null;
+    const chosen = METRICS.find((m) => m.id === app.settings.metric)?.label ?? app.settings.metric;
+    return `${chosen} 대신 등락률을 보여 줘요 · ${availability.reason}`;
   });
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
@@ -268,6 +274,9 @@
           {closeAt}
           anyStale={loaded.some((s) => s.stale)}
         />
+        {#if fallbackNote}
+          <p class="fallback" role="status">{fallbackNote}</p>
+        {/if}
         <div class="chart-slot">
           <ChartPanel
             series={chartSeries}
@@ -332,6 +341,12 @@
     .controls-slot {
       order: 1;
     }
+  }
+  .fallback {
+    margin: 2px 0 0;
+    padding: 0 var(--gutter);
+    font-size: 12.5px;
+    color: var(--warn);
   }
   .pull {
     text-align: center;

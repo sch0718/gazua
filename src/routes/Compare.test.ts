@@ -6,7 +6,7 @@ import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
-import { DEFAULT_SETTINGS, type Meta, type WatchItem } from '../lib/state/schema';
+import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
 import { createSafeStorage } from '../lib/state/storage';
 import { memoryBacking, seed } from '../lib/state/testStorage';
 import { kstEpoch } from '../lib/time/kst';
@@ -23,10 +23,10 @@ const items = (symbols: string[]): WatchItem[] =>
   symbols.map((symbol, i) => ({ symbol, colorSlot: (i + 1) as WatchItem['colorSlot'], hidden: false, addedAt: 1 }));
 
 let apps: App[] = [];
-function makeApp(symbols: string[]): App {
+function makeApp(symbols: string[], settings: Partial<Settings> = {}): App {
   const backing = memoryBacking();
   seed(backing, 'meta', META);
-  seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true });
+  seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, ...settings });
   seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '반도체', items: items(symbols) }] });
   location.hash = '#/compare/g1';
   const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
@@ -75,6 +75,27 @@ describe('Compare (demo provider)', () => {
     expect(within(rowOf('한미반도체')).getByText('불러오지 못했어요')).toBeTruthy();
     expect(within(rowOf('삼성전자')).getByText(/[▲▼]|0\.00%/)).toBeTruthy();
     expect(lwcCharts.at(-1)?.series.length).toBe(6);
+  });
+
+  it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2), { metric: 'excess' });
+    // 지수 봉을 주지 않는 공급자(토스 지수 미지원과 같은 경우)
+    app.provider.capabilities.hasIndexCandles = false;
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(screen.getByText('시장 대비 초과수익 대신 등락률을 보여 줘요 · 이 데이터 소스는 지수 데이터를 주지 않아요').getAttribute('role')).toBe(
+      'status',
+    );
+    expect(screen.getByText('오늘 · 등락률 · 기준 전일 종가')).toBeTruthy();
+    expect(app.settings.metric).toBe('excess');
+  });
+
+  it('a v1.1 metric on 1 day says 1개월 이상에서 볼 수 있어요; an available metric shows no note', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { metric: 'volatility' });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    expect(screen.getByText('변동성 대신 등락률을 보여 줘요 · 1개월 이상에서 볼 수 있어요')).toBeTruthy();
+    app.updateSettings({ metric: 'drawdown' });
+    await vi.waitFor(() => expect(screen.queryByText(/대신 등락률을 보여 줘요/)).toBeNull());
   });
 
   it('empty group: 예시 그룹 불러오기 fills it with the four example stocks', async () => {

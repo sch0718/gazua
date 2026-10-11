@@ -158,6 +158,8 @@ html,
 body {
   background: var(--bg);
   color: var(--t1);
+  /* 브라우저 기본 당겨서 새로고침·튕김을 끄고 앱의 당겨서 새로고침(시세·당일 봉만 갱신)을 쓴다. */
+  overscroll-behavior-y: contain;
 }
 body {
   font-family: var(--font);

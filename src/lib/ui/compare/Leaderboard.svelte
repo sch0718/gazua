@@ -68,6 +68,8 @@
   }
 
   function onpointerdown(e: PointerEvent, symbol: string) {
+    // 터치로 끈 뒤에는 click이 오지 않을 수 있다. 새로 누르면 막아 둔 click을 푼다.
+    suppressClick = false;
     if (e.button > 0) return;
     cancelPress();
     const el = e.currentTarget as HTMLElement;
@@ -125,6 +127,7 @@
   }
 
   function onkeydown(e: KeyboardEvent, symbol: string) {
+    suppressClick = false;
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     const i = ordered.findIndex((r) => r.symbol === symbol);
