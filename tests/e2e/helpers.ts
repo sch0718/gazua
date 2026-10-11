@@ -53,5 +53,6 @@ export async function expectNoHorizontalScroll(page: Page): Promise<void> {
 
 /** 시각 확인용 전체 페이지 스크린샷: test-results/screens/<project>-<step>.png */
 export async function shot(page: Page, testInfo: TestInfo, step: string): Promise<void> {
-  await page.screenshot({ path: `test-results/screens/${testInfo.project.name}-${step}.png`, fullPage: true });
+  // 시트·전환 애니메이션 도중이 찍히지 않게 애니메이션을 끈 상태로 찍는다.
+  await page.screenshot({ path: `test-results/screens/${testInfo.project.name}-${step}.png`, fullPage: true, animations: 'disabled' });
 }
