@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import Sheet from './Sheet.svelte';
+import SheetSegmentedFixture from './SheetSegmentedFixture.svelte';
 
 const body = createRawSnippet(() => ({
   render: () => `<div><button id="first">첫째</button><button id="second">둘째</button></div>`,
@@ -93,5 +94,50 @@ describe('Sheet', () => {
     await fireEvent.pointerMove(grab, { pointerId: 1, clientY: 200 });
     await fireEvent.pointerUp(grab, { pointerId: 1, clientY: 200 });
     expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips tabindex=-1 elements when wrapping Tab (Segmented as last control)', async () => {
+    render(SheetSegmentedFixture);
+    await tick();
+    const dialog = screen.getByRole('dialog');
+    const close = screen.getByRole('button', { name: '닫기' });
+    const selected = screen.getByRole('radio', { name: '나' });
+    expect(selected.getAttribute('tabindex')).toBe('0');
+
+    selected.focus();
+    await fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+
+    close.focus();
+    await fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(selected);
+  });
+
+  it('ignores hidden elements when wrapping Tab', async () => {
+    const withHidden = createRawSnippet(() => ({
+      render: () =>
+        `<div><button id="vis">보임</button><button id="h1" hidden>숨김</button><div style="display: none"><button id="h2">숨김2</button></div></div>`,
+    }));
+    setup({ children: withHidden });
+    await tick();
+    const dialog = screen.getByRole('dialog');
+    const vis = dialog.querySelector<HTMLElement>('#vis')!;
+    vis.focus();
+    await fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '닫기' }));
+  });
+
+  it('locks body scroll while open and restores it on close and on unmount', async () => {
+    document.body.style.overflow = 'auto';
+    const { rerender, unmount } = setup();
+    await tick();
+    expect(document.body.style.overflow).toBe('hidden');
+    await rerender({ open: false });
+    expect(document.body.style.overflow).toBe('auto');
+    await rerender({ open: true });
+    expect(document.body.style.overflow).toBe('hidden');
+    unmount();
+    expect(document.body.style.overflow).toBe('auto');
+    document.body.style.overflow = '';
   });
 });

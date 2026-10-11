@@ -10,15 +10,34 @@
 
   const titleId = `sheet-title-${Math.random().toString(36).slice(2, 9)}`;
   const SWIPE_CLOSE_PX = 80;
-  const FOCUSABLE =
-    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  // tabindex="-1"은 Tab으로 닿지 않으므로 모든 선택자에서 제외한다(Segmented의 roving tabindex 등).
+  const FOCUSABLE = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]',
+  ]
+    .map((sel) => `${sel}:not([tabindex="-1"])`)
+    .join(', ');
+
+  /** 대화상자 안에서 보이지 않는 요소(hidden 속성, display:none, visibility:hidden)는 건너뛴다. */
+  function isHidden(el: HTMLElement): boolean {
+    for (let n: HTMLElement | null = el; n && n !== dialogEl; n = n.parentElement) {
+      if (n.hidden) return true;
+      const cs = getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+    }
+    return false;
+  }
 
   let dialogEl = $state<HTMLElement>();
   let dragStartY: number | null = null;
   let dragY = $state(0);
 
   function focusables(): HTMLElement[] {
-    return dialogEl ? [...dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE)] : [];
+    return dialogEl ? [...dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !isHidden(el)) : [];
   }
 
   // 열릴 때: 이전 포커스를 기억하고 첫 요소(data-autofocus 우선)로 이동. 닫힐 때: 복원.
@@ -143,14 +162,15 @@
     right: 0;
     bottom: 0;
     max-height: 88vh;
-    overflow: auto;
+    max-height: 88dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     background: var(--surface);
     color: var(--t1);
     border-radius: 24px 24px 0 0;
-    padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
     box-shadow: var(--shadow);
     animation: up var(--dur-slow) var(--ease);
-    overscroll-behavior: contain;
   }
   .sheet:focus {
     outline: none;
@@ -158,7 +178,15 @@
   .sheet.dragging {
     transition: none;
   }
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
   .grab {
+    flex: none;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -173,6 +201,7 @@
     background: var(--line);
   }
   header {
+    flex: none;
     display: flex;
     align-items: center;
     padding: 0 8px 2px 20px;
@@ -204,8 +233,8 @@
       transform: translate(-50%, -50%);
       width: 440px;
       max-height: min(88vh, 720px);
+      max-height: min(88dvh, 720px);
       border-radius: 20px;
-      padding-bottom: 24px;
       animation: pop var(--dur-base) var(--ease);
     }
     .sheet.dragging {

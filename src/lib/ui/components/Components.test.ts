@@ -37,6 +37,17 @@ describe('Banner', () => {
   });
 });
 
+describe('Banner roles', () => {
+  it('uses role=alert only for the error tone', () => {
+    const { unmount } = render(Banner, { message: '연결에 실패했어요', tone: 'error' });
+    expect(screen.getByRole('alert').textContent).toContain('연결에 실패했어요');
+    unmount();
+    render(Banner, { message: '안내', tone: 'warn' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('status')).toBeTruthy();
+  });
+});
+
 describe('Toggle', () => {
   it('is a labelled switch', async () => {
     const onchange = vi.fn();

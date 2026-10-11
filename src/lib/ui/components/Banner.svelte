@@ -12,7 +12,7 @@
   } = $props();
 </script>
 
-<div class="banner {tone}" role="status">
+<div class="banner {tone}" role={tone === 'error' ? 'alert' : 'status'}>
   <span>{message}</span>
   {#if actionLabel}
     <button type="button" onclick={() => onaction?.()}>{actionLabel}</button>

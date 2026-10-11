@@ -17,6 +17,15 @@ describe('fmtPct', () => {
   });
 });
 
+describe('non-finite input', () => {
+  it.each([NaN, Infinity, -Infinity])('renders %s as an em dash', (v) => {
+    expect(fmtPct(v)).toBe('—');
+    expect(fmtWon(v)).toBe('—');
+    expect(fmtTrillion(v)).toBe('—');
+    expect(trendClass(v, 'kr')).toBe('');
+  });
+});
+
 describe('fmtWon', () => {
   it('groups thousands', () => expect(fmtWon(71300)).toBe('71,300'));
   it('handles large values', () => expect(fmtWon(1234567890)).toBe('1,234,567,890'));
