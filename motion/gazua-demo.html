@@ -570,7 +570,8 @@ function computeModel(){
     const {meta,d}=s; const byDay=new Map(d.daily.map(x=>[x.d,x]));
     const useNxt = mode==='NXT' && meta.nxt;
     const closeOf = day => { const x=byDay.get(day); return x ? (useNxt ? x.nxtC : x.c) : null; };
-    let bi=TD_INDEX.get(baseDay), base=null; while(bi>=0 && (base=closeOf(TD[bi]))==null) bi--;
+    const krxCloseOf = day => byDay.get(day)?.c ?? null; // 기준가는 거래소 모드와 무관하게 KRX 종가 (스펙 4.2)
+    let bi=TD_INDEX.get(baseDay), base=null; while(bi>=0 && (base=krxCloseOf(TD[bi]))==null) bi--;
     const idx=indexFor(meta.market==='KOSDAQ'?'KOSDAQ':'KOSPI'); const iBy=new Map(idx.daily.map(x=>[x.d,x.c])); const iBase=iBy.get(baseDay);
     let runMax=-Infinity;
     s.base=base; s.prices=dates.map(day=>closeOf(day)); s.venues=dates.map(()=>useNxt?'NXT':'KRX');
@@ -992,14 +993,24 @@ function setProvider(p){
 function addSym(sym){
   const g=group(); if(g.items.some(i=>i.sym===sym)) return;
   if(g.items.length>=8){ snack('한 차트에 8개까지 비교할 수 있어요'); return; }
-  const used=new Set(g.items.map(i=>i.slot)); let slot=1; while(used.has(slot)) slot++;
-  g.items.push({sym,slot,hidden:false}); state.addedThisSheet++; state.recent=[sym,...state.recent.filter(s=>s!==sym)].slice(0,5);
+  g.items.push({sym,slot:freeSlot(g),hidden:false}); state.addedThisSheet++; state.recent=[sym,...state.recent.filter(s=>s!==sym)].slice(0,5);
   render();
+}
+function freeSlot(g){ const used=new Set(g.items.map(i=>i.slot)); let slot=1; while(used.has(slot)) slot++; return slot; }
+/** 삭제 되돌리기: 그 사이 바뀐 현재 그룹 기준으로 복원. 가득 찼으면 거절, 슬롯이 이미 쓰이면 비어 있는 가장 앞 슬롯 */
+function restoreItem(g, it, index){
+  if(g.items.some(i=>i.sym===it.sym)) return {ok:false, reason:'이미 그룹에 있어요'};
+  if(g.items.length>=8) return {ok:false, reason:'그룹이 가득 차서 되돌릴 수 없어요'};
+  const slot = g.items.some(i=>i.slot===it.slot) ? freeSlot(g) : it.slot;
+  g.items.splice(Math.min(index,g.items.length),0,{...it,slot});
+  return {ok:true, recolored: slot!==it.slot};
 }
 function deleteSym(sym){
   const g=group(), k=g.items.findIndex(i=>i.sym===sym); if(k<0) return; const [it]=g.items.splice(k,1);
   if(state.selected===sym) state.selected=null; closeSheet(); clearScrubSilent(); render();
-  snack(`${META.get(sym).name}을(를) 삭제했어요`, {label:'되돌리기', run:()=>{ g.items.splice(k,0,it); state.selected=sym; render(); snack('되돌렸어요'); }});
+  snack(`${META.get(sym).name}을(를) 삭제했어요`, {label:'되돌리기', run:()=>{
+    const r=restoreItem(g,it,k); if(!r.ok){ snack(r.reason); return; }
+    state.selected=sym; render(); snack(r.recolored?'되돌렸어요 · 색이 겹쳐 새 색을 줬어요':'되돌렸어요'); }});
 }
 function applyTheme(){ const r=document.documentElement; if(state.theme==='system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme',state.theme); r.classList.toggle('global-colors', state.conv==='global'); render(); }
 
