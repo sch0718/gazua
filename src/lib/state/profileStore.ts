@@ -46,22 +46,29 @@ export function removeTokens(st: SafeStorage, id: string): void {
 const isToken = (v: unknown): v is TokenInfo =>
   isRecord(v) && typeof v.accessToken === 'string' && typeof v.expiresAt === 'number';
 
-export function storageTokenStore(st: SafeStorage, key: string): TokenStore {
+/** `canSave()`가 false면 저장하지 않는다(교체된 공급자의 늦은 토큰, 잠금 모드). */
+export function storageTokenStore(st: SafeStorage, key: string, canSave: () => boolean = () => true): TokenStore {
   return {
     load: () => {
       const t = st.get<unknown>(key, null);
       return isToken(t) ? t : null;
     },
-    save: (t) => st.set(key, t),
+    save: (t) => {
+      if (canSave()) st.set(key, t);
+    },
   };
 }
 
 /** 잠금 모드용. 토큰은 이 맵(메모리)에만 있다. */
-export function memoryTokenStore(map: Map<string, TokenInfo>, key: string): TokenStore {
+export function memoryTokenStore(
+  map: Map<string, TokenInfo>,
+  key: string,
+  canSave: () => boolean = () => true,
+): TokenStore {
   return {
     load: () => map.get(key) ?? null,
     save: (t) => {
-      map.set(key, t);
+      if (canSave()) map.set(key, t);
     },
   };
 }

@@ -48,6 +48,7 @@ export interface App {
   readonly banners: AppBanner[];
   /** 공급자·프로필·키가 바뀌면 memo·snapshots를 새로 만든다. cache는 키에 공급자가 있어 유지한다. */
   readonly data: AppData;
+  /** keyLock은 평문 키가 저장돼 있으면 켤 수 없고, 암호화된 키가 있으면 끌 수 없다(Error). */
   updateSettings(p: Partial<Settings>): void;
   setWatchlists(w: Watchlists): void;
   switchProfile(id: string): void;
@@ -55,6 +56,8 @@ export interface App {
   unlock(passphrase: string): Promise<void>;
   /** passphrase가 있으면 암호화해 저장하고 keyLock을 켠다. 없으면 평문 저장(keyLock이 켜져 있으면 거절). */
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
+  /** 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다. */
+  disableKeyLock(): void;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. */
@@ -86,6 +89,8 @@ export function createApp(deps: AppDeps): App {
 
   // 잠금 모드의 토큰. 키 `${profileId}:${provider}`.
   const memoryTokens = new Map<string, TokenInfo>();
+  // rebuild()마다 올린다. 이전 공급자가 늦게 받은 토큰은 저장하지 않는다.
+  let providerGeneration = 0;
   const initialMeta = loadMeta(storage);
   // 시작할 때 프로필이 하나뿐이면 고를 것이 없다. 이후 프로필을 추가해도 지금 쓰는 프로필이 선택된 것으로 본다.
   let profileChosen = initialMeta.profiles.length <= 1;
@@ -132,13 +137,16 @@ export function createApp(deps: AppDeps): App {
 
   function buildProvider(): MarketDataProvider {
     const id = activeId();
+    const generation = providerGeneration;
+    const current = () => generation === providerGeneration;
     return createProvider(settings, secrets, {
       now,
       fetchImpl,
       tokenStore: (p) =>
         lockMode()
-          ? memoryTokenStore(memoryTokens, `${id}:${p}`)
-          : storageTokenStore(storage, profileKeys.token(id, p)),
+          ? memoryTokenStore(memoryTokens, `${id}:${p}`, current)
+          : // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
+            storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode()),
     });
   }
 
@@ -147,6 +155,7 @@ export function createApp(deps: AppDeps): App {
   }
 
   function rebuild() {
+    providerGeneration++;
     provider = buildProvider();
     data = freshData();
   }
@@ -181,7 +190,13 @@ export function createApp(deps: AppDeps): App {
     return fallback ? { name: 'compare', groupId: fallback } : { name: 'compare' };
   }
 
+  /** 관문(프로필 선택·잠금 해제)이 열려 있으면 그 화면에 머문다. */
   function navigate(r: Route) {
+    const g = gate();
+    if (g) {
+      route = g;
+      return;
+    }
     const next = normalize(r);
     route = next;
     const hash = hashFor(next);
@@ -193,12 +208,13 @@ export function createApp(deps: AppDeps): App {
     const g = gate();
     if (g) route = g;
     else if (!settings.onboarded) navigate({ name: 'onboarding' });
-    else route = normalize(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
+    else navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
   }
 
   function onHashChange() {
     if (gate()) return;
-    route = normalize(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
+    // 알 수 없는 해시·그룹은 정규화한 해시로 다시 쓴다.
+    navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
   }
 
   enter();
@@ -234,7 +250,7 @@ export function createApp(deps: AppDeps): App {
       for (const issue of storage.issues) {
         if (issue.kind === 'corrupt') out.push({ id: `corrupt:${issue.key}`, text: CORRUPT_BANNER });
       }
-      if (provider.id === 'demo' && settings.onboarded) {
+      if (provider.id === 'demo' && settings.onboarded && !gate()) {
         out.push({
           id: 'demo',
           text: DEMO_BANNER,
@@ -245,6 +261,13 @@ export function createApp(deps: AppDeps): App {
     },
 
     updateSettings(p) {
+      // 잠금은 setSecrets(s, passphrase)로만 켜고, disableKeyLock()으로만 끈다(평문이 남거나 몰래 풀리지 않게).
+      if (p.keyLock === true && !settings.keyLock && locked === null && secrets !== null) {
+        throw new Error('plaintext secrets are stored: use setSecrets(secrets, passphrase) to turn keyLock on');
+      }
+      if (p.keyLock === false && locked !== null) {
+        throw new Error('secrets are encrypted: use disableKeyLock() or clearSecrets() to turn keyLock off');
+      }
       const prev = settings;
       settings = { ...settings, ...p };
       write(profileKeys.settings(activeId()), settings);
@@ -321,6 +344,20 @@ export function createApp(deps: AppDeps): App {
         }
       }
       secrets = s;
+      rebuild();
+    },
+
+    disableKeyLock() {
+      if (locked !== null && secrets === null) throw new Error('unlock first');
+      const id = activeId();
+      if (locked !== null) {
+        // 사용자가 잠금을 끄겠다고 한 경우에만 평문으로 다시 저장한다.
+        locked = null;
+        write(profileKeys.secrets(id), secrets);
+      }
+      settings = { ...settings, keyLock: false };
+      write(profileKeys.settings(id), settings);
+      forgetTokens(id);
       rebuild();
     },
 

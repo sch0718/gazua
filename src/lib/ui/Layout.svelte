@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  // 반응형 틀(스펙 7.6, PoC `.app`과 같은 격자):
-  //  <600: 한 열(bar → main → side), 600–1023 가로 또는 ≥900 세로: main 2fr + side 1fr,
-  //  ≥1024: 레일 240px | main | side 340px. 레일은 1024 미만에서 숨긴다. side가 없으면 그 열을 비우지 않는다.
+  // 반응형 틀(스펙 7.6):
+  //  <600, 그리고 1024 미만의 세로 화면: 한 열(bar → main → side),
+  //  600–1023 가로: main(차트) 2/3 + side 1/3,
+  //  ≥1024: 레일 240px | main | side 320px. 레일은 1024 미만에서 숨긴다. side가 없으면 그 열을 비우지 않는다.
   let { rail, bar, main, side }: { rail?: Snippet; bar?: Snippet; main: Snippet; side?: Snippet } = $props();
 </script>
 
@@ -48,9 +49,9 @@
     padding: 4px 8px 16px;
   }
 
-  @media (min-width: 600px) and (orientation: landscape), (min-width: 900px) {
+  @media (min-width: 600px) and (orientation: landscape) {
     .app {
-      grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+      grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
       grid-template-areas: 'bar bar' 'main side';
       grid-template-rows: auto 1fr;
     }
@@ -66,7 +67,7 @@
 
   @media (min-width: 1024px) {
     .app {
-      grid-template-columns: 240px minmax(0, 1fr) 340px;
+      grid-template-columns: 240px minmax(0, 1fr) 320px;
       grid-template-areas: 'rail bar side' 'rail main side';
       height: 100%;
     }

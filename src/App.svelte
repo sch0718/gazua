@@ -4,7 +4,7 @@
   import { createApp } from './lib/state/app.svelte';
   import { createClock } from './lib/state/clock.svelte';
   import { createSafeStorage } from './lib/state/storage';
-  import { kstDate, kstWeekday } from './lib/time/kst';
+  import { kstDate } from './lib/time/kst';
   import Banner from './lib/ui/components/Banner.svelte';
   import SnackbarHost from './lib/ui/components/SnackbarHost.svelte';
   import Layout from './lib/ui/Layout.svelte';
@@ -20,6 +20,15 @@
   });
 
   // ── 오늘 세션 (상태 칩) ───────────────────────────────────
+  const warned = new Set<string>();
+  /** 같은 경고는 한 번만. 오류 이름·코드만 남기고 메시지(요청 정보가 섞일 수 있음)는 남기지 않는다. */
+  function warnOnce(what: string, e: unknown) {
+    if (warned.has(what)) return;
+    warned.add(what);
+    const code = (e as { code?: unknown } | null)?.code;
+    console.warn(`[gazua] ${what}`, typeof code === 'string' ? code : e instanceof Error ? e.name : typeof e);
+  }
+
   const today = $derived(kstDate(clock.now));
   let calendarDay = $state<TradingDay | null>(null);
   $effect(() => {
@@ -30,22 +39,23 @@
       (days) => {
         if (alive) calendarDay = days.find((d) => d.date === date) ?? { date, isOpen: false };
       },
-      () => {
-        if (alive) calendarDay = null;
+      (e) => {
+        if (!alive) return;
+        warnOnce('거래일 캘린더를 받지 못해 기본 시간표를 써요', e);
+        calendarDay = null;
       },
     );
     return () => {
       alive = false;
     };
   });
-  // 캘린더를 아직 못 받았거나 실패하면 평일 기본 시간표로 보여 준다.
-  const day = $derived<TradingDay>(
-    calendarDay?.date === today ? calendarDay : { date: today, isOpen: kstWeekday(today) % 6 !== 0 },
-  );
+  // 캘린더를 아직 못 받았거나 실패하면 설정 파일의 기본 시간표(장이 열린 날)로 보여 준다.
+  const day = $derived<TradingDay>(calendarDay?.date === today ? calendarDay : { date: today, isOpen: true });
   const sessions = $derived.by((): DaySession[] => {
     try {
       return sessionsForDay(day);
-    } catch {
+    } catch (e) {
+      warnOnce('오늘 날짜의 세션 시간표가 없어요', e);
       return [];
     }
   });

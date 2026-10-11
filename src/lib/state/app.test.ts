@@ -96,9 +96,12 @@ describe('createApp — start', () => {
     seed(backing, 'p:p1:settings', { onboarded: true });
     seed(backing, 'p:p1:watchlists', lists('g1', 'g2'));
     expect(make(backing).route).toEqual({ name: 'compare', groupId: 'g1' });
+    expect(location.hash).toBe('#/compare/g1');
 
     seed(backing, 'p:p1:settings', { onboarded: true, lastGroupId: 'g2' });
+    location.hash = '#/compare/unknown';
     expect(make(backing).route).toEqual({ name: 'compare', groupId: 'g2' });
+    expect(location.hash).toBe('#/compare/g2');
   });
 
   it('two or more profiles start on the profile picker; switchProfile loads that profile', () => {
@@ -354,10 +357,81 @@ describe('createApp — key lock', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
     const app = make(backing);
+    app.updateSettings({ keyLock: true }); // 저장된 키가 없으면 켤 수 있다
+    await expect(app.setSecrets(SECRETS)).rejects.toThrow();
+    expect(backing.getItem('gazua:v1:p:p1:secrets')).toBeNull();
+
+    app.updateSettings({ keyLock: false });
     await app.setSecrets(SECRETS);
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(SECRETS);
+  });
 
-    app.updateSettings({ keyLock: true });
-    await expect(app.setSecrets(SECRETS)).rejects.toThrow();
+  it('updateSettings refuses to turn keyLock on while plaintext secrets are stored', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const app = make(backing);
+    expect(() => app.updateSettings({ keyLock: true })).toThrow(/setSecrets/);
+    expect(app.settings.keyLock).toBe(false);
+    expect(backing.getItem('gazua:v1:p:p1:settings')).toBeNull();
+  });
+
+  it('updateSettings refuses to turn keyLock off while secrets are encrypted; disableKeyLock does it explicitly', async () => {
+    const backing = await lockedBacking();
+    const app = make(backing);
+    expect(() => app.updateSettings({ keyLock: false })).toThrow(/disableKeyLock/);
+    expect(() => app.disableKeyLock()).toThrow(/unlock first/);
+    await app.unlock('correct horse');
+    app.disableKeyLock();
+    expect(app.settings.keyLock).toBe(false);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(SECRETS);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('a late token from the replaced plain-mode provider is not persisted after the lock turns on', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:secrets', SECRETS);
+    let releaseToken!: () => void;
+    const tokenGate = new Promise<void>((r) => (releaseToken = r));
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/oauth2/tokenP')) await tokenGate;
+      const body = url.includes('/oauth2/tokenP') ? tokenFixture : price005930;
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const app = make(backing, { fetchImpl });
+    const pending = app.provider.getQuotes(['005930'], 'KRX');
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalled());
+
+    await app.setSecrets(SECRETS, 'correct horse');
+    releaseToken();
+    await pending;
+
+    const dump = backing.dump();
+    expect(dump).not.toContain(':token:');
+    expect(dump).not.toContain('test-access-token');
+  });
+
+  it('gated start: no demo banner, and navigate keeps the gate route', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing);
+    expect(app.route.name).toBe('unlock');
+    expect(app.banners.find((b) => b.id === 'demo')).toBeUndefined();
+    app.navigate({ name: 'settings' });
+    expect(app.route.name).toBe('unlock');
+    expect(location.hash).not.toBe('#/settings');
+
+    const two = memoryBacking();
+    seed(two, 'meta', META_TWO);
+    seed(two, 'p:p1:settings', { onboarded: true });
+    const picker = make(two);
+    expect(picker.banners.find((b) => b.id === 'demo')).toBeUndefined();
+    picker.navigate({ name: 'compare' });
+    expect(picker.route.name).toBe('profiles');
   });
 });
