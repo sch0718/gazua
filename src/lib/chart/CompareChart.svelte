@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     ColorType,
     createChart,
@@ -101,6 +101,9 @@
   let built: Built[] = [];
   let gridStart: number | null = null;
   let frame = 0;
+  /** 시리즈를 다시 만드는 중(효과 본문·정리). 이때 온 크로스헤어는 끝난 뒤 전달한다. */
+  let rebuilding = false;
+  let pendingCrosshair: { t: number | null } | null = null;
 
   let plotWidth = $state(0);
   let endLabels = $state.raw<EndLabel[]>([]);
@@ -271,8 +274,29 @@
     if (frame === 0) frame = requestAnimationFrame(refreshOverlay);
   }
 
+  function deliverCrosshair(t: number | null) {
+    // 부모 콜백이 읽는 상태가 이 컴포넌트 효과의 의존성이 되지 않게 한다.
+    untrack(() => oncrosshair(t));
+  }
+
+  /**
+   * lightweight-charts는 포인터가 차트 위에 있으면 setData·removeSeries 안에서 이 구독자를 동기로 부른다.
+   * 리빌드 효과 안에서 부모 상태를 쓰면 효과가 스스로를 무효화하므로, 그동안 온 값은 마지막 것만 모아 뒤에 전달한다.
+   */
   function onCrosshairMove(param: MouseEventParams<Time>) {
-    oncrosshair(param.time === undefined ? null : fromChartTime(param.time as number));
+    const t = param.time === undefined ? null : fromChartTime(param.time as number);
+    if (!rebuilding) {
+      deliverCrosshair(t);
+      return;
+    }
+    const queued = pendingCrosshair !== null;
+    pendingCrosshair = { t };
+    if (queued) return;
+    queueMicrotask(() => {
+      const p = pendingCrosshair;
+      pendingCrosshair = null;
+      if (p && chart) deliverCrosshair(p.t);
+    });
   }
 
   onMount(() => {
@@ -303,6 +327,15 @@
   $effect(() => {
     const c = chart;
     if (!c) return;
+    rebuilding = true;
+    try {
+      return build(c);
+    } finally {
+      rebuilding = false;
+    }
+  });
+
+  function build(c: IChartApi): () => void {
     void theme;
     const palette = readPalette();
     const font = getComputedStyle(plotEl).fontFamily;
@@ -417,10 +450,15 @@
 
     return () => {
       if (chart !== c) return;
-      for (const s of created) c.removeSeries(s);
+      rebuilding = true;
+      try {
+        for (const s of created) c.removeSeries(s);
+      } finally {
+        rebuilding = false;
+      }
       built = [];
     };
-  });
+  }
 </script>
 
 <div class="compare-chart">

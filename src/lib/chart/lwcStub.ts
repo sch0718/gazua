@@ -10,13 +10,26 @@ export interface StubSeries {
 export interface StubChart {
   series: StubSeries[];
   removed: boolean;
+  /** addSeries 호출 수(시리즈를 다시 만든 횟수 확인용) */
+  addSeriesCalls: number;
 }
 
 export const lwcCharts: StubChart[] = [];
 
+/**
+ * 실제 lightweight-charts는 포인터가 차트 위에 있으면 setData·removeSeries 안에서
+ * 크로스헤어 구독자를 동기로 부른다. 값을 넣으면 가짜도 그렇게 한다(null이면 부르지 않음).
+ */
+export const lwcStubHooks: { crosshairOnSetData: { time?: number } | null } = { crosshairOnSetData: null };
+
 function createChart(): unknown {
-  const chart: StubChart = { series: [], removed: false };
+  const chart: StubChart = { series: [], removed: false, addSeriesCalls: 0 };
   const byApi = new Map<unknown, StubSeries>();
+  const crosshair: ((p: { time?: number }) => void)[] = [];
+  const fireCrosshair = () => {
+    const p = lwcStubHooks.crosshairOnSetData;
+    if (p) for (const h of crosshair) h(p);
+  };
   lwcCharts.push(chart);
   const timeScale = {
     subscribeVisibleLogicalRangeChange: () => {},
@@ -28,7 +41,9 @@ function createChart(): unknown {
     fitContent: () => {},
   };
   return {
-    subscribeCrosshairMove: () => {},
+    subscribeCrosshairMove: (h: (p: { time?: number }) => void) => {
+      crosshair.push(h);
+    },
     timeScale: () => timeScale,
     resize: () => {},
     applyOptions: () => {},
@@ -38,9 +53,11 @@ function createChart(): unknown {
     addSeries: (_def: unknown, options: Record<string, unknown>) => {
       const s: StubSeries = { options, data: [] };
       chart.series.push(s);
+      chart.addSeriesCalls++;
       const api = {
         setData: (d: unknown[]) => {
           s.data = d;
+          fireCrosshair();
         },
         createPriceLine: () => {},
         applyOptions: () => {},
@@ -54,6 +71,7 @@ function createChart(): unknown {
       const s = byApi.get(api);
       chart.series = chart.series.filter((x) => x !== s);
       byApi.delete(api);
+      fireCrosshair();
     },
   };
 }
