@@ -4,7 +4,7 @@ import { createRequestQueue, type Priority, type RequestQueue } from '../data/re
 import { addDays, kstEpoch } from '../time/kst';
 import { runProviderContract } from './contract';
 import { ApiError } from './errors';
-import type { ProxyClient, ProxyResponse } from './http';
+import { createProxyClient, type ProxyClient, type ProxyResponse } from './http';
 import { KIS_MINUTE_TIME_IS_BAR_END, UnsupportedRangeError, createKisProvider } from './kis';
 import type { MarketDataProvider, TokenInfo, TokenStore } from './types';
 import chkHoliday from './fixtures/kis/chk-holiday.json';
@@ -111,8 +111,8 @@ interface Setup {
   clock: { now: number };
 }
 
-function setup(handler?: Handler, now = SUN): Setup {
-  const client = fakeClient(handler);
+function setup(handler?: Handler, now = SUN, clientOverride?: ProxyClient): Setup {
+  const client = clientOverride ?? fakeClient(handler);
   const inner = fastQueue();
   const runs: Setup['runs'] = [];
   const queue: RequestQueue = {
@@ -129,7 +129,7 @@ function setup(handler?: Handler, now = SUN): Setup {
     tokenStore: memoryStore(),
     now: () => clock.now,
   });
-  return { provider, client, runs, clock };
+  return { provider, client: client as Setup['client'], runs, clock };
 }
 
 const minuteQuery = (date: string, venue: 'KRX' | 'NXT' | 'UNIFIED' = 'KRX', symbol = '005930') =>
@@ -228,14 +228,76 @@ describe('kis provider: auth, headers and errors', () => {
     expect(client.dataCalls).toHaveLength(2);
   });
 
+  describe('token expiry reported in the body', () => {
+    const tokenJson = (n: number) => ({
+      ...tokenFixture,
+      access_token: `tok${n}`,
+    });
+    /** POST hands out tok1, tok2, ...; GETs made with tok1 are rejected by `reject`. */
+    const rotating = (reject: (c: Call) => Json | ProxyResponse) => {
+      let n = 0;
+      return (c: Call): Json | ProxyResponse | undefined => {
+        if (c.method === 'POST') return tokenJson(++n);
+        return c.headers.authorization === 'Bearer tok1' ? reject(c) : undefined;
+      };
+    };
+    const posts = (client: { calls: Call[] }) => client.calls.filter((c) => c.method === 'POST').length;
+
+    it('HTTP 500 with msg_cd EGW00123 (via the real proxy client): invalidates and retries once', async () => {
+      let n = 0;
+      const sent: { method: string; auth: string | null }[] = [];
+      const fetchImpl = (async (url: string, init: RequestInit) => {
+        const headers = new Headers(init.headers);
+        const method = init.method ?? 'GET';
+        sent.push({ method, auth: headers.get('authorization') });
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+        if (method === 'POST') return json(tokenJson(++n));
+        if (headers.get('authorization') === 'Bearer tok1') return json({ rt_cd: '1', msg_cd: 'EGW00123', msg1: 'expired' }, 500);
+        return json(price005930);
+      }) as unknown as typeof fetch;
+      const client = createProxyClient({ baseUrl: 'https://proxy.test', fetchImpl });
+      const { provider } = setup(undefined, SUN, client);
+      const [q] = await provider.getQuotes(['005930'], 'KRX');
+      expect(q.price).toBe(71200);
+      expect(sent.filter((s) => s.method === 'POST')).toHaveLength(2);
+      expect(sent.filter((s) => s.method === 'GET')).toHaveLength(2);
+    });
+
+    it('HTTP 200 with rt_cd != 0 and msg_cd EGW00121: invalidates and retries once', async () => {
+      const { provider, client } = setup(rotating(() => ({ rt_cd: '1', msg_cd: 'EGW00121', msg1: 'invalid token' })));
+      const [q] = await provider.getQuotes(['005930'], 'KRX');
+      expect(q.price).toBe(71200);
+      expect(posts(client)).toBe(2);
+      expect(client.dataCalls).toHaveLength(2);
+    });
+
+    it('treats msg_cd EGW00201 in a 200 body as rate-limited and lets the queue retry', async () => {
+      let hits = 0;
+      const { provider, client } = setup((c) =>
+        c.method === 'GET' && hits++ === 0 ? { rt_cd: '1', msg_cd: 'EGW00201', msg1: 'too many' } : undefined,
+      );
+      const [q] = await provider.getQuotes(['005930'], 'KRX');
+      expect(q.price).toBe(71200);
+      expect(client.dataCalls).toHaveLength(2);
+    });
+
+    it('parallel callers that all hit token-expired trigger one re-issue, not one each', async () => {
+      const { provider, client } = setup(rotating(() => { throw new ApiError('token-expired'); }));
+      const quotes = await provider.getQuotes(['005930', '000660', '069500'], 'KRX');
+      expect(quotes.map((q) => q.price)).toEqual([71200, 198500, 36450]);
+      expect(posts(client)).toBe(2);
+    });
+  });
+
   it('turns rt_cd != 0 into an upstream ApiError built from msg_cd only, without retrying', async () => {
     const { provider, client } = setup((c) =>
-      c.method === 'GET' ? { rt_cd: '1', msg_cd: 'EGW00201', msg1: `초당 ${APP_SECRET}` } : undefined,
+      c.method === 'GET' ? { rt_cd: '1', msg_cd: 'EGW00500', msg1: `초당 ${APP_SECRET}` } : undefined,
     );
     const err = await provider.getQuotes(['005930'], 'KRX').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe('upstream');
-    expect(err.message).toContain('EGW00201');
+    expect(err.message).toContain('EGW00500');
     expect(err.message).not.toContain(APP_SECRET);
     expect(client.dataCalls).toHaveLength(1);
   });

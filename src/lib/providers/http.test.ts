@@ -17,6 +17,11 @@ describe('classify', () => {
     ['KIS EGW00133', 403, { error_code: 'EGW00133', error_description: 'x' }, 'kis', 'token-throttled'],
     ['429', 429, null, 'kis', 'rate-limited'],
     ['500', 500, null, 'toss', 'upstream'],
+    ['body msg_cd EGW00123 on HTTP 500', 500, { rt_cd: '1', msg_cd: 'EGW00123' }, 'kis', 'token-expired'],
+    ['body msg_cd EGW00121 on HTTP 200', 200, { rt_cd: '1', msg_cd: 'EGW00121' }, 'kis', 'token-expired'],
+    ['body msg_cd EGW00201', 500, { rt_cd: '1', msg_cd: 'EGW00201' }, 'kis', 'rate-limited'],
+    ['inherited property name as proxy code', 500, { error: { code: 'toString' } }, 'kis', 'upstream'],
+    ['inherited property name as proxy code (constructor)', 403, { error: { code: 'constructor' } }, 'toss', 'upstream'],
     ['404 other', 404, { message: 'x' }, 'kis', 'upstream'],
   ];
   it.each(cases)('%s', (_name, status, body, provider, expected) => {

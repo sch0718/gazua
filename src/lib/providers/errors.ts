@@ -39,6 +39,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
+/** KIS 본문 msg_cd → 오류 코드. EGW00121/EGW00123 토큰 무효·만료, EGW00201 초당 호출 한도. */
+export function kisBodyCode(msgCd: unknown): ErrorCode | undefined {
+  if (msgCd === 'EGW00121' || msgCd === 'EGW00123') return 'token-expired';
+  if (msgCd === 'EGW00201') return 'rate-limited';
+  return undefined;
+}
+
 /** Maps a non-2xx proxy/upstream response to an ErrorCode. */
 export function classify(status: number, body: unknown, _provider: 'kis' | 'toss'): ErrorCode {
   const rec = isRecord(body) ? body : {};
@@ -46,8 +53,11 @@ export function classify(status: number, body: unknown, _provider: 'kis' | 'toss
   const nestedCode = isRecord(errorField) && typeof errorField.code === 'string' ? errorField.code : undefined;
   const oauthError = typeof errorField === 'string' ? errorField : undefined;
 
-  if (nestedCode !== undefined && nestedCode in PROXY_CODES) return PROXY_CODES[nestedCode];
+  if (nestedCode !== undefined && Object.hasOwn(PROXY_CODES, nestedCode)) return PROXY_CODES[nestedCode];
   if (rec.error_code === 'EGW00133') return 'token-throttled';
+  // KIS는 토큰 만료·무효를 HTTP 상태와 무관하게(주로 500) 본문 msg_cd로 알린다.
+  const bodyCode = kisBodyCode(rec.msg_cd);
+  if (bodyCode !== undefined) return bodyCode;
   if (status === 403 && (nestedCode === 'ip-not-allowed' || oauthError === 'access_denied')) return 'ip-not-allowed';
   if (status === 401) return oauthError === 'invalid_client' ? 'invalid-credentials' : 'token-expired';
   if (status === 429) return 'rate-limited';

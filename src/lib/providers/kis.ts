@@ -4,7 +4,7 @@ import type { SecurityType, TradingDay } from '../market/sessions';
 import type { Venue } from '../market/tradable';
 import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../time/kst';
 import { createTokenManager } from './auth';
-import { ApiError } from './errors';
+import { ApiError, kisBodyCode } from './errors';
 import type { ProxyClient, ProxyResponse } from './http';
 import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
 
@@ -100,6 +100,8 @@ function outputObject(json: unknown, field: string): Row {
 function checkBody(json: unknown): void {
   if (!isRecord(json)) throw upstream('KIS response is not JSON');
   if ('rt_cd' in json && json.rt_cd !== '0') {
+    const mapped = kisBodyCode(json.msg_cd);
+    if (mapped !== undefined) throw new ApiError(mapped, undefined, { status: 200 });
     const code = text(json.msg_cd).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 16);
     throw upstream(code ? `KIS error ${code}` : 'KIS error');
   }
@@ -214,13 +216,16 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
   }
 
   const tokens = createTokenManager(issueToken, deps.tokenStore, now);
+  let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */
   async function data(call: DataCall): Promise<ProxyResponse> {
     const key = `${call.trId}|${JSON.stringify(call.query)}|${call.trCont ?? ''}`;
+    let usedToken: string | undefined;
     const attempt = (suffix: string): Promise<ProxyResponse> =>
       queue.run(QUEUE_GROUP, key + suffix, call.priority, async () => {
         const accessToken = await tokens.get();
+        usedToken = accessToken;
         const headers: Record<string, string> = {
           authorization: `Bearer ${accessToken}`,
           appkey: creds.appKey,
@@ -238,7 +243,11 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
       return await attempt('');
     } catch (e) {
       if (!(e instanceof ApiError) || e.code !== 'token-expired') throw e;
-      tokens.invalidate();
+      // 같은 토큰으로 동시에 실패한 호출들이 서로의 재발급을 지우지 않게, 토큰당 한 번만 무효화한다.
+      if (usedToken === undefined || usedToken !== lastInvalidated) {
+        lastInvalidated = usedToken;
+        tokens.invalidate();
+      }
       return attempt('|retry');
     }
   }
