@@ -156,6 +156,16 @@ describe('kis provider: basics', () => {
 });
 
 describe('kis provider: auth, headers and errors', () => {
+  it('getAccessToken shares the token with data calls (one issue)', async () => {
+    const { provider, client } = setup();
+    const [t] = await Promise.all([provider.getAccessToken!(), provider.getQuotes(['005930'], 'KRX')]);
+    expect(t.accessToken).toBe('test-access-token');
+    expect(t.expiresAt).toBe(kstEpoch('2026-10-12', '09:00:00'));
+    expect(client.calls.filter((c) => c.path === '/oauth2/tokenP')).toHaveLength(1);
+    await provider.getAccessToken!();
+    expect(client.calls.filter((c) => c.path === '/oauth2/tokenP')).toHaveLength(1);
+  });
+
   it('issues a token via POST /oauth2/tokenP and parses the KST expiry', async () => {
     const { provider, client } = setup();
     await provider.getQuotes(['005930'], 'KRX');

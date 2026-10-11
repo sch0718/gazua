@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Secrets } from '../state/secrets';
 import { runDiagnostics, type DiagStep } from './diagnostics';
+import { ApiError } from './errors';
 import kisPrice from './fixtures/kis/inquire-price-005930.json';
 import kisToken from './fixtures/kis/token.json';
 import tossPrices from './fixtures/toss/prices.json';
@@ -178,23 +179,42 @@ describe('runDiagnostics', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  it('hands the issued token to onToken only after all four steps succeed', async () => {
-    const got: unknown[] = [];
-    const ok = fakeFetch({ token: () => json(tossToken), price: () => json(tossPrices) });
-    await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: ok, origin: ORIGIN, onStep: () => {}, now: () => 1000, onToken: (t) => got.push(t) });
-    expect(got).toEqual([{ accessToken: 'test-access-token', expiresAt: 1000 + 86400 * 1000 }]);
-
-    const failing = fakeFetch({ token: () => json(tossToken), price: () => json({ result: [] }) });
-    await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: failing, origin: ORIGIN, onStep: () => {}, onToken: (t) => got.push(t) });
-    expect(got).toHaveLength(1);
+  it('with a shared token source, step ③ uses it instead of issuing and step ④ uses that token', async () => {
+    const f = fakeFetch({ token: () => json(kisToken), price: () => json(kisPrice) });
+    const tokenSource = vi.fn(async () => ({ accessToken: 'shared-token', expiresAt: 9e12 }));
+    const steps = await runDiagnostics({ proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: ORIGIN, onStep: () => {}, tokenSource });
+    expect(steps.map((s) => s.status)).toEqual(['ok', 'ok', 'ok', 'ok']);
+    expect(tokenSource).toHaveBeenCalledTimes(1);
+    expect(f.mock.calls.some(([u]) => String(u).includes('/oauth2/'))).toBe(false);
+    expect(new Headers(f.mock.calls.at(-1)![1]?.headers).get('authorization')).toBe('Bearer shared-token');
+    expect(JSON.stringify(steps)).not.toContain('shared-token');
   });
 
-  it('KIS token expiry comes from access_token_token_expired', async () => {
-    const got: unknown[] = [];
-    const f = fakeFetch({ token: () => json(kisToken), price: () => json(kisPrice) });
-    await runDiagnostics({ proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: ORIGIN, onStep: () => {}, onToken: (t) => got.push(t) });
-    expect(got).toHaveLength(1);
-    expect((got[0] as { accessToken: string }).accessToken).toBe('test-access-token');
+  it('errors from the shared token source are classified like a direct issue', async () => {
+    const f = fakeFetch({});
+    const ip = await runDiagnostics({
+      proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: f, origin: ORIGIN, onStep: () => {},
+      tokenSource: async () => {
+        throw new ApiError('ip-not-allowed', undefined, { status: 403 });
+      },
+    });
+    expect(ip[2]).toMatchObject({ status: 'fail', error: 'ip-not-allowed' });
+    expect(ip[2].hint).toContain('토스증권 WTS › 설정 › Open API › 허용 IP 관리');
+    expect(ip[3].status).toBe('skipped');
+
+    const other = await runDiagnostics({
+      proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: ORIGIN, onStep: () => {},
+      tokenSource: async () => {
+        throw new Error('boom');
+      },
+    });
+    expect(other[2]).toMatchObject({ status: 'fail', error: 'upstream' });
+  });
+
+  it('a direct Toss token response without expires_in fails step ③', async () => {
+    const f = fakeFetch({ token: () => json({ access_token: 'x' }), price: () => json(tossPrices) });
+    const steps = await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets: TOSS, fetchImpl: f, origin: ORIGIN, onStep: () => {} });
+    expect(steps[2]).toMatchObject({ status: 'fail', error: 'upstream' });
   });
 
   it('says 현재 주소 when the origin is unknown', async () => {

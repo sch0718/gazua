@@ -34,7 +34,7 @@ describe('Diagnostics', () => {
     expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
   });
 
-  it('after a successful diagnosis the app reuses its token instead of issuing another', async () => {
+  it('right after the app issued a token (calendar), the diagnosis reuses it: one token POST in total', async () => {
     const fetchImpl = proxyFetch();
     const app = makeTestApp({
       groups: [],
@@ -44,11 +44,16 @@ describe('Diagnostics', () => {
     });
     apps.push(app);
     await app.setSecrets({ kis: { appKey: 'kis-key-1234', appSecret: 'kis-secret-5678' } });
+    const posts = () => fetchImpl.mock.calls.filter(([u]) => String(u).includes('/oauth2/tokenP')).length;
+    // App.svelte의 캘린더 effect처럼 공급자가 먼저 토큰을 받는다(응답 해석 실패는 상관없다).
+    await app.provider.getTradingDays('2026-10-11', '2026-10-11').catch(() => {});
+    expect(posts()).toBe(1);
+
     const onsuccess = vi.fn();
     render(Diagnostics, { app, fetchImpl: fetchImpl as unknown as typeof fetch, onsuccess });
     await fireEvent.click(screen.getByRole('button', { name: '진단 시작' }));
     await waitFor(() => expect(onsuccess).toHaveBeenCalled());
-    const posts = () => fetchImpl.mock.calls.filter(([u]) => String(u).includes('/oauth2/tokenP')).length;
+    expect(screen.getByText(/③ 토큰 발급/).closest('li')?.className).toContain('ok');
     expect(posts()).toBe(1);
     await app.provider.getQuotes(['005930'], 'KRX');
     expect(posts()).toBe(1);

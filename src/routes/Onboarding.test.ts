@@ -23,7 +23,13 @@ const okFetch = vi.fn(async (input: RequestInfo | URL) => {
 
 let apps: App[] = [];
 function setup() {
-  const app = makeTestApp({ groups: [{ id: 'g1', name: '내 관심', items: [] }], now: NOW, settings: { onboarded: false } });
+  // 앱 공급자도 같은 가짜 프록시를 쓴다(진단이 공급자의 토큰을 함께 쓰므로, 실제 네트워크로 나가지 않게).
+  const app = makeTestApp({
+    groups: [{ id: 'g1', name: '내 관심', items: [] }],
+    now: NOW,
+    settings: { onboarded: false },
+    fetchImpl: okFetch,
+  });
   apps.push(app);
   expect(app.route.name).toBe('onboarding');
   render(Onboarding, { app, fetchImpl: okFetch, now: () => NOW });

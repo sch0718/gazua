@@ -421,6 +421,8 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
 
   const provider: MarketDataProvider = {
     id: 'kis',
+    getAccessToken: () => tokens.info(),
+
     capabilities: {
       venues: ['KRX', 'NXT', 'UNIFIED'],
       quoteBatchSize: 1,

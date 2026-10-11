@@ -39,16 +39,8 @@
         onStep: (s) => {
           if (id === runId) steps = s;
         },
-        // 성공한 진단의 토큰을 앱이 이어 쓴다(KIS 토큰은 1분에 한 번만 받을 수 있다).
-        // 진단 도중 공급자·키·프록시가 바뀌었으면 넘기지 않는다.
-        onToken: (t) => {
-          const same =
-            id === runId &&
-            app.settings.provider === p &&
-            app.secrets === secretsAtStart &&
-            app.settings.proxyUrl === urlAtStart;
-          if (same) app.adoptToken(p, t);
-        },
+        // 앱 공급자가 같은 키·프록시로 만들어졌으면 그 토큰을 함께 쓴다(KIS 토큰은 1분에 한 번만 발급된다).
+        tokenSource: app.tokenSourceFor(p, secretsAtStart ?? {}, urlAtStart),
       });
       if (id !== runId) return;
       steps = result;

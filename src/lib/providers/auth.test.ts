@@ -25,6 +25,15 @@ describe('createTokenManager', () => {
     expect(issue).toHaveBeenCalledTimes(1);
   });
 
+  it('info() returns the whole token and shares the issue with get()', async () => {
+    const issue = vi.fn(async () => ({ accessToken: 'tok', expiresAt: 10_000_000 }));
+    const mgr = createTokenManager(issue, memoryStore(), () => 0);
+    const [info, token] = await Promise.all([mgr.info(), mgr.get()]);
+    expect(info).toEqual({ accessToken: 'tok', expiresAt: 10_000_000 });
+    expect(token).toBe('tok');
+    expect(issue).toHaveBeenCalledTimes(1);
+  });
+
   it('reuses a valid token without issuing again', async () => {
     const issue = vi.fn(async () => ({ accessToken: 'a', expiresAt: 1_000_000 }));
     const mgr = createTokenManager(issue, memoryStore(), () => 0);

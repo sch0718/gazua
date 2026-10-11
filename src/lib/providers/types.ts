@@ -53,6 +53,11 @@ export interface MarketDataProvider {
   getQuotes(symbols: string[], venue: Venue): Promise<Quote[]>;
   /** 장이 열린 날만 isOpen true. */
   getTradingDays(from: string, to: string): Promise<TradingDay[]>;
+  /**
+   * 이 공급자의 접근 토큰(캐시·저장소·진행 중 발급을 함께 쓴다). 연결 진단이 따로 발급하지 않도록 쓴다.
+   * 데모 공급자에는 없다.
+   */
+  getAccessToken?(): Promise<TokenInfo>;
   getIndexCandles?(
     index: 'KOSPI' | 'KOSDAQ',
     interval: '1m' | '1d',

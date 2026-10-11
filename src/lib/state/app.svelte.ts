@@ -75,10 +75,10 @@ export interface App {
   /** 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다. */
   disableKeyLock(): void;
   /**
-   * 연결 진단이 받은 토큰을 지금 공급자의 토큰 저장소에 넣는다(잠금 모드면 메모리에만).
-   * 지금 공급자가 그 공급자가 아니면(데모로 대체됐거나 공급자가 바뀌었으면) 무시한다.
+   * 연결 진단이 따로 발급하지 않고 쓸 토큰 공급원. 지금 공급자가 이 공급자이고, 같은 키·프록시 토큰·프록시 URL로
+   * 만들어졌을 때만 그 공급자의 토큰 관리자(캐시·진행 중 발급·잠금 모드 규칙 포함)를 돌려준다. 아니면 undefined.
    */
-  adoptToken(provider: 'kis' | 'toss', token: TokenInfo): void;
+  tokenSourceFor(provider: 'kis' | 'toss', secrets: Secrets, proxyUrl: string): (() => Promise<TokenInfo>) | undefined;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. */
@@ -101,6 +101,13 @@ export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본�
 export const DEMO_BANNER = '데모 데이터를 보고 있어요';
 const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
+/** 두 키 묶음이 이 공급자에 대해 같은 키·프록시 토큰인지. */
+function sameCredentials(p: 'kis' | 'toss', a: Secrets, b: Secrets | null): boolean {
+  if (!b || (a.proxyToken ?? '') !== (b.proxyToken ?? '')) return false;
+  if (p === 'kis') return !!a.kis && a.kis.appKey === b.kis?.appKey && a.kis.appSecret === b.kis?.appSecret;
+  return !!a.toss && a.toss.clientId === b.toss?.clientId && a.toss.clientSecret === b.toss?.clientSecret;
+}
+
 export function createApp(deps: AppDeps): App {
   const { storage, now, fetchImpl } = deps;
   const loc = deps.location ?? globalThis.location;
@@ -122,6 +129,8 @@ export function createApp(deps: AppDeps): App {
   let recent = $state.raw<string[]>(first.recent);
   let locked: LockedSecrets | null = first.locked;
   let secrets = $state.raw<Secrets | null>(first.secrets);
+  // 지금 공급자를 만든 입력(연결 진단이 같은 토큰을 써도 되는지 판단할 때 쓴다).
+  let builtFrom: { proxyUrl: string; secrets: Secrets | null } = { proxyUrl: '', secrets: null };
   let provider = $state.raw<MarketDataProvider>(buildProvider());
   let data = $state.raw<AppData>(freshData());
   let route = $state.raw<Route>({ name: 'compare' });
@@ -170,6 +179,7 @@ export function createApp(deps: AppDeps): App {
   function buildProvider(): MarketDataProvider {
     const id = activeId();
     const generation = providerGeneration;
+    builtFrom = { proxyUrl: settings.proxyUrl.trim(), secrets };
     return createProvider(settings, secrets, {
       now,
       fetchImpl,
@@ -444,11 +454,11 @@ export function createApp(deps: AppDeps): App {
       rebuild();
     },
 
-    adoptToken(p, token) {
-      if (settings.provider !== p || provider.id !== p) return;
-      tokenStoreFor(activeId(), p, providerGeneration).save(token);
-      // 토큰 관리자는 저장소를 처음 한 번만 읽으므로, 새 공급자를 만들어 다음 호출이 이 토큰을 쓰게 한다.
-      rebuild();
+    tokenSourceFor(p, s, proxyUrl) {
+      const current = provider;
+      if (current.id !== p || !current.getAccessToken) return undefined;
+      if (proxyUrl.trim() !== builtFrom.proxyUrl || !sameCredentials(p, s, builtFrom.secrets)) return undefined;
+      return () => current.getAccessToken!();
     },
 
     lock() {

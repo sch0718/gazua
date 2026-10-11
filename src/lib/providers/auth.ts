@@ -13,7 +13,7 @@ export function createTokenManager(
   issue: () => Promise<TokenInfo>,
   store: TokenStore,
   now: () => number,
-): { get(): Promise<string>; invalidate(): void } {
+): { get(): Promise<string>; info(): Promise<TokenInfo>; invalidate(): void } {
   let current: TokenInfo | null = null;
   let loaded = false;
   let inflight: Promise<TokenInfo> | null = null;
@@ -46,16 +46,21 @@ export function createTokenManager(
     return p;
   }
 
+  async function info(): Promise<TokenInfo> {
+    if (!loaded) {
+      loaded = true;
+      current = store.load();
+    }
+    if (fresh(current)) return current;
+    return inflight ?? startIssue();
+  }
+
   return {
     async get() {
-      if (!loaded) {
-        loaded = true;
-        current = store.load();
-      }
-      if (fresh(current)) return current.accessToken;
-      const token = await (inflight ?? startIssue());
-      return token.accessToken;
+      return (await info()).accessToken;
     },
+    /** get()과 같지만 만료 시각까지 돌려준다(연결 진단이 같은 토큰을 쓰도록). */
+    info,
     invalidate() {
       generation++;
       current = null;

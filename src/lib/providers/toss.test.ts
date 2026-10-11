@@ -142,6 +142,15 @@ interface Setup {
   store: TokenStore;
 }
 
+describe('toss provider: shared access token', () => {
+  it('getAccessToken shares the token with data calls (one issue)', async () => {
+    const { provider, client } = setup();
+    const [t] = await Promise.all([provider.getAccessToken!(), provider.getQuotes(['005930'], 'UNIFIED')]);
+    expect(t.accessToken).toBe('test-access-token');
+    expect(client.calls.filter((c) => c.path === '/oauth2/token')).toHaveLength(1);
+  });
+});
+
 function setup(handler?: Handler, now = SUN, clientOverride?: ProxyClient): Setup {
   const client = clientOverride ?? fakeClient(handler);
   const inner = fastQueue();

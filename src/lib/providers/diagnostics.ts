@@ -1,6 +1,7 @@
 // 연결 진단(스펙 7.4): ① 프록시 응답 → ② CORS 허용 → ③ 토큰 발급 → ④ 시세 조회(삼성전자).
-// 받은 토큰은 저장하지 않는다. 네 단계가 모두 성공했을 때만 onToken으로 호출자에게 넘긴다
-// (호출자가 앱의 토큰 저장소에 넣어 KIS의 1분 1회 발급 제한에 걸리지 않게).
+// ③ 토큰: 앱의 공급자가 같은 키·프록시로 만들어졌으면 그 토큰 관리자(tokenSource)를 함께 쓴다
+// (KIS 토큰은 1분에 한 번만 받을 수 있어, 앱이 막 받은 토큰과 겹쳐 발급하면 실패한다).
+// 그렇지 않으면 직접 발급하고, 그 토큰은 이 진단 안에서만 쓰고 버린다.
 // 단계의 hint·error에는 키·토큰을 절대 넣지 않는다(고정 문구와 출처만).
 import type { Secrets } from '../state/secrets';
 import { ApiError, classify, kisBodyCode, type ErrorCode } from './errors';
@@ -36,8 +37,8 @@ export interface DiagnosticsArgs {
   clock?: () => number;
   /** 토큰 만료 시각 계산용 epoch ms. 기본값 Date.now. */
   now?: () => number;
-  /** 네 단계가 모두 성공하면 ③에서 받은 토큰을 넘긴다. */
-  onToken?: (t: TokenInfo) => void;
+  /** 있으면 ③에서 직접 발급하지 않고 이 토큰을 쓴다(앱 공급자의 getAccessToken). */
+  tokenSource?: () => Promise<TokenInfo>;
 }
 
 const LABELS: Record<DiagStep['id'], DiagLabel> = {
@@ -165,6 +166,11 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, await readJson(res), provider));
     },
     3: async () => {
+      if (args.tokenSource) {
+        token = await args.tokenSource();
+        if (!token?.accessToken) throw new StepFailure('upstream');
+        return;
+      }
       if (provider === 'kis') {
         const kis = secrets.kis;
         if (!kis || !filled(kis.appKey) || !filled(kis.appSecret)) throw new StepFailure('invalid-credentials', '키를 입력해 주세요');
@@ -242,6 +248,5 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       break;
     }
   }
-  if (token && steps.every((s) => s.status === 'ok')) args.onToken?.(token);
   return steps;
 }

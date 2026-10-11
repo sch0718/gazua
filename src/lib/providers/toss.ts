@@ -308,6 +308,8 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
 
   const provider: MarketDataProvider = {
     id: 'toss',
+    getAccessToken: () => tokens.info(),
+
     capabilities: {
       venues: ['UNIFIED'],
       quoteBatchSize: BATCH_SIZE,

@@ -520,12 +520,9 @@ describe('createApp — profiles management, passphrase check, export/import', (
   });
 });
 
-describe('createApp — adoptToken', () => {
-  const ADOPTED = { accessToken: 'adopted-token', expiresAt: NOW + 6 * 60 * 60 * 1000 };
+describe('createApp — tokenSourceFor (connection diagnosis shares the provider token)', () => {
   const tokenPosts = (f: ReturnType<typeof fakeKisFetch>) =>
     f.mock.calls.filter(([u]) => String(u).includes('/oauth2/tokenP')).length;
-  const authOf = (f: ReturnType<typeof fakeKisFetch>) =>
-    new Headers((f.mock.calls.at(-1) as unknown as [unknown, RequestInit])[1].headers).get('authorization');
 
   function plainBacking() {
     const backing = memoryBacking();
@@ -535,29 +532,31 @@ describe('createApp — adoptToken', () => {
     return backing;
   }
 
-  it('plain mode: the next provider call uses the adopted token without POSTing the token endpoint', async () => {
-    const backing = plainBacking();
-    const fetchImpl = fakeKisFetch();
-    const app = make(backing, { fetchImpl });
-    app.adoptToken('kis', ADOPTED);
-    await app.provider.getQuotes(['005930'], 'KRX');
-    expect(tokenPosts(fetchImpl)).toBe(0);
-    expect(authOf(fetchImpl)).toBe('Bearer adopted-token');
-    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:token:kis')!)).toEqual(ADOPTED);
-  });
-
-  it('works even after the current provider already loaded its (empty) token store', async () => {
+  it('shares the in-flight token with the provider: one token POST in total', async () => {
     const fetchImpl = fakeKisFetch();
     const app = make(plainBacking(), { fetchImpl });
-    await app.provider.getQuotes(['005930'], 'KRX');
+    const source = app.tokenSourceFor('kis', { ...SECRETS }, 'https://proxy.test');
+    expect(source).toBeTypeOf('function');
+    const [, token] = await Promise.all([app.provider.getQuotes(['005930'], 'KRX'), source!()]);
+    expect(token.accessToken).toBe('test-access-token');
     expect(tokenPosts(fetchImpl)).toBe(1);
-    app.adoptToken('kis', ADOPTED);
-    await app.provider.getQuotes(['005930'], 'KRX');
-    expect(tokenPosts(fetchImpl)).toBe(1);
-    expect(authOf(fetchImpl)).toBe('Bearer adopted-token');
   });
 
-  it('lock mode keeps the adopted token in memory only', async () => {
+  it('returns undefined for different keys, proxy token, proxy URL or provider', () => {
+    const app = make(plainBacking(), { fetchImpl: fakeKisFetch() });
+    const otherKey = { ...SECRETS, kis: { ...SECRETS.kis!, appKey: 'other' } };
+    expect(app.tokenSourceFor('kis', otherKey, 'https://proxy.test')).toBeUndefined();
+    expect(app.tokenSourceFor('kis', { ...SECRETS, proxyToken: 'other' }, 'https://proxy.test')).toBeUndefined();
+    expect(app.tokenSourceFor('kis', SECRETS, 'https://elsewhere.test')).toBeUndefined();
+    expect(app.tokenSourceFor('toss', SECRETS, 'https://proxy.test')).toBeUndefined();
+
+    const demo = memoryBacking();
+    seed(demo, 'meta', META_ONE);
+    seed(demo, 'p:p1:settings', { onboarded: true, provider: 'kis' });
+    expect(make(demo).tokenSourceFor('kis', SECRETS, '')).toBeUndefined();
+  });
+
+  it('lock mode keeps the shared token in memory only', async () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
     seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
@@ -565,27 +564,10 @@ describe('createApp — adoptToken', () => {
     const fetchImpl = fakeKisFetch();
     const app = make(backing, { fetchImpl });
     await app.unlock('correct horse');
-    app.adoptToken('kis', ADOPTED);
-    await app.provider.getQuotes(['005930'], 'KRX');
-    expect(tokenPosts(fetchImpl)).toBe(0);
+    // (픽스처 토큰의 만료가 NOW보다 이르므로 동시에 불러 진행 중 발급을 함께 쓰는지 본다.)
+    await Promise.all([app.tokenSourceFor('kis', SECRETS, 'https://proxy.test')!(), app.provider.getQuotes(['005930'], 'KRX')]);
+    expect(tokenPosts(fetchImpl)).toBe(1);
     expect(backing.dump()).not.toContain(':token:');
-    expect(backing.dump()).not.toContain('adopted-token');
-  });
-
-  it('ignores a token for a provider that is not the current one', async () => {
-    const backing = plainBacking();
-    const fetchImpl = fakeKisFetch();
-    const app = make(backing, { fetchImpl });
-    const before = app.provider;
-    app.adoptToken('toss', ADOPTED);
-    expect(app.provider).toBe(before);
-    expect(backing.dump()).not.toContain(':token:');
-
-    const demo = memoryBacking();
-    seed(demo, 'meta', META_ONE);
-    seed(demo, 'p:p1:settings', { onboarded: true, provider: 'kis' });
-    const noKeys = make(demo);
-    noKeys.adoptToken('kis', ADOPTED);
-    expect(demo.dump()).not.toContain(':token:');
+    expect(backing.dump()).not.toContain('test-access-token');
   });
 });
