@@ -1,0 +1,170 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { describe, expect, it, vi } from 'vitest';
+import { kstEpoch } from '../../time/kst';
+import Leaderboard from './Leaderboard.svelte';
+import type { LeaderRow } from './rows';
+
+const NOW = kstEpoch('2026-10-12', '17:42:00');
+
+const row = (symbol: string, value: number | null, over: Partial<LeaderRow> = {}): LeaderRow => ({
+  symbol,
+  name: `종목${symbol}`,
+  slot: 1,
+  badges: [],
+  value,
+  price: 10_000,
+  hidden: false,
+  ...over,
+});
+
+function setup(rows: LeaderRow[], over: Record<string, unknown> = {}) {
+  const props = {
+    rows,
+    frozenOrder: null,
+    unit: '%' as const,
+    conv: 'kr' as const,
+    metricLabel: '등락률',
+    count: rows.length,
+    scrubLabel: null,
+    now: NOW,
+    onselect: vi.fn(),
+    ontogglehidden: vi.fn(),
+    onreorder: vi.fn(),
+    onopenadd: vi.fn(),
+    ...over,
+  };
+  render(Leaderboard, props);
+  return props;
+}
+
+const order = () => screen.getAllByRole('listitem').map((li) => li.dataset.symbol);
+const rowOf = (symbol: string) => screen.getAllByRole('listitem').find((li) => li.dataset.symbol === symbol)!;
+const mainBtn = (symbol: string) => rowOf(symbol).querySelector<HTMLButtonElement>('button.main-btn')!;
+
+describe('Leaderboard', () => {
+  it('sorts by value, highest first; rows without a value go last', () => {
+    setup([row('A', 1), row('B', 3), row('C', null), row('D', 2)]);
+    expect(order()).toEqual(['B', 'D', 'A', 'C']);
+  });
+
+  it('keeps frozenOrder while scrubbing', () => {
+    setup([row('A', 1), row('B', 3), row('C', null), row('D', 2)], { frozenOrder: ['C', 'A', 'D', 'B'] });
+    expect(order()).toEqual(['C', 'A', 'D', 'B']);
+  });
+
+  it('leaderboard row shows 데이터 없음', () => {
+    setup([row('A', null)]);
+    expect(within(rowOf('A')).getByText('데이터 없음')).toBeTruthy();
+  });
+
+  it('a row with an error shows the error instead', () => {
+    setup([row('A', null, { error: '불러오지 못했어요' })]);
+    expect(within(rowOf('A')).getByText('불러오지 못했어요')).toBeTruthy();
+    expect(within(rowOf('A')).queryByText('데이터 없음')).toBeNull();
+  });
+
+  it('formats the value with ▲▼ and a trend class, and the price in 원', () => {
+    setup([row('A', 1.234, { price: 71_200 })]);
+    const value = within(rowOf('A')).getByText('▲ +1.23%');
+    expect(value.classList.contains('up')).toBe(true);
+    expect(within(rowOf('A')).getByText('71,200원')).toBeTruthy();
+  });
+
+  it('hidden rows are dimmed and their color dot is aria-pressed=false; the dot toggles', async () => {
+    const props = setup([row('A', 1, { hidden: true }), row('B', 2)]);
+    expect(rowOf('A').classList.contains('dim')).toBe(true);
+    expect(rowOf('B').classList.contains('dim')).toBe(false);
+    const dotA = within(rowOf('A')).getByRole('button', { name: /보이기/ });
+    expect(dotA.getAttribute('aria-pressed')).toBe('false');
+    expect(within(rowOf('B')).getByRole('button', { name: /숨기기/ }).getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.click(dotA);
+    expect(props.ontogglehidden).toHaveBeenCalledWith('A');
+  });
+
+  it('shows second-line badges such as KRX 대체 and the NXT badge next to the name', () => {
+    setup([row('A', 1, { badges: ['ETF', 'KRX 대체'], nxt: true })]);
+    const r = within(rowOf('A'));
+    expect(r.getByText('KRX 대체')).toBeTruthy();
+    expect(r.getByText('ETF')).toBeTruthy();
+    expect(r.getByText('NXT')).toBeTruthy();
+  });
+
+  it('stale rows: 17:20 기준 badge with a spoken label, values as given', () => {
+    const staleAt = kstEpoch('2026-10-12', '17:20:00');
+    setup([row('A', 2.5, { staleAt, price: 70_000 })]);
+    const badge = within(rowOf('A')).getByText('17:20 기준');
+    expect(badge.closest('[aria-label]')?.getAttribute('aria-label')).toBe('17시 20분 기준 데이터, 새로 받지 못했어요');
+    expect(within(rowOf('A')).getByText('▲ +2.50%')).toBeTruthy();
+    expect(within(rowOf('A')).getByText('70,000원')).toBeTruthy();
+  });
+
+  it('stale from another day: 10/8 기준', () => {
+    setup([row('A', 1, { staleAt: kstEpoch('2026-10-08', '17:20:00') })]);
+    expect(within(rowOf('A')).getByText('10/8 기준')).toBeTruthy();
+  });
+
+  it('header: 등락률 순 · n/8 and ＋ 종목 추가; scrubbing adds the time', async () => {
+    const props = setup([row('A', 1), row('B', 2)], { count: 4 });
+    expect(screen.getByText('등락률 순 · 4/8')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 종목 추가' }));
+    expect(props.onopenadd).toHaveBeenCalledTimes(1);
+  });
+
+  it('header while scrubbing shows the scrub time value', () => {
+    setup([row('A', 1)], { count: 1, scrubLabel: '14:32' });
+    expect(screen.getByText('등락률 순 · 1/8 · 14:32 값')).toBeTruthy();
+  });
+
+  it('tapping a row selects it', async () => {
+    const props = setup([row('A', 1)]);
+    await fireEvent.click(mainBtn('A'));
+    expect(props.onselect).toHaveBeenCalledWith('A');
+  });
+
+  it('Alt+ArrowUp/Down on a focused row moves it next to its neighbor', async () => {
+    const props = setup([row('A', 3), row('B', 2), row('C', 1)]);
+    await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowDown', altKey: true });
+    expect(props.onreorder).toHaveBeenCalledWith('B', 'C');
+    await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowUp', altKey: true });
+    expect(props.onreorder).toHaveBeenLastCalledWith('B', 'A');
+    await fireEvent.keyDown(mainBtn('A'), { key: 'ArrowUp', altKey: true });
+    expect(props.onreorder).toHaveBeenCalledTimes(2);
+  });
+
+  it('long press (500ms) then drag onto another row reorders', async () => {
+    vi.useFakeTimers();
+    try {
+      const props = setup([row('A', 3), row('B', 2), row('C', 1)]);
+      const items = screen.getAllByRole('listitem');
+      items.forEach((li, i) => {
+        li.getBoundingClientRect = () => ({ top: i * 60, bottom: i * 60 + 60, left: 0, right: 300, height: 60, width: 300, x: 0, y: i * 60, toJSON: () => ({}) });
+      });
+      const handle = mainBtn('A');
+      await fireEvent.pointerDown(handle, { clientX: 10, clientY: 30, pointerId: 1 });
+      vi.advanceTimersByTime(500);
+      await fireEvent.pointerMove(handle, { clientX: 10, clientY: 150, pointerId: 1 });
+      await fireEvent.pointerUp(handle, { clientX: 10, clientY: 150, pointerId: 1 });
+      expect(props.onreorder).toHaveBeenCalledWith('A', 'C');
+      // 끌기가 끝난 직후의 click은 선택으로 보지 않는다.
+      await fireEvent.click(handle);
+      expect(props.onselect).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a short press does not start a drag', async () => {
+    vi.useFakeTimers();
+    try {
+      const props = setup([row('A', 3), row('B', 2)]);
+      const handle = mainBtn('A');
+      await fireEvent.pointerDown(handle, { clientX: 10, clientY: 30, pointerId: 1 });
+      vi.advanceTimersByTime(200);
+      await fireEvent.pointerUp(handle, { clientX: 10, clientY: 30, pointerId: 1 });
+      expect(props.onreorder).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

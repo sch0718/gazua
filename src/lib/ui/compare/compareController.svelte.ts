@@ -1,0 +1,347 @@
+// 비교 화면의 데이터 흐름: 종목 메타 → 시리즈(병렬, 진행률) → 지수(초과수익일 때) → 5초 현재가.
+// 시리즈는 장중 60초, 장 밖 10분마다 다시 받고, 탭이 숨으면 멈춘다(스펙 4.4).
+import { loadIndexSeries, type LoadedSeries } from '../../data/candleService';
+import { createQuotePoller, type QuotePoller } from '../../data/quotePoller';
+import type { DaySession } from '../../market/sessions';
+import type { VenueMode } from '../../market/tradable';
+import { ApiError } from '../../providers/errors';
+import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types';
+import type { AppData } from '../../state/app.svelte';
+import type { Period, Settings } from '../../state/schema';
+import { quoteVenue } from './venue';
+
+export type SnapshotSeries = LoadedSeries & { stale: boolean };
+export type IndexName = 'KOSPI' | 'KOSDAQ';
+
+export interface SeriesEntry {
+  series: SnapshotSeries | null;
+  error: string | null;
+}
+
+export interface IndexEntry {
+  status: 'loading' | 'ok' | 'null' | 'failed';
+  series: LoadedSeries | null;
+}
+
+export interface CompareQuery {
+  provider: MarketDataProvider;
+  data: AppData;
+  /** 그룹 순서 */
+  symbols: string[];
+  period: Period;
+  venueMode: VenueMode;
+  /** 시장 대비 초과수익을 볼 때만 지수를 받는다 */
+  excess: boolean;
+  benchmark: Settings['benchmark'];
+}
+
+type VisibilityDoc = Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+
+export interface CompareControllerDeps {
+  now: () => number;
+  /** 지금 시장 전체 기준 어느 세션 안인지 */
+  inSession: () => boolean;
+  /** 오늘 세션(자동 모드 현재가 거래소) */
+  sessions: () => DaySession[];
+  doc?: VisibilityDoc;
+  quoteIntervalMs?: number;
+}
+
+export interface CompareController {
+  readonly metas: Record<string, StockMeta>;
+  readonly entries: Record<string, SeriesEntry>;
+  readonly indexes: Partial<Record<IndexName, IndexEntry>>;
+  readonly quotes: Record<string, Quote>;
+  /** 화면을 바꾼 뒤 첫 로딩 중일 때만. 주기 갱신은 조용히 한다. */
+  readonly progress: { done: number; total: number } | null;
+  /** 바뀐 것만 다시 받는다. 반응형 효과 안에서 부를 때는 untrack으로 감싼다. */
+  setQuery(q: CompareQuery): void;
+  /** 시리즈·지수·현재가를 지금 다시 받는다(당겨서 새로고침). */
+  refresh(): Promise<void>;
+  /** 초과수익에 쓰는 지수: 벤치마크가 자동이면 종목 시장의 지수. */
+  indexFor(symbol: string): IndexName;
+  destroy(): void;
+}
+
+export const RELOAD_IN_SESSION_MS = 60_000;
+export const RELOAD_OUTSIDE_MS = 600_000;
+export const META_ERROR = '종목 정보를 받지 못했어요';
+
+/** 행에 보이는 짧은 오류 문구. 오류 메시지 원문(요청 정보가 섞일 수 있음)은 쓰지 않는다. */
+export function errorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    switch (e.code) {
+      case 'offline':
+      case 'proxy-unreachable':
+      case 'timeout':
+        return '연결할 수 없어요';
+      case 'rate-limited':
+      case 'token-throttled':
+        return '잠시 후 다시 불러올게요';
+    }
+  }
+  return '불러오지 못했어요';
+}
+
+/** 초과수익의 지수: 벤치마크가 자동이면 종목 시장(KOSDAQ이 아니면 KOSPI). */
+export function indexForMeta(meta: StockMeta | undefined, benchmark: Settings['benchmark']): IndexName {
+  if (benchmark !== 'AUTO') return benchmark;
+  return meta?.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+}
+
+const pick = <T>(rec: Record<string, T>, keys: string[]): Record<string, T> =>
+  Object.fromEntries(Object.entries(rec).filter(([k]) => keys.includes(k)));
+
+export function createCompareController(deps: CompareControllerDeps): CompareController {
+  const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
+
+  let metas = $state.raw<Record<string, StockMeta>>({});
+  let entries = $state.raw<Record<string, SeriesEntry>>({});
+  let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
+  let quotes = $state.raw<Record<string, Quote>>({});
+  let progress = $state.raw<{ done: number; total: number } | null>(null);
+
+  let query: CompareQuery | null = null;
+  /** 시리즈 키(공급자·데이터·기간·거래소)가 바뀔 때마다 올린다. 이전 키의 늦은 결과는 버린다. */
+  let generation = 0;
+  /** 지금 키의 진행 중인 시리즈 로딩 수 */
+  let inflight = 0;
+  let lastLoadAt = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let poller: QuotePoller | null = null;
+  let pollerProvider: MarketDataProvider | null = null;
+  let destroyed = false;
+
+  const reloadDelay = () => (deps.inSession() ? RELOAD_IN_SESSION_MS : RELOAD_OUTSIDE_MS);
+  const hidden = () => doc?.visibilityState === 'hidden';
+
+  // ── 진행률 ──────────────────────────────────────────────
+  let total = 0;
+  let done = 0;
+  function bumpProgress(addTotal: number, addDone: number) {
+    total += addTotal;
+    done += addDone;
+    if (done >= total) {
+      total = 0;
+      done = 0;
+      progress = null;
+    } else {
+      progress = { done, total };
+    }
+  }
+
+  // ── 타이머 ──────────────────────────────────────────────
+  function clearTimer() {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  }
+  function schedule(delay = reloadDelay()) {
+    clearTimer();
+    if (destroyed || !query || hidden()) return;
+    timer = setTimeout(() => void reload(), delay);
+  }
+  function onVisibility() {
+    if (destroyed) return;
+    if (hidden()) {
+      clearTimer();
+      return;
+    }
+    const elapsed = deps.now() - lastLoadAt;
+    const delay = reloadDelay();
+    if (elapsed >= delay) void reload();
+    else schedule(delay - elapsed);
+  }
+  doc?.addEventListener('visibilitychange', onVisibility);
+
+  // ── 메타 ────────────────────────────────────────────────
+  async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<void> {
+    const missing = symbols.filter((s) => !metas[s]);
+    if (missing.length === 0) return;
+    try {
+      const list = await provider.getStockMeta(missing);
+      if (query?.provider !== provider) return;
+      metas = { ...metas, ...Object.fromEntries(list.map((m) => [m.symbol, m])) };
+    } catch {
+      // 메타를 못 받은 종목은 행에 오류로 보인다.
+    }
+  }
+
+  const indexFor = (symbol: string) => indexForMeta(metas[symbol], query?.benchmark ?? 'AUTO');
+
+  // ── 시리즈 ──────────────────────────────────────────────
+  async function loadSymbols(symbols: string[], showProgress: boolean): Promise<void> {
+    const q = query;
+    if (!q || symbols.length === 0) return;
+    const g = generation;
+    if (showProgress) bumpProgress(symbols.length, 0);
+    inflight++;
+    try {
+      await ensureMetas(q.provider, symbols);
+      if (g !== generation) return;
+      syncIndexes(false);
+      // 새로 보이는 종목은 5초를 기다리지 않고 현재가를 받는다.
+      if (showProgress) void poller?.refresh();
+      await Promise.all(
+        symbols.map(async (symbol) => {
+          const meta = metas[symbol];
+          let entry: SeriesEntry;
+          if (!meta) {
+            entry = { series: null, error: META_ERROR };
+          } else {
+            try {
+              const series = await q.data.snapshots.load({
+                provider: q.provider,
+                cache: q.data.cache,
+                memo: q.data.memo,
+                meta,
+                period: q.period,
+                venueMode: q.venueMode,
+                now: deps.now(),
+              });
+              entry = { series, error: null };
+            } catch (e) {
+              entry = { series: null, error: errorText(e) };
+            }
+          }
+          if (destroyed || g !== generation) return;
+          if (showProgress) bumpProgress(0, 1);
+          // 받는 동안 그룹에서 빠진 종목은 버린다.
+          if (query?.symbols.includes(symbol)) entries = { ...entries, [symbol]: entry };
+        }),
+      );
+    } finally {
+      // 키가 바뀌면 inflight는 0부터 다시 센다. 이전 키의 로딩은 새 키의 주기 갱신을 막지 않는다.
+      if (g === generation && !destroyed) {
+        inflight--;
+        lastLoadAt = deps.now();
+        if (inflight === 0) schedule();
+      }
+    }
+  }
+
+  // ── 지수 ────────────────────────────────────────────────
+  function neededIndexes(): IndexName[] {
+    if (!query?.excess) return [];
+    return [...new Set(query.symbols.filter((s) => metas[s]).map(indexFor))];
+  }
+
+  function loadIndex(index: IndexName): Promise<void> {
+    const q = query;
+    if (!q) return Promise.resolve();
+    const g = generation;
+    const prev = indexes[index];
+    indexes = { ...indexes, [index]: { status: 'loading', series: prev?.series ?? null } };
+    const settle = (entry: IndexEntry) => {
+      if (!destroyed && g === generation) indexes = { ...indexes, [index]: entry };
+    };
+    return loadIndexSeries({ provider: q.provider, cache: q.data.cache, index, period: q.period, now: deps.now() }).then(
+      (series) => settle(series ? { status: 'ok', series } : { status: 'null', series: null }),
+      () => settle({ status: 'failed', series: null }),
+    );
+  }
+
+  /** 필요한데 아직 없는 지수를 받는다. force면 필요한 지수를 모두 다시 받는다. */
+  function syncIndexes(force: boolean): Promise<void>[] {
+    return neededIndexes()
+      .filter((i) => force || !indexes[i])
+      .map(loadIndex);
+  }
+
+  // ── 현재가 ──────────────────────────────────────────────
+  function venueOf(provider: MarketDataProvider, symbol: string) {
+    return quoteVenue(provider.capabilities.venues, query?.venueMode ?? 'AUTO', metas[symbol], deps.sessions(), deps.now());
+  }
+
+  function ensurePoller(provider: MarketDataProvider) {
+    if (pollerProvider === provider) return;
+    poller?.stop();
+    pollerProvider = provider;
+    poller = createQuotePoller({
+      provider,
+      symbols: () => (query ? query.symbols.filter((s) => metas[s]) : []),
+      venue: (s) => venueOf(provider, s),
+      inSession: deps.inSession,
+      intervalMs: deps.quoteIntervalMs,
+      doc,
+      onQuotes(list) {
+        if (destroyed || query?.provider !== provider) return;
+        // 조회하는 동안 거래소 모드나 종목이 바뀌었으면 그 시세는 버린다.
+        const fresh = list.filter((q) => query?.symbols.includes(q.symbol) && q.venue === venueOf(provider, q.symbol));
+        if (fresh.length > 0) quotes = { ...quotes, ...Object.fromEntries(fresh.map((q) => [q.symbol, q])) };
+      },
+    });
+    poller.start();
+  }
+
+  async function reload(): Promise<void> {
+    clearTimer();
+    if (destroyed || !query) return;
+    if (inflight > 0) return;
+    await Promise.all([loadSymbols(query.symbols, false), ...syncIndexes(true)]);
+  }
+
+  return {
+    get metas() {
+      return metas;
+    },
+    get entries() {
+      return entries;
+    },
+    get indexes() {
+      return indexes;
+    },
+    get quotes() {
+      return quotes;
+    },
+    get progress() {
+      return progress;
+    },
+
+    setQuery(q) {
+      if (destroyed) return;
+      const prev = query;
+      query = q;
+      ensurePoller(q.provider);
+      if (prev?.provider !== q.provider) metas = {};
+      const keyChanged =
+        !prev ||
+        prev.provider !== q.provider ||
+        prev.data !== q.data ||
+        prev.period.unit !== q.period.unit ||
+        prev.period.n !== q.period.n ||
+        prev.venueMode !== q.venueMode;
+      if (keyChanged) {
+        generation++;
+        entries = {};
+        quotes = {};
+        indexes = {};
+        inflight = 0;
+        total = 0;
+        done = 0;
+        progress = null;
+        void loadSymbols(q.symbols, true);
+      } else if (prev.symbols.join() !== q.symbols.join()) {
+        entries = pick(entries, q.symbols);
+        quotes = pick(quotes, q.symbols);
+        void loadSymbols(
+          q.symbols.filter((s) => !prev.symbols.includes(s)),
+          true,
+        );
+      }
+      syncIndexes(false);
+    },
+
+    async refresh() {
+      await Promise.all([reload(), poller?.refresh()]);
+    },
+
+    indexFor,
+
+    destroy() {
+      destroyed = true;
+      clearTimer();
+      poller?.stop();
+      doc?.removeEventListener('visibilitychange', onVisibility);
+    },
+  };
+}

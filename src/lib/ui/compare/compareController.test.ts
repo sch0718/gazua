@@ -1,0 +1,325 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDailyMemo, createSeriesSnapshots, type LoadSeriesArgs } from '../../data/candleService';
+import { sessionsForDay } from '../../market/sessions';
+import { createDemoProvider } from '../../providers/demo';
+import { memoryCache } from '../../data/testCache';
+import type { MarketDataProvider, Quote } from '../../providers/types';
+import type { AppData } from '../../state/app.svelte';
+import { kstEpoch } from '../../time/kst';
+import {
+  RELOAD_IN_SESSION_MS,
+  RELOAD_OUTSIDE_MS,
+  createCompareController,
+  type CompareController,
+  type CompareQuery,
+  type SnapshotSeries,
+} from './compareController.svelte';
+import { buildRows } from './rows';
+
+const DAY = '2026-10-12';
+const NOW = kstEpoch(DAY, '10:00:00');
+const sessions = sessionsForDay({ date: DAY, isOpen: true });
+
+function fakeDoc() {
+  const listeners = new Set<() => void>();
+  return {
+    visibilityState: 'visible' as DocumentVisibilityState,
+    addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+    removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    set(state: DocumentVisibilityState) {
+      this.visibilityState = state;
+      for (const fn of listeners) fn();
+    },
+  };
+}
+
+const snap = (symbol: string, over: Partial<SnapshotSeries> = {}): SnapshotSeries => ({
+  symbol,
+  tradingDate: DAY,
+  base: 100,
+  avgDailyVolume: null,
+  candles: [{ t: NOW - 60_000, o: 110, h: 110, l: 110, c: 110, v: 1 }],
+  daily: [],
+  segments: [],
+  intervals: [],
+  computedAt: NOW,
+  stale: false,
+  ...over,
+});
+
+type Deferred = { resolve(v: SnapshotSeries): void; reject(e: unknown): void };
+
+function setup(opts: { inSession?: boolean; provider?: MarketDataProvider } = {}) {
+  let now = NOW;
+  let inSession = opts.inSession ?? true;
+  const doc = fakeDoc();
+  const provider = opts.provider ?? createDemoProvider({ seed: 1, now: () => now });
+  const getQuotes = vi.spyOn(provider, 'getQuotes');
+  const pending = new Map<string, Deferred>();
+  const load = vi.fn(
+    (args: LoadSeriesArgs) =>
+      new Promise<SnapshotSeries>((resolve, reject) => pending.set(args.meta.symbol, { resolve, reject })),
+  );
+  const data: AppData = { cache: memoryCache(), memo: createDailyMemo(), snapshots: { load } };
+  const ctl = createCompareController({
+    now: () => now,
+    inSession: () => inSession,
+    sessions: () => sessions,
+    doc: doc as unknown as Document,
+  });
+  const query = (over: Partial<CompareQuery> = {}): CompareQuery => ({
+    provider,
+    data,
+    symbols: ['005930', '000660', '042700'],
+    period: { unit: 'D', n: 1 },
+    venueMode: 'AUTO',
+    excess: false,
+    benchmark: 'AUTO',
+    ...over,
+  });
+  return {
+    ctl,
+    doc,
+    provider,
+    data,
+    load,
+    pending,
+    getQuotes,
+    query,
+    setNow: (t: number) => (now = t),
+    setInSession: (v: boolean) => (inSession = v),
+    /** 대기 중인 모든 로드를 성공시킨다. */
+    resolveAll(over: Partial<SnapshotSeries> = {}) {
+      for (const [s, d] of pending) d.resolve(snap(s, over));
+      pending.clear();
+    },
+  };
+}
+
+let ctls: CompareController[] = [];
+const track = <T extends { ctl: CompareController }>(x: T) => {
+  ctls.push(x.ctl);
+  return x;
+};
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  for (const c of ctls) c.destroy();
+  ctls = [];
+  vi.useRealTimers();
+});
+
+describe('compareController', () => {
+  it('loads every symbol in parallel and reports progress until all are done', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    expect(t.ctl.progress).toEqual({ done: 0, total: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load).toHaveBeenCalledTimes(3);
+    t.pending.get('000660')!.resolve(snap('000660'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.progress).toEqual({ done: 1, total: 3 });
+    expect(t.ctl.entries['000660'].series?.symbol).toBe('000660');
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.progress).toBeNull();
+    expect(Object.keys(t.ctl.entries).sort()).toEqual(['000660', '005930', '042700']);
+    expect(t.ctl.metas['005930'].name).toBe('삼성전자');
+  });
+
+  it('one failing symbol does not block the others', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('042700')!.reject(new Error('boom'));
+    t.pending.delete('042700');
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['042700']).toEqual({ series: null, error: '불러오지 못했어요' });
+    expect(t.ctl.entries['005930'].series).not.toBeNull();
+    expect(t.ctl.progress).toBeNull();
+  });
+
+  it('stale rows ignore live quotes', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930', '000660'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('005930')!.resolve(snap('005930', { stale: true, computedAt: kstEpoch(DAY, '09:20:00') }));
+    t.pending.get('000660')!.resolve(snap('000660'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(5000);
+    // 두 종목 모두 시세를 받았다.
+    expect(Object.keys(t.ctl.quotes).sort()).toEqual(['000660', '005930']);
+    const rows = buildRows(
+      ['005930', '000660'].map((s) => ({
+        item: { symbol: s, colorSlot: 1, hidden: false, addedAt: 0 },
+        meta: t.ctl.metas[s],
+        series: t.ctl.entries[s].series,
+        points: [{ t: NOW - 60_000, v: 10 }],
+        quote: t.ctl.quotes[s],
+      })),
+      { scrubT: null, venueMode: 'AUTO' },
+    );
+    expect(rows[0]).toMatchObject({ price: 110, value: 10, staleAt: kstEpoch(DAY, '09:20:00') });
+    expect(rows[1].price).toBe(t.ctl.quotes['000660'].price);
+  });
+
+  it('quotes use the KRX-first venue per stock', async () => {
+    const t = track(setup());
+    t.setNow(kstEpoch(DAY, '08:10:00'));
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(5000);
+    const calls = t.getQuotes.mock.calls.map(([symbols, venue]) => `${venue}:${[...symbols].sort().join(',')}`);
+    // 08:10은 NXT 프리. NXT 지원 종목은 NXT, 한미반도체(NXT 미지원)는 KRX.
+    expect(calls).toContain('NXT:000660,005930');
+    expect(calls).toContain('KRX:042700');
+  });
+
+  it('reloads quietly every 60s in session and every 10 min outside; hidden pauses', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    expect(t.load).toHaveBeenCalledTimes(2);
+    expect(t.ctl.progress).toBeNull(); // 주기 갱신은 진행률을 보이지 않는다
+    expect(t.ctl.entries['005930'].series).not.toBeNull(); // 다시 받는 동안 이전 결과를 지우지 않는다
+    t.setInSession(false);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    expect(t.load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(RELOAD_OUTSIDE_MS - RELOAD_IN_SESSION_MS);
+    expect(t.load).toHaveBeenCalledTimes(3);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+
+    t.doc.set('hidden');
+    await vi.advanceTimersByTimeAsync(RELOAD_OUTSIDE_MS * 3);
+    expect(t.load).toHaveBeenCalledTimes(3);
+    t.setNow(NOW + RELOAD_OUTSIDE_MS * 4);
+    t.doc.set('visible');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load).toHaveBeenCalledTimes(4);
+  });
+
+  it('period change clears results and loads again with progress; adding a symbol loads only it', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+
+    t.ctl.setQuery(t.query({ symbols: ['005930'], period: { unit: 'W', n: 2 } }));
+    expect(t.ctl.entries).toEqual({});
+    expect(t.ctl.progress).toEqual({ done: 0, total: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load.mock.calls.at(-1)![0].period).toEqual({ unit: 'W', n: 2 });
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const before = t.load.mock.calls.length;
+    t.ctl.setQuery(t.query({ symbols: ['005930', '000660'], period: { unit: 'W', n: 2 } }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.load.mock.calls.slice(before).map((c) => c[0].meta.symbol)).toEqual(['000660']);
+    expect(t.ctl.entries['005930']).toBeDefined();
+  });
+
+  it('a removed symbol mid-load does not leave progress stuck', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930', '000660'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.progress).toBeNull();
+    expect(Object.keys(t.ctl.entries)).toEqual(['005930']);
+  });
+
+  it('late results from a previous period are dropped', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    const old = t.pending.get('005930')!;
+    t.pending.clear();
+    t.ctl.setQuery(t.query({ symbols: ['005930'], period: { unit: 'Y', n: 1 } }));
+    await vi.advanceTimersByTimeAsync(0);
+    old.resolve(snap('005930', { tradingDate: 'old' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['005930']).toBeUndefined();
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.entries['005930'].series?.tradingDate).toBe(DAY);
+  });
+
+  it('excess loads the market index of each stock (AUTO) or the chosen benchmark', async () => {
+    const provider = createDemoProvider({ seed: 1, now: () => NOW });
+    const base = provider.getStockMeta.bind(provider);
+    provider.getStockMeta = async (symbols) =>
+      (await base(symbols)).map((m) => (m.symbol === '042700' ? { ...m, market: 'KOSDAQ' as const } : m));
+    const indexCalls = vi.spyOn(provider as Required<MarketDataProvider>, 'getIndexCandles');
+    const t = track(setup({ provider }));
+    t.ctl.setQuery(t.query({ excess: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.waitFor(() => expect(t.ctl.indexes.KOSDAQ?.status).toBe('ok'));
+    expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+    expect(t.ctl.indexFor('042700')).toBe('KOSDAQ');
+    expect(t.ctl.indexFor('005930')).toBe('KOSPI');
+    expect(indexCalls.mock.calls.map((c) => c[0]).sort()).toEqual(['KOSDAQ', 'KOSDAQ', 'KOSPI', 'KOSPI']); // 1m + 1d each
+
+    t.ctl.setQuery(t.query({ excess: true, benchmark: 'KOSPI' }));
+    expect(t.ctl.indexFor('042700')).toBe('KOSPI');
+  });
+
+  it('metric other than excess does not load indexes', async () => {
+    const t = track(setup());
+    const indexCalls = vi.spyOn(t.provider as Required<MarketDataProvider>, 'getIndexCandles');
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(indexCalls).not.toHaveBeenCalled();
+    expect(t.ctl.indexes).toEqual({});
+  });
+
+  it('refresh reloads series and quotes now', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await vi.advanceTimersByTimeAsync(0);
+    const quotesBefore = t.getQuotes.mock.calls.length;
+    const done = t.ctl.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    t.resolveAll();
+    await done;
+    expect(t.load).toHaveBeenCalledTimes(2);
+    expect(t.getQuotes.mock.calls.length).toBe(quotesBefore + 1);
+  });
+
+  it('works end to end with real snapshots (demo provider)', async () => {
+    vi.useRealTimers();
+    const provider = createDemoProvider({ seed: 1, now: () => NOW });
+    const data: AppData = { cache: memoryCache(), memo: createDailyMemo(), snapshots: createSeriesSnapshots() };
+    const ctl = createCompareController({ now: () => NOW, inSession: () => true, sessions: () => sessions, doc: fakeDoc() as unknown as Document });
+    ctls.push(ctl);
+    ctl.setQuery({ provider, data, symbols: ['005930', '000660'], period: { unit: 'D', n: 1 }, venueMode: 'AUTO', excess: false, benchmark: 'AUTO' });
+    await vi.waitFor(() => expect(ctl.progress).toBeNull());
+    expect(ctl.entries['005930'].series?.candles.length).toBeGreaterThan(0);
+    expect(ctl.entries['000660'].series?.stale).toBe(false);
+    const q: Quote | undefined = await vi.waitFor(() => {
+      const v = ctl.quotes['005930'];
+      if (!v) throw new Error('no quote yet');
+      return v;
+    });
+    expect(q.venue).toBe('KRX');
+  });
+});
