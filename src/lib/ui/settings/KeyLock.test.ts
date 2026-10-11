@@ -7,8 +7,15 @@ import type { Settings } from '../../state/schema';
 import type { Secrets } from '../../state/secrets';
 import { kstEpoch } from '../../time/kst';
 import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
-import KeyLock, { KEY_LOCK_NOT_SAVED, KEY_UNLOCK_NOT_SAVED } from './KeyLock.svelte';
-import { createApp } from '../../state/app.svelte';
+import KeyLock, {
+  KEY_LOCK_NOT_CLEARED,
+  KEY_LOCK_NOT_SAVED,
+  KEY_LOCK_NO_STORAGE,
+  KEY_UNLOCK_NOT_SAVED,
+  KEY_UNLOCK_NO_STORAGE,
+  keyLockFailureText,
+} from './KeyLock.svelte';
+import { KeyLockNotSavedError, createApp } from '../../state/app.svelte';
 import { DEFAULT_SETTINGS } from '../../state/schema';
 import { createSafeStorage } from '../../state/storage';
 import { memoryBacking, seed } from '../../state/testStorage';
@@ -101,6 +108,35 @@ describe('KeyLock', () => {
     expect(alert.textContent).toBe(KEY_LOCK_NOT_SAVED);
     expect(backing.dump()).not.toContain(KIS.kis!.appKey);
     expect(currentSnackbar()).toBeNull();
+  });
+
+  it('the failure copy follows the case: no storage at all, or old keys that could not be removed', async () => {
+    expect(keyLockFailureText(new KeyLockNotSavedError('lock', 'cleared'))).toBe(KEY_LOCK_NOT_SAVED);
+    expect(keyLockFailureText(new KeyLockNotSavedError('lock', 'not-cleared'))).toBe(KEY_LOCK_NOT_CLEARED);
+    expect(keyLockFailureText(new KeyLockNotSavedError('lock', 'no-storage'))).toBe(KEY_LOCK_NO_STORAGE);
+    expect(keyLockFailureText(new KeyLockNotSavedError('unlock', 'unsaved'))).toBe(KEY_UNLOCK_NOT_SAVED);
+    expect(keyLockFailureText(new KeyLockNotSavedError('unlock', 'no-storage'))).toBe(KEY_UNLOCK_NO_STORAGE);
+    expect(KEY_LOCK_NO_STORAGE).not.toContain('지웠어요');
+    expect(KEY_LOCK_NOT_CLEARED).not.toContain('지웠어요');
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    seed(backing, 'p:p1:secrets', KIS);
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    render(KeyLock, { app });
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    backing.removeItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    await fireEvent.click(toggle());
+    await fireEvent.input(field('암호'), { target: { value: 'pass1234' } });
+    await fireEvent.input(field('암호 확인'), { target: { value: 'pass1234' } });
+    await fireEvent.click(screen.getByRole('button', { name: '잠그기' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(KEY_LOCK_NOT_CLEARED);
   });
 
   it('turning the lock off when the plaintext cannot be saved says so instead of 잠금을 껐어요', async () => {

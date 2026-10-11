@@ -72,12 +72,12 @@ export interface App {
   unlock(passphrase: string): Promise<void>;
   /**
    * passphrase가 있으면 암호화해 저장하고 keyLock을 켠다. 없으면 평문 저장(keyLock이 켜져 있으면 거절).
-   * 잠금이 저장되지 않으면 저장소의 이전 키를 지우고, 이 탭에서만 잠금을 유지한 채 KeyLockNotSavedError('lock')로 거절한다.
+   * 잠금이 저장되지 않으면 저장소의 이전 키를 지우려 하고, 이 탭에서만 잠금을 유지한 채 KeyLockNotSavedError('lock', …)로 거절한다.
    */
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
   /**
    * 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다.
-   * 저장되지 않으면 이 탭에서만 끈 채 KeyLockNotSavedError('unlock')를 던진다.
+   * 저장되지 않으면 이 탭에서만 끈 채 KeyLockNotSavedError('unlock', …)를 던진다.
    */
   disableKeyLock(): void;
   /**
@@ -104,11 +104,19 @@ export interface AppDeps {
 
 /**
  * 키 잠금을 켜거나 끈 결과가 저장소에 남지 않았을 때(용량 부족 등). 이 탭의 상태는 바뀐 채로 두고 실패를 알린다.
- * 'lock': 잠긴 키를 저장하지 못했다(저장소의 이전 키는 지웠다). 'unlock': 평문 키를 저장하지 못했다(저장소엔 잠긴 키가 남는다).
+ * kind 'lock'(잠긴 키를 저장하지 못함)의 reason:
+ *   'cleared' 저장소의 이전 키를 지웠다 · 'not-cleared' 지우려 했지만 removeItem도 실패했다 · 'no-storage' 저장소가 아예 없다.
+ * kind 'unlock'(평문 키를 저장하지 못함)의 reason:
+ *   'unsaved' 저장소는 이전에 저장된 상태 그대로다 · 'no-storage' 저장소가 아예 없다.
  */
+export type KeyLockNotSavedReason = 'cleared' | 'not-cleared' | 'no-storage' | 'unsaved';
+
 export class KeyLockNotSavedError extends Error {
-  constructor(readonly kind: 'lock' | 'unlock') {
-    super(`key lock change was not saved (${kind})`);
+  constructor(
+    readonly kind: 'lock' | 'unlock',
+    readonly reason: KeyLockNotSavedReason,
+  ) {
+    super(`key lock change was not saved (${kind}, ${reason})`);
     this.name = 'KeyLockNotSavedError';
   }
 }
@@ -170,9 +178,10 @@ export function createApp(deps: AppDeps): App {
     storageTick++;
   }
 
-  function remove(key: string) {
-    storage.remove(key);
+  function remove(key: string): boolean {
+    const removed = storage.remove(key);
     storageTick++;
+    return removed;
   }
 
   function activeId() {
@@ -457,11 +466,11 @@ export function createApp(deps: AppDeps): App {
         if (!storage.persistent) {
           // 잠금이 저장되지 않았다. 저장소에 남은 이전 평문 키를 지우고(removeItem은 용량과 무관),
           // 이 탭에서는 메모리의 암호문으로 잠금을 유지한다.
-          remove(key);
+          const cleared = remove(key);
           write(key, sealed);
           secrets = s;
           rebuild();
-          throw new KeyLockNotSavedError('lock');
+          throw new KeyLockNotSavedError('lock', !storage.backed ? 'no-storage' : cleared ? 'cleared' : 'not-cleared');
         }
       }
       secrets = s;
@@ -482,7 +491,9 @@ export function createApp(deps: AppDeps): App {
       forgetTokens(id);
       rebuild();
       // 평문이 저장소에 남지 않았다(저장소엔 잠긴 키가 그대로). 이 탭에서만 꺼진 상태라고 알린다.
-      if (rewritePlain && !storage.persistent) throw new KeyLockNotSavedError('unlock');
+      if (rewritePlain && !storage.persistent) {
+        throw new KeyLockNotSavedError('unlock', storage.backed ? 'unsaved' : 'no-storage');
+      }
     },
 
     tokenSourceFor(p, s, proxyUrl) {

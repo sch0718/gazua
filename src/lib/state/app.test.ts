@@ -478,7 +478,7 @@ describe('createApp — key lock', () => {
     seed(backing, 'p:p1:secrets', SECRETS);
     const app = make(backing, { fetchImpl: fakeKisFetch() });
     ctl.full = true;
-    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toBeInstanceOf(KeyLockNotSavedError);
+    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toMatchObject({ name: 'KeyLockNotSavedError', kind: 'lock', reason: 'cleared' });
     const dump = backing.dump();
     expect(dump).not.toContain(SECRETS.kis!.appKey);
     expect(dump).not.toContain(SECRETS.kis!.appSecret);
@@ -491,6 +491,27 @@ describe('createApp — key lock', () => {
     expect(await app.verifyPassphrase('correct horse')).toBe(true);
   });
 
+  it('without any backing store the lock rejects as no-storage (nothing was stored, nothing to delete)', async () => {
+    const app = make(null, { fetchImpl: fakeKisFetch() });
+    await app.setSecrets(SECRETS).catch(() => {});
+    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toMatchObject({ kind: 'lock', reason: 'no-storage' });
+    expect(app.settings.keyLock).toBe(true);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('when removeItem also fails the lock rejects as not-cleared (it does not claim the old keys are gone)', async () => {
+    const { backing, ctl } = quotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    ctl.full = true;
+    backing.removeItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toMatchObject({ kind: 'lock', reason: 'not-cleared' });
+  });
+
   it('disableKeyLock reports a plaintext write that did not persist instead of succeeding silently', async () => {
     const { backing, ctl } = quotaBacking();
     seed(backing, 'meta', META_ONE);
@@ -499,7 +520,14 @@ describe('createApp — key lock', () => {
     const app = make(backing, { fetchImpl: fakeKisFetch() });
     await app.unlock('correct horse');
     ctl.full = true;
-    expect(() => app.disableKeyLock()).toThrow(KeyLockNotSavedError);
+    let thrown: unknown;
+    try {
+      app.disableKeyLock();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(KeyLockNotSavedError);
+    expect(thrown).toMatchObject({ kind: 'unlock', reason: 'unsaved' });
     // 저장소에는 잠긴 키가 그대로 남는다(평문 없음).
     expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
     expect(backing.dump()).not.toContain(SECRETS.kis!.appKey);

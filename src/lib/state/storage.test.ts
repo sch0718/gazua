@@ -150,3 +150,24 @@ describe('DEFAULT_SETTINGS', () => {
     });
   });
 });
+
+describe('createSafeStorage — remove reports whether the backing store dropped the key', () => {
+  it('true when removed from the backing store; false without a backing store or when removeItem throws', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    st.set('k', 1);
+    expect(st.backed).toBe(true);
+    expect(st.remove('k')).toBe(true);
+    expect(backing.data.size).toBe(0);
+
+    const none = createSafeStorage(null);
+    expect(none.backed).toBe(false);
+    expect(none.remove('k')).toBe(false);
+
+    const stuck = makeBacking();
+    stuck.removeItem = () => {
+      throw new Error('denied');
+    };
+    expect(createSafeStorage(stuck).remove('k')).toBe(false);
+  });
+});

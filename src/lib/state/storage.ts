@@ -3,9 +3,12 @@ export type StorageIssue = { key: string; kind: 'corrupt' | 'write-failed' };
 export interface SafeStorage {
   get<T>(key: string, fallback: T): T;
   set(key: string, v: unknown): void;
-  remove(key: string): void;
+  /** 저장소(backing)에서 실제로 지웠으면 true. 저장소가 없거나 removeItem이 실패하면 false(메모리에서는 지운 것으로 본다). */
+  remove(key: string): boolean;
   /** false once running on the in-memory fallback (no/failed backing storage). */
   readonly persistent: boolean;
+  /** 저장소(backing)가 처음부터 있는지. 없으면 아무것도 저장된 적이 없다. */
+  readonly backed: boolean;
   readonly issues: StorageIssue[];
   /** 읽은 JSON의 모양·값이 틀려 기본값으로 바꿨을 때(저장소 배너로 알린다). */
   reportCorrupt(key: string): void;
@@ -81,10 +84,12 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
       }
       if (removed) memory.delete(key);
       else memory.set(key, undefined);
+      return removed;
     },
     get persistent() {
       return persistent;
     },
+    backed: backing !== null,
     issues,
     reportCorrupt(key) {
       report(key, 'corrupt');

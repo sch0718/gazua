@@ -1,14 +1,28 @@
 <script lang="ts" module>
+  import { KeyLockNotSavedError } from '../../state/app.svelte';
+
   export const KEY_LOCK_NOT_SAVED =
     '저장 공간이 부족해 잠금을 저장하지 못했어요. 이전에 저장된 키는 지웠어요 — 이 탭을 닫으면 키를 다시 입력해야 해요';
+  export const KEY_LOCK_NOT_CLEARED =
+    '저장 공간 문제로 잠금을 저장하지 못했고, 이전에 저장된 키도 지우지 못했어요. 브라우저 저장 공간을 정리한 뒤 다시 잠가 주세요';
+  export const KEY_LOCK_NO_STORAGE =
+    '이 브라우저에선 저장할 수 없어 잠금은 이 탭에서만 유지돼요 — 탭을 닫으면 키를 다시 입력해야 해요';
   export const KEY_UNLOCK_NOT_SAVED =
-    '저장 공간이 부족해 잠금 해제를 저장하지 못했어요. 이 탭에서만 꺼져 있고, 다시 열면 암호를 물어요';
+    '저장 공간이 부족해 잠금 해제를 저장하지 못했어요. 이 탭에서만 꺼져 있고, 다시 열면 이전에 저장된 상태로 돌아가요';
+  export const KEY_UNLOCK_NO_STORAGE = '이 브라우저에선 저장할 수 없어 잠금 해제는 이 탭에서만 적용돼요';
+
+  /** 저장 실패의 경우마다 다른 안내(지우지 못했으면 지웠다고 말하지 않는다). */
+  export function keyLockFailureText(e: KeyLockNotSavedError): string {
+    if (e.kind === 'unlock') return e.reason === 'no-storage' ? KEY_UNLOCK_NO_STORAGE : KEY_UNLOCK_NOT_SAVED;
+    if (e.reason === 'no-storage') return KEY_LOCK_NO_STORAGE;
+    return e.reason === 'cleared' ? KEY_LOCK_NOT_SAVED : KEY_LOCK_NOT_CLEARED;
+  }
 </script>
 
 <script lang="ts">
   // 키 보호(스펙 10.2): `키를 암호로 잠그기` 토글, 이 기기에서 키 삭제, 토스 키 잠금 권장.
   // 켜기 = 암호 두 번 → setSecrets(키, 암호). 끄기 = 현재 암호 확인 → disableKeyLock().
-  import { KeyLockNotSavedError, type App } from '../../state/app.svelte';
+  import type { App } from '../../state/app.svelte';
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import Toggle from '../components/Toggle.svelte';
@@ -90,7 +104,7 @@
       close();
       showSnackbar('키를 암호로 잠갔어요');
     } catch (err) {
-      fail(null, err instanceof KeyLockNotSavedError ? KEY_LOCK_NOT_SAVED : '잠그지 못했어요. 다시 시도해 주세요');
+      fail(null, err instanceof KeyLockNotSavedError ? keyLockFailureText(err) : '잠그지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
@@ -110,7 +124,7 @@
       close();
       showSnackbar('잠금을 껐어요');
     } catch (err) {
-      fail(null, err instanceof KeyLockNotSavedError ? KEY_UNLOCK_NOT_SAVED : '잠금을 끄지 못했어요. 다시 시도해 주세요');
+      fail(null, err instanceof KeyLockNotSavedError ? keyLockFailureText(err) : '잠금을 끄지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
