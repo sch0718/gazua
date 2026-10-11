@@ -63,3 +63,13 @@ describe('CompareChart semantics', () => {
     expect(screen.queryByRole('img', { name: '종목 비교 차트' })).toBeNull();
   });
 });
+
+describe('CompareChart start value', () => {
+  it('unit x: the dotted line before the first value sits on the 1.0 baseline, not 0', async () => {
+    const late: ChartSeriesInput = { ...input('A', 1), points: [{ t: at('10:00'), v: 1.4 }] };
+    render(CompareChartFixture, { series: [late], sessions, unit: 'x' });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series.length).toBeGreaterThan(0));
+    const dotted = lwcCharts[0].series[0].data as { time: number; value?: number }[];
+    expect(dotted.find((d) => d.time === toChartTime(at('09:30')))?.value).toBe(1);
+  });
+});

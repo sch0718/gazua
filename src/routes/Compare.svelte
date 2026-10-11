@@ -142,7 +142,9 @@
       const points = pointsBySymbol[i.symbol];
       if (!series || !points) return [];
       const label = ctl.metas[i.symbol]?.name ?? i.symbol;
-      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden }];
+      // 일봉 차트의 거래정지 띠는 지표 값이 아니라 실제 봉이 있는 날로 판정한다.
+      const bars = mode === 'daily' ? series.candles.map((c) => c.t) : undefined;
+      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden, bars }];
     }),
   );
   const chartSessions = $derived(tradingDate && mode === 'intraday' ? sessionsOn(tradingDate, today, sessions) : []);

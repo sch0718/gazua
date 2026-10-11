@@ -16,10 +16,15 @@ export interface ChartSeriesInput {
   points: Point[];
   intervals: TradeInterval[];
   hidden: boolean;
+  /**
+   * 일봉 차트: 이 종목에 실제 봉이 있는 날(epoch ms). 거래정지 판정은 지표 값이 아니라 봉으로 한다
+   * (신규상장·발행주식수 없음·지수 실패로 지표가 null인 날을 거래정지로 보지 않게). 없으면 값이 있는 날로 대신한다.
+   */
+  bars?: number[];
 }
 
 export interface LineDataOptions {
-  /** 첫 값이 나오기 전 점선이 머무를 값(등락률이면 기준선 0). null이면 첫 값 전은 비워 둔다. 기본 0 */
+  /** 1일 차트: 첫 값이 나오기 전 점선이 머무를 값(기준선: 등락률 0, 배수 1). null이면 비워 둔다. 기본 0. 일봉은 늘 비워 둔다 */
   startValue?: number | null;
   /** 1일 차트: 이 시각(epoch ms)까지는 마지막 값을 이어 그린다. 기본은 이 종목의 마지막 실제 봉 */
   until?: number;
@@ -69,7 +74,7 @@ export function buildLineData(
   const real = realPoints(points);
   const result = grid
     ? intraday(real, intervals, grid, startValue, options.until)
-    : daily(points, startValue, real.length > 0);
+    : daily(points, real.length > 0);
   return { solid: result.solid, dotted: anchorDotted(result.solid, result.dotted) };
 }
 
@@ -113,7 +118,8 @@ function heldDatum(time: number, held: number | null, startValue: number | null)
   return value === null ? { time } : { time, value };
 }
 
-function daily(points: Point[], startValue: number | null, anyReal: boolean) {
+/** 일봉: 첫 실제 값 전(신규상장 등)은 실선도 점선도 없이 비워 둔다. 그 뒤 값이 없는 날만 직전 값으로 잇는다. */
+function daily(points: Point[], anyReal: boolean) {
   const solid: LineDatum[] = [];
   const dotted: LineDatum[] = [];
   let held: number | null = null;
@@ -128,7 +134,7 @@ function daily(points: Point[], startValue: number | null, anyReal: boolean) {
       dotted.push({ time });
     } else {
       solid.push({ time });
-      dotted.push(heldDatum(time, held, startValue));
+      dotted.push(heldDatum(time, held, null));
     }
   }
   return { solid, dotted };
@@ -172,19 +178,28 @@ export function fillMissingDays(points: Point[], dayTimes: number[]): Point[] {
 }
 
 /**
- * 일봉: 장이 열린 날 값이 없는 종목(거래정지)을 날짜별로 모은다.
- * 어느 종목에도 값이 없는 마지막 날 이후(아직 봉이 없는 날)는 보지 않는다.
+ * 일봉: 장이 열렸는데 봉이 없는 종목(거래정지)을 날짜별로 모은다.
+ * 종목마다 자기 첫 봉~마지막 봉 사이의 날만 본다(상장 전·아직 봉이 없는 날은 거래정지가 아니다).
+ * 지표 값이 null인 날(발행주식수 없음·지수 실패 등)은 봉이 있으면 거래정지가 아니다.
+ * bars가 없으면 값이 있는 날을 봉으로 본다.
  */
 export function haltDays(
-  series: { label: string; points: Point[] }[],
+  series: { label: string; points: Point[]; bars?: number[] }[],
   dayTimes: number[],
 ): { t: number; labels: string[] }[] {
-  const valued = series.map((s) => new Set(realPoints(s.points).map((p) => p.t)));
-  const cutoff = Math.max(-Infinity, ...series.flatMap((s) => realPoints(s.points).map((p) => p.t)));
+  const ranges = series.map((s) => {
+    const have = new Set(s.bars ?? realPoints(s.points).map((p) => p.t));
+    const times = [...have];
+    return { have, first: Math.min(Infinity, ...times), last: Math.max(-Infinity, ...times) };
+  });
   const result: { t: number; labels: string[] }[] = [];
   for (const t of [...dayTimes].sort((a, b) => a - b)) {
-    if (t > cutoff) break;
-    const labels = series.filter((_, i) => !valued[i].has(t)).map((s) => s.label);
+    const labels = series
+      .filter((_, i) => {
+        const r = ranges[i];
+        return t > r.first && t < r.last && !r.have.has(t);
+      })
+      .map((s) => s.label);
     if (labels.length > 0) result.push({ t, labels });
   }
   return result;

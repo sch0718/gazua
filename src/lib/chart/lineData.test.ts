@@ -208,6 +208,25 @@ describe('buildLineData (daily, no grid)', () => {
     expect(v(dotted, '2026-10-08')).toBe(2);
   });
 
+  it('IPO mid-period: nothing (solid or dotted) before the first real value', () => {
+    const points: Point[] = [
+      { t: d('2026-10-05'), v: null },
+      { t: d('2026-10-06'), v: null },
+      { t: d('2026-10-07'), v: 1.2 },
+      { t: d('2026-10-08'), v: 1.5 },
+    ];
+    for (const startValue of [0, 1, null]) {
+      const { solid, dotted } = buildLineData(points, [], undefined, { startValue });
+      expect(solid).toHaveLength(4);
+      for (const date of ['2026-10-05', '2026-10-06']) {
+        expect(v(solid, date)).toBeUndefined();
+        expect(v(dotted, date)).toBeUndefined();
+      }
+      expect(v(solid, '2026-10-07')).toBe(1.2);
+      expect(dotted.every((x) => !('value' in x))).toBe(true);
+    }
+  });
+
   it('has no dotted values when every day has a value', () => {
     const points: Point[] = [
       { t: d('2026-10-05'), v: 1 },
@@ -251,23 +270,44 @@ describe('fillMissingDays', () => {
 });
 
 describe('haltDays', () => {
-  it('lists open days on which a series has no value, with the halted labels', () => {
-    const d = (date: string) => kstEpoch(date, '00:00:00');
-    const days = [d('2026-10-05'), d('2026-10-06'), d('2026-10-07')];
+  const d = (date: string) => kstEpoch(date, '00:00:00');
+  const days = [d('2026-10-05'), d('2026-10-06'), d('2026-10-07'), d('2026-10-08')];
+  const nulls = days.map((t) => ({ t, v: null }));
+  const normal = { label: '삼성전자', points: days.map((t) => ({ t, v: 1 })), bars: days };
+
+  it('lists open days inside a stock’s bar range on which it has no bar, with the halted labels', () => {
     const result = haltDays(
       [
-        { label: '삼성전자', points: [{ t: days[0], v: 1 }, { t: days[1], v: 1 }, { t: days[2], v: 1 }] },
-        { label: '한미반도체', points: [{ t: days[0], v: 1 }, { t: days[1], v: null }, { t: days[2], v: 1 }] },
-        { label: 'DB하이텍', points: [{ t: days[0], v: 1 }, { t: days[2], v: 1 }] },
+        { label: '삼성전자', points: days.map((t) => ({ t, v: 1 })), bars: days },
+        { label: '한미반도체', points: days.map((t) => ({ t, v: 1 })), bars: [days[0], days[2], days[3]] },
+        { label: 'DB하이텍', points: [], bars: [days[0], days[3]] },
       ],
       days,
     );
-    expect(result).toEqual([{ t: days[1], labels: ['한미반도체', 'DB하이텍'] }]);
+    expect(result).toEqual([
+      { t: days[1], labels: ['한미반도체', 'DB하이텍'] },
+      { t: days[2], labels: ['DB하이텍'] },
+    ]);
   });
 
-  it('ignores days after the latest value of any series (not yet traded)', () => {
-    const d = (date: string) => kstEpoch(date, '00:00:00');
-    const days = [d('2026-10-05'), d('2026-10-06')];
-    expect(haltDays([{ label: 'A', points: [{ t: days[0], v: 1 }] }], days)).toEqual([]);
+  it('IPO mid-period: no band before the first bar (등락률 is null all period)', () => {
+    expect(haltDays([normal, { label: '신규상장', points: nulls, bars: [days[2], days[3]] }], days)).toEqual([]);
+  });
+
+  it('시가총액 without shares outstanding: null metric with bars every day is not a halt', () => {
+    expect(haltDays([normal, { label: 'A', points: nulls, bars: days }], days)).toEqual([]);
+  });
+
+  it('초과수익 with a failed index: null metric with bars every day is not a halt', () => {
+    expect(haltDays([normal, { label: 'A', points: nulls, bars: days }, { label: 'B', points: [], bars: days }], days)).toEqual([]);
+  });
+
+  it('ignores days after a stock’s last bar (not yet traded)', () => {
+    expect(haltDays([{ label: 'A', points: [{ t: days[0], v: 1 }], bars: [days[0]] }], days)).toEqual([]);
+  });
+
+  it('without bars falls back to the days that have values', () => {
+    const result = haltDays([{ label: 'A', points: [{ t: days[0], v: 1 }, { t: days[1], v: null }, { t: days[2], v: 1 }] }], days);
+    expect(result).toEqual([{ t: days[1], labels: ['A'] }]);
   });
 });

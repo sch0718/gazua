@@ -342,7 +342,8 @@
     c.applyOptions(chartOptions(mode, unit, palette, font));
 
     const effectiveBaseline = baseline !== undefined ? baseline : unit === '%' ? 0 : unit === 'x' ? 1 : null;
-    const startValue = unit === '조' ? null : 0;
+    // 첫 값 전 점선은 기준선에 둔다(% → 0, x → 1, 조 → 비움).
+    const startValue = effectiveBaseline;
     const grid = mode === 'intraday' && day ? minuteGrid(day) : undefined;
     gridStart = grid ? grid[0] : null;
 
@@ -438,7 +439,7 @@
     } else {
       bandsInput = {
         mode: 'daily',
-        halts: haltDays(visible.map((s) => ({ label: s.label, points: s.points })), dayTimes),
+        halts: haltDays(visible.map((s) => ({ label: s.label, points: s.points, bars: s.bars })), dayTimes),
         dayBand: dailyBand(c),
       };
     }
