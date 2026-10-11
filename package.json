@@ -1,0 +1,27 @@
+{
+  "name": "gazua",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "TZ=America/New_York vitest run",
+    "test:watch": "TZ=America/New_York vitest",
+    "test:demo": "node --test tests/demo.test.mjs"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.4",
+    "vitest": "^3.2.7"
+  }
+}
