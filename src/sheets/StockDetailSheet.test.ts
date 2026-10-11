@@ -221,6 +221,35 @@ describe('StockDetailSheet quote refresh', () => {
     expect(t.getQuotes.mock.calls.length).toBe(first * 2);
   });
 
+  it('changing an unrelated setting neither re-fetches nor clears the shown price', async () => {
+    vi.useFakeTimers();
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(EXAMPLE) }], now: at('21:00') });
+    apps.push(app);
+    const getQuotes = vi
+      .spyOn(app.provider, 'getQuotes')
+      .mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: 111, ts: null })));
+    render(StockDetailSheet, {
+      app,
+      groupId: 'g1',
+      symbol: '005930',
+      meta: SAMSUNG,
+      series: series(),
+      now: at('21:00'),
+      sessions,
+      isOpenToday: true,
+      inline: true,
+      onclose: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const big = () => document.querySelector('.price-big span')?.textContent;
+    expect(big()).toBe('111원');
+    const calls = getQuotes.mock.calls.length;
+    app.updateSettings({ metric: 'drawdown' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getQuotes.mock.calls.length).toBe(calls);
+    expect(big()).toBe('111원');
+  });
+
   it('out of session it fetches once when opened and does not poll', async () => {
     vi.useFakeTimers();
     const t = mount(at('21:00'));

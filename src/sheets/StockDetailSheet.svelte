@@ -44,6 +44,8 @@
   const active = $derived(inline || open);
   const provider = $derived(app.provider);
   const nxtSupported = $derived(meta?.nxtSupported ?? false);
+  // settings는 바뀔 때마다 새 객체라, 거래소 모드만 따로 읽어야 다른 설정 변경에 폴러가 다시 시작되지 않는다.
+  const venueMode = $derived(app.settings.venueMode);
 
   // 거래소마다 현재가를 받는다. 장중에는 리더보드와 같은 현재가 폴러(같은 주기·세션 판단·탭 숨김 처리)로 계속 받고,
   // 장 밖에서는 열 때 한 번만 받는다. 닫거나 종목·공급자가 바뀌면 멈춘다.
@@ -59,7 +61,7 @@
       const q = list.find((x) => x.symbol === sym);
       if (alive && q) quotes = { ...quotes, [venue]: q };
     };
-    const venues = quoteVenuesFor(p.capabilities.venues, nxtSupported, app.settings.venueMode);
+    const venues = quoteVenuesFor(p.capabilities.venues, nxtSupported, venueMode);
     // 폴러는 세션 안에서만 시작하자마자 받으므로, 장 밖이면 여기서 한 번 받는다.
     if (!inSessionNow()) {
       for (const venue of venues) {
@@ -95,7 +97,7 @@
       series,
       quotes,
       venues: provider.capabilities.venues,
-      venueMode: app.settings.venueMode,
+      venueMode,
       sessions,
       isOpenToday,
       now,
