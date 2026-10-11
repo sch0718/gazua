@@ -33,10 +33,16 @@ function errorResponse(status: number, code: string, origin: string | null): Res
   return new Response(JSON.stringify({ error: { code } }), { status, headers });
 }
 
+export interface HandleOptions {
+  /** 상류 응답을 기다리는 최대 시간. 넘으면 504 upstream-timeout. 없으면 기다린다(Worker는 플랫폼 제한을 따른다). */
+  upstreamTimeoutMs?: number;
+}
+
 export async function handle(
   req: Request,
   env: ProxyEnv,
   fetchImpl: typeof fetch = fetch,
+  opts: HandleOptions = {},
 ): Promise<Response> {
   const url = new URL(req.url);
   const origin = req.headers.get('origin');
@@ -75,11 +81,13 @@ export async function handle(
   }
   const init: RequestInit = { method: req.method, headers, redirect: 'manual' };
   if (req.method === 'POST') init.body = await req.arrayBuffer();
+  if (opts.upstreamTimeoutMs !== undefined) init.signal = AbortSignal.timeout(opts.upstreamTimeoutMs);
 
   let upstream: Response;
   try {
     upstream = await fetchImpl(`${UPSTREAM[provider]}${upstreamPath}${url.search}`, init);
   } catch {
+    if (init.signal?.aborted) return errorResponse(504, 'upstream-timeout', origin);
     return errorResponse(502, 'upstream-unreachable', origin);
   }
 

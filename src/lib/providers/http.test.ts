@@ -9,6 +9,7 @@ describe('classify', () => {
     ['proxy-token-invalid', 401, proxyErr('proxy-token-invalid'), 'toss', 'proxy-token-invalid'],
     ['origin-not-allowed', 403, proxyErr('origin-not-allowed'), 'kis', 'origin-not-allowed'],
     ['upstream-unreachable', 502, proxyErr('upstream-unreachable'), 'kis', 'upstream'],
+    ['upstream-timeout (Node proxy)', 504, proxyErr('upstream-timeout'), 'kis', 'timeout'],
     ['toss ip-not-allowed', 403, proxyErr('ip-not-allowed'), 'toss', 'ip-not-allowed'],
     ['oauth access_denied', 403, { error: 'access_denied' }, 'toss', 'ip-not-allowed'],
     ['oauth invalid_client', 401, { error: 'invalid_client' }, 'toss', 'invalid-credentials'],

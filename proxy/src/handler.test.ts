@@ -281,4 +281,17 @@ describe('forwarding', () => {
     expect(await code(res)).toBe('upstream-unreachable');
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
   });
+
+  it('turns a slow upstream into 504 upstream-timeout when a timeout is set', async () => {
+    const f = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+        }),
+    );
+    const res = await handle(req('/toss/api/v1/prices'), env, f as unknown as typeof fetch, { upstreamTimeoutMs: 20 });
+    expect(res.status).toBe(504);
+    expect(await code(res)).toBe('upstream-timeout');
+    expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+  });
 });

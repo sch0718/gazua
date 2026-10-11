@@ -33,6 +33,7 @@ const PROXY_CODES: Record<string, ErrorCode> = {
   'proxy-token-invalid': 'proxy-token-invalid',
   'origin-not-allowed': 'origin-not-allowed',
   'upstream-unreachable': 'upstream',
+  'upstream-timeout': 'timeout',
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
