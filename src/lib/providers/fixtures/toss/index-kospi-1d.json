@@ -1,0 +1,95 @@
+{
+  "result": {
+    "candles": [
+      {
+        "timestamp": "2026-10-08T09:00:00+09:00",
+        "openPrice": "2807.45",
+        "highPrice": "2820.15",
+        "lowPrice": "2803.15",
+        "closePrice": "2812.45",
+        "volume": "542000000"
+      },
+      {
+        "timestamp": "2026-10-07T09:00:00+09:00",
+        "openPrice": "2804.35",
+        "highPrice": "2817.05",
+        "lowPrice": "2800.05",
+        "closePrice": "2809.35",
+        "volume": "541000000"
+      },
+      {
+        "timestamp": "2026-10-06T09:00:00+09:00",
+        "openPrice": "2801.25",
+        "highPrice": "2813.95",
+        "lowPrice": "2796.95",
+        "closePrice": "2806.25",
+        "volume": "540000000"
+      },
+      {
+        "timestamp": "2026-10-02T09:00:00+09:00",
+        "openPrice": "2798.15",
+        "highPrice": "2810.85",
+        "lowPrice": "2793.85",
+        "closePrice": "2803.15",
+        "volume": "539000000"
+      },
+      {
+        "timestamp": "2026-10-01T09:00:00+09:00",
+        "openPrice": "2795.05",
+        "highPrice": "2807.75",
+        "lowPrice": "2790.75",
+        "closePrice": "2800.05",
+        "volume": "538000000"
+      },
+      {
+        "timestamp": "2026-09-30T09:00:00+09:00",
+        "openPrice": "2791.95",
+        "highPrice": "2804.65",
+        "lowPrice": "2787.65",
+        "closePrice": "2796.95",
+        "volume": "537000000"
+      },
+      {
+        "timestamp": "2026-09-29T09:00:00+09:00",
+        "openPrice": "2788.85",
+        "highPrice": "2801.55",
+        "lowPrice": "2784.55",
+        "closePrice": "2793.85",
+        "volume": "536000000"
+      },
+      {
+        "timestamp": "2026-09-28T09:00:00+09:00",
+        "openPrice": "2785.75",
+        "highPrice": "2798.45",
+        "lowPrice": "2781.45",
+        "closePrice": "2790.75",
+        "volume": "535000000"
+      },
+      {
+        "timestamp": "2026-09-23T09:00:00+09:00",
+        "openPrice": "2782.65",
+        "highPrice": "2795.35",
+        "lowPrice": "2778.35",
+        "closePrice": "2787.65",
+        "volume": "534000000"
+      },
+      {
+        "timestamp": "2026-09-22T09:00:00+09:00",
+        "openPrice": "2779.55",
+        "highPrice": "2792.25",
+        "lowPrice": "2775.25",
+        "closePrice": "2784.55",
+        "volume": "533000000"
+      },
+      {
+        "timestamp": "2026-09-21T09:00:00+09:00",
+        "openPrice": "2776.45",
+        "highPrice": "2789.15",
+        "lowPrice": "2772.15",
+        "closePrice": "2781.45",
+        "volume": "532000000"
+      }
+    ],
+    "nextBefore": null
+  }
+}

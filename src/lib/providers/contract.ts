@@ -17,6 +17,9 @@ export function runProviderContract(name: string, make: () => MarketDataProvider
     beforeEach(() => {
       provider = make();
     });
+    // KRX만 지원하지 않는 공급자(토스: UNIFIED 전용)도 있으므로 기본 거래소는 지원 목록에서 고른다.
+    const primaryVenue = () =>
+      provider.capabilities.venues.includes('KRX') ? 'KRX' : provider.capabilities.venues[0];
 
     it('declares at least one venue and a positive quote batch size', () => {
       expect(provider.capabilities.venues.length).toBeGreaterThan(0);
@@ -44,10 +47,10 @@ export function runProviderContract(name: string, make: () => MarketDataProvider
       }
     });
 
-    it('returns 1m candles for the fixtures day on KRX', async () => {
+    it('returns 1m candles for the fixtures day on the primary venue', async () => {
       const candles = await provider.getCandles({
         symbol: '005930',
-        venue: 'KRX',
+        venue: primaryVenue(),
         interval: '1m',
         from: fixturesDay,
         to: fixturesDay,
@@ -58,7 +61,7 @@ export function runProviderContract(name: string, make: () => MarketDataProvider
     it('returns 1d candles in ascending order stamped at KST midnight', async () => {
       const candles = await provider.getCandles({
         symbol: '005930',
-        venue: 'KRX',
+        venue: primaryVenue(),
         interval: '1d',
         from: addDays(fixturesDay, -14),
         to: fixturesDay,
@@ -76,7 +79,7 @@ export function runProviderContract(name: string, make: () => MarketDataProvider
 
     it('returns exactly one quote per requested symbol', async () => {
       const symbols = ['005930', '000660', '069500'];
-      const quotes = await provider.getQuotes(symbols, 'KRX');
+      const quotes = await provider.getQuotes(symbols, primaryVenue());
       expect(quotes).toHaveLength(symbols.length);
     });
 
