@@ -117,9 +117,16 @@ for(const path of ['poc/gazua-poc.html','motion/gazua-demo.html']){
     await demo.run('runDemo()');
     const repeat=demo.repeat();
     const target={closest:()=>null,matches:()=>false};
-    for(const e of [{key:'Shift'},{key:'Meta'},{key:'Control'},{key:'Alt'},{key:'5',metaKey:true,shiftKey:true},{key:'f',metaKey:true,ctrlKey:true},{key:'=',metaKey:true},{key:'Tab',altKey:true}])
+    for(const e of [{key:'Shift'},{key:'Meta'},{key:'Control'},{key:'Alt'},{key:'5',metaKey:true,shiftKey:true},{key:'f',metaKey:true,ctrlKey:true},{key:'=',metaKey:true},{key:'=',ctrlKey:true},{key:'Tab',altKey:true}])
       demo.fire('keydown',{isTrusted:true,target,...e});
     assert.equal(demo.repeat(),repeat);
+  });
+
+  test(path+': shifted characters still count as user input',async()=>{
+    const demo=loadDemo(path);
+    await demo.run('runDemo()');
+    demo.fire('keydown',{isTrusted:true,key:'?',shiftKey:true,target:{closest:()=>null,matches:()=>false}});
+    assert.equal(demo.repeat(),undefined);
   });
 
   test(path+': autoplay start timer is registered and cancelled by user input',()=>{
