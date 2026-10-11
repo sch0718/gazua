@@ -70,9 +70,15 @@ export interface App {
   /** 새 프로필 `{이름} (가져옴)`으로 가져온다. 지금 프로필은 그대로. */
   importData(json: string): ImportResult;
   unlock(passphrase: string): Promise<void>;
-  /** passphrase가 있으면 암호화해 저장하고 keyLock을 켠다. 없으면 평문 저장(keyLock이 켜져 있으면 거절). */
+  /**
+   * passphrase가 있으면 암호화해 저장하고 keyLock을 켠다. 없으면 평문 저장(keyLock이 켜져 있으면 거절).
+   * 잠금이 저장되지 않으면 저장소의 이전 키를 지우고, 이 탭에서만 잠금을 유지한 채 KeyLockNotSavedError('lock')로 거절한다.
+   */
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
-  /** 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다. */
+  /**
+   * 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다.
+   * 저장되지 않으면 이 탭에서만 끈 채 KeyLockNotSavedError('unlock')를 던진다.
+   */
   disableKeyLock(): void;
   /**
    * 연결 진단이 따로 발급하지 않고 쓸 토큰 공급원. 지금 공급자가 이 공급자이고, 같은 키·프록시 토큰·프록시 URL로
@@ -94,6 +100,17 @@ export interface AppDeps {
   location?: Pick<Location, 'hash'>;
   /** 기본값은 IndexedDB `gazua-cache`. */
   cache?: CandleCache;
+}
+
+/**
+ * 키 잠금을 켜거나 끈 결과가 저장소에 남지 않았을 때(용량 부족 등). 이 탭의 상태는 바뀐 채로 두고 실패를 알린다.
+ * 'lock': 잠긴 키를 저장하지 못했다(저장소의 이전 키는 지웠다). 'unlock': 평문 키를 저장하지 못했다(저장소엔 잠긴 키가 남는다).
+ */
+export class KeyLockNotSavedError extends Error {
+  constructor(readonly kind: 'lock' | 'unlock') {
+    super(`key lock change was not saved (${kind})`);
+    this.name = 'KeyLockNotSavedError';
+  }
 }
 
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
@@ -431,10 +448,20 @@ export function createApp(deps: AppDeps): App {
         if (activeId() !== id) return;
         forgetTokens(id);
         locked = sealed;
-        write(profileKeys.secrets(id), sealed);
+        const key = profileKeys.secrets(id);
+        write(key, sealed);
         if (!settings.keyLock) {
           settings = { ...settings, keyLock: true };
           write(profileKeys.settings(id), settings);
+        }
+        if (!storage.persistent) {
+          // 잠금이 저장되지 않았다. 저장소에 남은 이전 평문 키를 지우고(removeItem은 용량과 무관),
+          // 이 탭에서는 메모리의 암호문으로 잠금을 유지한다.
+          remove(key);
+          write(key, sealed);
+          secrets = s;
+          rebuild();
+          throw new KeyLockNotSavedError('lock');
         }
       }
       secrets = s;
@@ -444,7 +471,8 @@ export function createApp(deps: AppDeps): App {
     disableKeyLock() {
       if (locked !== null && secrets === null) throw new Error('unlock first');
       const id = activeId();
-      if (locked !== null) {
+      const rewritePlain = locked !== null;
+      if (rewritePlain) {
         // 사용자가 잠금을 끄겠다고 한 경우에만 평문으로 다시 저장한다.
         locked = null;
         write(profileKeys.secrets(id), secrets);
@@ -453,6 +481,8 @@ export function createApp(deps: AppDeps): App {
       write(profileKeys.settings(id), settings);
       forgetTokens(id);
       rebuild();
+      // 평문이 저장소에 남지 않았다(저장소엔 잠긴 키가 그대로). 이 탭에서만 꺼진 상태라고 알린다.
+      if (rewritePlain && !storage.persistent) throw new KeyLockNotSavedError('unlock');
     },
 
     tokenSourceFor(p, s, proxyUrl) {

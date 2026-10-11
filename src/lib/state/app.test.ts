@@ -4,7 +4,7 @@ import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
-import { createApp, type App } from './app.svelte';
+import { KeyLockNotSavedError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
@@ -457,6 +457,52 @@ describe('createApp — key lock', () => {
     expect(app.settings.keyLock).toBe(false);
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(SECRETS);
     expect(app.secrets).toEqual(SECRETS);
+  });
+
+  /** setItem이 armed 뒤로는 QuotaExceededError를 던지는 저장소(removeItem은 된다). */
+  function quotaBacking() {
+    const backing = memoryBacking();
+    const ctl = { full: false };
+    const setItem = backing.setItem.bind(backing);
+    backing.setItem = (k: string, v: string) => {
+      if (ctl.full) throw new DOMException('quota', 'QuotaExceededError');
+      setItem(k, v);
+    };
+    return { backing, ctl };
+  }
+
+  it('setSecrets with a passphrase: a failed write removes the stored plaintext, keeps the lock in memory and rejects', async () => {
+    const { backing, ctl } = quotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    ctl.full = true;
+    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toBeInstanceOf(KeyLockNotSavedError);
+    const dump = backing.dump();
+    expect(dump).not.toContain(SECRETS.kis!.appKey);
+    expect(dump).not.toContain(SECRETS.kis!.appSecret);
+    expect(dump).not.toContain(SECRETS.proxyToken!);
+    expect(backing.getItem('gazua:v1:p:p1:secrets')).toBeNull();
+    // 이 탭에서는 잠금이 켜진 채 키를 쓴다(복호화한 키는 메모리에만).
+    expect(app.settings.keyLock).toBe(true);
+    expect(app.secrets).toEqual(SECRETS);
+    expect(await app.verifyPassphrase('wrong')).toBe(false);
+    expect(await app.verifyPassphrase('correct horse')).toBe(true);
+  });
+
+  it('disableKeyLock reports a plaintext write that did not persist instead of succeeding silently', async () => {
+    const { backing, ctl } = quotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    await app.unlock('correct horse');
+    ctl.full = true;
+    expect(() => app.disableKeyLock()).toThrow(KeyLockNotSavedError);
+    // 저장소에는 잠긴 키가 그대로 남는다(평문 없음).
+    expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
+    expect(backing.dump()).not.toContain(SECRETS.kis!.appKey);
   });
 
   it('a late token from the replaced plain-mode provider is not persisted after the lock turns on', async () => {

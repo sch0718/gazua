@@ -1,7 +1,14 @@
+<script lang="ts" module>
+  export const KEY_LOCK_NOT_SAVED =
+    '저장 공간이 부족해 잠금을 저장하지 못했어요. 이전에 저장된 키는 지웠어요 — 이 탭을 닫으면 키를 다시 입력해야 해요';
+  export const KEY_UNLOCK_NOT_SAVED =
+    '저장 공간이 부족해 잠금 해제를 저장하지 못했어요. 이 탭에서만 꺼져 있고, 다시 열면 암호를 물어요';
+</script>
+
 <script lang="ts">
   // 키 보호(스펙 10.2): `키를 암호로 잠그기` 토글, 이 기기에서 키 삭제, 토스 키 잠금 권장.
   // 켜기 = 암호 두 번 → setSecrets(키, 암호). 끄기 = 현재 암호 확인 → disableKeyLock().
-  import type { App } from '../../state/app.svelte';
+  import { KeyLockNotSavedError, type App } from '../../state/app.svelte';
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import Toggle from '../components/Toggle.svelte';
@@ -82,8 +89,8 @@
       busy = false;
       close();
       showSnackbar('키를 암호로 잠갔어요');
-    } catch {
-      fail(null, '잠그지 못했어요. 다시 시도해 주세요');
+    } catch (err) {
+      fail(null, err instanceof KeyLockNotSavedError ? KEY_LOCK_NOT_SAVED : '잠그지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
@@ -102,8 +109,8 @@
       busy = false;
       close();
       showSnackbar('잠금을 껐어요');
-    } catch {
-      fail(null, '잠금을 끄지 못했어요. 다시 시도해 주세요');
+    } catch (err) {
+      fail(null, err instanceof KeyLockNotSavedError ? KEY_UNLOCK_NOT_SAVED : '잠금을 끄지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }

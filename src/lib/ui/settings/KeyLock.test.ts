@@ -6,8 +6,13 @@ import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import type { Secrets } from '../../state/secrets';
 import { kstEpoch } from '../../time/kst';
-import { dismissSnackbar } from '../components/snackbarStore.svelte';
-import KeyLock from './KeyLock.svelte';
+import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import KeyLock, { KEY_LOCK_NOT_SAVED, KEY_UNLOCK_NOT_SAVED } from './KeyLock.svelte';
+import { createApp } from '../../state/app.svelte';
+import { DEFAULT_SETTINGS } from '../../state/schema';
+import { createSafeStorage } from '../../state/storage';
+import { memoryBacking, seed } from '../../state/testStorage';
+import { memoryCache } from '../../data/testCache';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const TOSS: Secrets = { toss: { clientId: 'toss-id-1234', clientSecret: 'toss-secret-5678' } };
@@ -74,6 +79,48 @@ describe('KeyLock', () => {
     await fireEvent.click(screen.getByRole('button', { name: '끄기' }));
     await waitFor(() => expect(app.settings.keyLock).toBe(false));
     expect(app.secrets).toEqual(KIS);
+  });
+
+  it('a lock that could not be saved shows the failure copy, not 키를 암호로 잠갔어요', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    seed(backing, 'p:p1:secrets', KIS);
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    render(KeyLock, { app });
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await fireEvent.click(toggle());
+    await fireEvent.input(field('암호'), { target: { value: 'pass1234' } });
+    await fireEvent.input(field('암호 확인'), { target: { value: 'pass1234' } });
+    await fireEvent.click(screen.getByRole('button', { name: '잠그기' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(KEY_LOCK_NOT_SAVED);
+    expect(backing.dump()).not.toContain(KIS.kis!.appKey);
+    expect(currentSnackbar()).toBeNull();
+  });
+
+  it('turning the lock off when the plaintext cannot be saved says so instead of 잠금을 껐어요', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    await app.setSecrets(KIS, 'pass1234');
+    render(KeyLock, { app });
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await fireEvent.click(toggle());
+    await fireEvent.input(field('현재 암호'), { target: { value: 'pass1234' } });
+    await fireEvent.click(screen.getByRole('button', { name: '끄기' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(KEY_UNLOCK_NOT_SAVED);
+    expect(currentSnackbar()).toBeNull();
   });
 
   it('recommends locking saved Toss keys; 잠그기 opens the lock dialog and the banner can be dismissed', async () => {
