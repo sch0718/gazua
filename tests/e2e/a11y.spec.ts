@@ -4,6 +4,15 @@ import { enterDemo, expectNoHorizontalScroll, leaderboardRows, loadExampleGroup,
 
 // serious·critical 위반만 실패로 센다. 규칙을 끄지 않는다.
 async function expectNoSeriousViolations(page: Page, state: string): Promise<void> {
+  // 시트·스낵바의 등장 애니메이션이 끝난 뒤에 잰다(중간 색으로 대비를 잘못 계산하지 않게).
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   const bad = results.violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
@@ -46,4 +55,21 @@ test('종목 상세가 열린 상태에 심각한 접근성 위반이 없다', a
   await leaderboardRows(page).first().getByRole('button', { name: /원$/ }).click();
   await expect(page.getByText('오늘 거래 가능 시간 (KST)')).toBeVisible();
   await expectNoSeriousViolations(page, '종목 상세');
+});
+
+// 시스템 다크 모드(prefers-color-scheme: dark)에서도 같은 기준을 지킨다.
+test.describe('다크 모드', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('비교 화면(예시 그룹)에 심각한 접근성 위반이 없다', async ({ page }) => {
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
+    await expectNoSeriousViolations(page, '다크 비교');
+  });
+
+  test('종목 추가 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
+    const sheet = await openAddSheet(page);
+    await sheet.getByRole('searchbox', { name: '종목 검색' }).fill('ㅅㅅㅈㄱ');
+    await expect(sheet.getByRole('button', { name: '삼성전기 추가', exact: true })).toBeVisible();
+    await expectNoSeriousViolations(page, '다크 종목 추가 시트');
+  });
 });

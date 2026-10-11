@@ -27,7 +27,8 @@ export default defineConfig({
     { name: 'desktop', use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
   ],
   webServer: {
-    command: 'corepack pnpm build && corepack pnpm preview --port 4173 --strictPort',
+    // CI는 pnpm/action-setup으로 pnpm을 깐다. 로컬에서 pnpm이 PATH에 없으면 corepack의 pnpm 래퍼를 PATH에 둔다.
+    command: 'pnpm build && pnpm preview --port 4173 --strictPort',
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

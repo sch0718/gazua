@@ -11,7 +11,7 @@ import {
   shot,
 } from './helpers';
 
-const samsungElectroRow = (page: Page) => leaderboardRows(page).filter({ hasText: '009150' });
+const samsungElectroRow = (page: Page) => leaderboardRows(page).filter({ hasText: '삼성전기' });
 
 test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래소 → 삭제와 되돌리기', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
@@ -36,6 +36,8 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
 
   await search.fill('ㅅㅅㅈㄱ');
   await expect(sheet.getByText(/^검색 결과 \d+$/)).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'KODEX 200 추가', exact: true })).toBeHidden(); // 이전 검색 결과가 사라졌는지
+  await expect(sheet.getByRole('button', { name: '삼성전기 추가', exact: true })).toBeVisible();
   await shot(page, testInfo, '2-add-sheet');
   await sheet.getByRole('button', { name: '삼성전기 추가', exact: true }).click();
   await expect(sheet.getByRole('button', { name: '삼성전기 추가됨', exact: true })).toBeVisible();
@@ -69,13 +71,13 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await expect(page.getByRole('radio', { name: '자동' })).not.toBeChecked();
 
   // 종목 상세: 삭제 → 되돌리기
-  // 데모 공급자는 모르는 코드를 이름 대신 코드로 보여 주므로(009150) 행은 종목 코드로 찾는다.
-  await samsungElectroRow(page).getByRole('button', { name: /원$/ }).click();
+  await expect(samsungElectroRow(page)).toHaveCount(1); // 데모 공급자가 종목 목록에서 이름을 채울 때까지 기다린다
+  await samsungElectroRow(page).getByRole('button', { name: /^삼성전기 009150/ }).click();
   const detail = isWide(page)
     ? page.getByRole('region', { name: '선택한 종목' })
     : page.getByRole('dialog', { name: '종목 상세' });
   await expect(detail).toBeVisible();
-  await expect(detail).toContainText('009150');
+  await expect(detail).toContainText('삼성전기');
   await shot(page, testInfo, '3-detail');
   await detail.getByRole('button', { name: '삭제' }).click();
   await expect(leaderboardRows(page)).toHaveCount(4);
@@ -94,4 +96,13 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await shot(page, testInfo, '5-settings');
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+test('다크 모드 비교 화면 스크린샷', async ({ page }, testInfo) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await expectNoHorizontalScroll(page);
+  await shot(page, testInfo, 'dark-compare');
 });
