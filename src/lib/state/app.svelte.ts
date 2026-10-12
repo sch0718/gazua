@@ -181,7 +181,8 @@ export function createApp(deps: AppDeps): App {
     const shapeLock = stored.locked !== null;
     if (loadedSettings.keyLock !== shapeLock) {
       loadedSettings = { ...loadedSettings, keyLock: shapeLock };
-      storage.set(profileKeys.settings(id), loadedSettings);
+      // 실패해도 상관없다(다음에 열 때도 키의 모양이 정한다). set처럼 이 세션을 메모리 전용으로 바꾸지 않게 trySet을 쓴다.
+      storage.trySet(profileKeys.settings(id), loadedSettings);
     }
     return {
       settings: loadedSettings,

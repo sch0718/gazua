@@ -888,6 +888,19 @@ describe('createApp — key lock across tabs', () => {
     expect(a.secrets).toBeNull();
   });
 
+  it('(a) the load-time keyLock fix does not turn the session memory-only when the write fails', async () => {
+    const { backing, ctl } = sharedQuota();
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    ctl.full = true;
+    const app = make(backing);
+    expect(app.settings.keyLock).toBe(false);
+    expect(app.banners.find((x) => x.id === 'storage')).toBeUndefined();
+    // 다음 쓰기는 저장소에 바로 간다(메모리 전용으로 굳지 않았다).
+    ctl.full = false;
+    app.updateSettings({ theme: 'dark' });
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).theme).toBe('dark');
+  });
+
   it('(c) the storage listener is removed on destroy', async () => {
     const backing = plainShared();
     const a = make(backing);
