@@ -113,6 +113,23 @@ describe('sanitizeStrategies', () => {
     expect(repaired).toBe(true);
   });
 
+  it('없는 필드는 조용히 기본값, 있는데 틀린 필드는 repaired', () => {
+    const missing = { ...structuredClone(s), costs: undefined, updatedAt: undefined, universe: undefined, exit: undefined };
+    const a = sanitizeStrategies({ strategies: [missing] });
+    expect(a.repaired).toBe(false);
+    expect(a.strategies).toHaveLength(1);
+    expect(a.strategies[0].costs.feePct).toBe(0.015);
+    expect(a.strategies[0].exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    const noTp = structuredClone(s) as any;
+    delete noTp.exit.takeProfit;
+    expect(sanitizeStrategies({ strategies: [noTp] }).repaired).toBe(false);
+    const bad = { ...structuredClone(s), costs: { feePct: 'x' } };
+    const b = sanitizeStrategies({ strategies: [bad] });
+    expect(b.repaired).toBe(true);
+    expect(b.strategies[0].costs.feePct).toBe(0.015);
+    expect(sanitizeStrategies({ strategies: [{ ...structuredClone(s), updatedAt: 'x' }] }).repaired).toBe(true);
+  });
+
   it('온전하면 그대로, repaired 아님', () => {
     const r = sanitizeStrategies({ strategies: [s] });
     expect(r.strategies).toEqual([s]);

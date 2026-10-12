@@ -22,12 +22,12 @@ function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boo
   let repaired = false;
   const pick = <T>(v: unknown, def: T, ok: (x: unknown) => boolean): T => {
     if (ok(v)) return v as T;
-    repaired = true;
+    if (v !== undefined) repaired = true; // 없는 필드는 조용히 기본값, 있는데 틀린 것만 고침으로 센다
     return def;
   };
   const rec = (v: unknown): Row => {
     if (isRecord(v)) return v;
-    repaired = true;
+    if (v !== undefined) repaired = true;
     return {};
   };
   const num = (v: unknown, def: number, min: number, max: number): number =>
@@ -48,7 +48,7 @@ function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boo
     const symbols = [...new Set(u.symbols.filter((x): x is string => typeof x === 'string'))];
     if (symbols.length !== u.symbols.length || symbols.length > MAX_SYMBOLS) repaired = true;
     universe = { kind: 'symbols', symbols: symbols.slice(0, MAX_SYMBOLS) };
-  } else repaired = true;
+  } else if (raw.universe !== undefined) repaired = true;
 
   const p = rec(raw.period);
   const dateOk = (x: unknown) => typeof x === 'string' && DATE_RE.test(x);
@@ -110,7 +110,7 @@ function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boo
     const stages = (ex.takeProfit as { pct: number; sellPct: number }[]).slice(0, MAX_TAKE_STAGES).map((t) => ({ pct: t.pct, sellPct: t.sellPct }));
     stages[stages.length - 1].sellPct = 100; // 마지막 단계는 나머지 전부
     takeProfit = stages;
-  } else repaired = true;
+  } else if (ex.takeProfit !== undefined) repaired = true;
   const sl = rec(ex.stopLoss);
 
   const bm = rec(raw.benchmarks);
@@ -147,7 +147,7 @@ function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boo
 
 /**
  * 저장소에서 읽은 `{ strategies: [...] }`를 고친다. 필수 필드(id·name)가 틀린 항목과 id가 겹치는 항목은 버리고, 20개까지만 남긴다.
- * repaired: 무언가를 버렸거나 기본값으로 바꿨다.
+ * repaired: 무언가를 버렸거나 틀린 값을 기본값으로 바꿨다(없는 필드는 조용히 기본값).
  */
 export function sanitizeStrategies(raw: unknown, now = Date.now()): { strategies: Strategy[]; repaired: boolean } {
   if (!isRecord(raw) || !Array.isArray(raw.strategies)) return { strategies: [], repaired: false };
