@@ -111,7 +111,7 @@
 
 <Sheet {open} title={name} {onclose}>
   <div class="trade-chart">
-    <div class="plot" bind:this={el} role="img" aria-label="{name} 거래 차트"></div>
+    <div class="plot" bind:this={el} aria-hidden="true"></div>
     <p class="summary">{summary}</p>
   </div>
 </Sheet>

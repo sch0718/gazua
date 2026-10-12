@@ -36,7 +36,6 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
 
   const sheet = page.getByRole('dialog', { name: stockName });
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByRole('img', { name: `${stockName} 거래 차트` })).toBeVisible();
   // 차트는 캔버스라 글자 요약으로 확인한다: `매수 MM.DD N원 → …`
   await expect(sheet).toContainText(/매수 .*원/);
   await shot(page, testInfo, 'sim-3-trade-sheet');

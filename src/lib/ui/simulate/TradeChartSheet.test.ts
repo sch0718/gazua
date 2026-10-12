@@ -84,6 +84,8 @@ describe('TradeChartSheet', () => {
     open(trades[0], trades);
     expect(screen.getByRole('dialog', { name: 'SK하이닉스' })).toBeTruthy();
     expect(screen.getByText('매수 1.31 132,400원 → 손절 2.20 125,780원')).toBeTruthy();
+    expect(document.querySelector('.plot')?.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.queryByRole('img')).toBeNull();
   });
 
   it('닫으면 차트를 정리한다', async () => {
