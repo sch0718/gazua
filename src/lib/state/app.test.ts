@@ -850,6 +850,44 @@ describe('createApp — key lock across tabs', () => {
     expect(b.route.name).not.toBe('unlock');
   });
 
+  /** setItem이 ctl.full일 때 QuotaExceededError를 던지는 공유 저장소. */
+  function sharedQuota() {
+    const backing = plainShared();
+    const ctl = { full: false };
+    const setItem = backing.setItem.bind(backing);
+    backing.setItem = (k: string, v: string) => {
+      if (ctl.full) throw new DOMException('quota', 'QuotaExceededError');
+      setItem(k, v);
+    };
+    return { backing, ctl };
+  }
+
+  it('(c) a memory-only lock survives another tab’s unrelated writes; only a real removal of stored keys unlocks', async () => {
+    const { backing, ctl } = sharedQuota();
+    const a = make(backing, { fetchImpl: fakeKisFetch() });
+    const b = make(backing, { fetchImpl: fakeKisFetch() });
+    // A의 잠금 저장이 실패한다: 저장소의 키는 지워지고, 잠금과 키는 이 탭의 메모리에만 남는다.
+    ctl.full = true;
+    await expect(a.setSecrets(SECRETS, 'correct horse')).rejects.toMatchObject({ kind: 'lock', reason: 'cleared' });
+    expect(backing.getItem('gazua:v1:p:p1:secrets')).toBeNull();
+    ctl.full = false;
+    // B가 다른 설정을 바꾼다.
+    b.updateSettings({ theme: 'dark' });
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'gazua:v1:p:p1:settings', oldValue: '{}', newValue: backing.getItem('gazua:v1:p:p1:settings') }),
+    );
+    expect(a.secrets).toEqual(SECRETS);
+    expect(a.settings.keyLock).toBe(true);
+    // 저장된 값이 없던 키에 대한 이벤트도 이 탭의 메모리 잠금을 풀지 않는다.
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets', oldValue: null, newValue: null }));
+    expect(a.secrets).toEqual(SECRETS);
+    expect(a.settings.keyLock).toBe(true);
+    // 다른 탭이 저장된(잠긴) 키를 지웠을 때만 이 탭도 잠금을 내려놓는다.
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets', oldValue: '{"enc":"x","iv":"y","salt":"z","kdf":"PBKDF2-SHA256","iter":310000}', newValue: null }));
+    expect(a.settings.keyLock).toBe(false);
+    expect(a.secrets).toBeNull();
+  });
+
   it('(c) the storage listener is removed on destroy', async () => {
     const backing = plainShared();
     const a = make(backing);

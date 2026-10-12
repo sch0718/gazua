@@ -317,14 +317,25 @@ export function createApp(deps: AppDeps): App {
     enter();
   }
 
+  /** storage 이벤트의 이전 값이 저장된 키(잠긴 키 또는 평문 객체)였는지. */
+  function storedKeys(json: string | null): boolean {
+    if (json === null) return false;
+    try {
+      const v: unknown = JSON.parse(json);
+      return v !== null && typeof v === 'object';
+    } catch {
+      return false;
+    }
+  }
+
   /**
-   * 다른 탭이 이 프로필의 키·설정을 바꾸면(storage 이벤트) 잠금 상태를 저장소에 맞춘다.
+   * 다른 탭이 이 프로필의 키를 바꾸면(storage 이벤트) 잠금 상태를 저장소에 맞춘다.
    * 다른 탭이 키를 잠갔으면 이 탭도 키·토큰을 버리고 잠금 해제 화면으로, 잠금을 껐으면 저장된 평문 키를 쓴다.
    */
   function onStorage(e: StorageEvent) {
     const id = activeId();
-    const watched = [profileKeys.secrets(id), profileKeys.settings(id)].map((k) => STORAGE_PREFIX + k);
-    if (e.key !== null && !watched.includes(e.key)) return;
+    // 이 프로필의 키 항목 자체가 바뀐 경우에만 반응한다(다른 설정 쓰기·clear()는 잠금 상태를 바꾸지 않는다).
+    if (e.key !== STORAGE_PREFIX + profileKeys.secrets(id)) return;
     const raw = storage.readBacking<unknown>(profileKeys.secrets(id), null);
     if (isLocked(raw)) {
       if (locked !== null && JSON.stringify(locked) === JSON.stringify(raw)) return;
@@ -338,6 +349,9 @@ export function createApp(deps: AppDeps): App {
       return;
     }
     if (locked !== null) {
+      // 지워진 경우에는, 지워지기 전에 저장된 키(잠긴 키·평문)가 있었을 때만 잠금을 내려놓는다. 저장된 키 없이
+      // 이 탭의 메모리에만 있는 잠금(잠금 저장 실패)은 탭을 닫을 때까지 유지한다.
+      if (raw === null && !storedKeys(e.oldValue)) return;
       locked = null;
       unlockUnsaved = false;
       secrets = raw !== null && typeof raw === 'object' ? (raw as Secrets) : null;
