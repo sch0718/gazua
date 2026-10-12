@@ -19,6 +19,7 @@ import { KeyLockNotSavedError, createApp } from '../../state/app.svelte';
 import { DEFAULT_SETTINGS } from '../../state/schema';
 import { createSafeStorage } from '../../state/storage';
 import { memoryBacking, seed } from '../../state/testStorage';
+import { lockSecrets } from '../../state/secrets';
 import { memoryCache } from '../../data/testCache';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
@@ -185,6 +186,20 @@ describe('KeyLock', () => {
     await vi.waitFor(() => expect(currentSnackbar()?.message).toBe('잠금을 껐어요'));
     expect(app.settings.keyLock).toBe(false);
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(KIS);
+  });
+
+  it('stored keyLock:false with sealed Toss keys shows the lock as on and no 잠금 권장 banner', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'toss', keyLock: false });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    seed(backing, 'p:p1:secrets', await lockSecrets(TOSS, 'pass1234'));
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    await app.unlock('pass1234');
+    render(KeyLock, { app });
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
+    expect(screen.queryByText(/토스 키는 주문 권한이 있어요/)).toBeNull();
   });
 
   it('recommends locking saved Toss keys; 잠그기 opens the lock dialog and the banner can be dismissed', async () => {
