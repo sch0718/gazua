@@ -3,7 +3,7 @@ import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { newStrategy } from './defaults';
 import { openPosition } from './position';
-import { simulateCore, walkBar, type WalkCtx } from './simulate';
+import { simulate, simulateCore, walkBar, type WalkCtx } from './simulate';
 import { bar, tradingDates } from './testBars';
 import type { SimInput, Skip, Strategy, Trade } from './types';
 
@@ -343,4 +343,30 @@ describe('미래 데이터 미사용', () => {
 
 it('candle t는 KST 자정', () => {
   expect(kstDate(candles(BASE)[0].t)).toBe(d(0));
+});
+
+describe('simulate', () => {
+  it('SimResult 모양과 hold·index·benchmark 연결', () => {
+    const stock = candles(BASE, [[87, 88, 86, 87], [87, 90, 86, 88]]);
+    const days = DATES.slice(0, stock.length);
+    const idx = days.map((dt, i) => bar(dt, 1000, 1000, 1000, 1000 + i * 10));
+    const inp = input(strat(), [stock], days);
+    inp.index = { id: 'KOSPI', candles: idx };
+    inp.benchmarkStock = { symbol: 'B', name: '지정', isEtf: false, market: 'KOSPI', candles: stock };
+    const r = simulate(inp);
+    expect(r.equity).toHaveLength(days.length);
+    expect(r.equity[0]).toMatchObject({ date: days[0], strategy: 10_000_000, cash: 10_000_000, index: 10_000_000 });
+    const last = r.equity[r.equity.length - 1];
+    expect(last.index).toBeCloseTo((10_000_000 * (1000 + 10 * 10)) / 1000, 4);
+    expect(last.hold).toBeCloseTo((10_000_000 * 88) / 90, -1);
+    expect(last.benchmark).toBeCloseTo(last.hold, 4);
+    expect(r.benchmarks.indexReturnPct).toBeCloseTo(10, 6);
+    expect(r.benchmarks.holdReturnPct).toBeCloseTo(((last.hold / 10_000_000) - 1) * 100, 6);
+    expect(r.summary.vsHoldPp).toBeCloseTo(r.summary.totalReturnPct - r.benchmarks.holdReturnPct, 6);
+    expect(r.summary.openPositions).toBe(1);
+    expect(r.trades).toHaveLength(1);
+    expect(r.perSymbol).toEqual([{ symbol: 'S0', name: '종목0', pnl: expect.any(Number), roundTrips: 1, firstDate: days[0] }]);
+    expect(r.perSymbol[0].pnl).toBeCloseTo(last.strategy - 10_000_000, 6);
+    expect(r.nearMiss).toBeNull();
+  });
 });

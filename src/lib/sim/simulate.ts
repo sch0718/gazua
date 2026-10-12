@@ -3,7 +3,9 @@ import { kstDate } from '../time/kst';
 import { createPatternTracker, type PatternTracker } from './pattern';
 import { openPosition, type Position } from './position';
 import { sellTaxPct } from './tax';
-import type { PatternSnapshot, SimInput, Skip, Strategy, Trade } from './types';
+import { holdCurve, indexCurve, singleCurve } from './benchmarks';
+import { nearMiss, summarize } from './summary';
+import type { PatternSnapshot, SimInput, SimResult, Skip, Strategy, Trade } from './types';
 
 export interface CoreResult {
   equity: { date: string; value: number; cash: number }[];
@@ -266,4 +268,44 @@ export function simulateCore(input: SimInput): CoreResult {
   }
 
   return { equity, trades, skipped, roundTrips, perSymbolFirstDate, patternStats: { maxDropPct, declineDays } };
+}
+
+export function simulate(input: SimInput): SimResult {
+  const core = simulateCore(input);
+  const { strategy: s, days } = input;
+  const initial = s.capital.initial;
+  const fee = s.costs.feePct;
+
+  const hold = holdCurve(days, input.stocks, initial, fee);
+  const index = input.index ? indexCurve(days, input.index.candles, initial) : null;
+  const benchmark = input.benchmarkStock ? singleCurve(days, input.benchmarkStock.candles, initial, fee) : null;
+  const summary = summarize(core, { hold, index, benchmark }, days, initial);
+
+  const ret = (c: number[]) => ((c[c.length - 1] ?? initial) / initial - 1) * 100;
+
+  return {
+    equity: core.equity.map((e, i) => ({
+      date: e.date,
+      strategy: e.value,
+      hold: hold[i],
+      index: index ? index[i] : null,
+      benchmark: benchmark ? benchmark[i] : null,
+      cash: e.cash,
+    })),
+    summary,
+    benchmarks: { holdReturnPct: ret(hold), indexReturnPct: index ? ret(index) : null, benchmarkReturnPct: benchmark ? ret(benchmark) : null },
+    trades: core.trades,
+    skipped: core.skipped,
+    perSymbol: input.stocks.map((st) => {
+      const rts = core.roundTrips.filter((r) => r.symbol === st.symbol);
+      return {
+        symbol: st.symbol,
+        name: st.name,
+        pnl: rts.reduce((a, r) => a + r.pnl, 0),
+        roundTrips: rts.length,
+        firstDate: core.perSymbolFirstDate[st.symbol] ?? null,
+      };
+    }),
+    nearMiss: nearMiss(core),
+  };
 }
