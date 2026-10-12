@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { exportData, exportFileName, importData } from './exportImport';
+import { newStrategy } from '../sim/defaults';
+import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
@@ -215,5 +216,38 @@ describe('exportFileName', () => {
   it('uses the profile name and the KST date, replacing characters files cannot have', () => {
     expect(exportFileName('내 프로필', kstEpoch('2026-10-12', '23:30:00'))).toBe('gazua-내 프로필-2026-10-12.json');
     expect(exportFileName('a/b:c', kstEpoch('2026-10-12', '00:10:00'))).toBe('gazua-a_b_c-2026-10-12.json');
+  });
+});
+
+describe('strategies in export files', () => {
+  const strat = { ...newStrategy(1_700_000_000_000, 'g1', '전략'), id: 's1' };
+
+  it('내보낸 JSON에 strategies가 있고 가져온 새 프로필에 같은 전략이 저장된다', () => {
+    const { st, backing } = source();
+    seed(backing, profileKeys.strategies('p1'), { strategies: [strat] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).strategies).toEqual([strat]);
+    const res = importData(st, json);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!)).toEqual({ strategies: [strat] });
+  });
+
+  it('strategies가 없는 옛 파일도 가져오고 목록은 []', () => {
+    const { st, backing } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    delete parsed.strategies;
+    const res = importData(st, JSON.stringify(parsed));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const raw = backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`);
+    expect(raw === null ? [] : JSON.parse(raw).strategies).toEqual([]);
+  });
+
+  it('strategies가 배열이 아니면 형식 오류', () => {
+    const { st } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    parsed.strategies = 'x';
+    expect(importData(st, JSON.stringify(parsed))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
   });
 });

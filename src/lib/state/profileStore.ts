@@ -13,6 +13,7 @@ export const profileKeys = {
   secrets: (id: string) => `p:${id}:secrets`,
   token: (id: string, provider: 'kis' | 'toss') => `p:${id}:token:${provider}`,
   recent: (id: string) => `p:${id}:recent`,
+  strategies: (id: string) => `p:${id}:strategies`,
 };
 
 export const RECENT_MAX = 5;

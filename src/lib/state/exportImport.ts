@@ -13,6 +13,9 @@ import {
 } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import type { SafeStorage } from './storage';
+import { loadStrategies } from '../sim/strategyStore';
+import { sanitizeStrategies } from '../sim/validate';
+import type { Strategy } from '../sim/types';
 import { kstDate } from '../time/kst';
 import { sanitizeSettings, validWatchlists } from './validate';
 
@@ -30,6 +33,7 @@ export interface ExportFile {
   settings: Settings;
   watchlists: Watchlists;
   recent: string[];
+  strategies?: Strategy[];
   secrets?: Secrets | LockedSecrets;
 }
 
@@ -78,6 +82,7 @@ export function exportData(st: SafeStorage, profileId: string, includeSecrets: b
     settings: loadSettings(st, profileId),
     watchlists: loadWatchlists(st, profileId),
     recent: loadRecent(st, profileId),
+    strategies: loadStrategies(st, profileId),
   };
   if (includeSecrets) {
     const raw = st.get<unknown>(profileKeys.secrets(profileId), null);
@@ -113,6 +118,9 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   if (file.recent !== undefined && !Array.isArray(file.recent)) return fail(IMPORT_BAD_FORMAT);
   const recent = ((file.recent as unknown[] | undefined) ?? []).filter(isString).slice(0, RECENT_MAX);
 
+  if (file.strategies !== undefined && !Array.isArray(file.strategies)) return fail(IMPORT_BAD_FORMAT);
+  const { strategies } = sanitizeStrategies(file, now());
+
   let secrets: Secrets | LockedSecrets | null = null;
   if (file.secrets !== undefined) {
     secrets = isLocked(file.secrets) ? lockedCopy(file.secrets) : plainSecrets(file.secrets);
@@ -127,6 +135,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   st.set(profileKeys.settings(id), settings);
   st.set(profileKeys.watchlists(id), watchlists);
   st.set(profileKeys.recent(id), recent);
+  st.set(profileKeys.strategies(id), { strategies });
   if (secrets) st.set(profileKeys.secrets(id), secrets);
   // 색인은 마지막에 쓴다(중간에 실패해도 반쯤 만든 프로필이 목록에 보이지 않게).
   const meta: Meta = loadMeta(st);
