@@ -556,6 +556,43 @@ describe('compareController', () => {
       expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8]);
     });
 
+    it('review 4247273940: KOSPI → KOSDAQ → stock refresh fails → KOSPI restores the KOSPI values', async () => {
+      const t = track(setup());
+      const excessFor = (index: 'KOSPI' | 'KOSDAQ') => {
+        const pair = t.ctl.excessIndex('005930', index);
+        return metricPoints(t.ctl.entries['005930'].series!, 'excess', { index: pair.series, indexUntil: pair.until, period: D1 })
+          .map((p) => p.v);
+      };
+      indexMock.mockResolvedValueOnce(indexSeries(1200, 1000, NOW));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true, benchmark: 'KOSPI' }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+      expect(excessFor('KOSPI')).toEqual([-10]);
+
+      // 벤치마크를 KOSDAQ으로 바꾼다.
+      t.setNow(NOW + 10_000);
+      indexMock.mockResolvedValueOnce(indexSeries(1050, 1000, NOW + 10_000));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true, benchmark: 'KOSDAQ' }));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSDAQ?.status).toBe('ok'));
+      expect(excessFor('KOSDAQ')).toEqual([5]);
+
+      // 다음 갱신: 종목은 실패해 같은 snapshot(stale), KOSDAQ 지수는 새로 받는다.
+      t.setNow(NOW + 70_000);
+      indexMock.mockResolvedValueOnce(indexSeries(1060, 1000, NOW + 70_000));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110)], stale: true });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.stale).toBe(true));
+
+      // KOSPI로 돌아오면 그때 보이던 KOSPI 값이 그대로다.
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true, benchmark: 'KOSPI' }));
+      expect(excessFor('KOSPI')).toEqual([-10]);
+      expect(excessFor('KOSDAQ')).toEqual([5]);
+    });
+
     it('(b) a stale stock snapshot keeps the excess of its own load when the index’s in-progress bar moves', async () => {
       const t = track(setup());
       indexMock.mockResolvedValueOnce(indexSeries(1010, 1000, NOW));

@@ -284,25 +284,30 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   }
 
   /**
-   * 새로 받은 종목 시리즈마다 지금 보여 주는 지수 짝을 기억한다. 이 시리즈와 처음 짝짓거나, 지수 조회가 이 시리즈 계산
+   * 새로 받은 종목 시리즈마다 지금 보여 주는 지수 짝을 (종목, 지수)별로 기억한다. 이 시리즈와 처음 짝짓거나, 지수 조회가 이 시리즈 계산
    * 시각까지 시작한 것(같은 갱신)이면 갱신한다. 그보다 늦게 시작한 지수(다음 갱신)로는 덮어쓰지 않는다: 그 갱신에서
    * 종목이 실패해 stale이 되면 이전에 보이던 값이 바뀌기 때문이다. entries·indexes를 바꾼 직후에 부른다.
    */
   function rememberPairs() {
-    const live = new Set<string>();
     for (const [symbol, e] of Object.entries(entries)) {
       const s = e.series;
-      if (!s || !metas[symbol]) continue;
+      if (!s || s.stale || !metas[symbol]) continue;
+      // 새 결과로 바뀌면 이전 결과에 묶인 짝(다른 지수 포함)은 더 쓸 일이 없다.
+      for (const [key, known] of pairs) {
+        if (key.startsWith(`${symbol}|`) && known.computedAt !== s.computedAt) pairs.delete(key);
+      }
       const name = indexFor(symbol);
       const key = `${symbol}|${name}`;
-      live.add(key);
       const entry = indexes[name];
-      if (s.stale || !entry?.series) continue;
+      if (!entry?.series) continue;
       const known = pairs.get(key);
       if (known?.computedAt === s.computedAt && (indexAt[name] ?? Infinity) > s.computedAt) continue;
       pairs.set(key, { computedAt: s.computedAt, pair: pairOf(entry) });
     }
-    for (const key of pairs.keys()) if (!live.has(key)) pairs.delete(key);
+    // 그룹에서 빠진 종목의 짝만 지운다. 벤치마크를 바꿔도 다른 지수의 짝은 남겨 둔다(되돌아오면 그 값을 다시 쓴다).
+    for (const key of pairs.keys()) {
+      if (!entries[key.slice(0, key.indexOf('|'))]) pairs.delete(key);
+    }
   }
 
   function loadIndex(index: IndexName): Promise<void> {
