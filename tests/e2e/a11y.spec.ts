@@ -57,6 +57,37 @@ test('종목 상세가 열린 상태에 심각한 접근성 위반이 없다', a
   await expectNoSeriousViolations(page, '종목 상세');
 });
 
+test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위반이 없다', async ({ page }) => {
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+  await expectNoSeriousViolations(page, '시뮬레이션 목록');
+  await expectNoHorizontalScroll(page);
+
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  const run = page.getByRole('button', { name: '시뮬레이션 실행' });
+  await expect(run).toBeVisible();
+  await expectNoSeriousViolations(page, '전략 편집');
+
+  await run.click();
+  const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
+  await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expectNoSeriousViolations(page, '시뮬레이션 결과');
+  await expectNoHorizontalScroll(page);
+});
+
+// 알려진 제품 문제: 거래 차트의 `div[role="img"]` 안에 포커스 가능한 차트 요소가 있어 axe nested-interactive(serious)가 난다.
+// TradeChartSheet.svelte를 고치면 fixme를 풀어 통과를 확인한다.
+test.fixme('거래 차트 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
+  const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
+  await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await result.getByRole('list', { name: '거래 내역' }).getByRole('button').first().click();
+  await expect(page.getByRole('img', { name: /거래 차트$/ })).toBeVisible();
+  await expectNoSeriousViolations(page, '거래 차트 시트');
+});
+
 // 시스템 다크 모드(prefers-color-scheme: dark)에서도 같은 기준을 지킨다.
 test.describe('다크 모드', () => {
   test.use({ colorScheme: 'dark' });
