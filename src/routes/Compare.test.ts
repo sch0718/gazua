@@ -141,6 +141,25 @@ describe('Compare (demo provider)', () => {
     }
   });
 
+  it('NXT mode, a stock added to NXT mid-period: the headline shows the KRX base date the base came from', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { period: { unit: 'W', n: 1 }, venueMode: 'NXT' });
+    const snaps = app.data.snapshots;
+    const real = snaps.load.bind(snaps);
+    let baseDate: string | null = null;
+    // NXT 일봉은 기간 안에만 있다(기간 전 NXT 봉 없음). 기준가·기준일은 KRX 일봉에서 나온다.
+    vi.spyOn(snaps, 'load').mockImplementation(async (args) => {
+      const s = await real(args);
+      baseDate = s.baseDate;
+      const first = s.candles[0]?.t ?? Infinity;
+      return { ...s, daily: s.daily.filter((c) => c.t >= first) };
+    });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(baseDate).not.toBeNull();
+    const [, m, d] = baseDate!.split('-').map(Number);
+    expect(screen.getByText(`1주 · 등락률 · 기준 ${m}/${d} 종가`)).toBeTruthy();
+  });
+
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {
     const app = makeApp(EXAMPLE.slice(0, 2), { metric: 'excess' });
     // 지수 봉을 주지 않는 공급자(토스 지수 미지원과 같은 경우)

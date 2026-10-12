@@ -169,7 +169,9 @@
   const markers = $derived(tradingDate !== null && fetchPlanFor(period, tradingDate).markers);
   const baseDate = $derived.by(() => {
     const first = loaded.find(onChartDay);
-    return first ? baseDateFor(first, period) : null;
+    // 기준가를 낸 일봉(NXT 모드에서도 KRX)의 날짜. 없는 결과에서만 예전처럼 시리즈 일봉에서 구한다.
+    if (!first) return null;
+    return first.baseDate !== undefined ? first.baseDate : baseDateFor(first, period);
   });
   const closeAt = $derived(tradingDate ? lastSessionEnd(sessionsOn(tradingDate, today, sessions)) : null);
 
