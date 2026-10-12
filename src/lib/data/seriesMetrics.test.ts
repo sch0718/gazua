@@ -43,19 +43,45 @@ describe('metricPoints', () => {
     expect(values(metricPoints(series(), 'drawdown', { period: D1 }))).toEqual([0, -4.545, 0]);
   });
 
-  it('excess: stock change minus index change against the index base', () => {
-    const index = series({
-      symbol: 'INDEX:KOSPI',
-      base: 1000,
-      candles: [bar(at('09:00'), 1010), bar(at('09:02'), 1050)],
-    });
-    expect(values(metricPoints(series(), 'excess', { period: D1, index }))).toEqual([9, 4, 15]);
+  // 기준일(10/12 1일 차트면 직전 거래일 10/8)의 일봉. 지수는 종목과 같은 기준일의 종가로 다시 맞춘다.
+  const D8 = day('2026-10-08');
+  const stock1d = () => series({ daily: [bar(D8, 100)] });
+  const index1d = (candles: Candle[], base = 1000) =>
+    series({ symbol: 'INDEX:KOSPI', base, daily: [bar(D8, 1000)], candles });
+
+  it('excess: stock change minus index change against the index close on the stock’s base date', () => {
+    const index = index1d([bar(at('09:00'), 1010), bar(at('09:02'), 1050)]);
+    expect(values(metricPoints(stock1d(), 'excess', { period: D1, index }))).toEqual([9, 4, 15]);
   });
 
   it('excess: indexUntil drops stock points after the index’s last bar (a stale index is not carried forward)', () => {
-    const index = series({ symbol: 'INDEX:KOSPI', base: 1000, candles: [bar(at('09:00'), 1010), bar(at('09:01'), 1020)] });
-    expect(values(metricPoints(series(), 'excess', { period: D1, index, indexUntil: at('09:01') }))).toEqual([9, 3, null]);
-    expect(values(metricPoints(series(), 'excess', { period: D1, index, indexUntil: null }))).toEqual([9, 3, 18]);
+    const index = index1d([bar(at('09:00'), 1010), bar(at('09:01'), 1020)]);
+    expect(values(metricPoints(stock1d(), 'excess', { period: D1, index, indexUntil: at('09:01') }))).toEqual([9, 3, null]);
+    expect(values(metricPoints(stock1d(), 'excess', { period: D1, index, indexUntil: null }))).toEqual([9, 3, 18]);
+  });
+
+  it('excess: the index is rebased to the stock’s base date even when its own base is from another period start', () => {
+    // 리뷰 시나리오: 10/5 = 100, 10/6부터 110(종목·지수 모두). 1주, 종목은 10/13(기준 10/6 종가 110),
+    // 지수는 갱신에 실패해 10/12 결과(기준 10/5 종가 100)를 그대로 쓴다. 겹치는 날마다 0%p여야 한다.
+    const W1 = { unit: 'W', n: 1 } as const;
+    const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'];
+    const closes = (upTo: string) => days.filter((d) => d <= upTo).map((d) => bar(day(d), d === '2026-10-05' ? 100 : 110));
+    const stock = series({ tradingDate: '2026-10-13', base: 110, daily: closes('2026-10-13'), candles: closes('2026-10-13').filter((c) => c.t >= day('2026-10-07')) });
+    const index = series({
+      symbol: 'INDEX:KOSPI',
+      tradingDate: '2026-10-12',
+      base: 100,
+      daily: closes('2026-10-12'),
+      candles: closes('2026-10-12').filter((c) => c.t >= day('2026-10-06')),
+    });
+    const ps = metricPoints(stock, 'excess', { period: W1, index, indexUntil: day('2026-10-12') });
+    expect(ps.map((p) => p.t)).toEqual(['2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'].map(day));
+    expect(values(ps)).toEqual([0, 0, 0, null]);
+  });
+
+  it('excess: no index bar on the stock’s base date gives all null (no mixed bases)', () => {
+    const index = series({ symbol: 'INDEX:KOSPI', base: 1000, daily: [bar(day('2026-10-07'), 1000)], candles: [bar(at('09:00'), 1010)] });
+    expect(values(metricPoints(stock1d(), 'excess', { period: D1, index }))).toEqual([null, null, null]);
   });
 
   it('excess: no index gives all null', () => {

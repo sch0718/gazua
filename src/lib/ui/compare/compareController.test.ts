@@ -13,6 +13,7 @@ import { ApiError } from '../../providers/errors';
 import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
+import type { Period } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
 import {
   RELOAD_IN_SESSION_MS,
@@ -56,7 +57,8 @@ const snap = (symbol: string, over: Partial<SnapshotSeries> = {}): SnapshotSerie
   base: 100,
   avgDailyVolume: null,
   candles: [{ t: NOW - 60_000, o: 110, h: 110, l: 110, c: 110, v: 1 }],
-  daily: [],
+  // 1일 차트의 기준일(직전 거래일 10/8) 종가 = base
+  daily: [{ t: kstEpoch('2026-10-08', '00:00:00'), o: 100, h: 100, l: 100, c: 100, v: 1 }],
   segments: [],
   intervals: [],
   computedAt: NOW,
@@ -386,16 +388,85 @@ describe('compareController', () => {
       base,
       avgDailyVolume: null,
       candles: [bar(NOW - 60_000, c)],
-      daily: [],
+      daily: [bar(kstEpoch('2026-10-08', '00:00:00'), base)],
       segments: [],
       intervals: [],
       computedAt,
     });
 
-    const excessOf = (t: ReturnType<typeof setup>, symbol: string) => {
+    const excessOf = (t: ReturnType<typeof setup>, symbol: string, period: Period = D1) => {
       const pair = t.ctl.excessIndex(symbol, 'KOSPI');
-      return metricPoints(t.ctl.entries[symbol].series!, 'excess', { index: pair.series, indexUntil: pair.until, period: D1 });
+      return metricPoints(t.ctl.entries[symbol].series!, 'excess', { index: pair.series, indexUntil: pair.until, period });
     };
+
+    it('review 4246969958 (1): 1주, 지수 갱신 실패 — 다른 기준일의 지수를 섞지 않고 겹치는 날마다 0%p', async () => {
+      const W1 = { unit: 'W', n: 1 } as const;
+      const day = (d: string) => kstEpoch(d, '00:00:00');
+      const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'];
+      const closes = (upTo: string) => days.filter((d) => d <= upTo).map((d) => bar(day(d), d === '2026-10-05' ? 100 : 110));
+      const daily = (symbol: string, tradingDate: string, from: string, base: number, computedAt: number): LoadedSeries => ({
+        symbol,
+        tradingDate,
+        base,
+        avgDailyVolume: null,
+        candles: closes(tradingDate).filter((c) => c.t >= day(from)),
+        daily: closes(tradingDate),
+        segments: [],
+        intervals: [],
+        computedAt,
+      });
+      const t = track(setup());
+      // 10/12: 1주 = 10/6..10/12, 기준 10/5 종가 100
+      indexMock.mockResolvedValueOnce(daily('INDEX:KOSPI', '2026-10-12', '2026-10-06', 100, NOW));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true, period: W1 }));
+      await vi.waitFor(() => {
+        for (const [, d] of t.pending) d.resolve({ ...daily('005930', '2026-10-12', '2026-10-06', 100, NOW), stale: false });
+        t.pending.clear();
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+      expect(excessOf(t, '005930', W1).map((p) => p.v)).toEqual([0, 0, 0, 0]);
+
+      // 10/13: 종목은 새로 받고(1주 = 10/7..10/13, 기준 10/6 종가 110), 지수는 실패해 10/12 결과를 그대로 쓴다.
+      const next = kstEpoch('2026-10-13', '10:00:00');
+      t.setNow(next);
+      indexMock.mockRejectedValueOnce(new Error('down'));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      for (const [, d] of t.pending) d.resolve({ ...daily('005930', '2026-10-13', '2026-10-07', 110, next), stale: false });
+      t.pending.clear();
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.tradingDate).toBe('2026-10-13'));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.stale).toBe(true));
+      const points = excessOf(t, '005930', W1);
+      expect(points.map((p) => p.t)).toEqual(['2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'].map(day));
+      expect(points.map((p) => p.v)).toEqual([0, 0, 0, null]);
+    });
+
+    it('review 4246969958 (2): 종목을 받은 뒤 초과수익으로 바꾸고, 다음 종목 갱신이 실패해도 이전 값을 유지한다', async () => {
+      const t = track(setup());
+      t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+      });
+      // 종목을 받은 뒤에 초과수익을 고른다(지수 조회 시작이 종목 계산 시각보다 늦다).
+      t.setNow(NOW + 10_000);
+      indexMock.mockResolvedValueOnce(indexSeries(110, 100, NOW + 10_000));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.status).toBe('ok'));
+      const shown = excessOf(t, '005930');
+      expect(shown.map((p) => p.v)).toEqual([0]);
+
+      // 다음 갱신: 지수는 새로 받고 종목은 실패해 같은 snapshot(stale)을 쓴다.
+      t.setNow(NOW + 70_000);
+      indexMock.mockResolvedValueOnce(indexSeries(120, 100, NOW + 70_000));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110)], stale: true });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.stale).toBe(true));
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.series?.computedAt).toBe(NOW + 70_000));
+      expect(excessOf(t, '005930')).toEqual(shown);
+    });
 
     it('(a) a failed index refresh: no excess beyond the old index’s last bar, and the index entry is stale', async () => {
       const t = track(setup());

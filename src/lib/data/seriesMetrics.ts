@@ -46,7 +46,12 @@ export function metricPoints(
     case 'excess': {
       const index = opts.index;
       if (!index) return allNull(series);
-      const points = excessPct(change(series, closes), change(index, closesOf(index)));
+      // 지수 등락률은 종목과 같은 기준일의 지수 종가로 다시 맞춘다. 지수 결과가 다른 기간 시작(이전 날 받은 stale 지수 등)이라
+      // 지수 자체의 base가 달라도 기준이 섞이지 않는다. 그 날의 지수 종가가 없으면 계산하지 않는다.
+      const baseDate = baseDateFor(series, opts.period);
+      const indexBase = baseDate === null ? undefined : index.daily.find((c) => kstDate(c.t) === baseDate)?.c;
+      if (indexBase === undefined) return allNull(series);
+      const points = excessPct(change(series, closes), changePct(closesOf(index), indexBase));
       const until = opts.indexUntil;
       return until == null ? points : points.map((p) => (p.t > until ? { t: p.t, v: null } : p));
     }

@@ -80,8 +80,9 @@ export interface CompareController {
   indexFor(symbol: string): IndexName;
   /**
    * 종목 시리즈와 같은 시점의 지수(초과수익용). 새로 받은 종목은 지금 지수와 짝짓되, 지수가 갱신에 실패했거나
-   * 다시 받는 중이라 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 받을 때의 지수를
-   * 계속 쓴다(값이 바뀌지 않게). 그런 지수가 없으면 series는 null.
+   * 다시 받는 중이라 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 새로 보여 줄 때
+   * 기억한 지수 짝을 계속 쓴다(값이 바뀌지 않게). 기억한 짝이 없으면 series는 null.
+   * 지수 등락률의 기준은 metricPoints가 종목 기준일의 지수 종가로 다시 맞춘다.
    */
   excessIndex(symbol: string, index: IndexName): ExcessIndex;
   destroy(): void;
@@ -118,25 +119,15 @@ function faultOf(e: unknown, at: number): LoadFault | undefined {
   return e.retryAfterMs === undefined ? { code: e.code, at } : { code: e.code, at, retryAfterMs: e.retryAfterMs };
 }
 
-/** 지수를 받으려고 한 시각과 그 결과(실패면 이전 지수와 stale). */
-interface IndexAttempt {
-  at: number;
-  series: LoadedSeries | null;
-  stale: boolean;
-}
-
 const NO_INDEX: ExcessIndex = { series: null, until: null };
 const lastBarT = (s: LoadedSeries): number | null => s.candles.at(-1)?.t ?? null;
 
-/** stale 지수는 마지막 봉까지만 쓴다. */
-const pairOf = (series: LoadedSeries | null, stale: boolean): ExcessIndex =>
-  series ? { series, until: stale ? lastBarT(series) : null } : NO_INDEX;
-
-/** at ≤ t인 마지막 시도. */
-function attemptAtOrBefore(list: IndexAttempt[], t: number): IndexAttempt | undefined {
-  for (let i = list.length - 1; i >= 0; i--) if (list[i].at <= t) return list[i];
-  return undefined;
-}
+/**
+ * 지금 지수 entry와의 짝. 갱신에 실패했거나(stale) 다시 받는 중(loading)이면 아직 이전 지수라
+ * 마지막 봉까지만 쓴다(새 종목 봉을 이전 지수 값으로 이어 붙이지 않게).
+ */
+const pairOf = (entry: IndexEntry): ExcessIndex =>
+  entry.series ? { series: entry.series, until: entry.stale === true || entry.status === 'loading' ? lastBarT(entry.series) : null } : NO_INDEX;
 
 const pick = <T>(rec: Record<string, T>, keys: string[]): Record<string, T> =>
   Object.fromEntries(Object.entries(rec).filter(([k]) => keys.includes(k)));
@@ -147,8 +138,13 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   let metas = $state.raw<Record<string, StockMeta>>({});
   let entries = $state.raw<Record<string, SeriesEntry>>({});
   let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
-  /** 지수별 받기 시도(시각순). 이전 결과를 보여 주는 종목과 그때의 지수를 짝짓는 데 쓴다. indexes와 함께 바뀐다. */
-  let indexAttempts: Partial<Record<IndexName, IndexAttempt[]>> = {};
+  /** 지수별 지금 entry를 만든 조회의 시작 시각. indexes와 함께 바뀐다. */
+  let indexAt: Partial<Record<IndexName, number>> = {};
+  /**
+   * 종목별로 새로 받은 시리즈(computedAt)와 함께 보여 준 지수 짝(`${symbol}|${index}`). 그 시리즈가 stale이 되면
+   * 시작 시각과 상관없이 이 짝을 그대로 써서 값이 바뀌지 않게 한다.
+   */
+  const pairs = new Map<string, { computedAt: number; pair: ExcessIndex }>();
   let quotes = $state.raw<Record<string, Quote>>({});
   let progress = $state.raw<{ done: number; total: number } | null>(null);
   /** 마지막으로 새 시리즈를 받은 시각 */
@@ -265,7 +261,10 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
           if (destroyed || g !== generation) return;
           if (showProgress) bumpProgress(0, 1);
           // 받는 동안 그룹에서 빠진 종목은 버린다.
-          if (query?.symbols.includes(symbol)) entries = { ...entries, [symbol]: entry };
+          if (query?.symbols.includes(symbol)) {
+            entries = { ...entries, [symbol]: entry };
+            rememberPairs();
+          }
         }),
       );
     } finally {
@@ -284,14 +283,26 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
     return [...new Set(query.symbols.filter((s) => metas[s]).map(indexFor))];
   }
 
-  /** 마지막 시도와, 지금 종목 시리즈마다 그 시리즈를 받을 때의 시도만 남긴다. */
-  function pruneAttempts(list: IndexAttempt[]): IndexAttempt[] {
-    const keep = new Set<IndexAttempt>(list.slice(-1));
-    for (const e of Object.values(entries)) {
-      const a = e.series ? attemptAtOrBefore(list, e.series.computedAt) : undefined;
-      if (a) keep.add(a);
+  /**
+   * 새로 받은 종목 시리즈마다 지금 보여 주는 지수 짝을 기억한다. 이 시리즈와 처음 짝짓거나, 지수 조회가 이 시리즈 계산
+   * 시각까지 시작한 것(같은 갱신)이면 갱신한다. 그보다 늦게 시작한 지수(다음 갱신)로는 덮어쓰지 않는다: 그 갱신에서
+   * 종목이 실패해 stale이 되면 이전에 보이던 값이 바뀌기 때문이다. entries·indexes를 바꾼 직후에 부른다.
+   */
+  function rememberPairs() {
+    const live = new Set<string>();
+    for (const [symbol, e] of Object.entries(entries)) {
+      const s = e.series;
+      if (!s || !metas[symbol]) continue;
+      const name = indexFor(symbol);
+      const key = `${symbol}|${name}`;
+      live.add(key);
+      const entry = indexes[name];
+      if (s.stale || !entry?.series) continue;
+      const known = pairs.get(key);
+      if (known?.computedAt === s.computedAt && (indexAt[name] ?? Infinity) > s.computedAt) continue;
+      pairs.set(key, { computedAt: s.computedAt, pair: pairOf(entry) });
     }
-    return list.filter((a) => keep.has(a));
+    for (const key of pairs.keys()) if (!live.has(key)) pairs.delete(key);
   }
 
   function loadIndex(index: IndexName): Promise<void> {
@@ -302,12 +313,13 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
     const at = deps.now();
     // 받는 동안에도 이전 지수가 stale이었다는 사실을 유지한다(안내·짝짓기가 깜박이지 않게).
     indexes = { ...indexes, [index]: { status: 'loading', series: prev?.series ?? null, ...(prev?.stale ? { stale: true } : {}) } };
+    indexAt = { ...indexAt, [index]: at };
+    rememberPairs();
     const settle = (entry: IndexEntry) => {
       if (destroyed || g !== generation) return;
-      const attempt: IndexAttempt = { at, series: entry.series, stale: entry.stale === true };
-      const list = [...(indexAttempts[index] ?? []), attempt].sort((a, b) => a.at - b.at);
-      indexAttempts = { ...indexAttempts, [index]: pruneAttempts(list) };
       indexes = { ...indexes, [index]: entry };
+      indexAt = { ...indexAt, [index]: at };
+      rememberPairs();
     };
     return loadIndexSeries({ provider: q.provider, cache: q.data.cache, index, period: q.period, now: at }).then(
       (series) => settle(series ? { status: 'ok', series } : { status: 'null', series: null }),
@@ -405,7 +417,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
         entries = {};
         quotes = {};
         indexes = {};
-        indexAttempts = {};
+        indexAt = {};
+        pairs.clear();
         lastOkAt = null;
         inflight = 0;
         total = 0;
@@ -414,6 +427,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
         void loadSymbols(q.symbols, true);
       } else if (prev.symbols.join() !== q.symbols.join()) {
         entries = pick(entries, q.symbols);
+        rememberPairs();
         quotes = pick(quotes, q.symbols);
         void loadSymbols(
           q.symbols.filter((s) => !prev.symbols.includes(s)),
@@ -433,11 +447,11 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       // 반응형 상태를 먼저 읽어 둔다(지수·종목이 바뀌면 다시 계산되게).
       const entry = indexes[index];
       const series = entries[symbol]?.series;
-      if (!series || !entry) return NO_INDEX;
-      // 지수를 다시 받는 중(loading)이면 아직 이전 지수다. 새 종목 봉을 그 값으로 이어 붙이지 않게 마지막 봉까지만 쓴다.
-      if (!series.stale) return pairOf(entry.series, entry.stale === true || entry.status === 'loading');
-      const attempt = attemptAtOrBefore(indexAttempts[index] ?? [], series.computedAt);
-      return attempt ? pairOf(attempt.series, attempt.stale) : NO_INDEX;
+      if (!series) return NO_INDEX;
+      if (!series.stale) return entry ? pairOf(entry) : NO_INDEX;
+      // 이전 결과(stale)는 그 결과를 새로 보여 줄 때 기억한 짝을 그대로 쓴다. 없으면 계산하지 않는다.
+      const known = pairs.get(`${symbol}|${index}`);
+      return known && known.computedAt === series.computedAt ? known.pair : NO_INDEX;
     },
 
     destroy() {
