@@ -14,7 +14,7 @@ import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
 import type { Period } from '../../state/schema';
-import { kstEpoch } from '../../time/kst';
+import { addDays, kstEpoch } from '../../time/kst';
 import {
   RELOAD_IN_SESSION_MS,
   META_ERROR,
@@ -55,6 +55,7 @@ const snap = (symbol: string, over: Partial<SnapshotSeries> = {}): SnapshotSerie
   symbol,
   tradingDate: DAY,
   base: 100,
+  baseDate: '2026-10-08',
   avgDailyVolume: null,
   candles: [{ t: NOW - 60_000, o: 110, h: 110, l: 110, c: 110, v: 1 }],
   // 1일 차트의 기준일(직전 거래일 10/8) 종가 = base
@@ -386,6 +387,7 @@ describe('compareController', () => {
       symbol: 'INDEX:KOSPI',
       tradingDate: DAY,
       base,
+      baseDate: '2026-10-08',
       avgDailyVolume: null,
       candles: [bar(NOW - 60_000, c)],
       daily: [bar(kstEpoch('2026-10-08', '00:00:00'), base)],
@@ -408,6 +410,7 @@ describe('compareController', () => {
         symbol,
         tradingDate,
         base,
+        baseDate: addDays(from, -1),
         avgDailyVolume: null,
         candles: closes(tradingDate).filter((c) => c.t >= day(from)),
         daily: closes(tradingDate),

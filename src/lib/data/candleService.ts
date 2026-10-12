@@ -64,6 +64,8 @@ export interface LoadedSeries {
   tradingDate: string;
   /** 기간 시작 직전 거래일 KRX(없으면 통합) 종가. 1일 차트는 adjustmentFactor 적용 후 값 */
   base: number | null;
+  /** base를 낸 일봉의 날짜(KST). NXT 모드에서도 기준 일봉(KRX)에서 정한다. 초과수익의 지수 기준일로 쓴다 */
+  baseDate: string | null;
   /** RVOL용 직전 20거래일 평균 거래량. 1일 차트는 환산 후 값 */
   avgDailyVolume: number | null;
   candles: Candle[];
@@ -114,10 +116,20 @@ async function tradingContext(provider: MarketDataProvider, now: number): Promis
 
 const dateOf = (c: Candle) => kstDate(c.t);
 
+/** `date` 이전 마지막 봉 */
+function barBefore(daily: Candle[], date: string): Candle | undefined {
+  return daily.filter((c) => dateOf(c) < date).at(-1);
+}
+
 /** `date` 이전 마지막 봉의 종가 */
 function closeBefore(daily: Candle[], date: string): number | null {
-  const before = daily.filter((c) => dateOf(c) < date);
-  return before.at(-1)?.c ?? null;
+  return barBefore(daily, date)?.c ?? null;
+}
+
+/** `date` 이전 마지막 봉의 날짜 */
+function dateBefore(daily: Candle[], date: string): string | null {
+  const bar = barBefore(daily, date);
+  return bar ? dateOf(bar) : null;
 }
 
 /** `date` 직전 20거래일 평균 거래량. 20개가 안 되면 null */
@@ -292,6 +304,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
   const result = {
     symbol: meta.symbol,
     tradingDate,
+    baseDate: dateBefore(baseDaily, plan.from),
     daily: seriesDaily,
     intervals,
     computedAt: now,
@@ -370,6 +383,7 @@ export async function loadIndexSeries(args: {
     symbol,
     tradingDate,
     base: closeBefore(daily, plan.from),
+    baseDate: dateBefore(daily, plan.from),
     avgDailyVolume: null,
     candles,
     daily,

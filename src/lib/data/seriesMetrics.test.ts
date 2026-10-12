@@ -14,6 +14,7 @@ function series(over: Partial<LoadedSeries> = {}): LoadedSeries {
     symbol: '005930',
     tradingDate: DAY,
     base: 100,
+    baseDate: '2026-10-08',
     avgDailyVolume: 1000,
     candles: [bar(at('09:00'), 110, 100), bar(at('09:01'), 105, 300), bar(at('09:02'), 120, 100)],
     daily: [],
@@ -66,17 +67,46 @@ describe('metricPoints', () => {
     const W1 = { unit: 'W', n: 1 } as const;
     const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'];
     const closes = (upTo: string) => days.filter((d) => d <= upTo).map((d) => bar(day(d), d === '2026-10-05' ? 100 : 110));
-    const stock = series({ tradingDate: '2026-10-13', base: 110, daily: closes('2026-10-13'), candles: closes('2026-10-13').filter((c) => c.t >= day('2026-10-07')) });
+    const stock = series({
+      tradingDate: '2026-10-13',
+      base: 110,
+      baseDate: '2026-10-06',
+      daily: closes('2026-10-13'),
+      candles: closes('2026-10-13').filter((c) => c.t >= day('2026-10-07')),
+    });
     const index = series({
       symbol: 'INDEX:KOSPI',
       tradingDate: '2026-10-12',
       base: 100,
+      baseDate: '2026-10-05',
       daily: closes('2026-10-12'),
       candles: closes('2026-10-12').filter((c) => c.t >= day('2026-10-06')),
     });
     const ps = metricPoints(stock, 'excess', { period: W1, index, indexUntil: day('2026-10-12') });
     expect(ps.map((p) => p.t)).toEqual(['2026-10-07', '2026-10-08', '2026-10-12', '2026-10-13'].map(day));
     expect(values(ps)).toEqual([0, 0, 0, null]);
+  });
+
+  it('excess: uses the base date the stock’s base came from (KRX), not the series’ own (NXT) daily bars', () => {
+    // NXT 모드: NXT에 기간 중간부터 들어온 종목이라 기간 전 NXT 일봉이 없다. 기준가는 KRX 10/1 종가.
+    const W1 = { unit: 'W', n: 1 } as const;
+    const inPeriod = ['2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08'];
+    const stock = series({
+      tradingDate: '2026-10-08',
+      base: 100,
+      baseDate: '2026-10-01',
+      daily: inPeriod.map((d) => bar(day(d), 110)),
+      candles: inPeriod.map((d) => bar(day(d), 110)),
+    });
+    const index = series({
+      symbol: 'INDEX:KOSPI',
+      tradingDate: '2026-10-08',
+      base: 1000,
+      baseDate: '2026-10-01',
+      daily: ['2026-10-01', ...inPeriod].map((d) => bar(day(d), 1000)),
+      candles: inPeriod.map((d) => bar(day(d), 1000)),
+    });
+    expect(values(metricPoints(stock, 'excess', { period: W1, index }))).toEqual([10, 10, 10, 10, 10]);
   });
 
   it('excess: no index bar on the stock’s base date gives all null (no mixed bases)', () => {

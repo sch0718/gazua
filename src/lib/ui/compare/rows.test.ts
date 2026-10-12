@@ -31,6 +31,7 @@ const series = (symbol: string, over: Partial<LoadedSeries & { stale: boolean }>
   symbol,
   tradingDate: '2026-10-12',
   base: 100,
+  baseDate: '2026-10-08',
   avgDailyVolume: null,
   candles: [bar(at('09:00'), 101), bar(at('09:01'), 102)],
   daily: [],

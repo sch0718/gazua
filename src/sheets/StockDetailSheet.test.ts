@@ -36,6 +36,7 @@ const series = (p: Partial<SnapshotSeries> = {}): SnapshotSeries => ({
   symbol: '005930',
   tradingDate: DAY,
   base: 70_000,
+  baseDate: '2026-10-08',
   avgDailyVolume: null,
   candles: [candle(at('09:00'), 70_500), candle(at('10:00'), 71_400)],
   daily: [candle(kstEpoch('2026-10-08', '00:00:00'), 69_000)],

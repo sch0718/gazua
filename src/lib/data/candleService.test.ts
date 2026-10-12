@@ -287,6 +287,19 @@ describe('loadSeries: trading date and venues', () => {
     expect(nxt.daily.every((c) => c.c >= 5000)).toBe(true);
   });
 
+  it('baseDate comes from the KRX bars that give the base, even when NXT has no bar before the period', async () => {
+    const plan = fetchPlanFor(W1, '2026-10-08');
+    // NXT에는 기간 중간(10/5)부터 들어왔다.
+    const daily: DailyFn = (venue, d) => (venue === 'NXT' && d < '2026-10-05' ? null : { c: (venue === 'NXT' ? 5000 : 1000) + dayNum(d), v: 1 });
+    const clock = { now: SUN };
+    const g = fakeProvider({ now: () => clock.now, daily });
+    const nxt = await loadSeries({ provider: g.provider, ...deps(clock), meta: meta(), period: W1, venueMode: 'NXT', now: SUN });
+    expect(nxt.daily.every((c) => kstDate(c.t) >= '2026-10-05')).toBe(true);
+    expect(nxt.base).toBe(1000 + dayNum('2026-10-01'));
+    expect(nxt.baseDate).toBe('2026-10-01');
+    expect(plan.from).toBe('2026-10-02');
+  });
+
   it('empty candles yield an empty series without throwing', async () => {
     const clock = { now: SUN };
     const f = fakeProvider({ now: () => clock.now, minute: () => null, daily: (_v, d) => ({ c: 500 + dayNum(d), v: 1 }) });
@@ -606,12 +619,14 @@ describe('index series', () => {
     const daily = await demo.getIndexCandles!('KOSPI', '1d', plan.lookbackFrom, '2026-10-11');
     const before = daily.filter((c) => kstDate(c.t) < plan.from);
     expect(w1?.base).toBe(before.at(-1)?.c);
+    expect(w1?.baseDate).toBe(kstDate(before.at(-1)!.t));
     expect(w1?.candles.map((c) => kstDate(c.t))).toEqual(openDays(plan.from, plan.to));
     expect(w1?.tradingDate).toBe('2026-10-08');
 
     const d1 = await loadIndexSeries({ provider: demo, cache, index: 'KOSPI', period: D1, now: SUN });
     const prev = daily.find((c) => kstDate(c.t) === '2026-10-07');
     expect(d1?.base).toBe(prev?.c);
+    expect(d1?.baseDate).toBe('2026-10-07');
     expect(d1?.candles.length).toBeGreaterThan(0);
     expect(d1?.candles.every((c) => kstDate(c.t) === '2026-10-08')).toBe(true);
 
