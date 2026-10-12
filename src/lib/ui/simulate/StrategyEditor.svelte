@@ -51,7 +51,6 @@
   let nameText = $state(untrack(() => strategy.name));
   let openKeys = $state<Partial<Record<Key, boolean>>>({});
   let universe = $state.raw<UniverseItem[] | null>(null);
-  let root: HTMLElement | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let dirty = false;
   const uid = Math.random().toString(36).slice(2, 9);
@@ -85,7 +84,7 @@
   const names = $derived(universe ? Object.fromEntries(universe.map((u) => [u.s, u.n])) : {});
   const benchName = $derived(draft.benchmarks.symbol ? (names[draft.benchmarks.symbol] ?? null) : null);
   const issues = $derived(strategyIssues(draft, app.watchlists));
-  const issueRows = $derived(issues.map((issue, i) => ({ id: `${uid}-issue-${i}`, issue })));
+  const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
 
   function summary(key: Key): string {
     const sum = (k: Issue['section']) => sectionSummary(draft, k, app.watchlists, benchName);
@@ -99,7 +98,7 @@
     if (!first) return onRun();
     openKeys[keyOf(first.issue.section)] = true;
     await tick();
-    root?.querySelector<HTMLElement>(`#${first.id}`)?.focus();
+    document.getElementById(first.id)?.focus();
   }
 
   function duplicate() {
@@ -115,7 +114,7 @@
   }
 </script>
 
-<div class="editor" bind:this={root}>
+<div class="editor">
   <div class="top">
     <input class="name" aria-label="전략 이름" maxlength={NAME_MAX} bind:value={nameText} oninput={rename} onblur={() => (nameText = draft.name)} />
     <button type="button" class="dup" disabled={app.strategies.length >= MAX_STRATEGIES} onclick={duplicate}>복제</button>

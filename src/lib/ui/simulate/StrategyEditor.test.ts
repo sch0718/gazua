@@ -156,6 +156,19 @@ describe('실행 버튼', () => {
     expect(document.activeElement).toBe(banner);
   });
 
+  it('id가 숫자로 시작하는 난수여도 Banner로 포커스를 옮긴다', async () => {
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.05); // base36 "0.1w…" -> 숫자로 시작
+    const { onRun } = setup((s) => {
+      s.entry.triggers.reboundDays.on = s.entry.triggers.breakout.on = false;
+    });
+    rnd.mockRestore();
+    await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
+    expect(onRun).not.toHaveBeenCalled();
+    const banner = screen.getByText('매수 신호가 나지 않아요. 트리거를 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
+    expect(/^\d/.test(banner.id)).toBe(false);
+    expect(document.activeElement).toBe(banner);
+  });
+
   it('경고가 없으면 onRun을 부른다', async () => {
     const { onRun } = setup();
     await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
