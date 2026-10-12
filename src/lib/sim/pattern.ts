@@ -12,6 +12,8 @@ export interface PatternTracker {
   reset(i: number): void;
   /** nearMiss용: 지금까지 본 가장 큰 (A−L)/A %, 하락 조건을 만족한 날 수 */
   stats(): { maxDropPct: number; declineDays: number };
+  /** stats()만 0으로 돌린다. 거래 기간 첫날에 불러 워밍업을 통계에서 뺀다. */
+  resetStats(): void;
 }
 
 export function createPatternTracker(candles: Candle[], entry: Strategy['entry']): PatternTracker {
@@ -117,6 +119,10 @@ export function createPatternTracker(candles: Candle[], entry: Strategy['entry']
     reset,
     stats() {
       return { maxDropPct, declineDays };
+    },
+    resetStats() {
+      maxDropPct = 0;
+      declineDays = 0;
     },
   };
 }

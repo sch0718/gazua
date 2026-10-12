@@ -201,4 +201,14 @@ describe('createPatternTracker', () => {
     // 하락 조건(어제까지 상태)은 5..9일에 만족
     expect(tr.stats()).toEqual({ maxDropPct: 20, declineDays: 5 });
   });
+
+  it('resetStats: 통계만 0으로 돌리고 상태는 유지', () => {
+    const tr = createPatternTracker(barsFromCloses(closes), entry);
+    for (let i = 0; i < 7; i++) tr.update(i);
+    expect(tr.stats().declineDays).toBeGreaterThan(0);
+    tr.resetStats();
+    expect(tr.stats()).toEqual({ maxDropPct: 0, declineDays: 0 });
+    for (let i = 7; i < closes.length; i++) tr.update(i);
+    expect(tr.stats()).toEqual({ maxDropPct: 20, declineDays: 3 });
+  });
 });
