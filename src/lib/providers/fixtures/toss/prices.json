@@ -1,0 +1,22 @@
+{
+  "result": [
+    {
+      "symbol": "005930",
+      "timestamp": "2026-03-25T09:30:00.123+09:00",
+      "lastPrice": "72000",
+      "currency": "KRW"
+    },
+    {
+      "symbol": "000660",
+      "timestamp": "2026-03-25T09:30:01.789+09:00",
+      "lastPrice": "198500",
+      "currency": "KRW"
+    },
+    {
+      "symbol": "069500",
+      "timestamp": "2026-03-25T09:30:02.001+09:00",
+      "lastPrice": "36450",
+      "currency": "KRW"
+    }
+  ]
+}

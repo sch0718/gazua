@@ -1,0 +1,165 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "MCA00000",
+  "msg1": "정상처리 되었습니다.",
+  "output1": {
+    "stck_prpr": "71300",
+    "stck_prdy_vrss": "500",
+    "prdy_vrss_sign": "2",
+    "prdy_ctrt": "0.70",
+    "hts_kor_isnm": "삼성전자",
+    "stck_shrn_iscd": "005930"
+  },
+  "output2": [
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "093000",
+      "stck_prpr": "71300",
+      "stck_oprc": "71290",
+      "stck_hgpr": "71310",
+      "stck_lwpr": "71280",
+      "cntg_vol": "1203",
+      "acml_tr_pbmn": "85773900"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092900",
+      "stck_prpr": "71290",
+      "stck_oprc": "71280",
+      "stck_hgpr": "71300",
+      "stck_lwpr": "71270",
+      "cntg_vol": "1196",
+      "acml_tr_pbmn": "85262840"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092800",
+      "stck_prpr": "71280",
+      "stck_oprc": "71270",
+      "stck_hgpr": "71290",
+      "stck_lwpr": "71260",
+      "cntg_vol": "1189",
+      "acml_tr_pbmn": "84751920"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092700",
+      "stck_prpr": "71270",
+      "stck_oprc": "71260",
+      "stck_hgpr": "71280",
+      "stck_lwpr": "71250",
+      "cntg_vol": "1182",
+      "acml_tr_pbmn": "84241140"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092600",
+      "stck_prpr": "71260",
+      "stck_oprc": "71250",
+      "stck_hgpr": "71270",
+      "stck_lwpr": "71240",
+      "cntg_vol": "1175",
+      "acml_tr_pbmn": "83730500"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092500",
+      "stck_prpr": "71250",
+      "stck_oprc": "71240",
+      "stck_hgpr": "71260",
+      "stck_lwpr": "71230",
+      "cntg_vol": "1168",
+      "acml_tr_pbmn": "83220000"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092400",
+      "stck_prpr": "71240",
+      "stck_oprc": "71230",
+      "stck_hgpr": "71250",
+      "stck_lwpr": "71220",
+      "cntg_vol": "1161",
+      "acml_tr_pbmn": "82709640"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092300",
+      "stck_prpr": "71230",
+      "stck_oprc": "71220",
+      "stck_hgpr": "71240",
+      "stck_lwpr": "71210",
+      "cntg_vol": "1154",
+      "acml_tr_pbmn": "82199420"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092200",
+      "stck_prpr": "71220",
+      "stck_oprc": "71210",
+      "stck_hgpr": "71230",
+      "stck_lwpr": "71200",
+      "cntg_vol": "1147",
+      "acml_tr_pbmn": "81689340"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092100",
+      "stck_prpr": "71210",
+      "stck_oprc": "71200",
+      "stck_hgpr": "71220",
+      "stck_lwpr": "71190",
+      "cntg_vol": "1140",
+      "acml_tr_pbmn": "81179400"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "092000",
+      "stck_prpr": "71200",
+      "stck_oprc": "71190",
+      "stck_hgpr": "71210",
+      "stck_lwpr": "71180",
+      "cntg_vol": "1133",
+      "acml_tr_pbmn": "80669600"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "091900",
+      "stck_prpr": "71190",
+      "stck_oprc": "71180",
+      "stck_hgpr": "71200",
+      "stck_lwpr": "71170",
+      "cntg_vol": "1126",
+      "acml_tr_pbmn": "80159940"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "091800",
+      "stck_prpr": "71180",
+      "stck_oprc": "71170",
+      "stck_hgpr": "71190",
+      "stck_lwpr": "71160",
+      "cntg_vol": "1119",
+      "acml_tr_pbmn": "79650420"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "091700",
+      "stck_prpr": "71170",
+      "stck_oprc": "71160",
+      "stck_hgpr": "71180",
+      "stck_lwpr": "71150",
+      "cntg_vol": "1112",
+      "acml_tr_pbmn": "79141040"
+    },
+    {
+      "stck_bsop_date": "20261008",
+      "stck_cntg_hour": "091600",
+      "stck_prpr": "71160",
+      "stck_oprc": "71150",
+      "stck_hgpr": "71170",
+      "stck_lwpr": "71140",
+      "cntg_vol": "1105",
+      "acml_tr_pbmn": "78631800"
+    }
+  ]
+}

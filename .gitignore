@@ -5,6 +5,8 @@ dist/
 .env.*
 .wrangler/
 public/universe.json
+public/universe.json.tmp
 playwright-report/
 test-results/
 coverage/
+.superpowers/

@@ -1,0 +1,40 @@
+{
+  "rt_cd": "0",
+  "msg_cd": "MCA00000",
+  "msg1": "정상처리 되었습니다.",
+  "output1": {
+    "bstp_nmix_prpr": "2650.12"
+  },
+  "output2": [
+    {
+      "stck_bsop_date": "20261008",
+      "bstp_nmix_prpr": "2650.12",
+      "bstp_nmix_oprc": "2640.5",
+      "bstp_nmix_hgpr": "2655",
+      "bstp_nmix_lwpr": "2635.2",
+      "acml_vol": "400000000",
+      "acml_tr_pbmn": "9000000",
+      "mod_yn": "N"
+    },
+    {
+      "stck_bsop_date": "20261007",
+      "bstp_nmix_prpr": "2641.3",
+      "bstp_nmix_oprc": "2630.1",
+      "bstp_nmix_hgpr": "2645",
+      "bstp_nmix_lwpr": "2625",
+      "acml_vol": "390000000",
+      "acml_tr_pbmn": "8800000",
+      "mod_yn": "N"
+    },
+    {
+      "stck_bsop_date": "20261006",
+      "bstp_nmix_prpr": "2631.9",
+      "bstp_nmix_oprc": "2620",
+      "bstp_nmix_hgpr": "2635.4",
+      "bstp_nmix_lwpr": "2615.8",
+      "acml_vol": "380000000",
+      "acml_tr_pbmn": "8700000",
+      "mod_yn": "N"
+    }
+  ]
+}

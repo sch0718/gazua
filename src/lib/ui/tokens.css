@@ -1,0 +1,222 @@
+@import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
+
+/* ===== 토큰 (스펙 8.2·8.3) =====
+   라이트 = :root, 다크 = 시스템 설정(자동) 또는 data-theme="dark" 지정.
+   값을 바꿀 때는 세 곳(라이트 / 다크 자동 / 다크 지정)을 함께 고친다. */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface2: #f0f1f4;
+  --line: #e3e5e9;
+  --t1: #111317;
+  --t2: #5b6069;
+  --t3: #676d77; /* WCAG AA(4.5:1) 이상: 흰 표면·표면 2·배경 모두 */
+  --accent: #5b47e0;
+  --accent-soft: rgba(91, 71, 224, 0.1);
+  --on-accent: #ffffff;
+  --snack-action: #b9acff; /* 반전 배경(스낵바) 위의 강조색 */
+  --up: #d4202f; /* 스펙 8.2의 #e02e3c는 표면 2(hover 행)에서 4.02:1이라 AA 미달 → 4.59:1로 조정 */
+  --down: #1d5fd6;
+  --ok: #0a7d0a;
+  --warn: #855600;
+  --err: #b82a2a;
+  --band: rgba(17, 19, 23, 0.045);
+  --hatch: rgba(17, 19, 23, 0.24);
+  --grid: rgba(17, 19, 23, 0.07);
+  --scrim: rgba(17, 19, 23, 0.38);
+  --shadow: 0 10px 40px rgba(17, 19, 23, 0.18);
+  --s1: #eb6834;
+  --s2: #1baf7a;
+  --s3: #4a3aa7;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --s7: #2a78d6;
+  --s8: #e34948;
+
+  /* 테마와 무관한 토큰 */
+  --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Noto Sans KR', sans-serif;
+  --fs-headline: 28px;
+  --fs-title: 17px;
+  --fs-body: 15px;
+  --fs-sub: 13px;
+  --fs-label: 11px;
+  --r-chip: 999px;
+  --r-card: 16px;
+  --r-sheet: 24px;
+  --gutter: 16px;
+  --touch: 44px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 250ms;
+}
+@media (min-width: 600px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e0f11;
+    --surface: #17181b;
+    --surface2: #1f2125;
+    --line: #2a2d33;
+    --t1: #f2f3f5;
+    --t2: #a4a8b0;
+    --t3: #868b94;
+    --accent: #a093ff; /* 스펙 8.2의 #8b7bff는 hover 행 위 NXT 배지(accent-soft 위)에서 4.01:1 → AA */
+    --accent-soft: rgba(160, 147, 255, 0.14);
+    --on-accent: #0e0f11;
+    --snack-action: #5b47e0;
+    --up: #ff5a5f;
+    --down: #4c8dff;
+    --ok: #3ccf5a;
+    --warn: #fab219;
+    --err: #ff6b6b;
+    --band: rgba(255, 255, 255, 0.045);
+    --hatch: rgba(255, 255, 255, 0.24);
+    --grid: rgba(255, 255, 255, 0.07);
+    --scrim: rgba(0, 0, 0, 0.55);
+    --shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    --s1: #d95926;
+    --s2: #199e70;
+    --s3: #9085e9;
+    --s4: #c98500;
+    --s5: #d55181;
+    --s6: #008300;
+    --s7: #3987e5;
+    --s8: #e66767;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e0f11;
+  --surface: #17181b;
+  --surface2: #1f2125;
+  --line: #2a2d33;
+  --t1: #f2f3f5;
+  --t2: #a4a8b0;
+  --t3: #868b94;
+  --accent: #a093ff; /* 스펙 8.2의 #8b7bff는 hover 행 위 NXT 배지(accent-soft 위)에서 4.01:1 → AA */
+  --accent-soft: rgba(160, 147, 255, 0.14);
+  --on-accent: #0e0f11;
+  --snack-action: #5b47e0;
+  --up: #ff5a5f;
+  --down: #4c8dff;
+  --ok: #3ccf5a;
+  --warn: #fab219;
+  --err: #ff6b6b;
+  --band: rgba(255, 255, 255, 0.045);
+  --hatch: rgba(255, 255, 255, 0.24);
+  --grid: rgba(255, 255, 255, 0.07);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  --s1: #d95926;
+  --s2: #199e70;
+  --s3: #9085e9;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #008300;
+  --s7: #3987e5;
+  --s8: #e66767;
+}
+
+/* 글로벌 색 관례: 초록▲ / 빨강▼. 클래스 이름(up/down)은 그대로 두고 색만 바꾼다.
+   다크 값은 선택자 특이도를 맞추려고 아래에 따로 둔다. */
+:root.global-colors {
+  --up: #0a7d0a;
+  --down: #c42f2f;
+}
+@media (prefers-color-scheme: dark) {
+  :root.global-colors:not([data-theme='light']) {
+    --up: #3ccf5a;
+    --down: #ff6b6b;
+  }
+}
+:root.global-colors[data-theme='dark'] {
+  --up: #3ccf5a;
+  --down: #ff6b6b;
+}
+
+/* ===== 기본 스타일 ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+* {
+  margin: 0;
+  padding: 0;
+}
+html,
+body {
+  background: var(--bg);
+  color: var(--t1);
+  /* 브라우저 기본 당겨서 새로고침·튕김을 끄고 앱의 당겨서 새로고침(시세·당일 봉만 갱신)을 쓴다. */
+  overscroll-behavior-y: contain;
+}
+body {
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+.up {
+  color: var(--up);
+}
+.down {
+  color: var(--down);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  /* 이동·크기 전환은 끈다. 페이드(opacity)는 각 컴포넌트가 따로 남긴다. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

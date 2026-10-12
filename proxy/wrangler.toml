@@ -1,0 +1,8 @@
+name = "gazua-proxy"
+main = "src/worker.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+# 콤마로 구분한 허용 출처(정확히 일치). 배포 후 대시보드나 이 파일에서 앱 주소로 바꿔 주세요.
+ALLOWED_ORIGINS = "https://sch0718.github.io"
+# PROXY_TOKEN은 vars가 아니라 시크릿으로 설정합니다: pnpm wrangler secret put PROXY_TOKEN
