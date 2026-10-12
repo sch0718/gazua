@@ -39,6 +39,9 @@ const PRIORITY = 2;
 
 class Cancelled extends Error {}
 
+/** 시·고·저·종가가 모두 유한한 양수인 봉만 쓴다. 나머지는 봉 없음(거래정지)으로 본다. */
+const validBar = (c: Candle) => [c.o, c.h, c.l, c.c].every((p) => Number.isFinite(p) && p > 0);
+
 /** 켜진 조건 중 가장 긴 이동평균 기간. 없으면 0. */
 function longestMa(s: Strategy): number {
   const { triggers, filter } = s.entry;
@@ -101,9 +104,9 @@ export async function loadSimData(args: {
       if (isCancelled()) throw new Cancelled();
       return hit;
     }
-    const candles = await request(() =>
-      provider.getCandles({ symbol, venue, interval: '1d', from: warmFrom, to, priority: PRIORITY }),
-    );
+    const candles = (
+      await request(() => provider.getCandles({ symbol, venue, interval: '1d', from: warmFrom, to, priority: PRIORITY }))
+    ).filter(validBar);
     if (candles.some((c) => inRange(c))) memo.set(key, candles);
     return candles;
   }
@@ -134,7 +137,9 @@ export async function loadSimData(args: {
     try {
       if (!provider.getIndexCandles) throw new Error('지수 일봉을 지원하지 않는 공급자');
       const getIndex = provider.getIndexCandles.bind(provider);
-      indexBars = (await request(() => getIndex(strategy.benchmarks.index, '1d', from, to, PRIORITY))).filter(inRange);
+      indexBars = (await request(() => getIndex(strategy.benchmarks.index, '1d', from, to, PRIORITY))).filter(
+        (c) => inRange(c) && validBar(c),
+      );
     } catch (e) {
       if (e instanceof Cancelled) throw e;
       indexFailed = '받지 못했어요';

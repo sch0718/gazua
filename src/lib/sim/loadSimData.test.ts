@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Candle } from '../data/metrics';
 import { createDemoProvider } from '../providers/demo';
 import type { CandleQuery, MarketDataProvider } from '../providers/types';
 import { addDays, kstDate, kstEpoch } from '../time/kst';
@@ -183,6 +184,31 @@ describe('loadSimData', () => {
     if (!r.ok) throw new Error('expected ok');
     expect(r.benchmarkFailed).toBe(true);
     expect(r.input.benchmarkStock).toBeNull();
+  });
+
+  it('가격이 0이거나 유효하지 않은 봉은 버린다(거래정지 = 봉 없음)', async () => {
+    const base = demo();
+    const bad = (c: Candle, i: number) =>
+      i === 0 ? { ...c, o: 0, h: 0, l: 0 } : i === 1 ? { ...c, c: Number.NaN } : c;
+    const sp = spied({
+      getCandles: async (q) => {
+        const cs = await base.getCandles(q);
+        const k = cs.findIndex((c) => kstDate(c.t) === '2026-03-04');
+        return cs.map((c, i) => bad(c, i - k));
+      },
+      getIndexCandles: async (...a) =>
+        (await base.getIndexCandles!(...a)).map((c) => (kstDate(c.t) === '2026-03-02' ? { ...c, o: 0 } : c)),
+    });
+    const r = await run(sp.provider, strat(), ['005930']);
+    if (!r.ok) throw new Error('expected ok');
+    const dates = r.input.stocks[0].candles.map((c) => kstDate(c.t));
+    expect(dates).not.toContain('2026-03-04');
+    expect(dates).not.toContain('2026-03-05');
+    expect(dates).toContain('2026-03-06');
+    expect(r.input.days).toContain('2026-03-04');
+    // 지수 첫날 봉이 빠지면 비교 기준으로 쓰지 않는다
+    expect(r.input.index).toBeNull();
+    expect(r.indexFailed).toBe('기간 일부만 받았어요');
   });
 
   it('메타가 throw → error', async () => {

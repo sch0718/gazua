@@ -346,6 +346,11 @@ it('candle t는 KST 자정', () => {
 });
 
 describe('simulate', () => {
+  it('평가액이 유한하지 않으면 던진다(시가 0 봉에 매수)', () => {
+    const inp = input(strat(), [candles(BASE, [[0, 0, 0, 97], [97, 97, 97, 97]])]);
+    expect(() => simulate(inp)).toThrow();
+  });
+
   it('SimResult 모양과 hold·index·benchmark 연결', () => {
     const stock = candles(BASE, [[87, 88, 86, 87], [87, 90, 86, 88]]);
     const days = DATES.slice(0, stock.length);

@@ -281,6 +281,11 @@ export function simulate(input: SimInput): SimResult {
   const benchmark = input.benchmarkStock ? singleCurve(days, input.benchmarkStock.candles, initial, fee) : null;
   const summary = summarize(core, { hold, index, benchmark }, days, initial);
 
+  // 잘못된 데이터로 생긴 NaN·Infinity는 숫자 카드 대신 실패 화면으로 보낸다
+  for (const e of core.equity) {
+    if (!Number.isFinite(e.value) || !Number.isFinite(e.cash)) throw new Error(`평가액 계산 실패: ${e.date}`);
+  }
+
   const ret = (c: number[]) => ((c[c.length - 1] ?? initial) / initial - 1) * 100;
 
   return {
