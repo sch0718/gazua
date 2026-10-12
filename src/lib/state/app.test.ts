@@ -861,3 +861,19 @@ describe('createApp — key lock across tabs', () => {
     expect(a.route.name).not.toBe('unlock');
   });
 });
+
+describe('createApp — lock while switching profiles', () => {
+  it('setSecrets with a passphrase rejects (nothing saved) when the profile changes while sealing', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const app = make(backing);
+    app.switchProfile('p1');
+    const pending = app.setSecrets(SECRETS, 'correct horse');
+    app.switchProfile('p2');
+    await expect(pending).rejects.toThrow(/profile changed/);
+    expect(backing.getItem('gazua:v1:p:p1:secrets')).toBeNull();
+    expect(backing.getItem('gazua:v1:p:p2:secrets')).toBeNull();
+  });
+});

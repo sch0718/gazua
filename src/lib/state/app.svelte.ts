@@ -510,7 +510,8 @@ export function createApp(deps: AppDeps): App {
         write(profileKeys.settings(id), settings);
       } else {
         const sealed = await lockSecrets(s, passphrase);
-        if (activeId() !== id) return;
+        // 암호화하는 동안 프로필이 바뀌었으면 아무것도 저장하지 않았다고 알린다(성공으로 보이지 않게).
+        if (activeId() !== id) throw new Error('profile changed while locking: nothing was saved');
         forgetTokens(id);
         locked = sealed;
         unlockUnsaved = false;
