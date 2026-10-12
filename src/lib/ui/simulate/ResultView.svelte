@@ -1,6 +1,6 @@
 <script lang="ts">
   // 결과 보기(스펙 7.4): 머리줄 · 요약 카드 · 자산 곡선 · 비교 기준 · 탭 · 한계 안내.
-  // 탭 본문은 TradeRows·SymbolTab·SkipList로 나눴다.
+  // 탭 본문은 TradeList·SymbolTab·SkipList로 나눴다.
   import type { Trade } from '../../sim/types';
   import Badge from '../components/Badge.svelte';
   import Segmented from '../components/Segmented.svelte';
@@ -10,7 +10,8 @@
   import { dominantSkipReason, fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, trendReturn } from './simText';
   import SkipList from './SkipList.svelte';
   import SymbolTab from './SymbolTab.svelte';
-  import TradeRows from './TradeRows.svelte';
+  import TradeChartSheet from './TradeChartSheet.svelte';
+  import TradeList from './TradeList.svelte';
 
   // 'state' 이름은 $state 룬과 겹쳐서 done으로 받는다.
   let {
@@ -25,6 +26,13 @@
   const sum = $derived(result.summary);
   const benchSymbol = $derived(meta.strategy.benchmarks.symbol);
   const benchName = $derived(benchSymbol ? (meta.names[benchSymbol] ?? benchSymbol) : null);
+
+  // 누른 거래: 시트를 열고 바깥(onTrade)에도 알린다
+  let picked = $state<Trade | null>(null);
+  const pick = (t: Trade) => {
+    picked = t;
+    onTrade(t);
+  };
 
   let tab = $state<'trades' | 'symbols' | 'skipped'>('trades');
 
@@ -123,7 +131,7 @@
     />
     <div class="tab">
       {#if tab === 'trades'}
-        <TradeRows trades={result.trades} names={meta.names} {colorConvention} {onTrade} />
+        <TradeList trades={result.trades} names={meta.names} {colorConvention} onTrade={pick} />
       {:else if tab === 'symbols'}
         <SymbolTab perSymbol={result.perSymbol} firstDay={result.equity[0]?.date ?? null} failed={meta.failed} {colorConvention} />
       {:else}
@@ -131,6 +139,15 @@
       {/if}
     </div>
   {/if}
+
+  <TradeChartSheet
+    open={picked !== null}
+    trade={picked}
+    trades={result.trades}
+    candles={picked ? (meta.candles[picked.symbol] ?? []) : []}
+    name={picked ? (meta.names[picked.symbol] ?? picked.symbol) : ''}
+    onclose={() => (picked = null)}
+  />
 
   <ul class="limits" aria-label="결과 해석 한계">
     {#each LIMITATIONS as line (line)}

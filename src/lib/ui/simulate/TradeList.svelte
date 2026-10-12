@@ -1,8 +1,8 @@
 <script lang="ts">
-  // 거래 내역(임시): 날짜 · 종목 · 사유, 매도 행은 손익 %. Task 12의 TradeList가 대신한다.
+  // 거래 내역(스펙 7.4-5): 날짜 · 종목 · 사유, 매수는 수량@가격, 매도는 손익 %. 행을 누르면 거래 차트.
   import type { Trade } from '../../sim/types';
-  import { trendClass } from '../format';
-  import { shortDate, trendReturn } from './simText';
+  import { fmtWon, trendClass } from '../format';
+  import { fmtReturnPct, shortDate } from './simText';
 
   let {
     trades,
@@ -11,7 +11,13 @@
     onTrade,
   }: { trades: Trade[]; names: Record<string, string>; colorConvention: 'kr' | 'global'; onTrade: (t: Trade) => void } = $props();
 
-  const what = (t: Trade) => (t.kind === 'buy' ? `${t.reason} 매수` : t.kind === 'add' ? `${t.reason} 추가 매수` : t.reason);
+  const isBuy = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
+  const why = (t: Trade) => (t.kind === 'buy' ? `${t.reason} 매수` : t.kind === 'add' ? '추가 매수' : t.reason);
+  // 매도 손익: 부호는 ▲▼가 맡으므로 절댓값
+  const pnl = (v: number) => {
+    const text = fmtReturnPct(Math.abs(v));
+    return text === '0.0%' ? text : `${v > 0 ? '▲' : '▼'}${text}`;
+  };
 </script>
 
 <ul class="rows" aria-label="거래 내역">
@@ -20,9 +26,12 @@
       <button type="button" onclick={() => onTrade(t)}>
         <span class="num date">{shortDate(t.date)}</span>
         <span class="name">{names[t.symbol] ?? t.symbol}</span>
-        <span class="why">· {what(t)}</span>
-        {#if t.pnlPct !== undefined}
-          <span class="num pnl {trendClass(t.pnlPct, colorConvention)}">{trendReturn(t.pnlPct)}</span>
+        <span class="why">· {why(t)}</span>
+        {#if isBuy(t)}
+          <span class="why num">· {t.qty}주 @ {fmtWon(t.price)}</span>
+        {:else if t.pnlPct !== undefined}
+          <span class="why">·</span>
+          <span class="num pnl {trendClass(t.pnlPct, colorConvention)}">{pnl(t.pnlPct)}</span>
         {/if}
       </button>
     </li>
@@ -37,7 +46,8 @@
   }
   button {
     display: flex;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 2px 6px;
     width: 100%;
     min-height: 44px;
     align-items: center;
@@ -55,7 +65,6 @@
     color: var(--t2);
   }
   .pnl {
-    margin-left: auto;
     font-weight: 600;
   }
 </style>

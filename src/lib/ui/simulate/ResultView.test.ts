@@ -89,11 +89,17 @@ describe('ResultView', () => {
     expect(tab('거래 내역')).toBeTruthy();
     expect(tab('종목별')).toBeTruthy();
     expect(tab('건너뛴 신호 3')).toBeTruthy();
-    const loss = screen.getByText('▼ −5.6%');
+    const loss = screen.getByText('▼5.6%');
     expect(loss.className).toContain('down');
-    expect(screen.getByText('▲ +15.0%').className).toContain('up');
+    expect(screen.getByText('▲15.0%').className).toContain('up');
     await fireEvent.click(screen.getByRole('button', { name: /03\.14 SK하이닉스/ }));
     expect(onTrade).toHaveBeenCalledWith(expect.objectContaining({ date: '2024-03-14', symbol: '000660' }));
+  });
+
+  it('거래 행을 누르면 그 종목의 거래 차트 시트가 열린다', async () => {
+    setup();
+    await fireEvent.click(screen.getByRole('button', { name: /04\.02 SK하이닉스/ }));
+    expect(screen.getByRole('dialog', { name: 'SK하이닉스' })).toBeTruthy();
   });
 
   it('종목별 탭: 손익·참여 시작일·제외', async () => {

@@ -5,6 +5,10 @@
 export interface StubSeries {
   options: Record<string, unknown>;
   data: unknown[];
+  /** createSeriesMarkers로 넣은 마커(마지막 setMarkers 기준) */
+  markers: unknown[];
+  /** createPriceLine으로 만든 가격선 옵션 */
+  priceLines: Record<string, unknown>[];
 }
 
 export interface StubChart {
@@ -30,6 +34,8 @@ export interface StubChart {
 }
 
 export const lwcCharts: StubChart[] = [];
+// 시리즈 api → 기록. 차트가 여럿이어도 한 곳에서 찾는다.
+const seriesByApi = new Map<unknown, StubSeries>();
 
 /**
  * 실제 lightweight-charts는 포인터가 차트 위에 있으면 setData·removeSeries 안에서
@@ -59,7 +65,6 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
       for (const h of rangeHandlers) h();
     },
   };
-  const byApi = new Map<unknown, StubSeries>();
   const crosshair: ((p: { time?: number }) => void)[] = [];
   const fireCrosshair = () => {
     const p = lwcStubHooks.crosshairOnSetData;
@@ -95,7 +100,7 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
       chart.removed = true;
     },
     addSeries: (_def: unknown, options: Record<string, unknown>) => {
-      const s: StubSeries = { options, data: [] };
+      const s: StubSeries = { options, data: [], markers: [], priceLines: [] };
       chart.series.push(s);
       chart.addSeriesCalls++;
       const api = {
@@ -103,26 +108,42 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
           s.data = d;
           fireCrosshair();
         },
-        createPriceLine: () => {},
+        createPriceLine: (o: Record<string, unknown>) => {
+          s.priceLines.push(o);
+          return {};
+        },
         applyOptions: () => {},
         attachPrimitive: () => {},
         priceToCoordinate: (price: number) => chart.priceToY(price),
       };
-      byApi.set(api, s);
+      seriesByApi.set(api, s);
       return api;
     },
     removeSeries: (api: unknown) => {
-      const s = byApi.get(api);
+      const s = seriesByApi.get(api);
       chart.series = chart.series.filter((x) => x !== s);
-      byApi.delete(api);
+      seriesByApi.delete(api);
       fireCrosshair();
     },
+  };
+}
+
+/** v5의 createSeriesMarkers: 시리즈 api에서 StubSeries를 찾아 마커를 기록한다. */
+function createSeriesMarkers(api: unknown, markers: unknown[] = []) {
+  const s = seriesByApi.get(api);
+  if (s) s.markers = markers;
+  return {
+    setMarkers: (m: unknown[]) => {
+      if (s) s.markers = m;
+    },
+    detach: () => {},
   };
 }
 
 export function lwcModule() {
   return {
     createChart,
+    createSeriesMarkers,
     ColorType: { Solid: 'solid' },
     CrosshairMode: { Normal: 0 },
     LineSeries: { type: 'Line' },
