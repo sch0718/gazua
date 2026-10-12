@@ -527,6 +527,32 @@ describe('compareController', () => {
       expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8, 17]);
     });
 
+    it('an index that settles before its reload’s stock does not move the still-fresh old stock’s excess', async () => {
+      const t = track(setup());
+      indexMock.mockResolvedValueOnce(indexSeries(1010, 1000, NOW));
+      t.ctl.setQuery(t.query({ symbols: ['005930'], excess: true }));
+      await vi.waitFor(() => {
+        t.resolveAll({ candles: [bar(NOW - 60_000, 110)] });
+        expect(t.ctl.entries['005930']).toBeDefined();
+        expect(t.ctl.indexes.KOSPI?.status).toBe('ok');
+      });
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([9]);
+
+      // 다음 갱신: 지수가 먼저 도착한다(같은 시각 진행 봉 1010 → 1020). 종목은 아직 받는 중이다.
+      t.setNow(NOW + 60_000);
+      indexMock.mockResolvedValueOnce(indexSeries(1020, 1000, NOW + 60_000));
+      await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+      await vi.waitFor(() => expect(t.ctl.indexes.KOSPI?.series?.computedAt).toBe(NOW + 60_000));
+      expect(t.ctl.entries['005930'].series?.stale).toBe(false);
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([9]);
+
+      // 새 종목 결과가 오면 그때 새 지수와 짝짓는다.
+      await vi.waitFor(() => expect(t.pending.size).toBe(1));
+      t.resolveAll({ candles: [bar(NOW - 60_000, 110)], computedAt: NOW + 60_000 });
+      await vi.waitFor(() => expect(t.ctl.entries['005930'].series?.computedAt).toBe(NOW + 60_000));
+      expect(excessOf(t, '005930').map((p) => p.v)).toEqual([8]);
+    });
+
     it('(b) a stale stock snapshot keeps the excess of its own load when the index’s in-progress bar moves', async () => {
       const t = track(setup());
       indexMock.mockResolvedValueOnce(indexSeries(1010, 1000, NOW));

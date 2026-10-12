@@ -79,8 +79,8 @@ export interface CompareController {
   /** 초과수익에 쓰는 지수: 벤치마크가 자동이면 종목 시장의 지수. */
   indexFor(symbol: string): IndexName;
   /**
-   * 종목 시리즈와 같은 시점의 지수(초과수익용). 새로 받은 종목은 지금 지수와 짝짓되, 지수가 갱신에 실패했거나
-   * 다시 받는 중이라 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 새로 보여 줄 때
+   * 종목 시리즈와 같은 시점의 지수(초과수익용). 새로 받은 종목은 같은 갱신이나 그 전에 시작한 지수 조회의 결과와만
+   * 짝짓고, 지수가 갱신에 실패했거나 다시 받는 중이라 이전 것이면 그 지수의 마지막 봉까지만 쓴다. 이전 결과(stale)를 보여 주는 종목은 그 결과를 새로 보여 줄 때
    * 기억한 지수 짝을 계속 쓴다(값이 바뀌지 않게). 기억한 짝이 없으면 series는 null.
    * 지수 등락률의 기준은 metricPoints가 종목 기준일의 지수 종가로 다시 맞춘다.
    */
@@ -448,10 +448,14 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const entry = indexes[index];
       const series = entries[symbol]?.series;
       if (!series) return NO_INDEX;
-      if (!series.stale) return entry ? pairOf(entry) : NO_INDEX;
-      // 이전 결과(stale)는 그 결과를 새로 보여 줄 때 기억한 짝을 그대로 쓴다. 없으면 계산하지 않는다.
       const known = pairs.get(`${symbol}|${index}`);
-      return known && known.computedAt === series.computedAt ? known.pair : NO_INDEX;
+      const remembered = known && known.computedAt === series.computedAt ? known.pair : null;
+      // 이전 결과(stale)는 그 결과를 새로 보여 줄 때 기억한 짝을 그대로 쓴다. 없으면 계산하지 않는다.
+      if (series.stale) return remembered ?? NO_INDEX;
+      // 새 결과라도 지금 지수가 이 결과보다 늦게 시작한 조회(다음 갱신)의 것이면, 같은 갱신의 종목이 올 때까지
+      // 기억한 짝을 쓴다(지수가 먼저 도착해도 이전 종목 값이 움직였다 돌아오지 않게).
+      if (remembered && (indexAt[index] ?? -Infinity) > series.computedAt) return remembered;
+      return entry ? pairOf(entry) : NO_INDEX;
     },
 
     destroy() {
