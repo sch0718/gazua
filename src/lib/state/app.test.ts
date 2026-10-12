@@ -8,7 +8,7 @@ import { KeyLockNotSavedError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
-import { memoryBacking, seed } from './testStorage';
+import { memoryBacking, seed, totalQuotaBacking } from './testStorage';
 
 const NOW = kstEpoch('2026-10-12', '17:42:00');
 const now = () => NOW;
@@ -563,6 +563,49 @@ describe('createApp — key lock', () => {
     for (let i = 0; i < 2; i++) expect(() => app.disableKeyLock()).toThrow(expect.objectContaining({ reason: 'no-storage' }));
     expect(app.settings.keyLock).toBe(false);
     expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('review 4247273929: under a total quota, a failed disableKeyLock never leaves plaintext keys in storage', async () => {
+    const backing = totalQuotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    seed(backing, 'p:p1:secrets', SECRETS);
+    backing.limit = backing.used() + 5; // 저장 공간이 거의 찼다
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+
+    // 1) 더 긴 프록시 URL 저장이 실패한다(이후 쓰기는 메모리로).
+    app.updateSettings({ proxyUrl: `https://proxy.test/${'x'.repeat(60)}` });
+    expect(app.settings.proxyUrl).toContain('xxxx');
+    // 2) 잠금 저장이 실패하고 저장소의 이전 평문 키는 지워진다.
+    await expect(app.setSecrets(SECRETS, 'correct horse')).rejects.toMatchObject({ kind: 'lock', reason: 'cleared' });
+    expect(backing.dump()).not.toContain(SECRETS.kis!.appKey);
+    // 3) 잠금 끄기: 설정과 평문 키를 모두 저장할 수는 없다.
+    expect(() => app.disableKeyLock()).toThrow(KeyLockNotSavedError);
+    expect(app.settings.keyLock).toBe(true);
+    const dump = backing.dump();
+    expect(dump).not.toContain(SECRETS.kis!.appKey);
+    expect(dump).not.toContain(SECRETS.kis!.appSecret);
+    expect(dump).not.toContain(SECRETS.proxyToken!);
+    // 새로 열어도 암호 없이 키를 읽지 못한다.
+    const reopened = make(backing, { fetchImpl: fakeKisFetch() });
+    expect(reopened.secrets).toBeNull();
+  });
+
+  it('under a total quota with room, disableKeyLock persists plaintext keys and keyLock=false', async () => {
+    const backing = totalQuotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    await app.unlock('correct horse');
+    // 시작할 때 쓰는 값까지 저장한 뒤 거의 가득 차게 한다(설정이 기본값으로 채워지며 조금 커진다).
+    backing.limit = backing.used() + 400;
+    app.disableKeyLock();
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(SECRETS);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).keyLock).toBe(false);
+    expect(make(backing).secrets).toEqual(SECRETS);
   });
 
   it('a late token from the replaced plain-mode provider is not persisted after the lock turns on', async () => {

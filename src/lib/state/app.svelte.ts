@@ -496,12 +496,16 @@ export function createApp(deps: AppDeps): App {
       }
       // 사용자가 잠금을 끄겠다고 한 경우에만 평문으로 다시 저장한다. 실제로 저장된 뒤에만 잠금을 내려놓는다:
       // 실패하면 이 탭도 잠긴 채로 두어, 다시 시도하면 다시 쓰고 또 실패하면 같은 실패를 알린다.
+      // 불변식: 실패로 끝나면 저장소에 평문 키가 남지 않는다. 그래서 평문을 마지막에 쓴다.
+      //   1) keyLock:false 설정을 먼저 쓴다. 실패하면 아무것도 바뀌지 않았다.
+      //   2) 평문 키를 쓴다. 실패하면 저장된 잠긴 키는 그대로이고(잠금 여부는 저장된 키의 모양으로 정해진다),
+      //      설정은 최선 노력으로 되돌린다(되돌리지 못해도 잠긴 키라 열 때 암호를 묻는다).
       const secretsKey = profileKeys.secrets(id);
+      const settingsKey = profileKeys.settings(id);
       const nextSettings = { ...settings, keyLock: false };
-      let saved = storage.trySet(secretsKey, secrets);
-      if (saved && !storage.trySet(profileKeys.settings(id), nextSettings)) {
-        // 설정이 저장되지 않으면 잠긴 키를 되돌려 둔다(저장소가 '평문 + 잠금 켜짐'으로 남지 않게, 최선 노력).
-        if (locked !== null) storage.trySet(secretsKey, locked);
+      let saved = storage.trySet(settingsKey, nextSettings);
+      if (saved && !storage.trySet(secretsKey, secrets)) {
+        storage.trySet(settingsKey, settings);
         saved = false;
       }
       storageTick++;
