@@ -23,8 +23,8 @@ import {
 import { exportData, importData, type ImportResult } from './exportImport';
 import { hashFor, parseHash, type Route } from './routes';
 import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
-import { WrongPassphraseError, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
-import type { SafeStorage } from './storage';
+import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
+import { STORAGE_PREFIX, type SafeStorage } from './storage';
 
 export type { Route, RouteName } from './routes';
 
@@ -122,6 +122,14 @@ export class KeyLockNotSavedError extends Error {
   }
 }
 
+/** 평문으로 키를 저장하려 했지만, 저장소의 키는 이미 (다른 탭에서) 암호로 잠겨 있다. 아무것도 저장하지 않았다. */
+export class KeyLockedElsewhereError extends Error {
+  constructor() {
+    super('stored keys are sealed (locked in another tab): plaintext save refused');
+    this.name = 'KeyLockedElsewhereError';
+  }
+}
+
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
 export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요';
 export const DEMO_BANNER = '데모 데이터를 보고 있어요';
@@ -167,8 +175,16 @@ export function createApp(deps: AppDeps): App {
 
   function loadProfile(id: string) {
     const stored = loadStoredSecrets(storage, id);
+    // 잠금 여부는 저장된 키의 모양이 정한다(잠긴 키면 켜짐, 평문·없음이면 꺼짐). 설정이 다르면 고쳐 둔다
+    // (다른 탭이 잠그는 사이 평문이 저장되었거나, 잠금 끄기 도중 실패한 상태 등).
+    let loadedSettings = loadSettings(storage, id);
+    const shapeLock = stored.locked !== null;
+    if (loadedSettings.keyLock !== shapeLock) {
+      loadedSettings = { ...loadedSettings, keyLock: shapeLock };
+      storage.set(profileKeys.settings(id), loadedSettings);
+    }
     return {
-      settings: loadSettings(storage, id),
+      settings: loadedSettings,
       watchlists: loadWatchlists(storage, id),
       recent: loadRecent(storage, id),
       secrets: stored.plain,
@@ -301,9 +317,40 @@ export function createApp(deps: AppDeps): App {
     enter();
   }
 
+  /**
+   * 다른 탭이 이 프로필의 키·설정을 바꾸면(storage 이벤트) 잠금 상태를 저장소에 맞춘다.
+   * 다른 탭이 키를 잠갔으면 이 탭도 키·토큰을 버리고 잠금 해제 화면으로, 잠금을 껐으면 저장된 평문 키를 쓴다.
+   */
+  function onStorage(e: StorageEvent) {
+    const id = activeId();
+    const watched = [profileKeys.secrets(id), profileKeys.settings(id)].map((k) => STORAGE_PREFIX + k);
+    if (e.key !== null && !watched.includes(e.key)) return;
+    const raw = storage.readBacking<unknown>(profileKeys.secrets(id), null);
+    if (isLocked(raw)) {
+      if (locked !== null && JSON.stringify(locked) === JSON.stringify(raw)) return;
+      locked = raw;
+      secrets = null;
+      unlockUnsaved = false;
+      settings = { ...settings, keyLock: true };
+      memoryTokens.clear();
+      rebuild();
+      enter();
+      return;
+    }
+    if (locked !== null) {
+      locked = null;
+      unlockUnsaved = false;
+      secrets = raw !== null && typeof raw === 'object' ? (raw as Secrets) : null;
+      settings = { ...settings, keyLock: false };
+      rebuild();
+      enter();
+    }
+  }
+
   enter();
   applyDisplay();
   win?.addEventListener('hashchange', onHashChange);
+  win?.addEventListener('storage', onStorage);
 
   return {
     get route() {
@@ -453,10 +500,14 @@ export function createApp(deps: AppDeps): App {
       const id = activeId();
       if (passphrase === undefined) {
         if (settings.keyLock) throw new Error('keyLock is on: a passphrase is required');
+        // 다른 탭이 그사이 키를 잠갔으면 평문으로 덮어쓰지 않는다(이 탭은 아직 잠금 꺼짐으로 알고 있을 수 있다).
+        if (isLocked(storage.readBacking<unknown>(profileKeys.secrets(id), null))) throw new KeyLockedElsewhereError();
         forgetTokens(id);
         locked = null;
         unlockUnsaved = false;
         write(profileKeys.secrets(id), s);
+        // 평문 키는 언제나 잠금 꺼짐과 함께 저장한다.
+        write(profileKeys.settings(id), settings);
       } else {
         const sealed = await lockSecrets(s, passphrase);
         if (activeId() !== id) return;
@@ -553,6 +604,7 @@ export function createApp(deps: AppDeps): App {
 
     destroy() {
       win?.removeEventListener('hashchange', onHashChange);
+      win?.removeEventListener('storage', onStorage);
     },
   };
 }

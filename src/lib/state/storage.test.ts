@@ -190,3 +190,21 @@ describe('createSafeStorage — trySet', () => {
     expect(createSafeStorage(null).trySet('k', 1)).toBe(false);
   });
 });
+
+describe('createSafeStorage — readBacking', () => {
+  it('reads what is in the backing store, skipping this tab’s memory overlay', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    backing.data.set('gazua:v1:k', JSON.stringify({ from: 'other tab' }));
+    const setItem = backing.setItem;
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    st.set('k', { from: 'this tab' }); // 메모리 덮어쓰기
+    expect(st.get('k', null)).toEqual({ from: 'this tab' });
+    expect(st.readBacking('k', null)).toEqual({ from: 'other tab' });
+    backing.setItem = setItem;
+    expect(st.readBacking('missing', 'fallback')).toBe('fallback');
+    expect(createSafeStorage(null).readBacking('k', 7)).toBe(7);
+  });
+});

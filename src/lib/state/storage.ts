@@ -8,6 +8,8 @@ export interface SafeStorage {
    * 저장되면 true(이 키의 메모리 덮어쓰기는 지운다). 실패하거나 저장소가 없으면 false이고 아무것도 바꾸지 않는다.
    */
   trySet(key: string, v: unknown): boolean;
+  /** 이 탭의 메모리 덮어쓰기를 건너뛰고 저장소(backing)에 지금 있는 값을 읽는다(다른 탭이 쓴 값 확인용). 없거나 읽지 못하면 fallback. */
+  readBacking<T>(key: string, fallback: T): T;
   /** 저장소(backing)에서 실제로 지웠으면 true. 저장소가 없거나 removeItem이 실패하면 false(메모리에서는 지운 것으로 본다). */
   remove(key: string): boolean;
   /** false once running on the in-memory fallback (no/failed backing storage). */
@@ -19,7 +21,9 @@ export interface SafeStorage {
   reportCorrupt(key: string): void;
 }
 
-const PREFIX = 'gazua:v1:';
+/** 저장소 키 앞에 붙는 접두어(storage 이벤트의 key와 비교할 때 쓴다). */
+export const STORAGE_PREFIX = 'gazua:v1:';
+const PREFIX = STORAGE_PREFIX;
 
 function defaultBacking(): Storage | null {
   try {
@@ -76,6 +80,15 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
         }
       }
       memory.set(key, v);
+    },
+    readBacking<T>(key: string, fallback: T): T {
+      if (!backing) return fallback;
+      try {
+        const raw = backing.getItem(PREFIX + key);
+        return raw === null ? fallback : (JSON.parse(raw) as T);
+      } catch {
+        return fallback;
+      }
     },
     trySet(key, v) {
       if (!backing) return false;

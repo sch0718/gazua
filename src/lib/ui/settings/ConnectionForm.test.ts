@@ -6,7 +6,13 @@ import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
 import { dismissSnackbar } from '../components/snackbarStore.svelte';
-import ConnectionForm from './ConnectionForm.svelte';
+import ConnectionForm, { KEY_LOCKED_ELSEWHERE } from './ConnectionForm.svelte';
+import { createApp } from '../../state/app.svelte';
+import { DEFAULT_SETTINGS } from '../../state/schema';
+import { isLocked, lockSecrets } from '../../state/secrets';
+import { createSafeStorage } from '../../state/storage';
+import { memoryBacking, seed } from '../../state/testStorage';
+import { memoryCache } from '../../data/testCache';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 let apps: App[] = [];
@@ -65,6 +71,25 @@ describe('ConnectionForm', () => {
     await fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await waitFor(() => expect(app.secrets?.proxyToken).toBe('proxy-token-5555'));
     expect(app.settings.proxyUrl).toBe('https://p.example.net');
+  });
+
+  it('refuses to save keys in plaintext when another tab has locked them, and says to reload', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    render(ConnectionForm, { app });
+    // 다른 탭이 키를 잠갔다(이 탭은 storage 이벤트를 아직 받지 못했다).
+    seed(backing, 'p:p1:secrets', await lockSecrets({ kis: { appKey: 'other', appSecret: 'other-secret' } }, 'pass1234'));
+    await fireEvent.input(input('App Key'), { target: { value: 'key-1111' } });
+    await fireEvent.input(input('App Secret'), { target: { value: 'secret-2222' } });
+    await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(KEY_LOCKED_ELSEWHERE);
+    expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
+    expect(backing.dump()).not.toContain('secret-2222');
   });
 
   it('asks for both values of a provider with nothing saved', async () => {

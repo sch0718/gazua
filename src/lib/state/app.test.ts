@@ -4,7 +4,7 @@ import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
-import { KeyLockNotSavedError, createApp, type App } from './app.svelte';
+import { KeyLockNotSavedError, KeyLockedElsewhereError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
@@ -767,5 +767,97 @@ describe('createApp — tokenSourceFor (connection diagnosis shares the provider
     expect(tokenPosts(fetchImpl)).toBe(1);
     expect(backing.dump()).not.toContain(':token:');
     expect(backing.dump()).not.toContain('test-access-token');
+  });
+});
+
+describe('createApp — key lock across tabs', () => {
+  const OTHER: Secrets = { kis: { appKey: 'PSotherKey-9999999999', appSecret: 'otherSecret/ZZZZZZZZZZZZZZZZ' } };
+
+  function plainShared() {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    seed(backing, 'p:p1:secrets', SECRETS);
+    return backing;
+  }
+  const storedSecrets = (b: Storage) => JSON.parse(b.getItem('gazua:v1:p:p1:secrets')!);
+  const storedSettings = (b: Storage) => JSON.parse(b.getItem('gazua:v1:p:p1:settings')!);
+
+  it('(a) on load the stored keys decide keyLock: plaintext + keyLock:true opens unlocked and fixes the setting', () => {
+    const backing = plainShared();
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    const app = make(backing);
+    expect(app.settings.keyLock).toBe(false);
+    expect(storedSettings(backing).keyLock).toBe(false);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('(a) on load sealed keys + keyLock:false open locked and fix the setting', async () => {
+    const backing = plainShared();
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing);
+    expect(app.settings.keyLock).toBe(true);
+    expect(storedSettings(backing).keyLock).toBe(true);
+    expect(app.route.name).toBe('unlock');
+    expect(app.secrets).toBeNull();
+  });
+
+  it('(b) two tabs: after B seals the keys, A’s plaintext save is refused and storage stays sealed', async () => {
+    const backing = plainShared();
+    const a = make(backing, { fetchImpl: fakeKisFetch() });
+    const b = make(backing, { fetchImpl: fakeKisFetch() });
+    await b.setSecrets(SECRETS, 'correct horse');
+    expect(isLocked(storedSecrets(backing))).toBe(true);
+    // A는 storage 이벤트를 받지 못한 채(잠금 꺼짐으로 알고) 키를 저장한다.
+    expect(a.settings.keyLock).toBe(false);
+    await expect(a.setSecrets(OTHER)).rejects.toBeInstanceOf(KeyLockedElsewhereError);
+    expect(isLocked(storedSecrets(backing))).toBe(true);
+    expect(backing.dump()).not.toContain(OTHER.kis!.appKey);
+    // 다시 열면 암호를 묻는다.
+    const reopened = make(backing);
+    expect(reopened.route.name).toBe('unlock');
+    expect(reopened.secrets).toBeNull();
+    expect(reopened.settings.keyLock).toBe(true);
+  });
+
+  it('(b) a plaintext save also stores keyLock:false', async () => {
+    const backing = plainShared();
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:secrets', null);
+    backing.removeItem('gazua:v1:p:p1:secrets');
+    const app = make(backing);
+    // 저장된 키가 없으면 잠금이 꺼진 것으로 연다(a). 평문 저장은 설정도 keyLock:false로 남긴다.
+    await app.setSecrets(OTHER);
+    expect(storedSecrets(backing)).toEqual(OTHER);
+    expect(storedSettings(backing).keyLock).toBe(false);
+  });
+
+  it('(c) a storage event from another tab that sealed the keys locks this tab and shows the unlock gate', async () => {
+    const backing = plainShared();
+    const a = make(backing, { fetchImpl: fakeKisFetch() });
+    const b = make(backing, { fetchImpl: fakeKisFetch() });
+    expect(a.route.name).toBe('compare');
+    await b.setSecrets(SECRETS, 'correct horse');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets' }));
+    expect(a.secrets).toBeNull();
+    expect(a.settings.keyLock).toBe(true);
+    expect(a.route.name).toBe('unlock');
+    await a.unlock('correct horse');
+    expect(a.secrets).toEqual(SECRETS);
+    // B 자신은 같은 잠금이라 그대로다.
+    expect(b.secrets).toEqual(SECRETS);
+    expect(b.route.name).not.toBe('unlock');
+  });
+
+  it('(c) the storage listener is removed on destroy', async () => {
+    const backing = plainShared();
+    const a = make(backing);
+    const b = make(backing);
+    a.destroy();
+    await b.setSecrets(SECRETS, 'correct horse');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets' }));
+    expect(a.secrets).toEqual(SECRETS);
+    expect(a.route.name).not.toBe('unlock');
   });
 });

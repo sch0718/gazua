@@ -1,8 +1,12 @@
+<script lang="ts" module>
+  export const KEY_LOCKED_ELSEWHERE = '다른 탭에서 키를 암호로 잠갔어요. 새로고침한 뒤 다시 저장해 주세요';
+</script>
+
 <script lang="ts">
   // 연결 설정(스펙 7.4): 프록시 URL·프록시 토큰(선택)·공급자 키. 키는 비밀번호 칸으로 받고 저장 뒤엔 끝 4자리만 보인다.
   // 붙여넣으면 앞뒤 공백·줄바꿈을 지운다. 온보딩은 section으로 프록시 칸(③)과 키 칸(④)을 따로 쓴다.
   import { untrack } from 'svelte';
-  import type { App } from '../../state/app.svelte';
+  import { KeyLockedElsewhereError, type App } from '../../state/app.svelte';
   import { trimCredential, type Secrets } from '../../state/secrets';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { KEY_FIELDS, maskTail, mergeKeys, normalizeProxyUrl } from './connection';
@@ -130,8 +134,8 @@
       editing = {};
       if (section === 'all') showSnackbar('저장했어요');
       onsaved?.();
-    } catch {
-      fail(null, '저장하지 못했어요. 다시 시도해 주세요');
+    } catch (err) {
+      fail(null, err instanceof KeyLockedElsewhereError ? KEY_LOCKED_ELSEWHERE : '저장하지 못했어요. 다시 시도해 주세요');
     } finally {
       busy = false;
     }
