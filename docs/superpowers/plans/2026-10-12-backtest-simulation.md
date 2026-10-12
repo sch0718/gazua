@@ -326,25 +326,20 @@ expect(core.trades[0]).toMatchObject({ date: d(9), kind: 'buy', price: 87, qty: 
 // reset after full exit: 매도 뒤 같은 하락으로 재매수 없음, 새 고점 → 새 하락 → 새 반등에서만 재매수
 // warmup bars before days[0] feed the pattern but never trade
 // open position at end: roundTrips 마지막 항목 close null, 매도 비용 없음
+// 스펙 5.2 예시 표 세 줄을 그대로 테스트로(PR #4 리뷰):
+// add skipped for cash still lets the stop below fire: 10주@100, 현금 0, step 3%, avgAlways 5%, 100/90/105/100 → stop @95, 현금 950
+// a stop activated by an add above the cursor fills at the cursor: 초기 1,000·회당 50%, 5주@100, step 50%·max 1, avgAfterScaleIn 5%, 100/40/100/40 → add 10주@50, stop 15주@50, 현금 750
+// breakeven stop fires on the high-to-close leg: 10주@100, 익절 +10% 50%, breakeven, 100/98/112/99 → take 5주@110, stop 5주@100, 현금 1,050
 ```
 
   **미래 데이터 미사용(속성 테스트)**: 시드 고정 무작위 걷기 일봉 3종목 × 300일, 무작위 t(10개)마다 t+1 이후 봉을 다른 시드로 바꾼 입력을 만들어 `simulateCore` 결과의 `trades`·`equity`를 `date ≤ days[t]`로 자른 것이 원래와 같은지 비교한다. 단 t일 종가 판단으로 t+1에 체결될 예약은 비교 대상이 아니다(t일까지만 자른다).
 
 - [ ] **Step 2: 실패 확인** — FAIL
-- [ ] **Step 3: 구현** — 스펙 5.2 순서 그대로. 종목별로 `date → 봉 인덱스` 맵을 만들고 `days`를 돈다. 장중 처리는 한 함수로:
-
-```ts
-// 시가→저가 구간: 시가 이하·저가 이상인 이벤트를 높은 가격부터
-while (true) {
-  const add = pos.nextAddPrice(), stop = pos.stopPrice();
-  const cand = [add, stop].filter((p): p is number => p !== null && p >= bar.l && p <= bar.o);
-  if (!cand.length) break;
-  const p = Math.max(...cand);
-  if (p === stop) { sellAll(p, 'stop'); break; }   // 같은 가격이면 손절 우선
-  if (!tryAdd(p)) break;                            // 현금 부족이면 그 가격 기록 후 멈춤
-}
-```
-  갭(시가가 이미 넘어선 경우)은 이 루프 전에 시가로 처리한다. 상승 구간은 `takeLevels()`를 고가 이하만 낮은 가격부터.
+- [ ] **Step 3: 구현** — 스펙 5.2 순서 그대로. 종목별로 `date → 봉 인덱스` 맵을 만들고 `days`를 돈다. 장중 처리는 가격 커서 하나로 세 구간을 지나는 함수 `walkBar(pos, bar)`로 만든다. 구간은 `[o→l 내려감, l→h 올라감, h→c 내려감]`이다. 이벤트 하나를 처리할 때마다 `stopPrice()`·`nextAddPrice()`·`takeLevels()`를 다시 부른다. 스펙 5.2의 규칙 1~5 순서를 지킨다.
+  - 이미 지나친 가격은 커서 가격에 체결한다.
+  - 내려가는 구간은 가장 높은 손절·추가 매수 가격, 올라가는 구간은 가장 낮은 익절 가격으로 커서를 옮긴다.
+  - 현금 부족으로 건너뛴 추가 매수 가격은 그날 제외 집합에 넣는다.
+  - 전량 매도되면 종료한다.
 - [ ] **Step 4: 통과 확인** — PASS
 - [ ] **Step 5: Commit** — `feat(sim): daily simulation loop with conservative intraday path`
 
@@ -362,15 +357,15 @@ while (true) {
 - Produces:
   ```ts
   function holdCurve(days: string[], stocks: SimInput['stocks'], initial: number, feePct: number): number[];
-  function indexCurve(days: string[], candles: Candle[], initial: number): (number | null)[];   // 그날 봉 없으면 직전 값
+  function indexCurve(days: string[], candles: Candle[], initial: number): number[] | null;   // 첫날·마지막 날 봉이 없으면 null(스펙 6.1), 중간에 빠진 날은 직전 값
   function singleCurve(days: string[], candles: Candle[], initial: number, feePct: number): number[];
-  function summarize(core: CoreResult, curves: { hold: number[]; index: (number|null)[] | null; benchmark: number[] | null }, days: string[], initial: number): SimResult['summary'];
+  function summarize(core: CoreResult, curves: { hold: number[]; index: number[] | null; benchmark: number[] | null }, days: string[], initial: number): SimResult['summary'];
   function nearMiss(core: CoreResult): SimResult['nearMiss'];  // trades 0이고 skipped 0일 때만, 아니면 null
   ```
 
 - [ ] **Step 1: 실패하는 테스트**
   - `holdCurve`: 2종목, 1,000만, 첫날 시가 100·200, 수수료 0 → 각 500만으로 50,000주·25,000주, 마지막 종가 110·180 → 1,000만 × (0.5×1.1 + 0.5×0.9) = 1,000만. 기간 중 상장 종목은 첫 봉 전까지 그 몫이 현금.
-  - `indexCurve`: 첫날 시가 2,500, 마지막 종가 2,750 → 1,100만.
+  - `indexCurve`: 첫날 시가 2,500, 마지막 종가 2,750 → 1,100만. 첫날 봉이 없으면 null, 중간 하루 빠지면 직전 값.
   - `summarize`: 자산 [1000, 1100, 990, 1210]만 → totalReturnPct 21, mddPct −10, round trip 손익 [+10, −5, +20]% → winRatePct 66.67, avgWinPct 15, avgLossPct −5; `vsHoldPp` = 전략 − 보유 총수익률.
   - `cagrPct`: 2023-10-11 → 2026-10-11, 총 +33.1% → 약 10.0%(소수 1자리).
   - `nearMiss is null when signals were all skipped`: trades 0, skipped 3 → null.
@@ -417,7 +412,7 @@ while (true) {
   function createSimMemo(): SimMemo;
   type LoadProgress = { done: number; total: number; waiting: boolean };
   type LoadOutcome =
-    | { ok: true; input: SimInput; failed: { symbol: string; reason: string }[]; venueLabel: 'KRX 일봉' | '통합 일봉'; fetchedAt: number; clampedTo: string | null; indexFailed: boolean; benchmarkFailed: boolean }
+    | { ok: true; input: SimInput; failed: { symbol: string; reason: string }[]; venueLabel: 'KRX 일봉' | '통합 일봉'; fetchedAt: number; clampedTo: string | null; indexFailed: null | '받지 못했어요' | '기간 일부만 받았어요'; benchmarkFailed: boolean }
     | { ok: false; error: unknown }          // 첫 요청(메타)부터 실패 = 연결 문제
     | { ok: false; cancelled: true };
   function loadSimData(args: {
@@ -429,7 +424,11 @@ while (true) {
 - [ ] **Step 1: 실패하는 테스트** (데모 공급자 + 실패를 끼워 넣는 래퍼)
   - 워밍업: 가장 긴 MA 60 → `from − 400일`, MA 250 → `from − 400일`(ceil(250×1.6)=400), MA 300 허용 안 됨(Task 1 범위) — 호출된 `from` 단언.
   - `to at or after today is clamped to yesterday`: now = 2026-10-12, to = '2026-10-12' → 호출 `to` '2026-10-11', `clampedTo` '2026-10-11'.
-  - 거래일 축 = 지수 봉 날짜 중 from..to; 지수 실패 → 종목 날짜 합집합, `indexFailed: true`, `input.index` null.
+  - 거래일 축 = from..to 안의 (지수 날짜 ∪ 종목 날짜). 아래 세 경우 모두 종목 날짜로 축이 채워진다.
+    - 지수가 실패하면 `indexFailed: '받지 못했어요'`이고 `input.index`는 null.
+    - `index returns [] → axis still comes from stocks`: 지수가 `[]`로 성공하면 `indexFailed: '기간 일부만 받았어요'`.
+    - `index covering only the tail is not used as a benchmark`: 지수가 기간 뒤쪽만 오면 축은 전체 기간이고 `indexFailed: '기간 일부만 받았어요'`.
+  - 지수·종목 모두 기간 안에 봉이 없으면 `{ ok: false, error: new Error('기간 안에 받은 데이터가 없어요') }`이고 엔진을 부르지 않는다.
   - `a symbol with no candles in range is reported as failed, not thrown`: 빈 배열 → `failed: [{symbol, reason: '기간 안에 데이터가 없어요'}]`, 나머지 종목으로 계속.
   - 메타가 throw → `{ ok: false, error }`.
   - 진행: 메타·지수·지정 종목·종목 n개 → total = 3 + n, 순서대로 done 증가.
@@ -447,7 +446,7 @@ while (true) {
 ### Task 9: 경로·진입점·전략 목록
 
 **Files:**
-- Modify: `src/lib/state/routes.ts`, `src/App.svelte`, `src/lib/ui/Rail.svelte`
+- Modify: `src/lib/state/routes.ts`, `src/lib/state/app.svelte.ts` (`normalize`), `src/App.svelte`, `src/lib/ui/Rail.svelte`
 - Create: `src/routes/Simulate.svelte`, `src/lib/ui/simulate/StrategyList.svelte`, `src/lib/ui/simulate/simText.ts`
 - Test: `src/lib/state/routes.test.ts`(있으면 추가, 없으면 생성), `src/routes/Simulate.test.ts`, `src/lib/ui/simulate/simText.test.ts`
 
@@ -468,7 +467,8 @@ while (true) {
 - [ ] **Step 1: 실패하는 테스트**
   - routes: 위 parseHash/hashFor 왕복, 잘못된 퍼센트 인코딩은 `{ name: 'simulate' }`.
   - Simulate(목록): 빈 상태 문구 `내 매매 규칙을 과거 데이터로 시험해 보세요`와 `＋ 새 전략`; 누르면 전략 1개 저장 + 해시 `#/simulate/<id>`; 행 메뉴 복제(이름 `… 사본`), 이름 바꾸기, 삭제 + 스낵바 `되돌리기`로 복원; 20개면 `＋ 새 전략` 누를 때 스낵바 `전략은 20개까지 저장할 수 있어요`.
-  - 없는 strategyId → 목록으로 바꾸고 스낵바 `전략을 찾을 수 없어요`.
+  - `app.test.ts` `navigate keeps strategyId for simulate`: 전략 `abc`가 있을 때 `navigate({ name: 'simulate', strategyId: 'abc' })` → `route`·해시가 `#/simulate/abc`. `location.hash = '#/simulate/abc'` + hashchange → 같은 결과(PR #4 리뷰: 지금 `normalize`가 `{ name }`으로 줄임).
+  - 없는 strategyId(또는 프로필 전환 뒤) → `normalize`가 `{ name: 'simulate' }`로 바꾸고 해시도 `#/simulate`, 화면에 스낵바 `전략을 찾을 수 없어요`.
   - App: 앱 바에 aria-label `시뮬레이션` 버튼이 설정 버튼 앞에 있고 누르면 `#/simulate`; Rail에 `시뮬레이션` 항목(설정 위), 지금 경로면 `.on`.
 - [ ] **Step 2: 실패 확인** — FAIL
 - [ ] **Step 3: 구현** — 아이콘은 `App.svelte`의 설정 아이콘처럼 인라인 SVG(선 그래프 모양). 목록 행 메뉴는 기존 `Sheet`로.
@@ -521,7 +521,7 @@ while (true) {
     | { kind: 'idle' }
     | { kind: 'loading'; progress: LoadProgress }
     | { kind: 'partial'; failed: { symbol: string; reason: string }[]; proceed: () => void; cancel: () => void }
-    | { kind: 'done'; result: SimResult; meta: { venueLabel: string; fetchedAt: number; from: string; to: string; demo: boolean; failed: { symbol: string; reason: string }[]; indexFailed: boolean; benchmarkFailed: boolean } }
+    | { kind: 'done'; result: SimResult; meta: { venueLabel: string; fetchedAt: number; from: string; to: string; demo: boolean; failed: { symbol: string; reason: string }[]; indexFailed: null | '받지 못했어요' | '기간 일부만 받았어요'; benchmarkFailed: boolean } }
     | { kind: 'error'; error: unknown }      // 연결 오류
     | { kind: 'crash' };                     // 엔진 예외
   interface RunController { readonly state: RunState; run(strategy: Strategy): void; cancel(): void }
@@ -531,7 +531,7 @@ while (true) {
 
 - [ ] **Step 1: 실패하는 테스트**
   - runController: 데모 공급자로 run → loading(progress 증가) → done; 종목 하나 실패 → partial, `proceed()` 하면 그 종목 빼고 done(meta.failed에 남음), `cancel()` 하면 idle; 메타 실패 → error; `simulate`가 throw하도록 모킹 → crash(콘솔 error 1회); 진행 중 `cancel()` → idle.
-  - ResultView: 머리줄 `2023.10.11 ~ 2026.10.11 · KRX 일봉 · 10/12 14:05 받음`, 데모면 `데모 데이터` 배지; 카드 4개 값과 `보유 대비 +16.1%p`; 비교 목록 4줄, `indexFailed`면 지수 줄 `받지 못했어요`; 세그먼트 `거래 내역 │ 종목별 │ 건너뛴 신호 3`; 매도 행은 ▲▼ + 색 관례; 종목별 탭 `제외: ○○ (기간 안에 데이터가 없어요)`·`2024.03.02부터 참여`; 한계 안내 3줄 문구 그대로.
+  - ResultView: 머리줄 `2023.10.11 ~ 2026.10.11 · KRX 일봉 · 10/12 14:05 받음`, 데모면 `데모 데이터` 배지; 카드 4개 값과 `보유 대비 +16.1%p`; 비교 목록 4줄, `indexFailed`면 지수 줄에 그 사유 문구; 세그먼트 `거래 내역 │ 종목별 │ 건너뛴 신호 3`; 매도 행은 ▲▼ + 색 관례; 종목별 탭 `제외: ○○ (기간 안에 데이터가 없어요)`·`2024.03.02부터 참여`; 한계 안내 3줄 문구 그대로.
   - 거래 0건·skipped 0 → `기간 동안 매수 신호가 한 번도 나지 않았어요` + `가장 크게 빠진 때도 8.2%였어요(조건 10%)` + `규칙 고치기`.
   - `all-skipped result shows the dominant skip reason`: 거래 0건·skipped 3(비쌈 2, 현금 1) → `매수 신호 3번이 모두 건너뛰어졌어요` + `가장 많은 이유: 1주가 1회 금액보다 비쌈`.
   - EquityChart(lwcStub): 시리즈 4개(지수 실패면 3개), 첫 시리즈가 전략이고 굵기 2.
