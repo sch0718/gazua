@@ -1,16 +1,61 @@
 <script lang="ts">
-  // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집(결과는 Task 11이 채운다).
-  import type { Snippet } from 'svelte';
+  // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
+  // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`으로 돌아감), PC(≥1024)는 좌우로 둘 다 보인다.
+  import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
+  import type { Strategy } from '../lib/sim/types';
   import type { App } from '../lib/state/app.svelte';
+  import { runIssueAction } from '../lib/ui/compare/loadIssue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import RunPanel from '../lib/ui/simulate/RunPanel.svelte';
+  import { createRunController } from '../lib/ui/simulate/runController.svelte';
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
 
   let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
 
   const strategy = $derived(app.strategies.find((s) => s.id === app.route.strategyId) ?? null);
+
+  // 결과는 이 컨트롤러 메모리에만 있다(경로를 떠나면 버린다).
+  const ctl = createRunController({
+    get provider() {
+      return app.provider;
+    },
+    get watchlists() {
+      return app.watchlists;
+    },
+  });
+  const wideQuery = typeof matchMedia === 'function' ? new MediaQuery('min-width: 1024px') : null;
+  const wide = $derived(wideQuery?.current ?? false);
+  let showResult = $state(false);
+  let lastDraft: Strategy | null = null;
+
+  // 다른 전략·프로필로 가면 실행을 멈추고 편집으로 돌아간다. 저장으로 객체만 바뀐 것은 무시한다(id로 비교).
+  const strategyId = $derived(strategy?.id ?? null);
+  $effect(() => {
+    void strategyId;
+    void app.meta.activeProfileId;
+    untrack(() => {
+      ctl.cancel();
+      showResult = false;
+      lastDraft = null;
+    });
+  });
+  onDestroy(() => ctl.cancel());
+
+  function run(draft: Strategy) {
+    lastDraft = draft;
+    ctl.run(draft);
+    showResult = true;
+  }
+  const edit = () => (showResult = false);
+  function cancel() {
+    ctl.cancel();
+    showResult = false;
+  }
+  const retry = () => lastDraft && ctl.run(lastDraft);
 
   // 경로를 바로잡았다는 안내(없는 전략)는 여기서 한 번만 보여 준다.
   $effect(() => {
@@ -30,6 +75,9 @@
     {#if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
       <span class="title">{strategy.name}</span>
+      {#if showResult && !wide}
+        <button type="button" class="rules" onclick={edit}>규칙</button>
+      {/if}
     {:else}
       <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
       <span class="title">시뮬레이션</span>
@@ -41,9 +89,28 @@
   {#snippet main()}
     {#key app.meta.activeProfileId}
       {#if strategy}
-        <!-- 전략마다 편집기를 새로 만든다. 실행·결과는 Task 11이 onRun에 잇는다. -->
+        <!-- 전략마다 편집기를 새로 만든다. 좁은 화면에서 결과로 바꾸면 편집기는 저장하고 내려간다. -->
         {#key strategy.id}
-          <StrategyEditor {app} {strategy} onRun={() => {}} />
+          <div class="sim" class:split={wide}>
+            {#if wide || !showResult}
+              <div class="pane">
+                <StrategyEditor {app} {strategy} onRun={run} />
+              </div>
+            {/if}
+            {#if wide || showResult}
+              <div class="pane">
+                <RunPanel
+                  state={ctl.state}
+                  colorConvention={app.settings.colorConvention}
+                  onEdit={edit}
+                  onRetry={retry}
+                  onCancel={cancel}
+                  onTrade={() => {}} /* Task 12가 거래 차트 시트를 연다 */
+                  onIssueAction={(target) => runIssueAction(app, target)}
+                />
+              </div>
+            {/if}
+          </div>
         {/key}
       {:else}
         <StrategyList {app} />
@@ -74,5 +141,25 @@
   }
   .spacer {
     flex: 1;
+  }
+  .rules {
+    flex: none;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .rules:hover {
+    background: var(--surface2);
+  }
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .pane {
+    min-width: 0;
   }
 </style>

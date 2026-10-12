@@ -1,6 +1,8 @@
 // 시뮬레이션 화면의 문구. 목업의 한 줄 요약과 같은 말투로 쓴다.
 import { resolveSymbols, type Issue } from '../../sim/validate';
-import type { Strategy } from '../../sim/types';
+import type { Skip, Strategy } from '../../sim/types';
+import { kstDate } from '../../time/kst';
+import { kstHHMM } from '../compare/compareText';
 import type { Watchlists } from '../../state/schema';
 import { fmtWon } from '../format';
 
@@ -84,3 +86,60 @@ export function sectionSummary(s: Strategy, section: Issue['section'], w: Watchl
       return `수수료 ${s.costs.feePct}% · 매도 세금`;
   }
 }
+
+// ── 결과 화면 ──────────────────────────────────────────
+
+/** `2024-03-02` → `2024.03.02` */
+export const dotDate = dots;
+
+/** `2024-03-14` → `03.14` */
+export const shortDate = (d: string) => dots(d.slice(5));
+
+/** 수익률에 ▲▼를 붙인다: `▲ +32.4%`, `▼ −2.5%`, `0.0%`. 색은 format.ts의 trendClass로. */
+export function trendReturn(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '—';
+  const text = fmtReturnPct(v, true);
+  if (text === '0.0%') return text;
+  return `${v > 0 ? '▲' : '▼'} ${text}`;
+}
+
+/** 손익(원)에 ▲▼: `▲ +141,000원`, `▼ −88,000원` */
+export function trendWon(n: number): string {
+  if (n === 0) return '0원';
+  return `${n > 0 ? '▲ +' : `▼ ${MINUS}`}${fmtWon(Math.abs(n))}원`;
+}
+
+/** 수익률 차이: `+16.1%p`, `−3.0%p` */
+export function fmtPp(v: number): string {
+  return `${fmtReturnPct(v, true)}p`;
+}
+
+/** 결과 머리줄: `2023.10.11 ~ 2026.10.11 · KRX 일봉 · 10/12 14:05 받음` (받은 시각은 KST) */
+export function resultHeadline(from: string, to: string, venueLabel: string, fetchedAt: number): string {
+  const d = kstDate(fetchedAt);
+  return `${dots(from)} ~ ${dots(to)} · ${venueLabel} · ${d.slice(5, 7)}/${d.slice(8)} ${kstHHMM(fetchedAt)} 받음`;
+}
+
+/** 거래가 0건일 때 가장 가까웠던 순간. */
+export function nearMissText(nm: { maxDropPct: number; declineDays: number }, s: Strategy): string {
+  const drop = `${(Math.round(nm.maxDropPct * 10) / 10).toFixed(1)}%`;
+  const cond = s.entry.decline.dropPct;
+  if (cond.on && nm.maxDropPct < cond.value) return `가장 크게 빠진 때도 ${drop}였어요(조건 ${cond.value}%)`;
+  if (nm.declineDays > 0) return `하락 조건을 만족한 날이 ${nm.declineDays}일 있었지만 매수 트리거가 나지 않았어요`;
+  return `가장 크게 빠진 때는 ${drop}였어요`;
+}
+
+/** 건너뛴 이유 중 가장 많은 것(같으면 먼저 나온 것). */
+export function dominantSkipReason(skipped: Skip[]): Skip['reason'] | null {
+  const count = new Map<Skip['reason'], number>();
+  for (const k of skipped) count.set(k.reason, (count.get(k.reason) ?? 0) + 1);
+  let best: Skip['reason'] | null = null;
+  for (const [r, n] of count) if (best === null || n > count.get(best)!) best = r;
+  return best;
+}
+
+export const LIMITATIONS = [
+  '배당 제외 · 가격 수익률만이에요',
+  '지금 관심종목만 넣을 수 있어서 상장폐지 종목이 빠져요(생존 편향)',
+  '일봉으로 계산해서 하루 안의 순서는 시가→저가→고가→종가로 가정해요',
+] as const;

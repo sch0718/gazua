@@ -174,6 +174,14 @@ describe('실행 버튼', () => {
     await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
     expect(onRun).toHaveBeenCalledTimes(1);
   });
+
+  it('실행 직전에 저장 대기분을 저장하고, 작업본을 onRun에 넘긴다', async () => {
+    const { app, onRun } = setup();
+    await fireEvent.input(screen.getByRole('textbox', { name: '전략 이름' }), { target: { value: '반등' } });
+    await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
+    expect(app.strategies[0].name).toBe('반등');
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ id: app.strategies[0].id, name: '반등' }));
+  });
 });
 
 describe('종목 구역', () => {

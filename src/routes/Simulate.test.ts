@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import { newStrategy } from '../lib/sim/defaults';
 import { kstEpoch } from '../lib/time/kst';
 import { dismissSnackbar, currentSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import Simulate from './Simulate.svelte';
+
+vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const barEnd = createRawSnippet(() => ({ render: () => '<span></span>' }));
@@ -29,7 +32,21 @@ afterEach(() => {
   for (const a of apps) a.destroy();
   apps = [];
   dismissSnackbar();
+  vi.unstubAllGlobals();
+  lwcCharts.length = 0;
 });
+
+function stubWidth(wide: boolean) {
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  vi.stubGlobal(
+    'matchMedia',
+    (q: string) => ({ matches: wide && q === '(min-width: 1024px)', media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList,
+  );
+}
+
+function shortPeriod(app: App) {
+  app.setStrategies(app.strategies.map((s) => ({ ...s, period: { from: '2026-03-02', to: '2026-06-30' } })));
+}
 
 describe('Simulate list', () => {
   it('empty state invites a first strategy', () => {
@@ -113,4 +130,60 @@ describe('Simulate list', () => {
     const item = within(nav).getByRole('button', { name: '시뮬레이션' });
     expect(item.className).toContain('on');
   });
+});
+
+describe('Simulate run', () => {
+  it('실행하면 결과로 바뀌고 규칙 버튼으로 편집으로 돌아간다(좁은 폭)', async () => {
+    stubWidth(false);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(screen.queryByRole('textbox', { name: '전략 이름' })).toBeNull();
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByText('데모 데이터')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    expect(screen.getByRole('textbox', { name: '전략 이름' })).toBeTruthy();
+    expect(screen.queryByText('배당 제외 · 가격 수익률만이에요')).toBeNull();
+    expect(screen.queryByRole('button', { name: '규칙' })).toBeNull();
+  }, 15000);
+
+  it('PC 폭(≥1024)에서는 편집과 결과가 함께 보인다', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '전략 이름' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '규칙' })).toBeNull();
+  }, 15000);
+
+  it('실행 전 고친 내용(저장 대기 중)으로 실행하고, 실행은 전략을 다시 쓰지 않는다', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    const name = await screen.findByRole('textbox', { name: '전략 이름' });
+    await fireEvent.input(name, { target: { value: '반등' } });
+    await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
+    // 실행 직전에 저장 대기분을 바로 저장한다
+    expect(app.strategies[0].name).toBe('반등');
+    const saved = app.strategies[0];
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(app.strategies[0]).toBe(saved);
+  }, 15000);
+
+  it('다른 전략으로 가면 결과를 버리고 편집으로 돌아간다', async () => {
+    stubWidth(false);
+    const app = setup(['눌림목', '반등']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    app.navigate({ name: 'simulate', strategyId: 's1' });
+    expect(((await screen.findByRole('textbox', { name: '전략 이름' })) as HTMLInputElement).value).toBe('반등');
+    expect(screen.queryByText('배당 제외 · 가격 수익률만이에요')).toBeNull();
+    expect(screen.queryByRole('button', { name: '규칙' })).toBeNull();
+  }, 15000);
 });

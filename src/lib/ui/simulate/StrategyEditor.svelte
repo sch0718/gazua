@@ -27,7 +27,8 @@
   }: {
     app: App;
     strategy: Strategy;
-    onRun: () => void;
+    /** 막는 경고가 없을 때 저장 대기분을 저장한 뒤 작업본(사본)을 넘긴다 */
+    onRun: (draft: Strategy) => void;
     loadItems?: () => Promise<UniverseItem[]>;
   } = $props();
 
@@ -95,7 +96,10 @@
 
   async function run() {
     const first = issueRows.find((r) => r.issue.blocking);
-    if (!first) return onRun();
+    if (!first) {
+      flush();
+      return onRun($state.snapshot(draft) as Strategy);
+    }
     openKeys[keyOf(first.issue.section)] = true;
     await tick();
     document.getElementById(first.id)?.focus();

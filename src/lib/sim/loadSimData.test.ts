@@ -153,7 +153,7 @@ describe('loadSimData', () => {
     const sp = spied({ getCandles: async (q) => (q.symbol === '000660' ? [] : base.getCandles(q)) });
     const r = await run(sp.provider, strat(), ['000660', '005930']);
     if (!r.ok) throw new Error('expected ok');
-    expect(r.failed).toEqual([{ symbol: '000660', reason: '기간 안에 데이터가 없어요' }]);
+    expect(r.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '기간 안에 데이터가 없어요' }]);
     expect(r.input.stocks.map((s) => s.symbol)).toEqual(['005930']);
   });
 
@@ -167,7 +167,7 @@ describe('loadSimData', () => {
     });
     const r = await run(sp.provider, strat(), ['000660', '005930']);
     if (!r.ok) throw new Error('expected ok');
-    expect(r.failed).toEqual([{ symbol: '000660', reason: '받지 못했어요' }]);
+    expect(r.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }]);
     expect(r.input.stocks).toHaveLength(1);
   });
 

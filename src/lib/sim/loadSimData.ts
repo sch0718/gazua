@@ -14,13 +14,16 @@ export function createSimMemo(): SimMemo {
   return { get: (k) => m.get(k), set: (k, v) => void m.set(k, v), clear: () => m.clear() };
 }
 
+export type SimFailure = { symbol: string; name?: string; reason: string };
+
 export type LoadProgress = { done: number; total: number; waiting: boolean };
 
 export type LoadOutcome =
   | {
       ok: true;
       input: SimInput;
-      failed: { symbol: string; reason: string }[];
+      /** 이름은 메타를 받은 종목에만 있다 */
+      failed: SimFailure[];
       venueLabel: 'KRX 일봉' | '통합 일봉';
       fetchedAt: number;
       clampedTo: string | null;
@@ -164,7 +167,7 @@ export async function loadSimData(args: {
     step();
 
     // 4. 종목들
-    const failed: { symbol: string; reason: string }[] = [];
+    const failed: SimFailure[] = [];
     const stocks: SimInput['stocks'] = [];
     for (const symbol of symbols) {
       const meta = metaOf.get(symbol);
@@ -182,12 +185,12 @@ export async function loadSimData(args: {
               candles,
             });
           } else {
-            failed.push({ symbol, reason: '기간 안에 데이터가 없어요' });
+            failed.push({ symbol, name: meta.name, reason: '기간 안에 데이터가 없어요' });
           }
         }
       } catch (e) {
         if (e instanceof Cancelled) throw e;
-        failed.push({ symbol, reason: '받지 못했어요' });
+        failed.push(meta ? { symbol, name: meta.name, reason: '받지 못했어요' } : { symbol, reason: '받지 못했어요' });
       }
       step();
     }
