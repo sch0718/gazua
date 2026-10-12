@@ -533,6 +533,38 @@ describe('createApp — key lock', () => {
     expect(backing.dump()).not.toContain(SECRETS.kis!.appKey);
   });
 
+  it('review 4246969974: a retried disableKeyLock re-attempts the write and fails again until it persists', async () => {
+    const { backing, ctl } = quotaBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    await app.unlock('correct horse');
+    ctl.full = true;
+    for (let i = 0; i < 2; i++) {
+      expect(() => app.disableKeyLock()).toThrow(KeyLockNotSavedError);
+      expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
+      expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).keyLock).toBe(true);
+      // 저장되지 않았으니 이 탭에서도 잠금은 그대로다.
+      expect(app.settings.keyLock).toBe(true);
+    }
+    ctl.full = false;
+    app.disableKeyLock();
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(SECRETS);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).keyLock).toBe(false);
+    expect(app.settings.keyLock).toBe(false);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
+  it('without any backing store disableKeyLock turns the lock off in this tab but keeps reporting no-storage', async () => {
+    const app = make(null, { fetchImpl: fakeKisFetch() });
+    await app.setSecrets(SECRETS, 'correct horse').catch(() => {});
+    expect(app.settings.keyLock).toBe(true);
+    for (let i = 0; i < 2; i++) expect(() => app.disableKeyLock()).toThrow(expect.objectContaining({ reason: 'no-storage' }));
+    expect(app.settings.keyLock).toBe(false);
+    expect(app.secrets).toEqual(SECRETS);
+  });
+
   it('a late token from the replaced plain-mode provider is not persisted after the lock turns on', async () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);

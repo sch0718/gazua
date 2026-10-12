@@ -171,3 +171,22 @@ describe('createSafeStorage — remove reports whether the backing store dropped
     expect(createSafeStorage(stuck).remove('k')).toBe(false);
   });
 });
+
+describe('createSafeStorage — trySet', () => {
+  it('writes straight to the backing store even after an earlier failure, and reports whether it persisted', () => {
+    const backing = makeBacking();
+    const st = createSafeStorage(backing);
+    const setItem = backing.setItem;
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    st.set('a', 1); // 메모리로 대체, persistent=false
+    expect(st.persistent).toBe(false);
+    expect(st.trySet('k', { v: 1 })).toBe(false);
+    expect(st.get('k', null)).toBeNull(); // 실패하면 아무것도 바꾸지 않는다
+    backing.setItem = setItem;
+    expect(st.trySet('k', { v: 2 })).toBe(true);
+    expect(JSON.parse(backing.data.get('gazua:v1:k')!)).toEqual({ v: 2 });
+    expect(createSafeStorage(null).trySet('k', 1)).toBe(false);
+  });
+});

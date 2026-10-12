@@ -76,8 +76,9 @@ export interface App {
    */
   setSecrets(s: Secrets, passphrase?: string): Promise<void>;
   /**
-   * 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다.
-   * 저장되지 않으면 이 탭에서만 끈 채 KeyLockNotSavedError('unlock', …)를 던진다.
+   * 잠금 해제된 상태에서만. 키를 평문으로 다시 저장하고 keyLock을 끈다. 저장된 뒤에만 잠금을 내려놓는다:
+   * 저장되지 않으면 잠금을 그대로 둔 채 KeyLockNotSavedError('unlock', 'unsaved')를 던지고(다시 부르면 다시 쓴다),
+   * 저장소가 아예 없으면 이 탭에서만 끄고 'no-storage'를 던진다(다시 불러도 같은 실패를 알린다).
    */
   disableKeyLock(): void;
   /**
@@ -153,6 +154,8 @@ export function createApp(deps: AppDeps): App {
   let watchlists = $state.raw<Watchlists>(first.watchlists);
   let recent = $state.raw<string[]>(first.recent);
   let locked: LockedSecrets | null = first.locked;
+  /** 저장소가 없어 잠금 해제(평문)가 이 탭에만 적용된 상태. 다시 끄려 하면 또 저장되지 않았다고 알린다. */
+  let unlockUnsaved = false;
   let secrets = $state.raw<Secrets | null>(first.secrets);
   // 지금 공급자를 만든 입력(연결 진단이 같은 토큰을 써도 되는지 판단할 때 쓴다).
   let builtFrom: { proxyUrl: string; secrets: Secrets | null } = { proxyUrl: '', secrets: null };
@@ -292,6 +295,7 @@ export function createApp(deps: AppDeps): App {
     recent = loaded.recent;
     secrets = loaded.secrets;
     locked = loaded.locked;
+    unlockUnsaved = false;
     rebuild();
     applyDisplay();
     enter();
@@ -451,12 +455,14 @@ export function createApp(deps: AppDeps): App {
         if (settings.keyLock) throw new Error('keyLock is on: a passphrase is required');
         forgetTokens(id);
         locked = null;
+        unlockUnsaved = false;
         write(profileKeys.secrets(id), s);
       } else {
         const sealed = await lockSecrets(s, passphrase);
         if (activeId() !== id) return;
         forgetTokens(id);
         locked = sealed;
+        unlockUnsaved = false;
         const key = profileKeys.secrets(id);
         write(key, sealed);
         if (!settings.keyLock) {
@@ -480,20 +486,35 @@ export function createApp(deps: AppDeps): App {
     disableKeyLock() {
       if (locked !== null && secrets === null) throw new Error('unlock first');
       const id = activeId();
-      const rewritePlain = locked !== null;
-      if (rewritePlain) {
-        // 사용자가 잠금을 끄겠다고 한 경우에만 평문으로 다시 저장한다.
-        locked = null;
-        write(profileKeys.secrets(id), secrets);
+      if (locked === null && !unlockUnsaved) {
+        // 잠긴 키가 없으면 평문으로 다시 저장할 것도 없다.
+        settings = { ...settings, keyLock: false };
+        write(profileKeys.settings(id), settings);
+        forgetTokens(id);
+        rebuild();
+        return;
       }
-      settings = { ...settings, keyLock: false };
-      write(profileKeys.settings(id), settings);
+      // 사용자가 잠금을 끄겠다고 한 경우에만 평문으로 다시 저장한다. 실제로 저장된 뒤에만 잠금을 내려놓는다:
+      // 실패하면 이 탭도 잠긴 채로 두어, 다시 시도하면 다시 쓰고 또 실패하면 같은 실패를 알린다.
+      const secretsKey = profileKeys.secrets(id);
+      const nextSettings = { ...settings, keyLock: false };
+      let saved = storage.trySet(secretsKey, secrets);
+      if (saved && !storage.trySet(profileKeys.settings(id), nextSettings)) {
+        // 설정이 저장되지 않으면 잠긴 키를 되돌려 둔다(저장소가 '평문 + 잠금 켜짐'으로 남지 않게, 최선 노력).
+        if (locked !== null) storage.trySet(secretsKey, locked);
+        saved = false;
+      }
+      storageTick++;
+      if (!saved && storage.backed) throw new KeyLockNotSavedError('unlock', 'unsaved');
+      // 저장소가 아예 없으면 이 탭에서만 끄되, 저장되지 않았다는 사실은 다시 시도할 때마다 알린다.
+      if (!saved) storage.set(secretsKey, secrets);
+      locked = null;
+      unlockUnsaved = !saved;
+      settings = nextSettings;
+      if (!saved) storage.set(profileKeys.settings(id), settings);
       forgetTokens(id);
       rebuild();
-      // 평문이 저장소에 남지 않았다(저장소엔 잠긴 키가 그대로). 이 탭에서만 꺼진 상태라고 알린다.
-      if (rewritePlain && !storage.persistent) {
-        throw new KeyLockNotSavedError('unlock', storage.backed ? 'unsaved' : 'no-storage');
-      }
+      if (!saved) throw new KeyLockNotSavedError('unlock', 'no-storage');
     },
 
     tokenSourceFor(p, s, proxyUrl) {
@@ -516,6 +537,7 @@ export function createApp(deps: AppDeps): App {
       remove(profileKeys.secrets(id));
       forgetTokens(id);
       locked = null;
+      unlockUnsaved = false;
       secrets = null;
       settings = { ...settings, keyLock: false };
       write(profileKeys.settings(id), settings);

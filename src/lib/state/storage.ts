@@ -3,6 +3,11 @@ export type StorageIssue = { key: string; kind: 'corrupt' | 'write-failed' };
 export interface SafeStorage {
   get<T>(key: string, fallback: T): T;
   set(key: string, v: unknown): void;
+  /**
+   * 저장소(backing)에 바로 써 본다(앞서 쓰기가 실패해 persistent가 false여도 다시 시도한다).
+   * 저장되면 true(이 키의 메모리 덮어쓰기는 지운다). 실패하거나 저장소가 없으면 false이고 아무것도 바꾸지 않는다.
+   */
+  trySet(key: string, v: unknown): boolean;
   /** 저장소(backing)에서 실제로 지웠으면 true. 저장소가 없거나 removeItem이 실패하면 false(메모리에서는 지운 것으로 본다). */
   remove(key: string): boolean;
   /** false once running on the in-memory fallback (no/failed backing storage). */
@@ -71,6 +76,17 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
         }
       }
       memory.set(key, v);
+    },
+    trySet(key, v) {
+      if (!backing) return false;
+      try {
+        backing.setItem(PREFIX + key, JSON.stringify(v));
+      } catch {
+        report(key, 'write-failed');
+        return false;
+      }
+      memory.delete(key);
+      return true;
     },
     remove(key) {
       let removed = false;

@@ -159,6 +159,34 @@ describe('KeyLock', () => {
     expect(currentSnackbar()).toBeNull();
   });
 
+  it('a resubmitted 끄기 after a failed save fails again; it says 잠금을 껐어요 only once the plaintext is saved', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    await app.setSecrets(KIS, 'pass1234');
+    render(KeyLock, { app });
+    const setItem = backing.setItem;
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await fireEvent.click(toggle());
+    await fireEvent.input(field('현재 암호'), { target: { value: 'pass1234' } });
+    for (let i = 0; i < 2; i++) {
+      await fireEvent.click(screen.getByRole('button', { name: '끄기' }));
+      await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe(KEY_UNLOCK_NOT_SAVED));
+      expect(currentSnackbar()).toBeNull();
+      expect(app.settings.keyLock).toBe(true);
+    }
+    backing.setItem = setItem;
+    await fireEvent.click(screen.getByRole('button', { name: '끄기' }));
+    await vi.waitFor(() => expect(currentSnackbar()?.message).toBe('잠금을 껐어요'));
+    expect(app.settings.keyLock).toBe(false);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!)).toEqual(KIS);
+  });
+
   it('recommends locking saved Toss keys; 잠그기 opens the lock dialog and the banner can be dismissed', async () => {
     await setup({ provider: 'toss' }, TOSS);
     const text = '토스 키는 주문 권한이 있어요. 암호로 잠그는 걸 권해요';
