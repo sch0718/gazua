@@ -324,6 +324,23 @@ describe('toss provider: auth and errors', () => {
   });
 });
 
+describe('toss provider: request priority', () => {
+  it('passes priority to every daily, minute and index request; defaults to 1', async () => {
+    const { provider, runs } = setup();
+    await provider.getCandles({ ...dailyQuery('2026-10-06', '2026-10-08'), priority: 2 });
+    await provider.getCandles({ ...minuteQuery('2026-10-08'), priority: 2 });
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08', 2);
+    expect(runs.length).toBeGreaterThanOrEqual(3);
+    expect(runs.every((r) => r.priority === 2)).toBe(true);
+
+    runs.length = 0;
+    await provider.getCandles(dailyQuery('2026-10-06', '2026-10-08'));
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08');
+    expect(runs.length).toBeGreaterThanOrEqual(2);
+    expect(runs.every((r) => r.priority === 1)).toBe(true);
+  });
+});
+
 describe('toss provider: quotes', () => {
   it('requires UNIFIED with a plain Error and makes no request', async () => {
     const { provider, client } = setup();

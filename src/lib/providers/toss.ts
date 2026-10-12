@@ -193,7 +193,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   }
 
   /** 최신순 페이지를 nextBefore로 이어 받는다. 경계 봉이 한 번 겹치므로 종가가 같은지 확인한다. */
-  async function pagesOnce(plan: CandlePlan, from: string, to: string): Promise<Map<number, Candle>> {
+  async function pagesOnce(plan: CandlePlan, from: string, to: string, priority: Priority): Promise<Map<number, Candle>> {
     const { interval } = plan.query;
     const byT = new Map<number, Candle>();
     // 지난 날짜를 요청할 때는 그날 끝에서부터 받아 최신 구간을 건너뛴다.
@@ -201,7 +201,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     for (let page = 0; page < CANDLE_MAX_PAGES; page++) {
       const query: Record<string, string> = { ...plan.query, count: CANDLE_PAGE_SIZE };
       if (before !== undefined) query.before = before;
-      const result = await api({ group: plan.group, path: plan.path, query, priority: 1 });
+      const result = await api({ group: plan.group, path: plan.path, query, priority });
       const body = isRecord(result) ? result : {};
       if (!Array.isArray(body.candles)) throw upstream('Toss candle result has no candles');
 
@@ -229,14 +229,14 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     return byT;
   }
 
-  async function candles(plan: CandlePlan, from: string, to: string): Promise<Candle[]> {
+  async function candles(plan: CandlePlan, from: string, to: string, priority: Priority): Promise<Candle[]> {
     let byT: Map<number, Candle>;
     try {
-      byT = await pagesOnce(plan, from, to);
+      byT = await pagesOnce(plan, from, to, priority);
     } catch (e) {
       if (!(e instanceof PageInconsistency)) throw e;
       try {
-        byT = await pagesOnce(plan, from, to);
+        byT = await pagesOnce(plan, from, to, priority);
       } catch (e2) {
         if (e2 instanceof PageInconsistency) throw upstream('Toss candle pages are inconsistent');
         throw e2;
@@ -363,7 +363,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       const query: CandlePlan['query'] = { symbol: q.symbol, interval: q.interval };
       // 기본값도 true지만 수정주가 적용을 계약으로 고정한다.
       if (q.interval === '1d') query.adjusted = 'true';
-      return candles({ group: 'MARKET_DATA_CHART', path: '/api/v1/candles', query }, q.from, q.to);
+      return candles({ group: 'MARKET_DATA_CHART', path: '/api/v1/candles', query }, q.from, q.to, q.priority ?? 1);
     },
 
     async getTradingDays(from, to) {
@@ -381,7 +381,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       return out;
     },
 
-    getIndexCandles(index, interval, from, to) {
+    getIndexCandles(index, interval, from, to, priority = 1) {
       return candles(
         {
           group: 'MARKET_INDICATOR_CHART',
@@ -390,6 +390,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
         },
         from,
         to,
+        priority,
       );
     },
   };

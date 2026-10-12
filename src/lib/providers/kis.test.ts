@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { createRequestQueue, type Priority, type RequestQueue } from '../data/requestQueue';
-import { addDays, kstEpoch } from '../time/kst';
+import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { runProviderContract } from './contract';
 import { ApiError } from './errors';
 import { createProxyClient, type ProxyClient, type ProxyResponse } from './http';
@@ -321,6 +321,55 @@ describe('kis provider: auth, headers and errors', () => {
     expect(runs.every((r) => r.group === 'kis')).toBe(true);
     expect(runs[0].priority).toBe(0);
     expect(runs.slice(1).every((r) => r.priority === 1)).toBe(true);
+  });
+});
+
+describe('kis provider: request priority', () => {
+  const daily = { symbol: '005930', venue: 'KRX' as const, interval: '1d' as const, from: '2026-10-06', to: '2026-10-08' };
+
+  it('passes priority to every daily page, stock minute page and index request; defaults to 1', async () => {
+    const { provider, runs } = setup();
+    await provider.getCandles({ ...daily, priority: 2 });
+    await provider.getCandles({ ...minuteQuery('2026-10-08'), priority: 2 });
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08', 2);
+    expect(runs.length).toBeGreaterThan(3);
+    expect(runs.every((r) => r.priority === 2)).toBe(true);
+
+    runs.length = 0;
+    await provider.getCandles(daily);
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08');
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.every((r) => r.priority === 1)).toBe(true);
+  });
+
+  it('passes priority to the index minute request', async () => {
+    const { provider, runs } = setup(undefined, SUN);
+    const today = kstDate(SUN);
+    await provider.getIndexCandles!('KOSPI', '1m', today, today, 2).catch(() => {});
+    expect(runs.map((r) => r.priority)).toEqual([2]);
+  });
+
+  it('does not key dedupe on priority: identical in-flight requests share the first caller priority', async () => {
+    const client = fakeClient();
+    const inner = fastQueue();
+    const executed: Priority[] = [];
+    const queue: RequestQueue = {
+      run: (group, key, priority, task) =>
+        inner.run(group, key, priority, () => {
+          executed.push(priority);
+          return task();
+        }),
+    };
+    const provider = createKisProvider({
+      client,
+      queue,
+      creds: { appKey: APP_KEY, appSecret: APP_SECRET },
+      tokenStore: memoryStore(),
+      now: () => SUN,
+    });
+    await Promise.all([provider.getCandles({ ...daily, priority: 2 }), provider.getCandles({ ...daily, priority: 1 })]);
+    expect(client.dataCalls).toHaveLength(1);
+    expect(executed).toEqual([2]);
   });
 });
 
