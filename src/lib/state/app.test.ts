@@ -974,3 +974,38 @@ describe('createApp — lock while switching profiles', () => {
     expect(backing.getItem('gazua:v1:p:p2:secrets')).toBeNull();
   });
 });
+
+describe('simulate route', () => {
+  function withStrategy() {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    const app = make(backing);
+    app.setStrategies([newStrategy(1, 'g1', '전략')].map((x) => ({ ...x, id: 'abc' })));
+    return app;
+  }
+
+  it('navigate keeps strategyId for simulate', () => {
+    const app = withStrategy();
+    app.navigate({ name: 'simulate', strategyId: 'abc' });
+    expect(app.route).toEqual({ name: 'simulate', strategyId: 'abc' });
+    expect(location.hash).toBe('#/simulate/abc');
+  });
+
+  it('hashchange keeps it too', () => {
+    const app = withStrategy();
+    fireHash('#/simulate/abc');
+    expect(app.route).toEqual({ name: 'simulate', strategyId: 'abc' });
+  });
+
+  it('an unknown strategy becomes the list, rewrites the hash and leaves a notice', () => {
+    const app = withStrategy();
+    fireHash('#/simulate/nope');
+    expect(app.route).toEqual({ name: 'simulate' });
+    expect(location.hash).toBe('#/simulate');
+    expect(app.routeNotice).toBe('전략을 찾을 수 없어요');
+    app.clearRouteNotice();
+    expect(app.routeNotice).toBeNull();
+  });
+});

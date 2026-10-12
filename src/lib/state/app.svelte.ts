@@ -52,6 +52,9 @@ export interface App {
   readonly recent: string[];
   /** 이 프로필의 매매 규칙 전략(최대 20개) */
   readonly strategies: Strategy[];
+  /** 경로를 바로잡았을 때 화면이 한 번 보여 줄 안내(예: 없는 전략). 보여 준 뒤 clearRouteNotice. */
+  readonly routeNotice: string | null;
+  clearRouteNotice(): void;
   /** 잠금 상태면 null. 잠금 모드에서 복호화한 값은 메모리에만 있다. */
   readonly secrets: Secrets | null;
   readonly provider: MarketDataProvider;
@@ -180,6 +183,7 @@ export function createApp(deps: AppDeps): App {
   let watchlists = $state.raw<Watchlists>(first.watchlists);
   let recent = $state.raw<string[]>(first.recent);
   let strategies = $state.raw<Strategy[]>(first.strategies);
+  let routeNotice = $state<string | null>(null);
   let locked: LockedSecrets | null = first.locked;
   /** 이 탭이 지우지 못하고 남긴 잠긴 키(프로필·JSON). 평문 저장을 거절할 때 다른 탭의 잠금과 구분한다. */
   let undeletedSealed: { id: string; blob: string } | null = null;
@@ -288,6 +292,12 @@ export function createApp(deps: AppDeps): App {
   }
 
   function normalize(r: Route): Route {
+    if (r.name === 'simulate') {
+      if (!r.strategyId) return { name: 'simulate' };
+      if (strategies.some((s) => s.id === r.strategyId)) return { name: 'simulate', strategyId: r.strategyId };
+      routeNotice = '전략을 찾을 수 없어요';
+      return { name: 'simulate' };
+    }
     if (r.name === 'settings' && r.section) return { name: 'settings', section: r.section };
     if (r.name !== 'compare') return { name: r.name };
     const ids = watchlists.groups.map((g) => g.id);
@@ -408,6 +418,12 @@ export function createApp(deps: AppDeps): App {
     },
     get strategies() {
       return strategies;
+    },
+    get routeNotice() {
+      return routeNotice;
+    },
+    clearRouteNotice() {
+      routeNotice = null;
     },
     get secrets() {
       return secrets;

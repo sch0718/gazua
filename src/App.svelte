@@ -12,6 +12,7 @@
   import Compare from './routes/Compare.svelte';
   import Onboarding from './routes/Onboarding.svelte';
   import ProfilePicker from './routes/ProfilePicker.svelte';
+  import Simulate from './routes/Simulate.svelte';
   import Settings from './routes/Settings.svelte';
   import Unlock from './routes/Unlock.svelte';
 
@@ -92,6 +93,8 @@
     {/key}
   {:else if route.name === 'compare'}
     <Compare {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />
+  {:else if route.name === 'simulate'}
+    <Simulate {app} {barEnd} />
   {:else}
     <Settings {app} {barEnd} />
   {/if}
@@ -99,6 +102,12 @@
 
 {#snippet barEnd()}
   <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
+  <button type="button" class="icon-btn" aria-label="시뮬레이션" onclick={() => app.navigate({ name: 'simulate' })}>
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 3v18h18" />
+      <path d="M7 15l4-5 3 3 5-6" />
+    </svg>
+  </button>
   <button type="button" class="icon-btn" aria-label="설정" onclick={() => app.navigate({ name: 'settings' })}>
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
       <circle cx="12" cy="12" r="3" />
