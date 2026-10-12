@@ -1,10 +1,11 @@
 <script lang="ts">
-  // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집·결과(Task 10·11이 채운다).
+  // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집(결과는 Task 11이 채운다).
   import type { Snippet } from 'svelte';
   import type { App } from '../lib/state/app.svelte';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
 
   let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
@@ -40,10 +41,10 @@
   {#snippet main()}
     {#key app.meta.activeProfileId}
       {#if strategy}
-        <!-- 편집·결과 화면이 들어올 자리 -->
-        <section class="placeholder">
-          <h1>{strategy.name}</h1>
-        </section>
+        <!-- 전략마다 편집기를 새로 만든다. 실행·결과는 Task 11이 onRun에 잇는다. -->
+        {#key strategy.id}
+          <StrategyEditor {app} {strategy} onRun={() => {}} />
+        {/key}
       {:else}
         <StrategyList {app} />
       {/if}
@@ -52,14 +53,6 @@
 </Layout>
 
 <style>
-  .placeholder {
-    max-width: 720px;
-    padding: 4px var(--gutter) 48px;
-  }
-  .placeholder h1 {
-    font-size: 20px;
-    font-weight: 700;
-  }
   .back {
     width: 44px;
     height: 44px;

@@ -58,10 +58,10 @@ describe('Simulate list', () => {
     expect(app.route).toEqual({ name: 'simulate', strategyId: 's0' });
   });
 
-  it('renders the strategy name when a strategyId is routed', async () => {
+  it('renders the editor with the strategy name when a strategyId is routed', async () => {
     const app = setup(['눌림목']);
     app.navigate({ name: 'simulate', strategyId: 's0' });
-    expect(await screen.findByRole('heading', { name: '눌림목' })).toBeTruthy();
+    expect(((await screen.findByRole('textbox', { name: '전략 이름' })) as HTMLInputElement).value).toBe('눌림목');
   });
 
   it('menu: duplicate adds a 사본', async () => {

@@ -11,7 +11,7 @@ const MINUS = '−';
  * 수익률 표시. 소수 첫째 자리, 음수는 진짜 빼기 기호(U+2212).
  * format.ts의 fmtPct(▲▼·소수 둘째 자리)와 모양이 달라 따로 둔다.
  */
-export function fmtPct(v: number, signed = false): string {
+export function fmtReturnPct(v: number, signed = false): string {
   if (!Number.isFinite(v)) return '—';
   const r = Math.round(v * 10) / 10;
   if (r === 0) return '0.0%';

@@ -4,15 +4,19 @@
     actionLabel,
     onaction,
     tone = 'info',
+    id,
   }: {
     message: string;
     actionLabel?: string;
     onaction?: () => void;
     tone?: 'info' | 'warn' | 'error';
+    /** 주면 코드로 포커스를 옮길 수 있다(tabindex=-1). */
+    id?: string;
   } = $props();
 </script>
 
-<div class="banner {tone}" role={tone === 'error' ? 'alert' : 'status'}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div class="banner {tone}" role={tone === 'error' ? 'alert' : 'status'} {id} tabindex={id ? -1 : undefined}>
   <span>{message}</span>
   {#if actionLabel}
     <button type="button" onclick={() => onaction?.()}>{actionLabel}</button>
@@ -39,6 +43,10 @@
   .error {
     color: var(--err);
     background: color-mix(in srgb, var(--err) 12%, var(--surface));
+  }
+  .banner:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   button {
     color: var(--accent);

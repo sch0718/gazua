@@ -7,11 +7,12 @@
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { strategyLine } from './simText';
+  import { duplicateStrategy, STRATEGIES_FULL_TEXT } from './strategyActions.svelte';
 
   let { app }: { app: App } = $props();
 
   const full = () => app.strategies.length >= MAX_STRATEGIES;
-  const FULL_TEXT = `전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`;
+  const FULL_TEXT = STRATEGIES_FULL_TEXT;
 
   function create() {
     if (full()) return showSnackbar(FULL_TEXT);
@@ -35,13 +36,7 @@
 
   function duplicate(s: Strategy) {
     closeMenu();
-    if (full()) return showSnackbar(FULL_TEXT);
-    const name = `${s.name.slice(0, NAME_MAX - 3)} 사본`;
-    const copy: Strategy = { ...structuredClone($state.snapshot(s)), id: crypto.randomUUID(), name, updatedAt: Date.now() };
-    const i = app.strategies.findIndex((x) => x.id === s.id);
-    const next = [...app.strategies];
-    next.splice(i + 1, 0, copy);
-    app.setStrategies(next);
+    if (duplicateStrategy(app, s) === null) showSnackbar(FULL_TEXT);
   }
 
   function startRename(s: Strategy) {

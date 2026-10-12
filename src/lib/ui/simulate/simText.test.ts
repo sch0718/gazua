@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import type { Watchlists } from '../../state/schema';
-import { fmtPct, sectionSummary, strategyLine } from './simText';
+import { fmtReturnPct, sectionSummary, strategyLine } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -18,14 +18,14 @@ const W: Watchlists = {
 };
 const s = () => newStrategy(NOW, 'g1');
 
-describe('fmtPct', () => {
+describe('fmtReturnPct', () => {
   it('uses a real minus sign and one decimal', () => {
-    expect(fmtPct(38.2, true)).toBe('+38.2%');
-    expect(fmtPct(-12.4, true)).toBe('−12.4%');
-    expect(fmtPct(-12.4)).toBe('−12.4%');
-    expect(fmtPct(5)).toBe('5.0%');
-    expect(fmtPct(0, true)).toBe('0.0%');
-    expect(fmtPct(-0.04, true)).toBe('0.0%');
+    expect(fmtReturnPct(38.2, true)).toBe('+38.2%');
+    expect(fmtReturnPct(-12.4, true)).toBe('−12.4%');
+    expect(fmtReturnPct(-12.4)).toBe('−12.4%');
+    expect(fmtReturnPct(5)).toBe('5.0%');
+    expect(fmtReturnPct(0, true)).toBe('0.0%');
+    expect(fmtReturnPct(-0.04, true)).toBe('0.0%');
   });
 });
 
