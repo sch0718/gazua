@@ -13,6 +13,7 @@ import KeyLock, {
   KEY_LOCK_NO_STORAGE,
   KEY_UNLOCK_NOT_SAVED,
   KEY_UNLOCK_NO_STORAGE,
+  KEYS_NOT_REMOVED,
   keyLockFailureText,
 } from './KeyLock.svelte';
 import { KeyLockNotSavedError, createApp } from '../../state/app.svelte';
@@ -200,6 +201,22 @@ describe('KeyLock', () => {
     render(KeyLock, { app });
     expect(toggle().getAttribute('aria-checked')).toBe('true');
     expect(screen.queryByText(/토스 키는 주문 권한이 있어요/)).toBeNull();
+  });
+
+  it('이 기기에서 키 삭제 says so when the browser storage refuses the removal', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    seed(backing, 'p:p1:secrets', KIS);
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    render(KeyLock, { app, confirmFn: () => true });
+    backing.removeItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    await fireEvent.click(screen.getByRole('button', { name: '이 기기에서 키 삭제' }));
+    expect(currentSnackbar()?.message).toBe(KEYS_NOT_REMOVED);
   });
 
   it('recommends locking saved Toss keys; 잠그기 opens the lock dialog and the banner can be dismissed', async () => {

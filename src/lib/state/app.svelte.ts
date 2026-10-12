@@ -88,7 +88,7 @@ export interface App {
   tokenSourceFor(provider: 'kis' | 'toss', secrets: Secrets, proxyUrl: string): (() => Promise<TokenInfo>) | undefined;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
-  /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. */
+  /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
   clearSecrets(): void;
   navigate(r: Route): void;
   destroy(): void;
@@ -130,6 +130,17 @@ export class KeyLockedElsewhereError extends Error {
   }
 }
 
+/**
+ * 이 탭이 저장소의 키를 지우려 했지만 removeItem이 실패해 키가 남아 있다. clearSecrets가 이를 알리고,
+ * 남은 잠긴 키 위에 평문을 저장하려 할 때도 이 이유로 거절한다(다른 탭의 잠금과 구분한다).
+ */
+export class StoredKeysNotRemovedError extends Error {
+  constructor() {
+    super('stored keys could not be removed from browser storage');
+    this.name = 'StoredKeysNotRemovedError';
+  }
+}
+
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
 export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요';
 export const DEMO_BANNER = '데모 데이터를 보고 있어요';
@@ -162,6 +173,8 @@ export function createApp(deps: AppDeps): App {
   let watchlists = $state.raw<Watchlists>(first.watchlists);
   let recent = $state.raw<string[]>(first.recent);
   let locked: LockedSecrets | null = first.locked;
+  /** 이 탭이 지우지 못하고 남긴 잠긴 키(프로필·JSON). 평문 저장을 거절할 때 다른 탭의 잠금과 구분한다. */
+  let undeletedSealed: { id: string; blob: string } | null = null;
   /** 저장소가 없어 잠금 해제(평문)가 이 탭에만 적용된 상태. 다시 끄려 하면 또 저장되지 않았다고 알린다. */
   let unlockUnsaved = false;
   let secrets = $state.raw<Secrets | null>(first.secrets);
@@ -515,8 +528,14 @@ export function createApp(deps: AppDeps): App {
       const id = activeId();
       if (passphrase === undefined) {
         if (settings.keyLock) throw new Error('keyLock is on: a passphrase is required');
-        // 다른 탭이 그사이 키를 잠갔으면 평문으로 덮어쓰지 않는다(이 탭은 아직 잠금 꺼짐으로 알고 있을 수 있다).
-        if (isLocked(storage.readBacking<unknown>(profileKeys.secrets(id), null))) throw new KeyLockedElsewhereError();
+        // 저장소의 키가 잠겨 있으면 평문으로 덮어쓰지 않는다. 이 탭이 지우지 못한 키면 그 이유로,
+        // 아니면 다른 탭이 그사이 잠근 것으로 알린다(이 탭은 아직 잠금 꺼짐으로 알고 있을 수 있다).
+        const stored = storage.readBacking<unknown>(profileKeys.secrets(id), null);
+        if (isLocked(stored)) {
+          if (undeletedSealed?.id === id && undeletedSealed.blob === JSON.stringify(stored)) throw new StoredKeysNotRemovedError();
+          throw new KeyLockedElsewhereError();
+        }
+        undeletedSealed = null;
         forgetTokens(id);
         locked = null;
         unlockUnsaved = false;
@@ -528,6 +547,7 @@ export function createApp(deps: AppDeps): App {
         // 암호화하는 동안 프로필이 바뀌었으면 아무것도 저장하지 않았다고 알린다(성공으로 보이지 않게).
         if (activeId() !== id) throw new Error('profile changed while locking: nothing was saved');
         forgetTokens(id);
+        undeletedSealed = null;
         locked = sealed;
         unlockUnsaved = false;
         const key = profileKeys.secrets(id);
@@ -605,7 +625,9 @@ export function createApp(deps: AppDeps): App {
 
     clearSecrets() {
       const id = activeId();
-      remove(profileKeys.secrets(id));
+      const key = profileKeys.secrets(id);
+      const before = storage.readBacking<unknown>(key, null);
+      const removed = remove(key);
       forgetTokens(id);
       locked = null;
       unlockUnsaved = false;
@@ -614,6 +636,11 @@ export function createApp(deps: AppDeps): App {
       write(profileKeys.settings(id), settings);
       rebuild();
       enter();
+      // 이 탭에서는 지웠지만 저장소에 키가 남았으면 성공으로 알리지 않는다.
+      if (!removed && before !== null) {
+        undeletedSealed = isLocked(before) ? { id, blob: JSON.stringify(before) } : null;
+        throw new StoredKeysNotRemovedError();
+      }
     },
 
     navigate,

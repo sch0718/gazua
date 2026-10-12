@@ -4,7 +4,7 @@ import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
-import { KeyLockNotSavedError, KeyLockedElsewhereError, createApp, type App } from './app.svelte';
+import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
@@ -899,6 +899,31 @@ describe('createApp — key lock across tabs', () => {
     ctl.full = false;
     app.updateSettings({ theme: 'dark' });
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).theme).toBe('dark');
+  });
+
+  it('a failed removal in clearSecrets is reported, and a later plaintext save is refused for that reason (not as another tab’s lock)', async () => {
+    const backing = plainShared();
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const app = make(backing, { fetchImpl: fakeKisFetch() });
+    await app.unlock('correct horse');
+    const removeItem = backing.removeItem.bind(backing);
+    backing.removeItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    expect(() => app.clearSecrets()).toThrow(StoredKeysNotRemovedError);
+    // 이 탭에서는 지웠지만 저장소에는 잠긴 키가 남았다.
+    expect(app.secrets).toBeNull();
+    expect(isLocked(storedSecrets(backing))).toBe(true);
+    const err = await app.setSecrets(OTHER).catch((e) => e);
+    expect(err).toBeInstanceOf(StoredKeysNotRemovedError);
+    expect(err).not.toBeInstanceOf(KeyLockedElsewhereError);
+    expect(isLocked(storedSecrets(backing))).toBe(true);
+    expect(backing.dump()).not.toContain(OTHER.kis!.appKey);
+
+    // 다른 탭이 새로 잠그면 그때는 다른 탭의 잠금으로 거절한다.
+    backing.removeItem = removeItem;
+    seed(backing, 'p:p1:secrets', await lockSecrets(OTHER, 'other pass'));
+    await expect(app.setSecrets(OTHER)).rejects.toBeInstanceOf(KeyLockedElsewhereError);
   });
 
   it('(c) the storage listener is removed on destroy', async () => {

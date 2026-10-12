@@ -6,7 +6,7 @@ import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
 import { dismissSnackbar } from '../components/snackbarStore.svelte';
-import ConnectionForm, { KEY_LOCKED_ELSEWHERE } from './ConnectionForm.svelte';
+import ConnectionForm, { KEY_LOCKED_ELSEWHERE, KEYS_NOT_REMOVED_SAVE } from './ConnectionForm.svelte';
 import { createApp } from '../../state/app.svelte';
 import { DEFAULT_SETTINGS } from '../../state/schema';
 import { isLocked, lockSecrets } from '../../state/secrets';
@@ -90,6 +90,29 @@ describe('ConnectionForm', () => {
     expect(alert.textContent).toBe(KEY_LOCKED_ELSEWHERE);
     expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
     expect(backing.dump()).not.toContain('secret-2222');
+  });
+
+  it('after this tab failed to remove its locked keys, saving keys explains that instead of blaming another tab', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis' });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+    seed(backing, 'p:p1:secrets', await lockSecrets({ kis: { appKey: 'old', appSecret: 'old-secret' } }, 'pass1234'));
+    const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+    apps.push(app);
+    await app.unlock('pass1234');
+    backing.removeItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    expect(() => app.clearSecrets()).toThrow();
+    render(ConnectionForm, { app });
+    await fireEvent.input(input('App Key'), { target: { value: 'key-1111' } });
+    await fireEvent.input(input('App Secret'), { target: { value: 'secret-2222' } });
+    await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(KEYS_NOT_REMOVED_SAVE);
+    expect(alert.textContent).not.toBe(KEY_LOCKED_ELSEWHERE);
+    expect(isLocked(JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!))).toBe(true);
   });
 
   it('asks for both values of a provider with nothing saved', async () => {

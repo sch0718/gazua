@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { App } from '../lib/state/app.svelte';
+import { StoredKeysNotRemovedError, type App } from '../lib/state/app.svelte';
+import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { KEYS_NOT_REMOVED } from '../lib/ui/settings/KeyLock.svelte';
 import { WrongPassphraseError } from '../lib/state/secrets';
 import Unlock from './Unlock.svelte';
 
@@ -35,5 +37,16 @@ describe('Unlock', () => {
     expect(app.clearSecrets).not.toHaveBeenCalled();
     await fireEvent.click(link);
     expect(app.clearSecrets).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when the stored keys could not be removed', async () => {
+    const app = fakeApp(async () => {});
+    app.clearSecrets.mockImplementation(() => {
+      throw new StoredKeysNotRemovedError();
+    });
+    render(Unlock, { app, confirmFn: () => true });
+    await fireEvent.click(screen.getByRole('button', { name: '이 기기에서 키 삭제' }));
+    expect(currentSnackbar()?.message).toBe(KEYS_NOT_REMOVED);
+    dismissSnackbar();
   });
 });

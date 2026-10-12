@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { App } from '../lib/state/app.svelte';
+  import { StoredKeysNotRemovedError, type App } from '../lib/state/app.svelte';
   import { WrongPassphraseError } from '../lib/state/secrets';
+  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { KEYS_NOT_REMOVED } from '../lib/ui/settings/KeyLock.svelte';
 
   let { app, confirmFn = (m: string) => window.confirm(m) }: { app: App; confirmFn?: (message: string) => boolean } =
     $props();
@@ -25,7 +27,14 @@
   }
 
   function clearKeys() {
-    if (confirmFn('이 기기에 저장된 키를 지울까요? 지운 뒤에는 키를 다시 입력해야 해요.')) app.clearSecrets();
+    if (!confirmFn('이 기기에 저장된 키를 지울까요? 지운 뒤에는 키를 다시 입력해야 해요.')) return;
+    try {
+      app.clearSecrets();
+    } catch (err) {
+      // 이 화면은 곧 닫히므로(잠금이 풀린다) 화면 아래 알림으로 알린다.
+      if (!(err instanceof StoredKeysNotRemovedError)) throw err;
+      showSnackbar(KEYS_NOT_REMOVED);
+    }
   }
 </script>
 
