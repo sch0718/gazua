@@ -5,7 +5,7 @@
   import { indexAvailabilityFor } from '../lib/data/candleService';
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { Point } from '../lib/data/metrics';
-  import { baseDateFor, metricPoints } from '../lib/data/seriesMetrics';
+  import { baseDateFor, indexBaseFor, metricPoints } from '../lib/data/seriesMetrics';
   import { fetchPlanFor, stepPeriod } from '../lib/market/periods';
   import type { DaySession } from '../lib/market/sessions';
   import { sessionLabelAt } from '../lib/market/tradable';
@@ -25,7 +25,7 @@
   import type { ErrorActionTarget } from '../lib/providers/errors';
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
+  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, sortRows } from '../lib/ui/compare/rows';
@@ -130,6 +130,15 @@
   });
   // 지수 갱신에 실패해 이전 지수로 초과수익을 계산하는 중이면 그 지수가 언제 기준인지 알린다.
   const indexStaleAtValue = $derived(metric === 'excess' ? staleIndexAt(items.map((i) => ctl.indexes[indexOf(i.symbol)])) : null);
+  // 지수 일봉에 종목 기준일의 종가가 없으면 그 종목의 초과수익은 비워 두고(기준이 섞이지 않게), 이유를 알린다.
+  const indexBaseMissing = $derived(
+    metric === 'excess' &&
+      items.some((i) => {
+        const series = ctl.entries[i.symbol]?.series;
+        const pair = series ? ctl.excessIndex(i.symbol, indexOf(i.symbol)) : null;
+        return !!series && !!pair?.series && indexBaseFor(series, pair.series) === null;
+      }),
+  );
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
 
@@ -375,6 +384,9 @@
         {/if}
         {#if indexStaleAtValue !== null}
           <p class="fallback" role="status">{indexStaleNote(indexStaleAtValue, now)}</p>
+        {/if}
+        {#if indexBaseMissing}
+          <p class="fallback" role="status">{INDEX_BASE_MISSING_NOTE}</p>
         {/if}
         <div class="chart-slot">
           <ChartPanel

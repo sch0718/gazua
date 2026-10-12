@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
-import { formatMetricValue, freshnessText, headlineLabel, indexStaleNote, prevDayBadge, staleBadge } from './compareText';
+import { INDEX_BASE_MISSING_NOTE, formatMetricValue, freshnessText, headlineLabel, indexStaleNote, prevDayBadge, staleBadge } from './compareText';
 
 const TODAY = '2026-10-12';
 const at = (d: string, hhmm: string, ss = '00') => kstEpoch(d, `${hhmm}:${ss}`);
@@ -110,5 +110,11 @@ describe('indexStaleNote', () => {
   it('same KST day: 지수는 HH:MM 기준이에요; another day adds M/D', () => {
     expect(indexStaleNote(at(TODAY, '10:00'), at(TODAY, '10:01'))).toBe('지수는 10:00 기준이에요');
     expect(indexStaleNote(at('2026-10-08', '15:30'), at(TODAY, '09:00'))).toBe('지수는 10/8 15:30 기준이에요');
+  });
+});
+
+describe('INDEX_BASE_MISSING_NOTE', () => {
+  it('says why excess is empty when the index has no close on the base date', () => {
+    expect(INDEX_BASE_MISSING_NOTE).toBe('지수 기준일 값이 없어 초과수익을 계산할 수 없어요');
   });
 });

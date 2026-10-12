@@ -12,7 +12,7 @@ import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
 import { createSafeStorage } from '../lib/state/storage';
 import { memoryBacking, seed } from '../lib/state/testStorage';
-import { kstEpoch } from '../lib/time/kst';
+import { kstDate, kstEpoch } from '../lib/time/kst';
 import Compare from './Compare.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
@@ -119,6 +119,26 @@ describe('Compare (demo provider)', () => {
     const note = await screen.findByText('지수는 10:00 기준이에요');
     expect(note.getAttribute('role')).toBe('status');
     expect(screen.getByText('오늘 · 시장 대비 초과수익 · 기준 전일 종가')).toBeTruthy();
+  });
+
+  it('excess without an index close on the stock’s base date shows why instead of silently empty values', async () => {
+    const mock = vi.mocked(loadIndexSeries);
+    const real = mock.getMockImplementation()!;
+    // 지수 일봉에서 기준일(직전 거래일) 종가가 빠진 경우
+    mock.mockImplementation(async (args) => {
+      const r = await real(args);
+      return r && { ...r, daily: r.daily.filter((c) => kstDate(c.t) !== r.baseDate) };
+    });
+    try {
+      const app = makeApp(EXAMPLE.slice(0, 1), { metric: 'excess' });
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      const note = await screen.findByText('지수 기준일 값이 없어 초과수익을 계산할 수 없어요');
+      expect(note.getAttribute('role')).toBe('status');
+      expect(within(rowOf('삼성전자')).getByText('데이터 없음')).toBeTruthy();
+    } finally {
+      mock.mockImplementation(real);
+    }
   });
 
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {

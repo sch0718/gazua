@@ -111,6 +111,9 @@ export function prevDayBadge(tradingDate: string): { text: string; label: string
   };
 }
 
+/** 지수 일봉에 종목 기준일의 종가가 없어 초과수익을 비워 둘 때 헤드라인 아래 안내. */
+export const INDEX_BASE_MISSING_NOTE = '지수 기준일 값이 없어 초과수익을 계산할 수 없어요';
+
 /** 이전 지수로 초과수익을 계산하는 중일 때 헤드라인 아래 안내. */
 export function indexStaleNote(computedAt: number, now: number): string {
   const date = kstDate(computedAt);
