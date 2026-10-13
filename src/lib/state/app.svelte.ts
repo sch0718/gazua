@@ -155,6 +155,10 @@ export class StoredKeysNotRemovedError extends Error {
 
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
 export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요';
+export const PROXY_CLEARED_BANNER = (origin?: string) =>
+  origin
+    ? `저장된 프록시 주소(${origin})는 개발 서버에서만 쓸 수 있어서 지웠어요`
+    : '저장된 프록시 주소가 올바르지 않아 지웠어요';
 export const DEMO_BANNER = '데모 데이터를 보고 있어요';
 const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -443,6 +447,13 @@ export function createApp(deps: AppDeps): App {
       if (!storage.persistent) out.push({ id: 'storage', text: STORAGE_BANNER });
       for (const issue of storage.issues) {
         if (issue.kind === 'corrupt') out.push({ id: `corrupt:${issue.key}`, text: CORRUPT_BANNER });
+        else if (issue.kind === 'proxy-cleared') {
+          out.push({
+            id: `proxy-cleared:${issue.key}`,
+            text: PROXY_CLEARED_BANNER(issue.detail),
+            action: { label: '연결 설정', run: () => navigate({ name: 'settings', section: 'connection' }) },
+          });
+        }
       }
       if (provider.id === 'demo' && settings.onboarded && !gate()) {
         out.push({

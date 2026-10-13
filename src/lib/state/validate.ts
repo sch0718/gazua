@@ -102,8 +102,8 @@ export function sanitizeWatchlists(v: unknown): { watchlists: Watchlists; repair
   return { watchlists: { groups }, repaired };
 }
 
-/** 가져오기: 하나라도 틀리면 받지 않는다. */
+/** 가져오기: 하나라도 틀리거나 그룹이 하나도 없으면 받지 않는다. */
 export function validWatchlists(v: unknown): Watchlists | null {
   const r = sanitizeWatchlists(v);
-  return r && !r.repaired ? r.watchlists : null;
+  return r && !r.repaired && r.watchlists.groups.length > 0 ? r.watchlists : null;
 }

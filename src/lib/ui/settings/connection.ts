@@ -37,6 +37,20 @@ export function normalizeProxyUrl(raw: string, opts: { allowLocalHttp?: boolean 
   return { ok: true, url: `${u.origin}${u.pathname.replace(/\/+$/, '')}` };
 }
 
+/**
+ * 저장된 값이 http이고 로컬 호스트로 읽힐 때만 origin(스킴·호스트·포트)을 돌려준다.
+ * 사용자 정보·경로·쿼리는 버린다. 그 밖에는 null.
+ */
+export function localHttpOrigin(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const u = new URL(trimCredential(raw));
+    return u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname) ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export const KEY_FIELDS = {
   kis: [
     { name: 'appKey', label: 'App Key' },

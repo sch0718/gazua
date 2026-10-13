@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type Settings, type Watchlists } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import { sanitizeSettings, sanitizeWatchlists } from './validate';
 import type { SafeStorage } from './storage';
+import { localHttpOrigin } from '../ui/settings/connection';
 
 export const DEFAULT_GROUP_NAME = '내 관심';
 
@@ -37,19 +38,20 @@ export function loadSettings(st: SafeStorage, id: string): Settings {
   }
   const keyLock = typeof raw.keyLock === 'boolean' ? raw.keyLock : DEFAULT_SETTINGS.keyLock;
   const { settings, invalid } = sanitizeSettings(raw, keyLock);
-  if (invalid.length > 0) st.reportCorrupt(key);
+  if (invalid.includes('proxyUrl')) st.reportProxyCleared(key, localHttpOrigin(raw.proxyUrl) ?? undefined);
+  if (invalid.some((f) => f !== 'proxyUrl')) st.reportCorrupt(key);
   return settings;
 }
 
 /**
- * 맞는 그룹·종목만 남긴다(틀린 것이 있으면 저장소 배너). 없거나 모양부터 깨졌으면 빈 그룹 '내 관심' 하나를
- * 만들어 저장한다(그룹 id가 재시작해도 같도록).
+ * 맞는 그룹·종목만 남긴다(틀린 것이 있으면 저장소 배너). 없거나 모양부터 깨졌거나 남은 그룹이 없으면
+ * 빈 그룹 '내 관심' 하나를 만들어 저장한다(그룹 id가 재시작해도 같도록).
  */
 export function loadWatchlists(st: SafeStorage, id: string): Watchlists {
   const key = profileKeys.watchlists(id);
   const raw = st.get<unknown>(key, null);
   const checked = sanitizeWatchlists(raw);
-  if (checked) {
+  if (checked && checked.watchlists.groups.length > 0) {
     if (checked.repaired) st.reportCorrupt(key);
     return checked.watchlists;
   }
