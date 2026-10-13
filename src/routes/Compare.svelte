@@ -2,7 +2,7 @@
   import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { ChartSeriesInput } from '../lib/chart/lineData';
-  import { indexAvailabilityFor } from '../lib/data/candleService';
+  import { indexAvailabilityFor, type LoadedSeries } from '../lib/data/candleService';
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { Point } from '../lib/data/metrics';
   import { baseDateFor, indexBaseFor, metricPoints } from '../lib/data/seriesMetrics';
@@ -27,7 +27,7 @@
   import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
-  import { buildRows, isSuspended, sortRows } from '../lib/ui/compare/rows';
+  import { buildRows, isSuspended, sortRows, withQuote } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
@@ -144,13 +144,16 @@
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
 
   // 차트 입력은 불러온 상태에서만 만든다(시계·현재가와 무관하게 참조가 유지되도록).
+  const pointsOf = (symbol: string, series: LoadedSeries) => {
+    // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
+    const pair = metric === 'excess' ? ctl.excessIndex(symbol, indexOf(symbol)) : null;
+    return metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period });
+  };
   const pointsBySymbol = $derived.by(() => {
     const out: Record<string, Point[] | null> = {};
     for (const i of items) {
       const series = ctl.entries[i.symbol]?.series;
-      // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
-      const pair = metric === 'excess' ? ctl.excessIndex(i.symbol, indexOf(i.symbol)) : null;
-      out[i.symbol] = series ? metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period }) : null;
+      out[i.symbol] = series ? pointsOf(i.symbol, series) : null;
     }
     return out;
   });
@@ -200,6 +203,19 @@
   let scrubT = $state<number | null>(null);
   let frozenOrder = $state.raw<string[] | null>(null);
 
+  // 행 값은 행 가격과 같은 5초 시세로 계산한다(스펙 4.4). 차트·데이터 표는 원래 캔들 그대로.
+  // 스크럽 중이거나 이전 거래일 행이면 섞지 않는다. 1초 시계는 구독하지 않고 시세가 바뀔 때 다시 계산한다.
+  const rowPointsBySymbol = $derived.by(() => {
+    const out: Record<string, Point[] | null> = {};
+    for (const i of items) {
+      const series = ctl.entries[i.symbol]?.series;
+      const points = pointsBySymbol[i.symbol];
+      const quoted = series && scrubT === null && onChartDay(series) ? withQuote(series, ctl.quotes[i.symbol], untrack(() => now)) : series;
+      out[i.symbol] = quoted && quoted !== series ? pointsOf(i.symbol, quoted) : points;
+    }
+    return out;
+  });
+
   const rows = $derived(
     buildRows(
       items.map((item) => {
@@ -209,7 +225,7 @@
           meta: ctl.metas[item.symbol],
           series: e?.series ?? null,
           error: e?.error ?? null,
-          points: pointsBySymbol[item.symbol],
+          points: rowPointsBySymbol[item.symbol],
           quote: ctl.quotes[item.symbol],
         };
       }),

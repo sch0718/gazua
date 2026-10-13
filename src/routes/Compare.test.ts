@@ -2,11 +2,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
-import { loadIndexSeries } from '../lib/data/candleService';
+import { toChartTime } from '../lib/chart/lineData';
+import { lwcCharts, lwcStubHooks, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { loadIndexSeries, type LoadedSeries } from '../lib/data/candleService';
 import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
+import { formatMetricValue } from '../lib/ui/compare/compareText';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
@@ -51,6 +53,7 @@ beforeEach(() => {
   resetLwcStub();
 });
 afterEach(() => {
+  lwcStubHooks.crosshairOnSetData = null;
   for (const a of apps) a.destroy();
   apps = [];
   vi.unstubAllGlobals();
@@ -362,6 +365,64 @@ describe('Compare sheets', () => {
       await key('m', search);
       expect(app.settings.period).toEqual({ unit: 'D', n: 1 });
       expect(screen.queryByRole('dialog', { name: '비교 지표' })).toBeNull();
+    });
+  });
+
+  describe('row value and the 5-second quote (spec §4.4)', () => {
+    const PRICE = 100_000;
+    /** 불러온 시리즈를 엿보고, 현재가는 지금 시각의 PRICE로 고정한다. */
+    function quoteAt(app: App) {
+      const got: { series?: LoadedSeries } = {};
+      const snaps = app.data.snapshots;
+      const real = snaps.load.bind(snaps);
+      vi.spyOn(snaps, 'load').mockImplementation(async (args) => {
+        const r = await real(args);
+        got.series = r;
+        return r;
+      });
+      vi.spyOn(app.provider, 'getQuotes').mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: PRICE, ts: NOW })));
+      return got;
+    }
+    const pct = (price: number, base: number) => formatMetricValue(((price - base) * 100) / base, '%');
+    const chartValues = () =>
+      lwcCharts.at(-1)!.series.flatMap((s) => s.data as { time: number; value?: number }[]).filter((d) => typeof d.value === 'number');
+
+    it('1 day: the row value follows the quote the row shows; the chart keeps the candles', async () => {
+      const app = makeApp(['005930']);
+      const got = quoteAt(app);
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      const base = got.series!.base!;
+      const row = rowOf('삼성전자');
+      await vi.waitFor(() => expect(within(row).getByText('100,000원')).toBeTruthy());
+      expect(within(row).getByText(pct(PRICE, base))).toBeTruthy();
+      // 차트는 시세 시각의 점 없이 마지막 1분봉까지
+      const last = got.series!.candles.at(-1)!;
+      const times = chartValues().map((d) => d.time);
+      expect(Math.max(...times)).toBe(toChartTime(last.t));
+    });
+
+    it('daily: today’s close is the quote in the row', async () => {
+      const app = makeApp(['005930'], { period: { unit: 'M', n: 1 } });
+      const got = quoteAt(app);
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(PRICE, got.series!.base!))).toBeTruthy());
+    });
+
+    it('while scrubbing, the row shows the candle value at the scrub time, not the quote', async () => {
+      const app = makeApp(['005930'], { period: { unit: 'M', n: 1 } });
+      const got = quoteAt(app);
+      const todayBar = kstEpoch(DAY, '00:00:00');
+      lwcStubHooks.crosshairOnSetData = { time: toChartTime(todayBar) };
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      const s = got.series!;
+      const today = s.candles.at(-1)!;
+      expect(today.t).toBe(todayBar);
+      expect(today.c).not.toBe(PRICE);
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(today.c, s.base!))).toBeTruthy());
+      expect(within(rowOf('삼성전자')).queryByText(pct(PRICE, s.base!))).toBeNull();
     });
   });
 

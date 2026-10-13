@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { LoadedSeries } from '../../data/candleService';
 import type { Candle, Point } from '../../data/metrics';
-import type { StockMeta } from '../../providers/types';
+import { metricPoints } from '../../data/seriesMetrics';
+import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { buildRows, sortRows, valueAt, type RowSource } from './rows';
+import { buildRows, sortRows, valueAt, withQuote, type RowSource } from './rows';
 
 const at = (hhmm: string) => kstEpoch('2026-10-12', `${hhmm}:00`);
 const bar = (t: number, c: number): Candle => ({ t, o: c, h: c, l: c, c, v: 1 });
@@ -176,5 +177,109 @@ describe('sortRows', () => {
   });
   it('frozen order first; unknown rows appended in value order', () => {
     expect(sortRows([r('A', 1), r('B', 2), r('C', 3)], ['B', 'A']).map((x) => x.symbol)).toEqual(['B', 'A', 'C']);
+  });
+});
+
+describe('withQuote — the row value uses the same 5-second quote as the row price', () => {
+  const D1 = { unit: 'D', n: 1 } as const;
+  const NOW = at('09:02');
+  const day = (date: string, c: number, v = 10): Candle => ({ t: kstEpoch(date, '00:00:00'), o: c, h: c, l: c, c, v });
+  const d1 = (over: Partial<LoadedSeries & { stale: boolean }> = {}) =>
+    series('A', {
+      base: 100,
+      avgDailyVolume: 4,
+      avgVolumeVenue: 'NXT',
+      candles: [bar(at('09:00'), 105), bar(at('09:01'), 110)],
+      segments: [{ start: at('09:00'), end: at('09:02'), venue: 'KRX' }],
+      ...over,
+    });
+  const quote = (over: Partial<Quote> = {}): Quote => ({ symbol: 'A', venue: 'KRX', price: 112, ts: at('09:01') + 30_000, ...over });
+
+  it('row value follows the quote the row shows', () => {
+    const s = d1();
+    const q = quote();
+    const quoted = withQuote(s, q, NOW);
+    const rowPoints = metricPoints(quoted, 'change', { period: D1 });
+    const [r] = buildRows([src('A', { series: s, quote: q, points: rowPoints })], { scrubT: null, venueMode: 'AUTO' });
+    expect(r.value).toBeCloseTo(12, 10);
+    expect(r.price).toBe(112);
+    // 1일: 시세 시각에 합성 종가 봉(거래량 0)을 붙인다. 원래 시리즈와 나머지 필드는 그대로.
+    expect(quoted.candles).toHaveLength(3);
+    expect(quoted.candles.at(-1)).toEqual({ t: q.ts, o: 112, h: 112, l: 112, c: 112, v: 0 });
+    expect({ ...quoted, candles: s.candles }).toEqual(s);
+    expect(s.candles).toHaveLength(2);
+  });
+
+  it('a stale series, a quote from another venue, or a quote without a time keeps the candles', () => {
+    const fresh = d1();
+    expect(withQuote(d1({ stale: true }), quote(), NOW).candles).toHaveLength(2);
+    expect(withQuote(fresh, quote({ venue: 'NXT' }), NOW)).toBe(fresh);
+    expect(withQuote(fresh, quote({ ts: null }), NOW)).toBe(fresh);
+    expect(withQuote(fresh, undefined, NOW)).toBe(fresh);
+    // 시리즈 거래소는 마지막 구간(AUTO 이어 붙이기면 NXT 시간외)
+    const nxtTail = d1({ segments: [{ start: at('09:00'), end: at('09:02'), venue: 'NXT' }] });
+    expect(withQuote(nxtTail, quote({ venue: 'NXT' }), NOW).candles).toHaveLength(3);
+    expect(withQuote(nxtTail, quote({ venue: 'KRX' }), NOW)).toBe(nxtTail);
+  });
+
+  it('a quote no newer than the last bar is ignored', () => {
+    const s = d1();
+    expect(withQuote(s, quote({ ts: at('09:01') }), NOW)).toBe(s);
+    expect(withQuote(s, quote({ ts: at('09:00') }), NOW)).toBe(s);
+  });
+
+  it('a previous trading day’s series takes no quote from today', () => {
+    const prev = d1({
+      tradingDate: '2026-10-08',
+      candles: [bar(kstEpoch('2026-10-08', '15:30:00'), 110)],
+      segments: [{ start: kstEpoch('2026-10-08', '15:30:00'), end: kstEpoch('2026-10-08', '15:31:00'), venue: 'KRX' }],
+    });
+    expect(withQuote(prev, quote(), NOW)).toBe(prev);
+  });
+
+  it('1-day RVOL is unchanged: the synthetic bar adds no volume', () => {
+    const s = d1();
+    const before = metricPoints(s, 'rvol', { period: D1 });
+    const after = metricPoints(withQuote(s, quote(), NOW), 'rvol', { period: D1 });
+    expect(after).toHaveLength(3);
+    expect(after.at(-1)!.v).toBe(before.at(-1)!.v);
+    expect(valueAt(after, null)).toBe(valueAt(before, null));
+  });
+
+  it('daily periods replace only today’s close and keep its volume', () => {
+    const today = day('2026-10-12', 110, 20);
+    const prior = day('2026-10-09', 105);
+    const s = series('A', { base: 100, candles: [prior, today], daily: [day('2026-10-08', 100), prior, today], segments: [{ start: prior.t, end: today.t + 86_400_000, venue: 'KRX' }] });
+    const quoted = withQuote(s, quote({ ts: at('10:00') }), at('10:00'));
+    expect(quoted.candles).toHaveLength(2);
+    expect(quoted.candles.at(-1)).toEqual({ ...today, c: 112 });
+    expect(today.c).toBe(110);
+    expect(valueAt(metricPoints(quoted, 'change', { period: { unit: 'M', n: 1 } }), null)).toBeCloseTo(12, 10);
+    // 오늘 일봉이 아직 없으면 그대로
+    const noToday = series('A', { candles: [prior], daily: [prior], segments: [{ start: prior.t, end: prior.t + 86_400_000, venue: 'KRX' }] });
+    expect(withQuote(noToday, quote({ ts: at('10:00') }), at('10:00'))).toBe(noToday);
+  });
+
+  it('drawdown uses the quote as today’s close, not today’s earlier close as a peak', () => {
+    const today = day('2026-10-12', 120);
+    const prior = day('2026-10-09', 100);
+    const s = series('A', { candles: [prior, today], daily: [prior, today], segments: [{ start: prior.t, end: today.t + 86_400_000, venue: 'KRX' }] });
+    const quoted = withQuote(s, quote({ price: 90, ts: at('10:00') }), at('10:00'));
+    expect(valueAt(metricPoints(quoted, 'drawdown', { period: { unit: 'M', n: 1 } }), null)).toBeCloseTo(-10, 10);
+  });
+
+  it('excess after the index’s last bar keeps the candle value (the synthetic point has no index pair)', () => {
+    const s = d1();
+    const index = series('INDEX:KOSPI', {
+      base: 1000,
+      baseDate: '2026-10-08',
+      candles: [bar(at('09:00'), 1000), bar(at('09:01'), 1010)],
+      daily: [day('2026-10-08', 1000)],
+    });
+    const opts = { index, indexUntil: at('09:01'), period: D1 };
+    const before = valueAt(metricPoints(s, 'excess', opts), null);
+    const after = valueAt(metricPoints(withQuote(s, quote(), NOW), 'excess', opts), null);
+    expect(before).toBeCloseTo(9, 10);
+    expect(after).toBe(before);
   });
 });

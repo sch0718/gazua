@@ -5,6 +5,7 @@ import type { Point } from '../../data/metrics';
 import type { VenueMode } from '../../market/tradable';
 import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
+import { kstDate } from '../../time/kst';
 
 export interface LeaderRow {
   symbol: string;
@@ -54,6 +55,29 @@ function priceOf(s: RowSource, scrubT: number | null): number | null {
   // 마지막 성공 결과(stale)에는 새 시세를 섞지 않는다.
   if (!series.stale && s.quote) return s.quote.price;
   return valueAt(closes, null);
+}
+
+/**
+ * 행 값용: 행 가격과 같은 5초 시세를 시리즈 끝에 반영한 사본(스펙 4.4·7.2-6). 차트·데이터 표는 원래 캔들을 쓴다.
+ * 1일(분봉)은 시세 시각에 합성 종가 봉(v:0)을 붙이고, 일봉은 오늘 봉의 종가만 바꾼다(거래량 유지).
+ * 이전 결과(stale), 시리즈 마지막 구간과 다른 거래소의 시세, 마지막 봉보다 새롭지 않은 시세,
+ * 오늘(1일은 시리즈 거래일)이 아닌 시세는 반영하지 않고 같은 객체를 돌려준다. 스크럽 중에는 호출하는 쪽이 부르지 않는다.
+ */
+export function withQuote<S extends LoadedSeries & { stale?: boolean }>(series: S, quote: Quote | undefined, now: number): S {
+  const last = series.candles.at(-1);
+  if (series.stale || !quote || quote.ts === null || !last) return series;
+  if (series.segments.at(-1)?.venue !== quote.venue) return series;
+  if (quote.ts <= last.t) return series;
+  const quoteDay = kstDate(quote.ts);
+  if (quoteDay !== kstDate(now)) return series;
+  const price = quote.price;
+  // 일봉(자정 시각)은 series.daily에 같은 봉이 있다. 분봉은 세션 안 시각이라 겹치지 않는다.
+  if (series.daily.some((d) => d.t === last.t)) {
+    if (kstDate(last.t) !== quoteDay) return series;
+    return { ...series, candles: [...series.candles.slice(0, -1), { ...last, c: price }] };
+  }
+  if (series.tradingDate !== quoteDay) return series;
+  return { ...series, candles: [...series.candles, { t: quote.ts, o: price, h: price, l: price, c: price, v: 0 }] };
 }
 
 /** 거래정지 표시 규칙: KRX 정지, 또는 NXT 모드에서 NXT 정지. badgesOf의 거래정지·NXT 거래정지 배지와 같은 규칙이며, 일봉 차트 정지 띠가 쓴다. */
