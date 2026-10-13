@@ -33,7 +33,7 @@ function errorResponse(status: number, code: string, origin: string | null): Res
   return new Response(JSON.stringify({ error: { code } }), { status, headers });
 }
 
-/** 토큰 비교: 길이가 달라도 같은 시간이 걸리도록 SHA-256 해시 둘을 XOR 누적으로 비교한다. */
+/** 토큰 비교: SHA-256 해시(고정 길이) 둘을 XOR 누적으로 끝까지 비교해 달라지는 위치가 시간에 드러나지 않게 한다. */
 export async function tokenMatches(given: string | null, expected: string): Promise<boolean> {
   const enc = new TextEncoder();
   const [a, b] = await Promise.all([

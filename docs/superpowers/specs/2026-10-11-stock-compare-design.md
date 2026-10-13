@@ -160,7 +160,7 @@ interface MarketDataProvider {
 - 요청 형식: `GET|POST {프록시}/{provider}/{upstream path}`. 상위 호스트는 provider로 고정한다. 임의 URL 중계는 하지 않는다.
 - **경로 허용 목록**: 토큰 발급, 시세, 종목, 캘린더, 지수만 허용한다. 주문·계좌·자산 경로는 `403 proxy-path-blocked`로 거절한다.
 - CORS: 환경변수 `ALLOWED_ORIGINS`(예: `https://<id>.github.io`)에 있는 출처만 허용한다.
-- 무단 사용 방지: 선택 환경변수 `PROXY_TOKEN`. 앱은 `X-Proxy-Token` 헤더로 보낸다. 비교는 두 값의 SHA-256 해시를 XOR 누적으로 해서 길이·내용에 상관없이 같은 시간이 걸리게 한다(`crypto.subtle`, Workers·Node 22).
+- 무단 사용 방지: 선택 환경변수 `PROXY_TOKEN`. 앱은 `X-Proxy-Token` 헤더로 보낸다. 비교는 두 값의 SHA-256 해시(고정 32바이트)를 XOR 누적으로 끝까지 훑어, 어느 바이트에서 달라지는지가 소요 시간에 드러나지 않게 한다(`crypto.subtle`, Workers·Node 22). 해시를 계산하는 시간은 입력 길이에 비례하므로 "길이와 무관하게 같은 시간"을 보장하지는 않는다. 노출되는 것은 토큰 길이 정도이고 내용은 아니다.
 - 요청·응답 본문이나 인증 헤더를 로그에 남기지 않는다. 상태 저장 없음.
 - 배포 가이드: Worker는 `wrangler deploy` 한 줄. 토스용은 `docker compose up` + `cloudflared tunnel`(cloudflared 이미지는 릴리스 태그로 고정, 올리는 방법은 README). 허용 IP 등록 방법과 집 공인 IP가 바뀔 때 대처법은 README에 둔다.
 
@@ -175,7 +175,7 @@ interface MarketDataProvider {
 - `pnpm build` → `dist/`를 GitHub Actions(`actions/deploy-pages`)로 Pages에 배포한다. 해시 라우팅(`#/`)을 써서 Pages의 404 문제를 피한다.
 - 폰트(Pretendard)와 차트 라이브러리는 번들에 넣는다. **런타임에 외부 스크립트를 불러오지 않는다** — 키가 저장된 페이지이므로 공급망 공격면을 줄이기 위함.
 - PWA 매니페스트 + 서비스 워커(앱 셸만 캐시)로 홈 화면에 추가할 수 있게 한다.
-- `prebuild`가 KIS 종목 마스터를 받아 `public/universe.json`을 만든다. 배포(`deploy.yml`)는 매번 새로 받는다. CI(`ci.yml`의 ci·e2e 잡)는 ISO 주 단위 캐시(`universe-<YYYY-Www>`, restore-keys `universe-`)를 쓰고, 정확히 적중하면 `UNIVERSE_REUSE=true`로 넘겨 `build-universe.mjs`가 받지 않고 `[universe] 캐시된 파일을 그대로 써요`만 찍고 끝난다(일부 키만 맞으면 새로 받는다).
+- `prebuild`가 KIS 종목 마스터를 받아 `public/universe.json`을 만든다. 배포(`deploy.yml`)는 매번 새로 받는다. CI(`ci.yml`의 ci·e2e 잡)는 ISO 주 단위 캐시(`universe-<YYYY-Www>`, restore-keys `universe-`)를 쓰고, 정확히 적중하면 `UNIVERSE_REUSE=true`로 넘겨 `build-universe.mjs`가 받지 않고 `[universe] 캐시된 파일을 그대로 써요`만 찍고 끝난다(일부 키만 맞으면 새로 받는다). 캐시는 복원(`actions/cache/restore`)과 저장(`actions/cache/save`)을 나눈다. 저장은 정확히 적중하지 않았고 이번 빌드가 파일을 새로 만들었을 때만 한다. 일부 키로 받은 지난 주 파일에 내려받기가 실패해 묵은 파일을 그대로 쓰게 되면 이번 주 키로 저장하지 않는다.
 
 ---
 
@@ -362,6 +362,7 @@ tradableIntervals(day: TradingDay, meta: StockMeta, venueMode, sessionsConfig) �
 - **키 보호**: `암호로 잠그기` 토글. 켜면 앱을 열 때마다 암호를 입력한다(10.2). `이 기기에서 키 삭제`
 - **표시**: 테마(시스템·라이트·다크), 상승/하락 색(한국식 빨강▲/파랑▼ · 글로벌 초록▲/빨강▼)
 - **데이터**: 관심종목 JSON 내보내기·가져오기(키 제외가 기본, 포함하려면 별도 체크 + 경고), 캐시 사용량·비우기
+  - 키 포함 내보내기는 체크만으로 끝나지 않고 확인을 한 번 더 받는다: `키가 들어 있는 파일을 내보낼까요? 이 파일을 가진 사람은 누구나 이 키로 증권사 API를 쓸 수 있어요.` 취소하면 내보내지 않는다.
 - **프로필**: 추가·이름 변경·삭제·전환
 
 ### 7.5 온보딩 (첫 실행)
@@ -520,7 +521,7 @@ p:{id}:tokenIssuedAt:kis  마지막 KIS 토큰 발급 시각(epoch ms)   // 비�
 - **공급자 계약 테스트**: 실제 응답을 녹화한 픽스처(키·계좌 정보 제거)로 KIS·토스·데모가 같은 테스트를 통과
 - **프록시**: 허용 경로·차단 경로(주문), CORS 출처 검사, `PROXY_TOKEN`
 - **E2E (Playwright, 데모 공급자)**: 375×812 / 820×1180 가로·세로 / 1440×900. 종목 추가 → 기간·지표·거래소 전환 → 삭제·되돌리기. axe 접근성 검사 포함
-- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<Playwright 버전>`)를 캐시하고 적중하면 `install-deps`만 돌린다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다.
+- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<pnpm-lock.yaml 해시>`)를 캐시하고 적중하면 `install-deps`만 돌린다. 브라우저 버전은 락파일의 Playwright 버전이 정하므로 락파일이 바뀌면 키도 바뀐다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다. `pnpm check`는 `tsconfig.json`(앱 코드: `types: []`, 테스트·테스트 보조 파일 제외 — Node 전역 `process`·`Buffer`가 앱 코드에 보이지 않는다)과 `tsconfig.test.json`(테스트·설정 파일 포함, `types: ["node"]`) 두 번 svelte-check를 돌린다.
 - **실제 연결 점검표**: 실제 키로 장중·애프터·휴장일에 수동 확인(README에 체크리스트)
 
 ---

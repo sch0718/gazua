@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } fr
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 
 // 스크립트를 임시 폴더로 복사해 돌린다(저장소의 public/universe.json을 건드리지 않는다).
@@ -14,7 +14,7 @@ function run({ withFile, reuse }) {
     mkdirSync(join(root, 'scripts'));
     mkdirSync(join(root, 'public'));
     cpSync(new URL('../scripts/', import.meta.url), join(root, 'scripts'), { recursive: true });
-    symlinkSync(new URL('../node_modules', import.meta.url).pathname, join(root, 'node_modules'));
+    symlinkSync(fileURLToPath(new URL('../node_modules', import.meta.url)), join(root, 'node_modules'));
     if (withFile) writeFileSync(join(root, 'public/universe.json'), '[]');
     const stub = join(root, 'stub-fetch.mjs');
     writeFileSync(stub, "globalThis.fetch = async () => { throw new Error('offline'); };\n");
