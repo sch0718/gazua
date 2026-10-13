@@ -214,6 +214,21 @@ describe('Simulate run', () => {
     expect(screen.queryByRole('button', { name: '결과' })).toBeNull();
   }, 15000);
 
+  it('폰 폭: 일부 종목을 못 받은 안내(partial)에서 규칙으로 가도 결과 버튼으로 돌아온다', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    const real = app.provider.getCandles.bind(app.provider);
+    vi.spyOn(app.provider, 'getCandles').mockImplementation((q) => (q.symbol === '000660' ? Promise.reject(new Error('x')) : real(q)));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByRole('button', { name: '빼고 계속' }, { timeout: 5000 })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    expect(screen.getByRole('textbox', { name: '전략 이름' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    expect(screen.getByRole('button', { name: '빼고 계속' })).toBeTruthy();
+  }, 15000);
+
   it('편집 화면 제목은 항상 시뮬레이션이다(이름은 이름 칸에)', async () => {
     stubWidth(false, true);
     const app = setup(['눌림목']);

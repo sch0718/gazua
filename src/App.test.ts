@@ -30,14 +30,14 @@ describe('App bar', () => {
   it('marks the 시뮬레이션 icon as the current page only on simulate routes', async () => {
     render(App);
     await screen.findAllByRole('button', { name: '시뮬레이션' });
-    const bar = document.querySelector('header.bar') as HTMLElement;
-    const sim = within(bar).getByRole('button', { name: '시뮬레이션' });
-    expect(sim.getAttribute('aria-current')).toBeNull();
-    await fireEvent.click(sim);
+    const iconIn = () => within(document.querySelector('header.bar') as HTMLElement).getByRole('button', { name: '시뮬레이션' });
+    // 비교 화면: 현재 위치가 아니다. className 부분 문자열('icon-btn'에 'on'이 있다)이 아니라 클래스 목록으로 본다.
+    expect(iconIn().getAttribute('aria-current')).toBeNull();
+    expect(iconIn().classList.contains('on')).toBe(false);
+    await fireEvent.click(iconIn());
     // 경로가 바뀌면 시뮬레이션 화면의 새 머리줄이 그려진다
-    const simBar = () => document.querySelector('header.bar') as HTMLElement;
-    await waitFor(() => expect(within(simBar()).getByRole('button', { name: '시뮬레이션' }).getAttribute('aria-current')).toBe('page'));
-    expect(within(simBar()).getByRole('button', { name: '시뮬레이션' }).className).toContain('on');
+    await waitFor(() => expect(iconIn().getAttribute('aria-current')).toBe('page'));
+    expect(iconIn().classList.contains('on')).toBe(true);
   });
 
   it('keeps the status chip on the compare bar', async () => {

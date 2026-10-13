@@ -81,7 +81,7 @@
       <span class="title">시뮬레이션</span>
       {#if showResult && !wide}
         <button type="button" class="rules" onclick={edit}>규칙</button>
-      {:else if !showResult && !wide && (ctl.state.kind === 'done' || ctl.state.kind === 'loading')}
+      {:else if !showResult && !wide && ctl.state.kind !== 'idle'}
         <button type="button" class="rules" onclick={showRun}>결과</button>
       {/if}
     {:else}
