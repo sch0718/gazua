@@ -133,6 +133,19 @@ describe('Simulate list', () => {
     expect(screen.queryByText('이름을 적어 주세요')).toBeNull();
   });
 
+  it('menu: rename with an empty name twice re-inserts the alert so it is announced again', async () => {
+    setup(['눌림목']);
+    await fireEvent.click(screen.getByRole('button', { name: '눌림목 메뉴' }));
+    await fireEvent.click(screen.getByRole('button', { name: '이름 바꾸기' }));
+    const input = screen.getByRole('textbox', { name: '전략 이름' });
+    await fireEvent.input(input, { target: { value: '' } });
+    await fireEvent.submit(input.closest('form')!);
+    const first = await screen.findByRole('alert');
+    await fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first));
+    expect(screen.getByRole('alert').textContent).toBe('이름을 적어 주세요');
+  });
+
   it('menu: delete shows 되돌리기 and restores in place', async () => {
     const app = setup(['가', '나', '다']);
     await fireEvent.click(screen.getByRole('button', { name: '나 메뉴' }));
@@ -412,8 +425,8 @@ describe('Simulate run states', () => {
     await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
     const head = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
     await fireEvent.click(head());
-    await fireEvent.click(screen.getByRole('switch', { name: '연속 상승 트리거 사용' }));
-    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '저점 뒤 연속 상승 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 사용' }));
     await fireEvent.click(head());
     expect(head().getAttribute('aria-expanded')).toBe('false');
     await fireEvent.click(screen.getByRole('button', { name: '결과' }));

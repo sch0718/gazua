@@ -169,6 +169,15 @@ describe('RunPanel', () => {
     expect(rule).not.toMatch(/--surface2/);
   });
 
+  it('글자 크기는 토큰, 좌우 여백은 --gutter(px 값 없음)', () => {
+    const css = runPanelSource.slice(runPanelSource.indexOf('<style>'));
+    expect(css).not.toMatch(/font-size:\s*\d+px/);
+    for (const sel of ['.panel', '.hint']) {
+      const body = new RegExp(`\\${sel}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+      expect(body, sel).toMatch(/padding:\s*24px var\(--gutter\)/);
+    }
+  });
+
   it('idle: 넓은 화면 안내 문구', () => {
     setup({ kind: 'idle' });
     expect(screen.getByText('규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요')).toBeTruthy();

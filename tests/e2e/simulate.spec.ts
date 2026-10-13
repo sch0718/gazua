@@ -58,7 +58,7 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
 
   // 거래 내역 첫 행 → 거래 차트 시트
   await result.getByRole('radio', { name: '거래 내역' }).click();
-  const firstTrade = result.getByRole('list', { name: '거래 내역' }).getByRole('button').first();
+  const firstTrade = result.getByRole('group', { name: '거래 내역' }).getByRole('button').first();
   await expect(firstTrade).toBeVisible();
   // 행 버튼의 접근 가능한 이름은 `종목명 · 값 · MM.DD · 사유`
   const rowName = /button "(.+)"/.exec(await firstTrade.ariaSnapshot())![1];
@@ -178,7 +178,7 @@ test('편집: 모든 구역을 펼쳐도 카드 밖으로 넘치지 않고, 숫�
   await expect(stop).toBeFocused();
 
   // 라벨을 누르면 그 줄의 토글이 바뀐다
-  const sw = page.getByRole('switch', { name: '하락폭 조건 사용' });
+  const sw = page.getByRole('switch', { name: '고점 대비 하락폭 사용' });
   await expect(sw).toHaveAttribute('aria-checked', 'true');
   await page.locator('label', { hasText: /^고점 대비 하락폭$/ }).click();
   await expect(sw).toHaveAttribute('aria-checked', 'false');

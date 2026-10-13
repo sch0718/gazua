@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 거래 내역(스펙 7.4-5): 리더보드 행 구조. 1줄 종목명 + 오른쪽 값, 2줄 날짜 · 사유, 행 끝 ›. 해가 바뀌면 연도 구분선.
+  // 거래 내역(스펙 7.4-5): 리더보드 행 구조. 1줄 종목명 + 오른쪽 값, 2줄 날짜 · 사유, 행 끝 ›. 해마다 연도 제목(h2)과 그해 목록.
   // 상승·하락 색 관례는 CSS 변수(--up/--down)가 맡으므로 관례 값은 받지 않는다.
   import type { Trade } from '../../sim/types';
   import { fmtWon } from '../format';
@@ -12,8 +12,9 @@
   const reason = (r: string) => r.replace(/^(\d+단계 익절) (\d+)%$/, '$1($2% 매도)');
   const why = (t: Trade) => (t.kind === 'buy' ? `${t.reason} 매수` : t.kind === 'add' ? '추가 매수' : reason(t.reason));
 
+  const uid = Math.random().toString(36).slice(2, 9);
   const rows = $derived(
-    trades.map((t, i) => {
+    trades.map((t) => {
       const value = isBuy(t)
         ? { text: `${t.qty}주 · ${fmtWon(t.price)}원`, cls: '' }
         : t.pnlPct === undefined
@@ -21,44 +22,47 @@
           : { text: trendReturn(t.pnlPct), cls: returnClass(t.pnlPct) };
       const name = names[t.symbol] ?? t.symbol;
       const sub = `${shortDate(t.date)} · ${why(t)}`;
-      const year = t.date.slice(0, 4);
-      return {
-        t,
-        name,
-        value,
-        sub,
-        // 첫 행과 해가 바뀐 행 앞에 구분선
-        year: i === 0 || trades[i - 1].date.slice(0, 4) !== year ? year : null,
-        label: [name, value?.text, sub].filter(Boolean).join(' · '),
-      };
+      return { t, name, value, sub, label: [name, value?.text, sub].filter(Boolean).join(' · ') };
     }),
   );
+  // 해마다 제목 하나 + 그해 거래 목록(제목이 목록 항목 수에 섞이지 않게)
+  const years = $derived.by(() => {
+    const out: { year: string; rows: typeof rows }[] = [];
+    for (const r of rows) {
+      const year = r.t.date.slice(0, 4);
+      if (out.at(-1)?.year !== year) out.push({ year, rows: [] });
+      out.at(-1)!.rows.push(r);
+    }
+    return out;
+  });
 </script>
 
-<ul class="rows" aria-label="거래 내역">
-  {#each rows as r, i (i)}
-    {#if r.year}
-      <li class="year"><h2>{r.year}년</h2></li>
-    {/if}
-    <li>
-      <button type="button" aria-label={r.label} onclick={() => onTrade(r.t)}>
-        <span class="nm">{r.name}</span>
-        {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
-        <span class="sub num">{r.sub}</span>
-        <span class="chev" aria-hidden="true">›</span>
-      </button>
-    </li>
+<div class="rows" role="group" aria-label="거래 내역">
+  {#each years as y, yi (yi)}
+    <h2 id="tl-{uid}-y{yi}">{y.year}년</h2>
+    <ul aria-labelledby="tl-{uid}-y{yi}">
+      {#each y.rows as r, i (i)}
+        <li>
+          <button type="button" aria-label={r.label} onclick={() => onTrade(r.t)}>
+            <span class="nm">{r.name}</span>
+            {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
+            <span class="sub num">{r.sub}</span>
+            <span class="chev" aria-hidden="true">›</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
   {/each}
-</ul>
+</div>
 
 <style>
-  .rows {
+  ul {
     list-style: none;
     margin: 0;
     padding: 0;
   }
   /* 설정 화면 구역 제목(h2)과 같은 모양 */
-  .year h2 {
+  h2 {
     margin: 0;
     font-size: var(--fs-label);
     font-weight: 700;
@@ -66,7 +70,7 @@
     letter-spacing: 0.04em;
     padding: 18px 4px 8px;
   }
-  .year:first-child h2 {
+  h2:first-child {
     padding-top: 4px;
   }
   button {

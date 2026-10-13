@@ -53,21 +53,21 @@ describe('TradeList', () => {
     expect(row.textContent).not.toMatch(/[▲▼]/);
   });
 
-  it('해가 바뀌면 연도 구분선(첫 해 포함)', () => {
+  it('해마다 연도 제목(h2) + 그해 거래 목록. 목록 항목 수는 거래 수와 같다', () => {
     setup((t) => t.push({ date: '2025-01-15', symbol: '005930', kind: 'buy', price: 71_000, qty: 10, fee: 1, tax: 0, reason: 'B 돌파' }));
-    const list = screen.getByRole('list', { name: '거래 내역' });
-    expect(within(list).getAllByRole('heading').map((h) => h.textContent)).toEqual(['2024년', '2025년']);
-    // 구분선 다음 행이 그해 첫 거래
-    const items = within(list).getAllByRole('listitem');
-    expect(items.map((li) => li.querySelector('h2')?.textContent ?? text(li.querySelector('.sub')))).toEqual([
-      '2024년',
+    const group = screen.getByRole('group', { name: '거래 내역' });
+    expect(within(group).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['2024년', '2025년']);
+    const y2024 = within(group).getByRole('list', { name: '2024년' });
+    expect(within(y2024).getAllByRole('listitem').map((li) => text(li.querySelector('.sub')))).toEqual([
       '03.14 · B 돌파 매수',
       '04.02 · 손절',
       '05.02 · 3일 연속 상승 매수',
       '06.03 · 1단계 익절(100% 매도)',
-      '2025년',
-      '01.15 · B 돌파 매수',
     ]);
+    const y2025 = within(group).getByRole('list', { name: '2025년' });
+    expect(within(y2025).getAllByRole('listitem').map((li) => text(li.querySelector('.sub')))).toEqual(['01.15 · B 돌파 매수']);
+    // 연도 제목은 목록 항목이 아니다
+    expect(within(group).getAllByRole('listitem')).toHaveLength(5);
   });
 
   it('행을 누르면 onTrade(trade)', async () => {

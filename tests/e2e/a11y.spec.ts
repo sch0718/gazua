@@ -92,7 +92,7 @@ test('전략 편집 구역(매수·분할 매수·매도)을 펼친 상태에 �
   await openEditorSections(page);
   await expectNoSeriousViolations(page, '편집 구역 펼침(꺼진 조건 포함)');
   // 전 고점 돌파를 끄면 A/B 세그먼트도 흐려진다
-  await page.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }).click();
+  await page.getByRole('switch', { name: '전 고점 돌파 사용' }).click();
   await expectNoSeriousViolations(page, '편집 구역 펼침(전 고점 돌파 끔)');
 });
 
@@ -102,7 +102,7 @@ test('거래 차트 시트가 열린 상태에 심각한 접근성 위반이 없
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
   const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
   await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await result.getByRole('list', { name: '거래 내역' }).getByRole('button').first().click();
+  await result.getByRole('group', { name: '거래 내역' }).getByRole('button').first().click();
   await expect(page.getByRole('dialog')).toContainText(/매수 .*원/);
   await expectNoSeriousViolations(page, '거래 차트 시트');
 });
@@ -119,7 +119,7 @@ test.describe('다크 모드', () => {
   test('전략 편집 구역을 펼친 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
     await openEditorSections(page);
     await expectNoSeriousViolations(page, '다크 편집 구역 펼침');
-    await page.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }).click();
+    await page.getByRole('switch', { name: '전 고점 돌파 사용' }).click();
     await expectNoSeriousViolations(page, '다크 편집 구역 펼침(전 고점 돌파 끔)');
   });
 

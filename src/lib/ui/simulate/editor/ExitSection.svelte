@@ -44,13 +44,13 @@
       {/if}
     </div>
     <div class="row">
-      <NumberField label="목표" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.exit.takeProfit[i].pct = v))} />
+      <NumberField label="목표" namePrefixId="{uid}-st{i}" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.exit.takeProfit[i].pct = v))} />
     </div>
     <div class="row">
       {#if last}
         <span class="rest">파는 양</span><span class="rest-v">나머지 전부</span>
       {:else}
-        <NumberField label="파는 양" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.exit.takeProfit[i].sellPct = v))} />
+        <NumberField label="파는 양" namePrefixId="{uid}-st{i}" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.exit.takeProfit[i].sellPct = v))} />
       {/if}
     </div>
   </div>

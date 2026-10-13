@@ -115,7 +115,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 24px 16px;
+    padding: 24px var(--gutter);
     color: var(--t2);
   }
   p {
@@ -123,7 +123,7 @@
   }
   .hint {
     margin: 0;
-    padding: 24px 16px;
+    padding: 24px var(--gutter);
     color: var(--t2);
     text-align: center;
   }
@@ -149,7 +149,7 @@
   .failed {
     margin: 0;
     padding-left: 18px;
-    font-size: 13px;
+    font-size: var(--fs-sub);
   }
   .actions {
     display: flex;

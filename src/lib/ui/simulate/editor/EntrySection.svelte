@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 매수: 하락 조건 2줄, 트리거 4줄, 필터 1줄(스펙 7.3). 줄마다 라벨 · 숫자 칸 · 오른쪽 토글.
+  // 매수: 하락 조건 2줄, 트리거 4줄, 필터 1줄(스펙 7.3). 줄마다 라벨 · 숫자 칸 · 오른쪽 토글(이름 `{라벨} 사용`).
   import type { Strategy } from '../../../sim/types';
   import Segmented from '../../components/Segmented.svelte';
   import Toggle from '../../components/Toggle.svelte';
@@ -23,7 +23,7 @@
     max={90}
     suffix="% 이상"
     muted={!d.dropPct.on}
-    toggle={{ label: '하락폭 조건 사용', checked: d.dropPct.on, onchange: (v) => update((x) => (x.entry.decline.dropPct.on = v)) }}
+    toggle={{ checked: d.dropPct.on, onchange: (v) => update((x) => (x.entry.decline.dropPct.on = v)) }}
     onchange={(v) => update((x) => (x.entry.decline.dropPct.value = v))}
   />
 </div>
@@ -36,7 +36,7 @@
     step={1}
     suffix="일 이상"
     muted={!d.days.on}
-    toggle={{ label: '하락 기간 조건 사용', checked: d.days.on, onchange: (v) => update((x) => (x.entry.decline.days.on = v)) }}
+    toggle={{ checked: d.days.on, onchange: (v) => update((x) => (x.entry.decline.days.on = v)) }}
     onchange={(v) => update((x) => (x.entry.decline.days.value = v))}
   />
 </div>
@@ -51,13 +51,13 @@
     step={1}
     suffix="일 이상"
     muted={!t.reboundDays.on}
-    toggle={{ label: '연속 상승 트리거 사용', checked: t.reboundDays.on, onchange: (v) => update((x) => (x.entry.triggers.reboundDays.on = v)) }}
+    toggle={{ checked: t.reboundDays.on, onchange: (v) => update((x) => (x.entry.triggers.reboundDays.on = v)) }}
     onchange={(v) => update((x) => (x.entry.triggers.reboundDays.value = v))}
   />
 </div>
 <div class="row">
   <label for="{uid}-bo">전 고점 돌파</label>
-  <Toggle id="{uid}-bo" label="전 고점 돌파 트리거 사용" checked={t.breakout.on} onchange={(v) => update((x) => (x.entry.triggers.breakout.on = v))} />
+  <Toggle id="{uid}-bo" label="전 고점 돌파 사용" checked={t.breakout.on} onchange={(v) => update((x) => (x.entry.triggers.breakout.on = v))} />
 </div>
 <div class:muted={!t.breakout.on}>
   <Segmented
@@ -82,13 +82,13 @@
     step={1}
     suffix="일선"
     muted={!t.maCross.on}
-    toggle={{ label: '이동평균선 돌파 트리거 사용', checked: t.maCross.on, onchange: (v) => update((x) => (x.entry.triggers.maCross.on = v)) }}
+    toggle={{ checked: t.maCross.on, onchange: (v) => update((x) => (x.entry.triggers.maCross.on = v)) }}
     onchange={(v) => update((x) => (x.entry.triggers.maCross.period = v))}
   />
 </div>
 <div class="row">
   <label for="{uid}-gc">골든크로스</label>
-  <Toggle id="{uid}-gc" label="골든크로스 트리거 사용" checked={t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.on = v))} />
+  <Toggle id="{uid}-gc" label="골든크로스 사용" checked={t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.on = v))} />
 </div>
 <div class="indent">
   <div class="row">
@@ -109,7 +109,7 @@
     step={1}
     suffix="일선"
     muted={!f.on}
-    toggle={{ label: '이동평균선 위 필터 사용', checked: f.on, onchange: (v) => update((x) => (x.entry.filter.aboveMa.on = v)) }}
+    toggle={{ checked: f.on, onchange: (v) => update((x) => (x.entry.filter.aboveMa.on = v)) }}
     onchange={(v) => update((x) => (x.entry.filter.aboveMa.period = v))}
   />
 </div>

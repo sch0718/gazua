@@ -1,6 +1,7 @@
 <script lang="ts">
   // 숫자 칸 한 줄: 라벨 · 숫자 칸 · (있으면) 오른쪽 토글 — 설정 화면 .row와 같은 순서.
   // 토글이 있으면 라벨은 토글과 연결된다(라벨을 누르면 켜고 끈다). 숫자 칸 박스는 입력과 연결된 label이라 어디를 눌러도 입력에 포커스.
+  // 토글 이름은 `{라벨} 사용`(보이는 라벨로 시작, WCAG 2.5.3). 단위·금액 힌트·오류는 입력의 설명(aria-describedby).
   import { untrack } from 'svelte';
   import Toggle from '../../components/Toggle.svelte';
   import { fmtWon } from '../../format';
@@ -17,6 +18,7 @@
     muted = false,
     format,
     toggle,
+    namePrefixId,
   }: {
     label: string;
     value: number;
@@ -30,8 +32,10 @@
     muted?: boolean;
     /** 'won': 포커스가 없을 때 천 단위로 보이고 아래에 `= 1,000만 원` */
     format?: 'won';
-    /** 같은 줄 오른쪽 토글. 라벨이 이 토글과 연결된다 */
-    toggle?: { label: string; checked: boolean; onchange: (v: boolean) => void };
+    /** 같은 줄 오른쪽 토글(이름 `{label} 사용`). 라벨이 이 토글과 연결된다 */
+    toggle?: { checked: boolean; onchange: (v: boolean) => void };
+    /** 입력 이름 앞에 붙일 요소 id(예: 익절 `1단계` 제목 → `1단계 목표`). 보이는 라벨은 그대로 */
+    namePrefixId?: string;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
@@ -65,6 +69,10 @@
     });
   });
 
+  const describedBy = $derived(
+    [suffix ? `${inputId}-sfx` : null, bad ? `${inputId}-err` : won ? `${inputId}-money` : null].filter(Boolean).join(' ') || undefined,
+  );
+
   function oninput() {
     const v = parse(text);
     bad = !valid(v);
@@ -92,23 +100,23 @@
       type="text"
       inputmode="decimal"
       autocomplete="off"
-      aria-labelledby="{inputId}-l"
+      aria-labelledby={namePrefixId ? `${namePrefixId} ${inputId}-l` : `${inputId}-l`}
       bind:value={text}
       {oninput}
       {onfocus}
       {onblur}
       aria-invalid={bad ? 'true' : undefined}
-      aria-describedby={bad ? `${inputId}-err` : undefined}
+      aria-describedby={describedBy}
     />
-    {#if suffix}<span class="suffix">{suffix}</span>{/if}
+    {#if suffix}<span class="suffix" id="{inputId}-sfx">{suffix}</span>{/if}
   </label>
   {#if toggle}
-    <Toggle id={toggleId} label={toggle.label} checked={toggle.checked} onchange={toggle.onchange} />
+    <Toggle id={toggleId} label="{label} 사용" checked={toggle.checked} onchange={toggle.onchange} />
   {/if}
   {#if bad}
     <p class="err" id="{inputId}-err" role="alert">{errText}</p>
   {:else if won}
-    <p class="money num">= {money(value)}</p>
+    <p class="money num" id="{inputId}-money">= {money(value)}</p>
   {/if}
 </div>
 

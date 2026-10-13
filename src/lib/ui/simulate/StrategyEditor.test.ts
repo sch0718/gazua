@@ -186,6 +186,18 @@ describe('실행 버튼', () => {
     expect(document.activeElement).toBe(banner);
   });
 
+  it('구역 안 경고 Banner는 라이브 영역이 아니다(펼칠 때마다 다시 알리지 않고, 막힌 실행은 포커스로 읽힌다)', async () => {
+    setup((s) => {
+      s.scaleIn.on = true;
+      s.capital.perBuyPct = 40; // 자금 경고가 두 구역에
+    });
+    await openSection('기간·자금');
+    await openSection('분할 매수');
+    expect(screen.getAllByText('모든 종목이 한꺼번에 사면 현금이 모자라요. 신호 일부를 건너뛸 수 있어요')).toHaveLength(2);
+    expect(screen.queryAllByRole('alert')).toHaveLength(0);
+    expect(screen.queryAllByRole('status')).toHaveLength(0);
+  });
+
   it('id가 숫자로 시작하는 난수여도 Banner로 포커스를 옮긴다', async () => {
     const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.05); // base36 "0.1w…" -> 숫자로 시작
     const { onRun } = setup((s) => {
@@ -348,15 +360,66 @@ describe('편집 행 (설정 .row 패턴)', () => {
   it('라벨을 누르면 같은 줄의 토글이 바뀐다', async () => {
     const { app } = setup();
     await openSection('매수');
-    const sw = screen.getByRole('switch', { name: '하락폭 조건 사용' });
+    const sw = screen.getByRole('switch', { name: '고점 대비 하락폭 사용' });
     expect(sw.getAttribute('aria-checked')).toBe('true');
     await fireEvent.click(screen.getByText('고점 대비 하락폭', { selector: 'label' }));
     expect(sw.getAttribute('aria-checked')).toBe('false');
     await fireEvent.click(screen.getByText('골든크로스', { selector: 'label' }));
-    expect(screen.getByRole('switch', { name: '골든크로스 트리거 사용' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('switch', { name: '골든크로스 사용' }).getAttribute('aria-checked')).toBe('true');
     await settle();
     expect(saved(app).entry.decline.dropPct.on).toBe(false);
     expect(saved(app).entry.triggers.goldenCross.on).toBe(true);
+  });
+
+  it('토글 이름은 그 줄의 보이는 라벨 + 사용(WCAG 2.5.3 이름 안의 라벨)', async () => {
+    setup((s) => (s.scaleIn.on = true));
+    await openSection('매수');
+    await openSection('분할 매수');
+    const switches = screen.getAllByRole('switch');
+    expect(switches.map((sw) => sw.getAttribute('aria-label'))).toEqual([
+      '고점 대비 하락폭 사용',
+      '고점 뒤 지난 거래일 사용',
+      '저점 뒤 연속 상승 사용',
+      '전 고점 돌파 사용',
+      '이동평균선 돌파 사용',
+      '골든크로스 사용',
+      '종가가 이동평균선 위 사용',
+      '분할 매수 사용',
+    ]);
+    // 이름은 연결된 보이는 라벨로 시작한다
+    for (const sw of switches) {
+      const label = document.querySelector(`label[for="${sw.id}"]`)?.textContent?.trim();
+      expect(label, sw.id).toBeTruthy();
+      expect(sw.getAttribute('aria-label')).toBe(`${label} 사용`);
+    }
+  });
+
+  it('익절 단계 칸 이름은 단계 + 라벨(1단계 목표 · 1단계 파는 양)', async () => {
+    setup((s) => {
+      s.exit.takeProfit = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
+    });
+    await openSection('매도');
+    expect(screen.getByRole('textbox', { name: '1단계 목표' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '1단계 파는 양' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '2단계 목표' })).toBeTruthy();
+    // 보이는 라벨은 그대로
+    expect(screen.getAllByText('목표', { selector: 'label' })).toHaveLength(2);
+  });
+
+  it('숫자 칸은 단위·금액 힌트·오류를 설명(aria-describedby)으로 읽힌다', async () => {
+    setup();
+    await openSection('기간·자금');
+    const described = (el: HTMLElement) =>
+      (el.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent?.trim());
+    const cap = screen.getByRole('textbox', { name: '처음 자금' });
+    expect(described(cap)).toEqual(['원', '= 1,000만 원']);
+    const per = screen.getByRole('textbox', { name: '회당 매수 비중' });
+    expect(described(per)).toEqual(['% (처음 자금 대비)']);
+    await fireEvent.input(per, { target: { value: '0' } });
+    expect(described(per)).toEqual(['% (처음 자금 대비)', '1~100 사이로 적어 주세요']);
   });
 
   it('꺼진 조건의 숫자 칸·A/B 세그먼트·골든크로스 칸은 muted, 입력은 그대로 된다', async () => {
@@ -375,7 +438,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     await settle();
     expect(saved(app).entry.decline.days.value).toBe(12);
 
-    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 사용' }));
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeNull();
   });
 
@@ -529,6 +592,14 @@ describe('매도 구역 문구·삭제', () => {
     await openSection('매도');
     for (const name of ['분할 후 평단', '매번 평단', '첫 매수가']) expect(screen.getByRole('radio', { name })).toBeTruthy();
     expect(screen.getByText('평단 = 평균 매수가예요. 분할 매수를 끄면 세 기준이 같아요')).toBeTruthy();
+  });
+
+  it('구역 표시(!·△)와 .act 버튼 글자 크기는 토큰', () => {
+    const css = editorSectionSource.slice(editorSectionSource.indexOf('<style>'));
+    expect(css).not.toMatch(/font-size:\s*\d+px/);
+    expect(/\.flag\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/font-size:\s*var\(--fs-sub\)/);
+    expect(/\.flag\.blocked\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/font-size:\s*var\(--fs-label\)/);
+    expect(/:global\(\.act\)\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/font-size:\s*var\(--fs-sub\)/);
   });
 
   it('익절 단계 삭제는 단계 제목 줄 끝의 ✕(--err)', async () => {

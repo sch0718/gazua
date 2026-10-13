@@ -196,7 +196,7 @@ describe('ResultView', () => {
     expect(tab('거래 내역')).toBeTruthy();
     expect(tab('종목별')).toBeTruthy();
     expect(tab('건너뛴 신호 3')).toBeTruthy();
-    const trades = screen.getByRole('list', { name: '거래 내역' });
+    const trades = screen.getByRole('group', { name: '거래 내역' });
     expect(within(trades).getByText('▼ −5.6%').className).toContain('down');
     expect(within(trades).getByText('▲ +15.0%').className).toContain('up');
     await fireEvent.click(screen.getByRole('button', { name: /^SK하이닉스 · .* · 03\.14 · / }));

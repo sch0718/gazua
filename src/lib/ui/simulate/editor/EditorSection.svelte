@@ -42,7 +42,8 @@
   {#if open}
     <div class="body" id={bodyId}>
       {#each issues as { id, issue } (id)}
-        <Banner {id} message={issue.text} tone={issue.blocking ? 'error' : 'warn'} />
+        <!-- 라이브 영역이 아니다: 펼칠 때마다 다시 알리지 않고, 막힌 실행은 이 Banner로 포커스를 옮겨 읽힌다 -->
+        <Banner {id} live={false} message={issue.text} tone={issue.blocking ? 'error' : 'warn'} />
       {/each}
       {@render children()}
     </div>
@@ -94,14 +95,14 @@
     height: 20px;
     display: grid;
     place-items: center;
-    font-size: 14px;
+    font-size: var(--fs-sub);
     font-weight: 800;
     line-height: 1;
     color: var(--warn);
   }
   .flag.blocked {
     border-radius: 50%;
-    font-size: 12px;
+    font-size: var(--fs-label);
     background: var(--err);
     color: var(--surface);
   }
@@ -159,7 +160,7 @@
     border-radius: 12px;
     background: var(--surface2);
     font-weight: 700;
-    font-size: 14px;
+    font-size: var(--fs-sub);
   }
   /* 목록·단계에서 하나를 빼는 ✕ (종목 구역·익절 단계) */
   .body :global(.x) {

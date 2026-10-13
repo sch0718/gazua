@@ -1,5 +1,6 @@
 <script lang="ts">
   // 전략 목록(스펙 7.2): 행 = 이름 · 한 줄 요약 · 마지막 수정일, 행 메뉴 = 복제·이름 바꾸기·삭제.
+  import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { MAX_STRATEGIES, NAME_MAX, newStrategy } from '../../sim/defaults';
   import type { Strategy } from '../../sim/types';
@@ -46,9 +47,12 @@
     renaming = true;
   }
 
-  function saveRename(s: Strategy) {
+  async function saveRename(s: Strategy) {
     const name = draft.trim().slice(0, NAME_MAX);
     if (!name) {
+      // 같은 오류를 다시 띄울 때도 화면 낭독기가 읽도록 지웠다가 다시 넣는다
+      nameError = '';
+      await tick();
       nameError = '이름을 적어 주세요';
       return;
     }
