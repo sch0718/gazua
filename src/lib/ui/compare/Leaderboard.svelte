@@ -103,24 +103,58 @@
     if (focusInside && !pressInside && (!next || !listEl.contains(next))) leave();
   }
 
-  // 고정 중인 목록 안에서 시작한 누름. 떼거나(pointerup) 취소될(pointercancel) 때까지 순서를 그대로 둔다.
+  // 고정 중인 목록 안에서 시작한 누름. 클릭까지 끝난 뒤에 푼다(떼는 순간 풀면 행이 옮겨져 그 행이 click을 못 받는다, WebKit).
+  // 뗀 뒤에는 click이 오면 바로, 안 오면 RELEASE_FALLBACK_MS 뒤에, 새 누름·키 입력이 먼저 오면 그 즉시 푼다. 취소(pointercancel)는 바로 푼다.
+  const RELEASE_FALLBACK_MS = 300;
+  const DOC_EVENTS = ['pointerup', 'pointercancel', 'click', 'pointerdown', 'keydown'] as const;
   let pressInside = false;
-  function endPressInside() {
-    document.removeEventListener('pointerup', endPressInside, true);
-    document.removeEventListener('pointercancel', endPressInside, true);
+  let pressReleased = false;
+  let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+  function stopWatchingPress() {
+    clearTimeout(releaseTimer);
+    for (const t of DOC_EVENTS) document.removeEventListener(t, onpressevent, true);
     pressInside = false;
+    pressReleased = false;
+  }
+  function finishPress() {
+    stopWatchingPress();
     // 포커스가 목록 안에 남아 있으면(Chromium) 그대로 둔다. 밖이면 이제 푼다.
     if (focusInside && !listEl?.contains(document.activeElement)) leave();
+  }
+  function onpressevent(e: Event) {
+    switch (e.type) {
+      case 'pointerup':
+        pressReleased = true;
+        clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(finishPress, RELEASE_FALLBACK_MS);
+        break;
+      case 'click':
+        // click 핸들러가 끝난 뒤에 푼다.
+        if (pressReleased) {
+          clearTimeout(releaseTimer);
+          releaseTimer = setTimeout(finishPress, 0);
+        }
+        break;
+      case 'pointerdown':
+        if (pressReleased) finishPress();
+        break;
+      case 'keydown':
+        // 키로 포커스를 옮기면 focusout이 오므로 누름 표시만 끄고, 포커스가 이미 body였던 경우는 직후에 확인한다.
+        pressInside = false;
+        clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(finishPress, 0);
+        break;
+      default:
+        finishPress();
+    }
   }
   function onlistpointerdown() {
     if (pressInside) return;
     pressInside = true;
-    document.addEventListener('pointerup', endPressInside, true);
-    document.addEventListener('pointercancel', endPressInside, true);
+    for (const t of DOC_EVENTS) document.addEventListener(t, onpressevent, true);
   }
   onDestroy(() => {
-    document.removeEventListener('pointerup', endPressInside, true);
-    document.removeEventListener('pointercancel', endPressInside, true);
+    stopWatchingPress();
     if (focusInside) leave();
   });
 
