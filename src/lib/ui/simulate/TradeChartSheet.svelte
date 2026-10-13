@@ -113,6 +113,10 @@
   <div class="trade-chart">
     <div class="plot" bind:this={el} aria-hidden="true"></div>
     <p class="summary">{summary}</p>
+    {#if pattern}
+      <!-- 차트가 aria-hidden이라 A/B/L 가격선도 글로 남긴다 -->
+      <p class="summary">A {fmtWon(pattern.a)}원 · B {fmtWon(pattern.b)}원 · L {fmtWon(pattern.l)}원</p>
+    {/if}
   </div>
 </Sheet>
 

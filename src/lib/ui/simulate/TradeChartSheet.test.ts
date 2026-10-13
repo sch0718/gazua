@@ -88,6 +88,16 @@ describe('TradeChartSheet', () => {
     expect(screen.queryByRole('img')).toBeNull();
   });
 
+  it('요약에 매수 줄 A·B·L 가격, pattern이 없으면 그 줄은 없다', async () => {
+    const trades = [buy(30), sell(50)];
+    const { unmount } = open(trades[0], trades);
+    expect(screen.getByText('A 150원 · B 120원 · L 110원')).toBeTruthy();
+    unmount();
+    const plain = [buy(30, { pattern: undefined }), sell(50)];
+    open(plain[0], plain);
+    expect(screen.queryByText(/^A .*원 · B .*원 · L .*원$/)).toBeNull();
+  });
+
   it('닫으면 차트를 정리한다', async () => {
     const trades = [buy(30), sell(50)];
     const { onclose, rerender } = open(trades[0], trades);
