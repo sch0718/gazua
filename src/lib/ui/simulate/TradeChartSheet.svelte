@@ -38,8 +38,8 @@
   } = $props();
 
   const MARGIN_BARS = 20;
-  /** 첫 x 라벨(`'25년` 등)이 왼쪽 끝에서 잘리지 않게 앞에 비워 둘 봉 수: 표시 봉의 7%(최소 3). 폭과 무관하게 라벨 반 폭(약 16px) 이상 */
-  const leftPadBars = (n: number) => Math.max(3, Math.ceil(n * 0.07));
+  /** 양 끝 x 라벨(`2025년`·`10월` 등)이 잘리지 않게 앞뒤로 비워 둘 봉 수: 표시 봉의 7%(최소 3). 폭과 무관하게 라벨 반 폭(약 16px) 이상 */
+  const edgePadBars = (n: number) => Math.max(3, Math.ceil(n * 0.07));
   /** 같은 방향 마커가 이 봉 수 안이면 하나로 합친다(라벨 겹침 방지) */
   const MERGE_BARS = 3;
   const LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
@@ -159,7 +159,8 @@
       }
       line.createPriceLine({ price: pattern.l, title: 'L', color: gray, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false });
     }
-    c.timeScale().setVisibleLogicalRange({ from: -leftPadBars(bars.length), to: bars.length - 1 + 0.5 });
+    const pad = edgePadBars(bars.length);
+    c.timeScale().setVisibleLogicalRange({ from: -pad, to: bars.length - 1 + pad });
     return () => {
       observer.disconnect();
       c.remove();

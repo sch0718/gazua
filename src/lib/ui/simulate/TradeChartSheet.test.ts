@@ -107,14 +107,14 @@ describe('TradeChartSheet', () => {
     expect((series().data as { time: string }[]).at(-1)?.time).toBe(day(119));
   });
 
-  it('첫 x 라벨이 왼쪽 끝에서 잘리지 않게 앞쪽에 빈 봉 몇 개만큼 여백을 둔다', async () => {
+  it('첫·끝 x 라벨이 양 끝에서 잘리지 않게 앞뒤에 빈 봉 몇 개만큼 여백을 둔다', async () => {
     const trades = [buy(30), sell(50)];
     open(trades[0], trades);
     await vi.waitFor(() => expect(series()?.data.length).toBe(66));
     const r = lwcCharts[0].visibleRange;
     if (r === null || r === 'fit') throw new Error(String(r));
     expect(r.from).toBeLessThanOrEqual(-3);
-    expect(r.to).toBeGreaterThanOrEqual(65);
+    expect(r.to).toBeGreaterThanOrEqual(65 + 3);
   });
 
   it('요약: 첫 매수와 해가 다른 단계는 YY.MM.DD', async () => {
