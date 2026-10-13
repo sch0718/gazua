@@ -7,7 +7,6 @@ const NOW = kstEpoch('2026-10-12', '17:25:00');
 const issue = (over: Partial<LoadIssue>): LoadIssue => ({
   code: 'upstream',
   at: NOW,
-  allFailed: true,
   lastOkAt: kstEpoch('2026-10-12', '17:20:00'),
   ...over,
 });
@@ -32,7 +31,7 @@ describe('issueFaults', () => {
     expect(dominantFault(faults)?.code).toBe('invalid-credentials');
   });
 
-  it('keeps connection codes only when strictly more than half of the rows failed with that code', () => {
+  it('keeps connection codes only when strictly more than half of the rows failed with them', () => {
     expect(issueFaults(many('proxy-unreachable', 4), 8)).toEqual([]);
     expect(issueFaults(many('proxy-unreachable', 5), 8)).toHaveLength(5);
     expect(issueFaults(many('timeout', 4), 8)).toEqual([]);
@@ -42,9 +41,37 @@ describe('issueFaults', () => {
     expect(issueFaults(many('timeout', 1), 2)).toEqual([]);
   });
 
-  it('counts each connection code separately', () => {
-    const faults = [...many('proxy-unreachable', 3), ...many('timeout', 3)];
-    expect(issueFaults(faults, 8)).toEqual([]);
+  it('counts the two connection codes together and keeps the one with more rows', () => {
+    // 8행: 프록시 3 + 지연 2 → 합계 5 > 4, 프록시가 많다
+    const proxyLeads = issueFaults([...many('proxy-unreachable', 3), ...many('timeout', 2)], 8);
+    expect(dominantFault(proxyLeads)?.code).toBe('proxy-unreachable');
+    expect(proxyLeads.every((x) => x.code === 'proxy-unreachable')).toBe(true);
+    // 지연 3 + 프록시 2 → 지연이 많다
+    const slowLeads = issueFaults([...many('timeout', 3), ...many('proxy-unreachable', 2)], 8);
+    expect(dominantFault(slowLeads)?.code).toBe('timeout');
+    expect(slowLeads.every((x) => x.code === 'timeout')).toBe(true);
+  });
+
+  it('a tie between the two connection codes picks proxy-unreachable', () => {
+    // 5행: 2 + 2 = 4 > 2.5로 과반, 두 코드가 같으면 프록시
+    const tie = issueFaults([...many('timeout', 2), ...many('proxy-unreachable', 2)], 5);
+    expect(dominantFault(tie)?.code).toBe('proxy-unreachable');
+  });
+
+  it('mixed connection faults without a majority raise nothing', () => {
+    expect(issueFaults([...many('proxy-unreachable', 2), ...many('timeout', 2)], 8)).toEqual([]);
+    expect(issueFaults([...many('proxy-unreachable', 3), ...many('timeout', 3)], 12)).toEqual([]);
+  });
+
+  it('credential faults win over mixed connection faults that are not a majority', () => {
+    const faults = issueFaults([...many('proxy-unreachable', 2), fault('timeout'), fault('invalid-credentials')], 8);
+    expect(faults.map((x) => x.code)).toEqual(['invalid-credentials']);
+    expect(dominantFault(faults)?.code).toBe('invalid-credentials');
+  });
+
+  it('a mixed connection majority keeps its usual priority over credential faults', () => {
+    const faults = issueFaults([...many('proxy-unreachable', 3), ...many('timeout', 2), fault('invalid-credentials')], 8);
+    expect(dominantFault(faults)?.code).toBe('proxy-unreachable');
   });
 
   it('never filters non-connection codes', () => {
@@ -68,7 +95,7 @@ describe('issueView', () => {
   });
 
   it('proxy redirect → error banner from describeError, ranked as a connection problem', () => {
-    expect(issueView(issue({ code: 'proxy-redirect', allFailed: false }), NOW)).toEqual({
+    expect(issueView(issue({ code: 'proxy-redirect' }), NOW)).toEqual({
       kind: 'banner',
       tone: 'error',
       text: '프록시가 요청을 다른 주소로 보내려 해서 멈췄어요. 프록시 URL을 확인해 주세요',
@@ -80,7 +107,7 @@ describe('issueView', () => {
   });
 
   it('invalid credentials → error banner with 키 다시 입력', () => {
-    expect(issueView(issue({ code: 'invalid-credentials', allFailed: false }), NOW)).toEqual({
+    expect(issueView(issue({ code: 'invalid-credentials' }), NOW)).toEqual({
       kind: 'banner',
       tone: 'error',
       text: '키가 맞지 않아요',
@@ -89,7 +116,7 @@ describe('issueView', () => {
   });
 
   it('rate limited → toolbar notice, not a banner', () => {
-    expect(issueView(issue({ code: 'rate-limited', allFailed: false }), NOW)).toEqual({
+    expect(issueView(issue({ code: 'rate-limited' }), NOW)).toEqual({
       kind: 'toolbar',
       text: '잠시 천천히 불러오는 중',
     });
@@ -115,7 +142,7 @@ describe('issueView', () => {
 
   it('timeout that passed the majority filter is a banner', () => {
     // 과반 판단은 issueFaults가 이미 했다: 여기 남은 timeout은 배너 대상이다.
-    expect(issueView(issue({ code: 'timeout', allFailed: false }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
+    expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
     expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
   });
 

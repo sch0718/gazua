@@ -211,11 +211,20 @@
     return untrack(() => now);
   });
   const rowOpts = $derived({ scrubT, chartDate: mode === 'intraday' ? tradingDate : null, now: rowNow });
+  // 행마다 rowSeries를 한 번만 계산해 값(points)과 가격(buildRows)이 함께 쓴다.
+  const quotedBySymbol = $derived.by(() => {
+    const out: Record<string, ReturnType<typeof rowSeries> | null> = {};
+    for (const i of items) {
+      const series = ctl.entries[i.symbol]?.series;
+      out[i.symbol] = series ? rowSeries(series, ctl.quotes[i.symbol], rowOpts) : null;
+    }
+    return out;
+  });
   const rowPointsBySymbol = $derived.by(() => {
     const out: Record<string, Point[] | null> = {};
     for (const i of items) {
       const series = ctl.entries[i.symbol]?.series;
-      const quoted = series ? rowSeries(series, ctl.quotes[i.symbol], rowOpts) : null;
+      const quoted = quotedBySymbol[i.symbol];
       out[i.symbol] = quoted && quoted !== series ? pointsOf(i.symbol, quoted) : pointsBySymbol[i.symbol];
     }
     return out;
@@ -232,6 +241,7 @@
           error: e?.error ?? null,
           points: rowPointsBySymbol[item.symbol],
           quote: ctl.quotes[item.symbol],
+          quoted: quotedBySymbol[item.symbol],
         };
       }),
       { ...rowOpts, venueMode: effectiveVenueMode(venues, venueMode) },

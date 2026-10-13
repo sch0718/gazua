@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedSeries } from '../../data/candleService';
 import type { Candle, Point } from '../../data/metrics';
 import { metricPoints } from '../../data/seriesMetrics';
+import type { VenueMode } from '../../market/tradable';
 import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { buildRows, rowSeries, sortRows, valueAt, withQuote, type RowSource } from './rows';
+import { buildRows, isSuspended, rowSeries, sortRows, valueAt, withQuote, type RowSource } from './rows';
 
 const at = (hhmm: string) => kstEpoch('2026-10-12', `${hhmm}:00`);
 const bar = (t: number, c: number): Candle => ({ t, o: c, h: c, l: c, c, v: 1 });
@@ -153,6 +154,26 @@ describe('buildRows', () => {
     const [ok] = buildRows([src('A', { meta: meta('A', { nxtSuspended: false }) })], { now: NOW_R, scrubT: null, venueMode: 'NXT' });
     expect(ok.badges).toEqual([]);
     expect(ok.nxt).toBe(true);
+  });
+
+  it('suspension badge follows isSuspended for every venue mode', () => {
+    const table: [Partial<StockMeta>, VenueMode, string[]][] = [
+      [{}, 'AUTO', []],
+      [{ krxSuspended: true }, 'KRX', ['거래정지']],
+      [{ krxSuspended: true }, 'NXT', ['거래정지']],
+      [{ krxSuspended: true, nxtSuspended: true }, 'NXT', ['거래정지']],
+      [{ nxtSuspended: true }, 'NXT', ['NXT 거래정지']],
+      [{ nxtSuspended: true }, 'KRX', []],
+      [{ nxtSuspended: true }, 'AUTO', []],
+      [{ nxtSuspended: false }, 'NXT', []],
+      [{ nxtSuspended: null }, 'NXT', []],
+    ];
+    for (const [over, venueMode, badges] of table) {
+      const m = meta('A', over);
+      const [r] = buildRows([src('A', { meta: m })], { now: NOW_R, scrubT: null, venueMode });
+      expect(r.badges, `${JSON.stringify(over)} ${venueMode}`).toEqual(badges);
+      expect(r.badges.some((b) => b.includes('거래정지'))).toBe(isSuspended(m, venueMode));
+    }
   });
 
   it('error rows carry the error; rows still loading are marked loading', () => {
@@ -315,6 +336,17 @@ describe('buildRows — the price shows the quote only when the value uses it', 
     const [r] = buildRows([src('A', { series: s, quote: q, points })], opts);
     expect(r.price).toBe(112);
     expect(r.value).toBeCloseTo(12, 10);
+  });
+
+  it('a precomputed quoted series is used as given instead of running rowSeries again', () => {
+    const s = series('A', { candles: [bar(at('09:00'), 105), bar(at('09:01'), 110)] });
+    const q: Quote = { symbol: 'A', venue: 'KRX', price: 112, ts: at('09:01') + 30_000 };
+    const opts = { now: NOW_R, scrubT: null, venueMode: 'AUTO' as const, chartDate: '2026-10-12' };
+    const quoted = rowSeries(s, q, opts);
+    expect(quoted).not.toBe(s);
+    expect(buildRows([src('A', { series: s, quote: q, quoted })], opts)[0].price).toBe(112);
+    // 호출자가 원래 시리즈를 넘기면 시세가 값에 쓰이지 않은 것으로 보고 캔들 종가를 보인다.
+    expect(buildRows([src('A', { series: s, quote: q, quoted: s })], opts)[0].price).toBe(110);
   });
 
   it('a quote and last bar from yesterday are not applied today: price is the candle close', () => {

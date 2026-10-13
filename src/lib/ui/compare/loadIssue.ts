@@ -20,8 +20,6 @@ export interface LoadFault {
 }
 
 export interface LoadIssue extends LoadFault {
-  /** 지금 그룹의 모든 종목이 새로 받지 못했다(마지막 성공 결과만 있거나 아무것도 없음). */
-  allFailed: boolean;
   /** 마지막으로 새 데이터를 받은 시각. 없으면 null */
   lastOkAt: number | null;
 }
@@ -56,17 +54,23 @@ export function dominantFault(faults: LoadFault[]): LoadFault | null {
   return best;
 }
 
-/** 한 행의 일시적 실패일 수 있어 과반 행이 같은 코드로 실패할 때만 화면 문제로 보는 연결 코드. */
+/** 한 행의 일시적 실패일 수 있어 과반 행이 실패할 때만 화면 문제로 보는 연결 코드. 둘을 합쳐서 센다. */
 export const CONNECTION_CODES: ErrorCode[] = ['proxy-unreachable', 'timeout'];
 
-/** 연결 코드 오류는 그 코드로 실패한 행이 total의 과반(> total / 2)일 때만 남긴다. 그 밖의 코드는 그대로. */
+/**
+ * 연결 오류(프록시 미응답·응답 지연)는 합쳐서 total의 과반(> total / 2)일 때만 남기고, 그때는 행이 더 많은 쪽 코드만 남긴다
+ * (같으면 proxy-unreachable). 과반이 아니면 연결 오류를 모두 뺀다. 그 밖의 코드는 그대로.
+ */
 export function issueFaults(faults: LoadFault[], total: number): LoadFault[] {
-  const count = new Map<ErrorCode, number>();
-  for (const f of faults) count.set(f.code, (count.get(f.code) ?? 0) + 1);
-  return faults.filter((f) => !CONNECTION_CODES.includes(f.code) || (count.get(f.code) ?? 0) > total / 2);
+  const connection = faults.filter((f) => CONNECTION_CODES.includes(f.code));
+  const others = faults.filter((f) => !CONNECTION_CODES.includes(f.code));
+  if (connection.length * 2 <= total) return others;
+  const proxyRows = connection.filter((f) => f.code === 'proxy-unreachable').length;
+  const lead: ErrorCode = proxyRows * 2 >= connection.length ? 'proxy-unreachable' : 'timeout';
+  return faults.filter((f) => !CONNECTION_CODES.includes(f.code) || f.code === lead);
 }
 
-/** 화면 전체의 문제인 코드(연결·키·권한). 연결 코드는 issueFaults를 거쳐 과반일 때만 여기까지 온다. */
+/** 화면 전체의 문제인 코드(연결·키·권한). 연결 코드는 issueFaults를 거쳐 합계가 과반일 때만 여기까지 온다. */
 const BANNER_CODES: ErrorCode[] = [
   'proxy-unreachable',
   'timeout',
