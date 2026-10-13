@@ -137,8 +137,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
 
   let metas = $state.raw<Record<string, StockMeta>>({});
-  /** metas를 마지막으로 받은 KST 날짜. 날짜가 바뀌면 다시 받는다. */
-  let metaDay: string | null = null;
+  /** 종목별로 메타를 받은 KST 날짜. 오늘이 아니면 다시 받는다(다른 그룹에 있던 종목도 돌아올 때 새로 받는다). */
+  const metaDays = new Map<string, string>();
   let entries = $state.raw<Record<string, SeriesEntry>>({});
   let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
   /** 지수별 지금 entry를 만든 조회의 시작 시각. indexes와 함께 바뀐다. */
@@ -213,14 +213,15 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
    */
   async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<LoadFault | undefined> {
     const today = kstDate(deps.now());
-    const dayChanged = metaDay !== null && metaDay !== today;
-    const wanted = dayChanged ? [...new Set([...(query?.symbols ?? []), ...symbols])] : symbols.filter((s) => !metas[s]);
+    // 요청한 종목 중 받은 날이 오늘이 아닌 것 + 지금 그룹에서 메타는 있지만 어제 값인 것.
+    const candidates = [...new Set([...symbols, ...(query?.symbols ?? [])])];
+    const wanted = candidates.filter((s) => metaDays.get(s) !== today && (symbols.includes(s) || !!metas[s]));
     if (wanted.length === 0) return undefined;
     try {
       const list = await provider.getStockMeta(wanted);
       if (query?.provider !== provider) return undefined;
       metas = { ...metas, ...Object.fromEntries(list.map((m) => [m.symbol, m])) };
-      metaDay = today;
+      for (const m of list) metaDays.set(m.symbol, today);
       return undefined;
     } catch (e) {
       // 메타를 못 받은 종목은 행에 오류로 보인다. 이전 메타가 있는 종목은 그대로 쓴다.
@@ -420,7 +421,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       ensurePoller(q.provider);
       if (prev?.provider !== q.provider) {
         metas = {};
-        metaDay = null;
+        metaDays.clear();
       }
       const keyChanged =
         !prev ||

@@ -233,6 +233,35 @@ describe('compareController', () => {
       expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
     });
 
+    it('refreshes a symbol from another group when it comes back after midnight', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query({ symbols: ['042700'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      // 다른 그룹으로 옮겼다가 자정을 넘긴 뒤 새로 받는다.
+      t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(false);
+
+      state.calls.length = 0;
+      t.ctl.setQuery(t.query({ symbols: ['005930', '042700'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.calls).toEqual([['042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+
     it('keeps the previous meta when the refresh fails, and retries on the next reload', async () => {
       const { provider, state } = metaProvider();
       const t = track(setup({ provider }));
