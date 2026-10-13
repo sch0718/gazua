@@ -108,6 +108,8 @@
   const RELEASE_FALLBACK_MS = 300;
   const DOC_EVENTS = ['pointerup', 'pointercancel', 'click', 'pointerdown', 'keydown'] as const;
   let pressInside = false;
+  // 누름을 시작한 포인터. 다른 포인터(둘째 손가락 등)의 up·cancel은 이 누름을 끝내지 않는다.
+  let pressPointerId = 0;
   let pressReleased = false;
   let releaseTimer: ReturnType<typeof setTimeout> | undefined;
   function stopWatchingPress() {
@@ -122,8 +124,10 @@
     if (focusInside && !listEl?.contains(document.activeElement)) leave();
   }
   function onpressevent(e: Event) {
+    const samePointer = !(e instanceof PointerEvent) || e.pointerId === pressPointerId;
     switch (e.type) {
       case 'pointerup':
+        if (!samePointer) break;
         pressReleased = true;
         clearTimeout(releaseTimer);
         releaseTimer = setTimeout(finishPress, RELEASE_FALLBACK_MS);
@@ -136,11 +140,13 @@
         }
         break;
       case 'pointerdown':
+        // 첫 포인터를 아직 누르고 있는 동안의 다른 포인터는 무시한다.
         if (!pressReleased) break;
         if (listEl?.contains(e.target as Node)) {
-          // 목록 안의 새 누름은 같은 누름의 이어짐이다. 유예 타이머만 끄고 계속 지켜본다.
+          // 목록 안의 새 누름은 같은 누름의 이어짐이다. 유예 타이머만 끄고 새 포인터를 지켜본다.
           clearTimeout(releaseTimer);
           pressReleased = false;
+          pressPointerId = (e as PointerEvent).pointerId;
         } else {
           finishPress();
         }
@@ -151,13 +157,14 @@
         clearTimeout(releaseTimer);
         releaseTimer = setTimeout(finishPress, 0);
         break;
-      default:
-        finishPress();
+      case 'pointercancel':
+        if (samePointer) finishPress();
     }
   }
-  function onlistpointerdown() {
+  function onlistpointerdown(e: PointerEvent) {
     if (pressInside) return;
     pressInside = true;
+    pressPointerId = e.pointerId;
     for (const t of DOC_EVENTS) document.addEventListener(t, onpressevent, true);
   }
   onDestroy(() => {

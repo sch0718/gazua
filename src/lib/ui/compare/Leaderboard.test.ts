@@ -282,6 +282,36 @@ describe('Leaderboard', () => {
       expect(onfocuswithin).toHaveBeenLastCalledWith(null);
     });
 
+    // 첫 손가락(터치 1)을 누른 채 목록 밖 둘째 손가락(2)이 닿았다 떼도 첫 누름은 끝나지 않는다.
+    it('another pointer cancelling does not end a press that is still down', async () => {
+      const onfocuswithin = vi.fn();
+      await press(onfocuswithin);
+      await fireEvent.pointerDown(document.body, { pointerId: 2, pointerType: 'touch' });
+      await fireEvent.pointerCancel(document.body, { pointerId: 2, pointerType: 'touch' });
+      vi.advanceTimersByTime(1000);
+      expect(onfocuswithin).toHaveBeenCalledTimes(1);
+      // 첫 포인터가 끝나면 그때 푼다
+      await fireEvent.pointerUp(mainBtn('B'), { pointerId: 1 });
+      await fireEvent.click(mainBtn('B'));
+      vi.advanceTimersByTime(0);
+      expect(onfocuswithin).toHaveBeenCalledTimes(2);
+      expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+    });
+
+    it('another pointer lifting does not start the release timer of a press that is still down', async () => {
+      const onfocuswithin = vi.fn();
+      await press(onfocuswithin);
+      await fireEvent.pointerDown(document.body, { pointerId: 2, pointerType: 'touch' });
+      await fireEvent.pointerUp(document.body, { pointerId: 2, pointerType: 'touch' });
+      vi.advanceTimersByTime(1000);
+      expect(onfocuswithin).toHaveBeenCalledTimes(1);
+      await fireEvent.pointerUp(mainBtn('B'), { pointerId: 1 });
+      await fireEvent.click(mainBtn('B'));
+      vi.advanceTimersByTime(0);
+      expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+      expect(onfocuswithin).toHaveBeenCalledTimes(2);
+    });
+
     it('a key press ends the press: focus moving out afterwards releases normally', async () => {
       const onfocuswithin = vi.fn();
       await press(onfocuswithin);
