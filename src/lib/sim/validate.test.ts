@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { itemsOf } from '../../sheets/testApp';
 import { newStrategy } from './defaults';
 import { resolveSymbols, sanitizeStrategies, strategyIssues } from './validate';
@@ -43,9 +43,22 @@ describe('strategyIssues', () => {
     t.entry.triggers.breakout.on = false;
     expect(strategyIssues(t, w)).toContainEqual({
       section: 'entry',
-      text: '매수 신호가 나지 않아요. 트리거를 하나 이상 켜 주세요',
+      text: '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요',
       blocking: true,
     });
+  });
+
+  it('골든크로스는 단기선이 장기선보다 짧아야 한다(켜져 있을 때만, 막지 않음)', () => {
+    const warn = { section: 'entry', text: '단기선 기간이 장기선보다 짧아야 해요', blocking: false };
+    const t = structuredClone(s);
+    t.entry.triggers.goldenCross = { on: true, short: 5, long: 5 };
+    expect(strategyIssues(t, w)).toContainEqual(warn);
+    t.entry.triggers.goldenCross = { on: true, short: 30, long: 20 };
+    expect(strategyIssues(t, w)).toContainEqual(warn);
+    t.entry.triggers.goldenCross = { on: true, short: 5, long: 20 };
+    expect(strategyIssues(t, w)).not.toContainEqual(warn);
+    t.entry.triggers.goldenCross = { on: false, short: 5, long: 5 };
+    expect(strategyIssues(t, w)).not.toContainEqual(warn);
   });
 
   it('avgAlways + 분할 매수에서 간격이 손절폭 이상이면 경고만', () => {
@@ -174,5 +187,39 @@ describe('sanitizeStrategies', () => {
     ];
     const [r] = sanitizeStrategies({ strategies: [t] }).strategies;
     expect(r.exit.takeProfit).toEqual([{ pct: 5, sellPct: 30 }, { pct: 10, sellPct: 30 }, { pct: 20, sellPct: 100 }]);
+  });
+});
+
+describe('sanitizeStrategies: 날짜와 기본값 생성', () => {
+  const s = newStrategy(now, 'g1');
+  const dp = newStrategy(now, null).period;
+
+  it('불가능한 날짜는 기본 기간으로 되돌리고 repaired', () => {
+    for (const bad of ['2026-02-30', '2026-99-99', '2026-00-10', '2026-04-31']) {
+      const t = { ...structuredClone(s), period: { from: bad, to: '2026-10-11' } };
+      const r = sanitizeStrategies({ strategies: [t] }, now);
+      expect(r.strategies[0].period.from).toBe(dp.from);
+      expect(r.strategies[0].period.to).toBe('2026-10-11');
+      expect(r.repaired).toBe(true);
+    }
+    const t = { ...structuredClone(s), period: { from: '2024-02-29', to: '2026-10-11' } }; // 윤일은 맞는 날짜
+    const r = sanitizeStrategies({ strategies: [t] }, now);
+    expect(r.strategies[0].period.from).toBe('2024-02-29');
+    expect(r.repaired).toBe(false);
+  });
+
+  it('기본값 생성은 항목 수와 무관하게 한 번이다', () => {
+    const spy = vi.spyOn(crypto, 'randomUUID');
+    try {
+      sanitizeStrategies({ strategies: [{ ...structuredClone(s), id: 'a' }] }, now);
+      const one = spy.mock.calls.length;
+      spy.mockClear();
+      const many = Array.from({ length: 10 }, (_, i) => ({ ...structuredClone(s), id: `a${i}` }));
+      sanitizeStrategies({ strategies: many }, now);
+      expect(spy.mock.calls.length).toBe(one);
+      expect(one).toBeLessThanOrEqual(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

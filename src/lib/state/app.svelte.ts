@@ -20,8 +20,7 @@ import {
   removeTokens,
   storageTokenStore,
 } from './profileStore';
-import { MAX_STRATEGIES } from '../sim/defaults';
-import { loadStrategies } from '../sim/strategyStore';
+import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
 import { exportData, importData, type ImportResult } from './exportImport';
 import { hashFor, parseHash, type Route } from './routes';
@@ -484,7 +483,7 @@ export function createApp(deps: AppDeps): App {
     },
 
     setStrategies(list) {
-      if (list.length > MAX_STRATEGIES) throw new Error(`전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`);
+      assertStrategyCap(list);
       strategies = list;
       write(profileKeys.strategies(activeId()), { strategies: list });
     },

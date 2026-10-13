@@ -1,12 +1,15 @@
 // 저장된 전략의 검증과 편집 화면 경고. state/validate.ts처럼 아는 필드만 타입을 검사하고 틀리면 기본값으로 되돌린다.
 import type { Watchlists } from '../state/schema';
-import { addDays } from '../time/kst';
+import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { defaultPeriod, MAX_STRATEGIES, MAX_SYMBOLS, MAX_TAKE_STAGES, NAME_MAX, newStrategy } from './defaults';
 import type { StopBasis, Strategy } from './types';
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** 달력에 있는 날짜인가(2026-02-30, 2026-99-99는 아님). */
+const realDate = (x: unknown): boolean =>
+  typeof x === 'string' && DATE_RE.test(x) && kstDate(kstEpoch(x, '00:00:00')) === x;
 const BASES: readonly StopBasis[] = ['avgAfterScaleIn', 'avgAlways', 'firstBuy'];
 
 export type Issue = {
@@ -16,9 +19,9 @@ export type Issue = {
 };
 
 /** 항목 하나를 고친다. 맞지 않거나 빠진 필드는 기본값으로 바꾸고 repaired를 켠다. */
-function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boolean } | null {
+function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Strategy; repaired: boolean } | null {
   if (typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
-  const d = newStrategy(now, null);
+  const d = structuredClone(template);
   let repaired = false;
   const pick = <T>(v: unknown, def: T, ok: (x: unknown) => boolean): T => {
     if (ok(v)) return v as T;
@@ -51,9 +54,8 @@ function sanitizeOne(raw: Row, now: number): { strategy: Strategy; repaired: boo
   } else if (raw.universe !== undefined) repaired = true;
 
   const p = rec(raw.period);
-  const dateOk = (x: unknown) => typeof x === 'string' && DATE_RE.test(x);
   const dp = defaultPeriod(now);
-  const period = { from: pick(p.from, dp.from, dateOk), to: pick(p.to, dp.to, dateOk) };
+  const period = { from: pick(p.from, dp.from, realDate), to: pick(p.to, dp.to, realDate) };
 
   const cap = rec(raw.capital);
   const capital = {
@@ -154,8 +156,9 @@ export function sanitizeStrategies(raw: unknown, now = Date.now()): { strategies
   const strategies: Strategy[] = [];
   const ids = new Set<string>();
   let repaired = false;
+  const template = newStrategy(now, null); // 기본값 원본은 한 번만 만든다
   for (const item of raw.strategies) {
-    const r = isRecord(item) ? sanitizeOne(item, now) : null;
+    const r = isRecord(item) ? sanitizeOne(item, now, template) : null;
     if (!r || ids.has(r.strategy.id) || strategies.length >= MAX_STRATEGIES) {
       repaired = true;
       continue;
@@ -186,7 +189,9 @@ export function strategyIssues(s: Strategy, w: Watchlists): Issue[] {
 
   const t = s.entry.triggers;
   if (!t.reboundDays.on && !t.breakout.on && !t.maCross.on && !t.goldenCross.on)
-    out.push({ section: 'entry', text: '매수 신호가 나지 않아요. 트리거를 하나 이상 켜 주세요', blocking: true });
+    out.push({ section: 'entry', text: '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true });
+  if (t.goldenCross.on && t.goldenCross.short >= t.goldenCross.long)
+    out.push({ section: 'entry', text: '단기선 기간이 장기선보다 짧아야 해요', blocking: false });
 
   const { stopLoss, takeProfit } = s.exit;
   if (stopLoss.basis === 'avgAlways' && s.scaleIn.on && s.scaleIn.stepPct >= stopLoss.pct)

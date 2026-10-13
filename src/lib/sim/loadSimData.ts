@@ -26,13 +26,12 @@ export type LoadOutcome =
       failed: SimFailure[];
       venueLabel: 'KRX 일봉' | '통합 일봉';
       fetchedAt: number;
-      clampedTo: string | null;
       indexFailed: null | '받지 못했어요' | '기간 일부만 받았어요';
       benchmarkFailed: boolean;
     }
   | { ok: false; error: unknown } // 첫 요청(메타)부터 실패 = 연결 문제
   | { ok: false; cancelled: true }
-  | { ok: false; noData: true };
+  | { ok: false; noData: true; failed: SimFailure[] };
 
 const WAITING_MS = 3000;
 const PRIORITY = 2;
@@ -64,10 +63,12 @@ export async function loadSimData(args: {
   const { provider, strategy, symbols, now, memo, onProgress, isCancelled } = args;
   const { from } = strategy.period;
   const today = kstDate(now);
-  const clampedTo = strategy.period.to >= today ? addDays(today, -1) : null;
-  const to = clampedTo ?? strategy.period.to;
+  const yesterday = addDays(today, -1);
+  const to = strategy.period.to > yesterday ? yesterday : strategy.period.to; // 오늘은 아직 일봉이 끝나지 않았다
+  if (from > to) return { ok: false, noData: true, failed: [] }; // 받을 기간이 없다 — 공급자를 부르지 않는다
   const warmFrom = addDays(from, -Math.max(400, Math.ceil(longestMa(strategy) * 1.6)));
-  const venue = provider.capabilities.venues.includes('KRX') ? 'KRX' : provider.capabilities.venues[0];
+  const venues = provider.capabilities.venues;
+  const venue = venues.length === 0 || venues.includes('KRX') ? 'KRX' : venues[0];
   const venueLabel = venue === 'KRX' ? 'KRX 일봉' : '통합 일봉';
   const benchSymbol = strategy.benchmarks.symbol;
   const total = 3 + symbols.length;
@@ -205,7 +206,7 @@ export async function loadSimData(args: {
     for (const c of indexBars) set.add(kstDate(c.t));
     for (const s of stocks) for (const c of s.candles) if (inRange(c)) set.add(kstDate(c.t));
     const days = [...set].sort();
-    if (days.length === 0) return { ok: false, noData: true };
+    if (days.length === 0) return { ok: false, noData: true, failed };
 
     // 지수는 축의 첫날·마지막 날 봉이 모두 있을 때만 비교 기준으로 쓴다
     if (!indexFailed) {
@@ -226,7 +227,6 @@ export async function loadSimData(args: {
       failed,
       venueLabel,
       fetchedAt: now,
-      clampedTo,
       indexFailed,
       benchmarkFailed,
     };

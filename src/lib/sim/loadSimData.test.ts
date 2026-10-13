@@ -76,7 +76,7 @@ describe('loadSimData', () => {
     const r = await run(sp.provider, strat(() => {}, '2026-10-01', '2026-10-12'), ['005930']);
     expect(sp.candles[0].to).toBe('2026-10-11');
     expect(sp.index[0][3]).toBe('2026-10-11');
-    expect(r.ok && r.clampedTo).toBe('2026-10-11');
+    expect(r.ok && r.input.strategy.period.to).toBe('2026-10-12'); // 저장된 기간은 그대로, 받는 범위만 줄인다
   });
 
   it('정상: 축·종목·지수·venue·fetchedAt·우선순위', async () => {
@@ -85,7 +85,6 @@ describe('loadSimData', () => {
     if (!r.ok) throw new Error('expected ok');
     expect(r.venueLabel).toBe('KRX 일봉');
     expect(r.fetchedAt).toBe(NOW);
-    expect(r.clampedTo).toBeNull();
     expect(r.indexFailed).toBeNull();
     expect(r.benchmarkFailed).toBe(false);
     expect(r.input.days[0]).toBe('2026-03-02');
@@ -146,7 +145,48 @@ describe('loadSimData', () => {
 
   it('축이 비면 noData', async () => {
     const sp = spied({ getCandles: async () => [], getIndexCandles: async () => [] });
-    expect(await run(sp.provider, strat(), ['005930'])).toEqual({ ok: false, noData: true });
+    expect(await run(sp.provider, strat(), ['005930'])).toEqual({
+      ok: false,
+      noData: true,
+      failed: [{ symbol: '005930', name: '삼성전자', reason: '기간 안에 데이터가 없어요' }],
+    });
+  });
+
+  it('모든 종목이 실패하고 지수도 없으면 noData에 실패 목록을 싣는다', async () => {
+    const sp = spied({
+      getCandles: async (q) => {
+        if (q.symbol === '000660') return [];
+        throw new Error('boom');
+      },
+      getIndexCandles: async () => [],
+    });
+    const r = await run(sp.provider, strat(), ['005930', '000660']);
+    expect(r).toEqual({
+      ok: false,
+      noData: true,
+      failed: [
+        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
+        { symbol: '000660', name: 'SK하이닉스', reason: '기간 안에 데이터가 없어요' },
+      ],
+    });
+  });
+
+  it('시작일이 오늘 이후면 공급자를 부르지 않고 noData', async () => {
+    const sp = spied();
+    const meta = vi.spyOn(sp.provider, 'getStockMeta');
+    const r = await run(sp.provider, strat(() => {}, '2026-10-12', '2026-10-20'), ['005930']);
+    expect(r).toEqual({ ok: false, noData: true, failed: [] });
+    expect(meta).not.toHaveBeenCalled();
+    expect(sp.candles).toHaveLength(0);
+    expect(sp.index).toHaveLength(0);
+  });
+
+  it('venues가 비어 있어도 KRX로 받는다', async () => {
+    const base = demo();
+    const sp = spied({ capabilities: { ...base.capabilities, venues: [] } });
+    const r = await run(sp.provider, strat(), ['005930']);
+    expect(r.ok && r.venueLabel).toBe('KRX 일봉');
+    expect(sp.candles[0].venue).toBe('KRX');
   });
 
   it('a symbol with no candles in range is reported as failed, not thrown', async () => {
@@ -299,5 +339,75 @@ describe('loadSimData', () => {
     expect(r.ok).toBe(true);
     const waits = ps.map((x) => x.waiting);
     expect(waits.lastIndexOf(false)).toBeGreaterThan(waits.indexOf(true));
+  });
+
+  describe('취소하면 이후 호출이 없고 타이머도 남지 않는다', () => {
+    it('메타를 받은 뒤', async () => {
+      vi.useFakeTimers();
+      let cancelled = false;
+      const base = demo();
+      const sp = spied({
+        getStockMeta: async (s) => {
+          const r = await base.getStockMeta(s);
+          cancelled = true;
+          return r;
+        },
+      });
+      const r = await run(sp.provider, strat(), ['005930'], { isCancelled: () => cancelled });
+      expect(r).toEqual({ ok: false, cancelled: true });
+      expect(sp.candles).toHaveLength(0);
+      expect(sp.index).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('메모 적중 시', async () => {
+      vi.useFakeTimers();
+      const memo = createSimMemo();
+      const sp = spied();
+      await run(sp.provider, strat(), ['005930', '000660'], { memo });
+      expect(sp.candles).toHaveLength(2);
+      sp.candles.length = 0;
+      let cancelled = false;
+      const ps: LoadProgress[] = [];
+      const r = await run(sp.provider, strat(), ['005930', '000660'], {
+        memo,
+        isCancelled: () => cancelled,
+        onProgress: (p: LoadProgress) => {
+          ps.push(p);
+          if (p.done === 4) cancelled = true; // 첫 종목을 메모에서 읽은 직후
+        },
+      });
+      expect(r).toEqual({ ok: false, cancelled: true });
+      expect(sp.candles).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('waiting 중', async () => {
+      vi.useFakeTimers();
+      const base = demo();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let cancelled = false;
+      const calls: string[] = [];
+      const sp = spied({
+        getCandles: async (q) => {
+          calls.push(q.symbol);
+          await gate;
+          return base.getCandles(q);
+        },
+      });
+      const ps: LoadProgress[] = [];
+      const p = run(sp.provider, strat(), ['005930', '000660'], {
+        isCancelled: () => cancelled,
+        onProgress: (x: LoadProgress) => ps.push(x),
+      });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(ps.at(-1)?.waiting).toBe(true);
+      cancelled = true;
+      release();
+      expect(await p).toEqual({ ok: false, cancelled: true });
+      expect(calls).toEqual(['005930']);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });

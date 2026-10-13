@@ -164,7 +164,7 @@ describe('실행 버튼', () => {
     await fireEvent.click(run);
     expect(onRun).not.toHaveBeenCalled();
     expect(header('매수').getAttribute('aria-expanded')).toBe('true');
-    const banner = screen.getByText('매수 신호가 나지 않아요. 트리거를 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
+    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
     expect(banner).toBeTruthy();
     expect(document.activeElement).toBe(banner);
   });
@@ -177,7 +177,7 @@ describe('실행 버튼', () => {
     rnd.mockRestore();
     await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
     expect(onRun).not.toHaveBeenCalled();
-    const banner = screen.getByText('매수 신호가 나지 않아요. 트리거를 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
+    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
     expect(/^\d/.test(banner.id)).toBe(false);
     expect(document.activeElement).toBe(banner);
   });

@@ -343,9 +343,12 @@ describe('kis provider: request priority', () => {
   });
 
   it('passes priority to the index minute request', async () => {
-    const { provider, runs } = setup(undefined, SUN);
-    const today = kstDate(SUN);
-    await provider.getIndexCandles!('KOSPI', '1m', today, today, 2).catch(() => {});
+    // 분봉 fixture가 2026-10-12 것이라 그날 장중으로 맞춘다(오류를 삼키지 않고 실제로 성공해야 한다)
+    const now = kstEpoch('2026-10-12', '09:11:30');
+    const { provider, runs } = setup(undefined, now);
+    const today = kstDate(now);
+    const candles = await provider.getIndexCandles!('KOSPI', '1m', today, today, 2);
+    expect(candles.length).toBeGreaterThan(0);
     expect(runs.map((r) => r.priority)).toEqual([2]);
   });
 

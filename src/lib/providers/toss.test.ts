@@ -339,6 +339,30 @@ describe('toss provider: request priority', () => {
     expect(runs.length).toBeGreaterThanOrEqual(2);
     expect(runs.every((r) => r.priority === 1)).toBe(true);
   });
+
+  it('does not key dedupe on priority: identical in-flight requests share the first caller priority', async () => {
+    const client = fakeClient();
+    const inner = fastQueue();
+    const executed: Priority[] = [];
+    const queue: RequestQueue = {
+      run: (group, key, priority, task) =>
+        inner.run(group, key, priority, () => {
+          executed.push(priority);
+          return task();
+        }),
+    };
+    const provider = createTossProvider({
+      client,
+      queue,
+      creds: { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET },
+      tokenStore: memoryStore(),
+      now: () => SUN,
+    });
+    const q = dailyQuery('2026-10-06', '2026-10-08');
+    await Promise.all([provider.getCandles({ ...q, priority: 2 }), provider.getCandles({ ...q, priority: 1 })]);
+    expect(candleCalls(client)).toHaveLength(1);
+    expect(executed).toEqual([2]);
+  });
 });
 
 describe('toss provider: quotes', () => {

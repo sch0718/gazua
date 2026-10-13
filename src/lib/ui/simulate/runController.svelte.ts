@@ -97,7 +97,7 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     if (id !== runId) return;
     if (!outcome.ok) {
       if ('error' in outcome) state = { kind: 'error', error: outcome.error };
-      else if ('noData' in outcome) state = { kind: 'noData', failed: [] };
+      else if ('noData' in outcome) state = { kind: 'noData', failed: outcome.failed };
       else state = { kind: 'idle' };
       return;
     }

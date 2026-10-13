@@ -16,7 +16,12 @@ export function loadStrategies(st: SafeStorage, profileId: string): Strategy[] {
   return strategies;
 }
 
-export function saveStrategies(st: SafeStorage, profileId: string, list: Strategy[]): void {
+/** 저장 한도를 넘으면 던진다. 앱 상태와 저장소가 같은 문구·기준을 쓴다. */
+export function assertStrategyCap(list: Strategy[]): void {
   if (list.length > MAX_STRATEGIES) throw new Error(`전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`);
+}
+
+export function saveStrategies(st: SafeStorage, profileId: string, list: Strategy[]): void {
+  assertStrategyCap(list);
   st.set(profileKeys.strategies(profileId), { strategies: list });
 }

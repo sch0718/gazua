@@ -3,7 +3,7 @@ import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
 import { MAX_STRATEGIES, newStrategy } from './defaults';
-import { loadStrategies, saveStrategies } from './strategyStore';
+import { assertStrategyCap, loadStrategies, saveStrategies } from './strategyStore';
 
 const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ ...newStrategy(1_700_000_000_000, 'g1', `전략 ${i}`), id: `s${i}` }));
 
@@ -49,5 +49,10 @@ describe('strategyStore', () => {
     const st = createSafeStorage(memoryBacking());
     expect(() => saveStrategies(st, 'p1', mk(MAX_STRATEGIES + 1))).toThrow('전략은 20개까지 저장할 수 있어요');
     expect(() => saveStrategies(st, 'p1', mk(MAX_STRATEGIES))).not.toThrow();
+  });
+
+  it('assertStrategyCap은 21개에서 던지고 20개는 통과', () => {
+    expect(() => assertStrategyCap(mk(MAX_STRATEGIES + 1))).toThrow('전략은 20개까지 저장할 수 있어요');
+    expect(() => assertStrategyCap(mk(MAX_STRATEGIES))).not.toThrow();
   });
 });

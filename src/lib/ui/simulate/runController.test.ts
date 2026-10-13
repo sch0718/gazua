@@ -147,6 +147,21 @@ describe('runController', () => {
     expect(ctl.state).toEqual({ kind: 'noData', failed: expect.any(Array) });
   });
 
+  it('지수도 없고 종목이 모두 실패하면 로더의 실패 목록이 noData에 실린다', async () => {
+    const ctl = ctlFor(
+      fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')), getIndexCandles: async () => [] })),
+    );
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toEqual({
+      kind: 'noData',
+      failed: [
+        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
+        { symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' },
+      ],
+    });
+  });
+
   it('전략 종목이 모두 실패하면 noData + 실패 목록(지수 날짜만 있어도)', async () => {
     const ctl = ctlFor(fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')) })));
     ctl.run(strat());
