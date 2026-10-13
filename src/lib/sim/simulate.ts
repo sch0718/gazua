@@ -2,9 +2,9 @@ import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { createPatternTracker, type PatternTracker } from './pattern';
 import { openPosition, type Position } from './position';
-import { sellTaxPct } from './tax';
+import { sellTaxPct, settlementDate } from './tax';
 import { holdCurve, indexCurve, singleCurve } from './benchmarks';
-import { nearMiss, summarize } from './summary';
+import { nearMiss, retPct, summarize } from './summary';
 import type { PatternSnapshot, SimInput, SimResult, Skip, Strategy, Trade } from './types';
 
 export interface CoreResult {
@@ -30,12 +30,13 @@ export interface WalkCtx {
   skip(reason: Skip['reason'], addPrice: number): void;
 }
 
-/** 1회 금액으로 살 수량. 못 사면 건너뜀 사유 */
-function sizeBuy(amount: number, price: number, feePct: number, cash: number): number | Skip['reason'] {
+/** 1회 금액으로 살 수량과 총비용(수수료 포함). 못 사면 건너뜀 사유. 비용은 여기서 한 번만 계산한다 */
+function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number } | Skip['reason'] {
   const qty = Math.floor(amount / (price * (1 + feePct / 100)));
   if (qty === 0) return '1주가 1회 금액보다 비쌈';
-  if (cash < qty * price * (1 + feePct / 100)) return '현금 부족';
-  return qty;
+  const cost = qty * price * (1 + feePct / 100);
+  if (cash < cost) return '현금 부족';
+  return { qty, cost };
 }
 
 /** 시가 → 저가 → 고가 → 종가를 가격 커서 하나로 지나가며 손절·추가 매수·익절을 체결한다(스펙 5.2). */
@@ -62,10 +63,10 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
       ctx.skip(sized, level);
       return;
     }
-    const fee = (sized * price * feePct) / 100;
-    pos.buy(price, sized);
-    ctx.wallet.cash -= sized * price + fee;
-    ctx.trade({ date, symbol, kind: 'add', price, qty: sized, fee, tax: 0, reason: '추가 매수' });
+    const fee = (sized.qty * price * feePct) / 100;
+    pos.buy(price, sized.qty);
+    ctx.wallet.cash -= sized.cost;
+    ctx.trade({ date, symbol, kind: 'add', price, qty: sized.qty, fee, tax: 0, reason: '추가 매수' });
   };
 
   let cur = bar.o;
@@ -78,7 +79,7 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
 
       // 1. 이미 지나친 가격은 커서에: 손절 → 추가 매수 → 익절(낮은 단계부터)
       if (stop !== null && stop >= cur) {
-        sell(pos.qty, cur, 'gapStop');
+        sell(pos.qty, cur, stop > cur ? 'gapStop' : 'stop');
         continue;
       }
       if (addAt !== null && addAt >= cur) {
@@ -184,15 +185,16 @@ export function simulateCore(input: SimInput): CoreResult {
         skipped.push({ date, symbol: st.stock.symbol, reason: sized });
         continue;
       }
-      const fee = (sized * price * feePct) / 100;
-      st.pos = openPosition(price, sized, s.scaleIn, s.exit);
+      const fee = (sized.qty * price * feePct) / 100;
+      st.pos = openPosition(price, sized.qty, s.scaleIn, s.exit);
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
-      wallet.cash -= sized * price + fee;
-      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized, fee, tax: 0, reason, pattern: snapshot });
+      wallet.cash -= sized.cost;
+      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee, tax: 0, reason, pattern: snapshot });
     }
 
     // 2. 장중 경로, 3. 종가
+    const settle = settlementDate(date, days); // 세율은 양도일(결제일) 기준
     const closed = new Set<SymState>();
     for (const st of syms) {
       const i = st.byDate.get(date);
@@ -204,7 +206,7 @@ export function simulateCore(input: SimInput): CoreResult {
         wallet,
         amount,
         feePct,
-        taxPct: sellTaxPct(date, market, isEtf),
+        taxPct: sellTaxPct(settle, market, isEtf),
         takeProfit: s.exit.takeProfit,
         excluded: new Set(),
         trade: (t) => record(st, t),
@@ -286,8 +288,6 @@ export function simulate(input: SimInput): SimResult {
     if (!Number.isFinite(e.value) || !Number.isFinite(e.cash)) throw new Error(`평가액 계산 실패: ${e.date}`);
   }
 
-  const ret = (c: number[]) => ((c[c.length - 1] ?? initial) / initial - 1) * 100;
-
   return {
     equity: core.equity.map((e, i) => ({
       date: e.date,
@@ -298,7 +298,7 @@ export function simulate(input: SimInput): SimResult {
       cash: e.cash,
     })),
     summary,
-    benchmarks: { holdReturnPct: ret(hold), indexReturnPct: index ? ret(index) : null, benchmarkReturnPct: benchmark ? ret(benchmark) : null },
+    benchmarks: { holdReturnPct: retPct(hold, initial), indexReturnPct: index ? retPct(index, initial) : null, benchmarkReturnPct: benchmark ? retPct(benchmark, initial) : null },
     trades: core.trades,
     skipped: core.skipped,
     perSymbol: input.stocks.map((st) => {

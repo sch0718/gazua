@@ -58,7 +58,7 @@ export function openPosition(
       if (q > held) throw new Error('보유 수량보다 많이 팔 수 없습니다');
       held -= q;
       sold = true;
-      if (stage !== undefined) stages = stage;
+      if (stage !== undefined) stages = Math.max(stages, stage);
     },
 
     stopPrice() {

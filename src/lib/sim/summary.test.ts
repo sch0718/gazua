@@ -36,6 +36,12 @@ describe('summarize', () => {
     expect(s.avgCashPct).toBeCloseTo(50, 6);
   });
 
+  it('MDD는 초기 자금에서 시작한다 (첫날 자산 < 초기 자금)', () => {
+    const v = [900, 950, 980].map((x) => x * M);
+    const s = summarize(core(v), { hold: v, index: null, benchmark: null }, days.slice(0, 3), 1000 * M);
+    expect(s.mddPct).toBeCloseTo(-10, 6);
+  });
+
   it('보유 중과 손익 0, 거래 없음', () => {
     const c = core(vals, [[100, 0], [100, 50, true]], 2);
     const s = summarize(c, { hold: vals, index: vals, benchmark: vals }, days, 1000 * M);

@@ -231,10 +231,23 @@ describe('simulateCore', () => {
     expect(kinds(core.trades)).toEqual(['buy@100x5', 'add@50x10', 'gapStop@50x15']);
     expect(core.equity[10].cash).toBeCloseTo(750 * 0.998, 9); // 매도세 0.2%
   });
+
+  it('sell on 2025-12-29 uses the 2026 rate via settlement date', () => {
+    // 2025-12-31·2026-01-01은 휴장 → 12-29 체결의 결제일은 2026-01-02
+    const off = new Set(['2025-12-25', '2025-12-31', '2026-01-01']);
+    const ds = tradingDates('2025-12-12', 16).filter((x) => !off.has(x));
+    expect(ds[10]).toBe('2025-12-29');
+    const all: O[] = [...BASE.map((c): O => [c, c, c, c]), [87, 88, 86, 87], [80, 81, 79, 80]];
+    const c = all.map(([o, h, l, cl], i) => bar(ds[i], o, h, l, cl));
+    const core = simulateCore(input(strat(), [c], ds));
+    const sell = core.trades[1];
+    expect(sell).toMatchObject({ date: '2025-12-29', kind: 'gapStop', price: 80 });
+    expect(sell.tax).toBeCloseTo(sell.qty * 80 * 0.002, 6); // 0.15%가 아님
+  });
 });
 
 describe('walkBar (스펙 5.2 예시 표)', () => {
-  function ctx(cash: number, amount: number, s: Strategy) {
+  function ctx(cash: number, amount: number, s: Strategy, feePct = 0) {
     const trades: Trade[] = [];
     const skips: { reason: Skip['reason']; price: number }[] = [];
     const c: WalkCtx = {
@@ -242,7 +255,7 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
       symbol: 'X',
       wallet: { cash },
       amount,
-      feePct: 0,
+      feePct,
       taxPct: 0,
       takeProfit: s.exit.takeProfit,
       excluded: new Set(),
@@ -287,6 +300,28 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
     expect(kinds(trades)).toEqual(['take@110x5', 'stop@100x5']);
     expect(c.wallet.cash).toBeCloseTo(1050, 9);
   });
+
+  it('매수 비용은 한 번만 계산해 현금이 정확히 0이 된다', () => {
+    const s = strat((x) => (x.scaleIn = { on: true, stepPct: 3, maxAdds: 1 }));
+    const pos = openPosition(100, 10, s.scaleIn, s.exit);
+    const cost = 9 * 97 * (1 + 10 / 100); // 1000 / (97 × 1.1) → 9주
+    const { c, trades } = ctx(cost, 1000, s, 10);
+    walkBar(pos, k(100, 100, 97, 98), c);
+    expect(kinds(trades)).toEqual(['add@97x9']);
+    expect(c.wallet.cash).toBe(0);
+  });
+
+  it('시가 == 손절선이면 stop, 시가 < 손절선이면 gapStop', () => {
+    const s = strat();
+    const eq = ctx(0, 1000, s);
+    walkBar(openPosition(100, 10, s.scaleIn, s.exit), k(95, 96, 94, 95), eq.c);
+    expect(eq.trades.map((t) => t.kind)).toEqual(['stop']);
+    expect(eq.trades[0].price).toBe(95);
+
+    const gap = ctx(0, 1000, s);
+    walkBar(openPosition(100, 10, s.scaleIn, s.exit), k(94, 96, 93, 95), gap.c);
+    expect(gap.trades.map((t) => t.kind)).toEqual(['gapStop']);
+  });
 });
 
 describe('미래 데이터 미사용', () => {
@@ -313,8 +348,10 @@ describe('미래 데이터 미사용', () => {
     });
   }
 
-  it('t+1 이후 봉을 바꿔도 t일까지의 trades·equity는 같다', () => {
-    const days = tradingDates('2020-01-06', 300);
+  it('t+1 이후 봉을 바꿔도 t일까지의 trades·equity는 같다 (워밍업 20봉, 중간에 빠진 날 3일)', () => {
+    const WARM = 20;
+    const all = tradingDates('2019-12-09', WARM + 300);
+    const days = all.slice(WARM);
     const s = strat((x) => {
       x.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
       x.exit.takeProfit = [{ pct: 5, sellPct: 50 }, { pct: 10, sellPct: 100 }];
@@ -323,18 +360,22 @@ describe('미래 데이터 미사용', () => {
       x.entry.triggers.breakout.on = true;
       x.capital.perBuyPct = 30;
     });
-    const stocks = [1, 2, 3].map((k) => walk(days, k * 101));
-    const base = simulateCore(input(s, stocks, days));
+    // 두 번째 종목은 기간 중 3일(거래 구간 100·101·180번째)이 빠진다
+    const gaps = new Set([all[WARM + 100], all[WARM + 101], all[WARM + 180]]);
+    const strip = (cs: Candle[], k: number) => (k === 1 ? cs.filter((b) => !gaps.has(kstDate(b.t))) : cs);
+    const full = [1, 2, 3].map((k) => walk(all, k * 101));
+    const base = simulateCore(input(s, full.map(strip), days));
     expect(base.trades.length).toBeGreaterThan(10);
+    expect(base.equity).toHaveLength(300);
     const r = rng(7);
     for (let n = 0; n < 10; n++) {
-      const t = 5 + Math.floor(r() * 290);
-      const alt = stocks.map((cs, k) => {
-        const tail = walk(days.slice(t + 1), 9000 + n * 10 + k, cs[t].c);
-        return [...cs.slice(0, t + 1), ...tail];
+      const t = WARM + 5 + Math.floor(r() * 290);
+      const alt = full.map((cs, k) => {
+        const tail = walk(all.slice(t + 1), 9000 + n * 10 + k, cs[t].c);
+        return strip([...cs.slice(0, t + 1), ...tail], k);
       });
       const got = simulateCore(input(s, alt, days));
-      const cut = <T extends { date: string }>(xs: T[]) => xs.filter((x) => x.date <= days[t]);
+      const cut = <T extends { date: string }>(xs: T[]) => xs.filter((x) => x.date <= all[t]);
       expect(cut(got.trades)).toEqual(cut(base.trades));
       expect(cut(got.equity)).toEqual(cut(base.equity));
     }

@@ -115,4 +115,11 @@ describe('position', () => {
     expect(() => p.buy(100, 0)).toThrow();
     expect(() => p.buy(100, -1)).toThrow();
   });
+
+  it('sell 단계는 뒤로 가지 않는다', () => {
+    const p = openPosition(100, 10, scale, exit);
+    p.sell(2, 2);
+    p.sell(1, 1);
+    expect(p.stagesDone).toBe(2);
+  });
 });

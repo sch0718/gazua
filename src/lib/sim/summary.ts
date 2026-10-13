@@ -5,7 +5,7 @@ import type { SimResult } from './types';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
-const retPct = (curve: number[], initial: number): number => ((curve[curve.length - 1] ?? initial) / initial - 1) * 100;
+export const retPct = (curve: number[], initial: number): number => ((curve[curve.length - 1] ?? initial) / initial - 1) * 100;
 
 export function summarize(
   core: CoreResult,
