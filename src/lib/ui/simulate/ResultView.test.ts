@@ -30,6 +30,28 @@ describe('ResultView', () => {
     expect(screen.getByText('데모 데이터')).toBeTruthy();
   });
 
+  it('머리줄: 데이터가 요청보다 늦게 시작하면 실제 기간과 요청 시작일', () => {
+    setup(
+      doneState((s) => {
+        s.meta.from = '2025-01-02';
+        s.meta.to = '2026-10-08';
+      }),
+    );
+    expect(screen.getByText('2025.01.02 ~ 2026.10.08 (요청 2023.10.11부터) · KRX 일봉 · 10/12 14:05 받음')).toBeTruthy();
+  });
+
+  it('종목별 탭: 모든 종목이 같은 날 시작해도 요청 시작일보다 늦으면 참여 시작일을 보인다', async () => {
+    setup(
+      doneState((s) => {
+        s.meta.from = '2025-01-02';
+        s.result.equity[0].date = '2025-01-02';
+        s.result.perSymbol = s.result.perSymbol.map((p) => ({ ...p, firstDate: '2025-01-02' }));
+      }),
+    );
+    await fireEvent.click(tab('종목별'));
+    expect(screen.getAllByText('2025.01.02부터 참여')).toHaveLength(2);
+  });
+
   it('데모가 아니면 배지가 없다', () => {
     setup(doneState((s) => (s.meta.demo = false)));
     expect(screen.queryByText('데모 데이터')).toBeNull();

@@ -73,7 +73,7 @@
 
 <section class="result" aria-label="시뮬레이션 결과">
   <p class="head">
-    <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt)}</span>
+    <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt, meta.strategy.period.from)}</span>
     {#if meta.demo}<Badge>데모 데이터</Badge>{/if}
   </p>
 
@@ -133,7 +133,7 @@
       {#if tab === 'trades'}
         <TradeList trades={result.trades} names={meta.names} {colorConvention} onTrade={pick} />
       {:else if tab === 'symbols'}
-        <SymbolTab perSymbol={result.perSymbol} firstDay={result.equity[0]?.date ?? null} failed={meta.failed} {colorConvention} />
+        <SymbolTab perSymbol={result.perSymbol} requestedFrom={meta.strategy.period.from} failed={meta.failed} {colorConvention} />
       {:else}
         <SkipList skipped={result.skipped} names={meta.names} />
       {/if}

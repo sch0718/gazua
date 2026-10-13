@@ -114,10 +114,14 @@ export function fmtPp(v: number): string {
   return `${fmtReturnPct(v, true)}p`;
 }
 
-/** 결과 머리줄: `2023.10.11 ~ 2026.10.11 · KRX 일봉 · 10/12 14:05 받음` (받은 시각은 KST) */
-export function resultHeadline(from: string, to: string, venueLabel: string, fetchedAt: number): string {
+/**
+ * 결과 머리줄: `2023.10.11 ~ 2026.10.11 · KRX 일봉 · 10/12 14:05 받음` (받은 시각은 KST).
+ * from·to는 실제 데이터 기간. 요청 시작일보다 늦게 시작하면 `(요청 YYYY.MM.DD부터)`를 덧붙인다.
+ */
+export function resultHeadline(from: string, to: string, venueLabel: string, fetchedAt: number, requestedFrom: string): string {
   const d = kstDate(fetchedAt);
-  return `${dots(from)} ~ ${dots(to)} · ${venueLabel} · ${d.slice(5, 7)}/${d.slice(8)} ${kstHHMM(fetchedAt)} 받음`;
+  const req = from > requestedFrom ? ` (요청 ${dots(requestedFrom)}부터)` : '';
+  return `${dots(from)} ~ ${dots(to)}${req} · ${venueLabel} · ${d.slice(5, 7)}/${d.slice(8)} ${kstHHMM(fetchedAt)} 받음`;
 }
 
 /** 거래가 0건일 때 가장 가까웠던 순간. */

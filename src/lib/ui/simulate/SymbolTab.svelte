@@ -7,13 +7,13 @@
 
   let {
     perSymbol,
-    firstDay,
+    requestedFrom,
     failed,
     colorConvention,
   }: {
     perSymbol: SimResult['perSymbol'];
-    /** 거래일 축의 첫날 */
-    firstDay: string | null;
+    /** 요청한 기간의 시작일 */
+    requestedFrom: string;
     failed: SimFailure[];
     colorConvention: 'kr' | 'global';
   } = $props();
@@ -28,7 +28,7 @@
       </div>
       <div class="sub">
         <span>거래 {p.roundTrips}번</span>
-        {#if p.firstDate && firstDay && p.firstDate > firstDay}
+        {#if p.firstDate && p.firstDate > requestedFrom}
           <span>{dotDate(p.firstDate)}부터 참여</span>
         {/if}
       </div>

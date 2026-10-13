@@ -9,8 +9,8 @@ import type { App } from '../../state/app.svelte';
 export interface DoneMeta {
   venueLabel: string;
   fetchedAt: number;
+  /** 실제 거래일 축의 첫날·마지막 날(요청 기간은 strategy.period) */
   from: string;
-  /** 오늘 이후였으면 어제로 줄인 날짜 */
   to: string;
   demo: boolean;
   failed: SimFailure[];
@@ -110,8 +110,8 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     const meta = {
       venueLabel: outcome.venueLabel,
       fetchedAt: outcome.fetchedAt,
-      from: strategy.period.from,
-      to: outcome.clampedTo ?? strategy.period.to,
+      from: input.days[0],
+      to: input.days[input.days.length - 1],
       demo: provider.id === 'demo',
       failed,
       indexFailed: outcome.indexFailed,

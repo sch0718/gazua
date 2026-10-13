@@ -83,11 +83,25 @@ describe('runController', () => {
     expect(st.result.equity.length).toBeGreaterThan(50);
   });
 
-  it('미래로 넘는 기간은 어제로 줄인 날짜를 meta.to에 담는다', async () => {
+  it('미래로 넘는 기간은 어제까지만: meta.to는 그 안의 실제 마지막 거래일', async () => {
     const ctl = ctlFor(fakeApp(provider()));
     ctl.run(strat((s) => (s.period = { from: '2026-09-01', to: '2026-12-31' })));
     await settled(ctl);
-    expect(ctl.state.kind === 'done' && ctl.state.meta.to).toBe('2026-10-11');
+    const st = ctl.state;
+    if (st.kind !== 'done') throw new Error(st.kind);
+    expect(st.meta.to).toBe(st.result.equity.at(-1)!.date);
+    expect(st.meta.to <= '2026-10-11').toBe(true);
+  });
+
+  it('데이터가 요청 시작일보다 늦게 시작하면 meta.from은 실제 첫 거래일', async () => {
+    const ctl = ctlFor(fakeApp(provider()));
+    ctl.run(strat((s) => (s.period = { from: '2023-10-12', to: '2026-06-30' })));
+    await settled(ctl);
+    const st = ctl.state;
+    if (st.kind !== 'done') throw new Error(st.kind);
+    expect(st.meta.from).toBe(st.result.equity[0].date);
+    expect(st.meta.from >= '2025-01-01').toBe(true);
+    expect(st.meta.strategy.period.from).toBe('2023-10-12');
   });
 
   it('종목 하나 실패 → partial, proceed()면 그 종목 빼고 done(meta.failed에 남음)', async () => {

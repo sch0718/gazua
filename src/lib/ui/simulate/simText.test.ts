@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import type { Watchlists } from '../../state/schema';
-import { fmtReturnPct, sectionSummary, strategyLine } from './simText';
+import { kstEpoch } from '../../time/kst';
+import { fmtReturnPct, resultHeadline, sectionSummary, strategyLine } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -91,5 +92,19 @@ describe('sectionSummary (default strategy)', () => {
     expect(sectionSummary(y, 'scaleIn', W, null)).toBe('3%씩 최대 2번');
     expect(sectionSummary(y, 'exit', W, null)).toBe('익절 +10% 50% → +20% 전량 · 손절 −7% 첫 매수가');
     expect(sectionSummary(y, 'benchmarks', W, null)).toBe('같은 종목 보유 · KOSPI');
+  });
+});
+
+describe('resultHeadline', () => {
+  const at = kstEpoch('2026-10-12', '14:05:00');
+  it('실제 데이터 기간을 보이고, 요청보다 늦게 시작하면 요청 시작일을 덧붙인다', () => {
+    expect(resultHeadline('2025-01-02', '2026-10-12', 'KRX 일봉', at, '2023-10-12')).toBe(
+      '2025.01.02 ~ 2026.10.12 (요청 2023.10.12부터) · KRX 일봉 · 10/12 14:05 받음',
+    );
+  });
+  it('요청 시작일과 같으면 덧붙이지 않는다', () => {
+    expect(resultHeadline('2023-10-12', '2026-10-12', 'KRX 일봉', at, '2023-10-12')).toBe(
+      '2023.10.12 ~ 2026.10.12 · KRX 일봉 · 10/12 14:05 받음',
+    );
   });
 });
