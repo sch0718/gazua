@@ -262,6 +262,18 @@ describe('strategies in export files', () => {
     expect(saved2.map((x: { id: string }) => x.id)).toEqual(['s1', 's2']);
   });
 
+  it('가져온 전략의 빈 id 항목은 버리고, 소수 이동평균 기간은 기본값으로 저장한다', () => {
+    const { st, backing } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    const bad = { ...strat, id: 's2', entry: { ...strat.entry, filter: { aboveMa: { on: true, period: 2.5 } } } };
+    parsed.strategies = [{ ...strat, id: '' }, bad];
+    const res = importData(st, JSON.stringify(parsed));
+    if (!res.ok) throw new Error('expected ok');
+    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!).strategies;
+    expect(saved.map((x: { id: string }) => x.id)).toEqual(['s2']);
+    expect(saved[0].entry.filter.aboveMa).toEqual({ on: true, period: 60 });
+  });
+
   it('strategies가 배열이 아니면 형식 오류', () => {
     const { st } = source();
     const parsed = JSON.parse(exportData(st, 'p1', false));

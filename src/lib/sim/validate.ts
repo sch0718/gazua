@@ -20,7 +20,7 @@ export type Issue = {
 
 /** 항목 하나를 고친다. 맞지 않거나 빠진 필드는 기본값으로 바꾸고 repaired를 켠다. */
 function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Strategy; repaired: boolean } | null {
-  if (typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
+  if (typeof raw.id !== 'string' || raw.id.trim() === '' || typeof raw.name !== 'string') return null;
   const d = structuredClone(template);
   let repaired = false;
   const pick = <T>(v: unknown, def: T, ok: (x: unknown) => boolean): T => {
@@ -35,10 +35,13 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
   };
   const num = (v: unknown, def: number, min: number, max: number): number =>
     pick(v, def, (x) => typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max);
+  // 날·번처럼 정수여야 하는 칸(편집 화면의 정수 칸과 같다). 소수 기간은 이동평균이 NaN이 된다
+  const int = (v: unknown, def: number, min: number, max: number): number =>
+    pick(v, def, (x) => Number.isInteger(x) && (x as number) >= min && (x as number) <= max);
   const bool = (v: unknown, def: boolean): boolean => pick(v, def, (x) => typeof x === 'boolean');
-  const flag = (v: unknown, def: { on: boolean; value: number }, min: number, max: number) => {
+  const flag = (v: unknown, def: { on: boolean; value: number }, min: number, max: number, whole = false) => {
     const r = rec(v);
-    return { on: bool(r.on, def.on), value: num(r.value, def.value, min, max) };
+    return { on: bool(r.on, def.on), value: (whole ? int : num)(r.value, def.value, min, max) };
   };
 
   if (raw.name.length > NAME_MAX) repaired = true;
@@ -59,7 +62,7 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
 
   const cap = rec(raw.capital);
   const capital = {
-    initial: num(cap.initial, d.capital.initial, 1, 1e13),
+    initial: int(cap.initial, d.capital.initial, 1, 1e13),
     perBuyPct: num(cap.perBuyPct, d.capital.perBuyPct, 1, 100),
   };
 
@@ -73,32 +76,32 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
   const entry: Strategy['entry'] = {
     decline: {
       dropPct: flag(dec.dropPct, d.entry.decline.dropPct, 1, 90),
-      days: flag(dec.days, d.entry.decline.days, 1, 60),
+      days: flag(dec.days, d.entry.decline.days, 1, 60, true),
     },
     triggers: {
-      reboundDays: flag(trg.reboundDays, d.entry.triggers.reboundDays, 1, 60),
+      reboundDays: flag(trg.reboundDays, d.entry.triggers.reboundDays, 1, 60, true),
       breakout: {
         on: bool(brk.on, d.entry.triggers.breakout.on),
         level: pick(brk.level, d.entry.triggers.breakout.level, (x) => x === 'A' || x === 'B'),
       },
       maCross: {
         on: bool(mac.on, d.entry.triggers.maCross.on),
-        period: num(mac.period, d.entry.triggers.maCross.period, 2, 250),
+        period: int(mac.period, d.entry.triggers.maCross.period, 2, 250),
       },
       goldenCross: {
         on: bool(gc.on, d.entry.triggers.goldenCross.on),
-        short: num(gc.short, d.entry.triggers.goldenCross.short, 2, 250),
-        long: num(gc.long, d.entry.triggers.goldenCross.long, 2, 250),
+        short: int(gc.short, d.entry.triggers.goldenCross.short, 2, 250),
+        long: int(gc.long, d.entry.triggers.goldenCross.long, 2, 250),
       },
     },
-    filter: { aboveMa: { on: bool(flt.on, d.entry.filter.aboveMa.on), period: num(flt.period, d.entry.filter.aboveMa.period, 2, 250) } },
+    filter: { aboveMa: { on: bool(flt.on, d.entry.filter.aboveMa.on), period: int(flt.period, d.entry.filter.aboveMa.period, 2, 250) } },
   };
 
   const sc = rec(raw.scaleIn);
   const scaleIn = {
     on: bool(sc.on, d.scaleIn.on),
     stepPct: num(sc.stepPct, d.scaleIn.stepPct, 0.5, 50),
-    maxAdds: pick(sc.maxAdds, d.scaleIn.maxAdds, (x) => Number.isInteger(x) && (x as number) >= 1 && (x as number) <= 5),
+    maxAdds: int(sc.maxAdds, d.scaleIn.maxAdds, 1, 5),
   };
 
   const ex = rec(raw.exit);

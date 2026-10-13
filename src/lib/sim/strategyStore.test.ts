@@ -45,6 +45,25 @@ describe('strategyStore', () => {
     expect(st.issues).toHaveLength(1);
   });
 
+  it('id가 빈 항목은 빠지고 배너 키를 보고한다', () => {
+    const backing = memoryBacking();
+    seed(backing, profileKeys.strategies('p1'), { strategies: [...mk(1), { ...mk(1)[0], id: '' }] });
+    const st = createSafeStorage(backing);
+    expect(loadStrategies(st, 'p1').map((x) => x.id)).toEqual(['s0']);
+    expect(st.issues).toHaveLength(1);
+  });
+
+  it('이동평균 기간이 소수면 기본값으로 읽고 배너 키를 보고한다', () => {
+    const backing = memoryBacking();
+    const bad = mk(1)[0] as any;
+    bad.entry.filter.aboveMa = { on: true, period: 2.5 };
+    seed(backing, profileKeys.strategies('p1'), { strategies: [bad] });
+    const st = createSafeStorage(backing);
+    const [r] = loadStrategies(st, 'p1');
+    expect(r.entry.filter.aboveMa).toEqual({ on: true, period: 60 });
+    expect(st.issues.some((i) => i.kind === 'corrupt' && i.key === profileKeys.strategies('p1'))).toBe(true);
+  });
+
   it('21개를 저장하면 던진다', () => {
     const st = createSafeStorage(memoryBacking());
     expect(() => saveStrategies(st, 'p1', mk(MAX_STRATEGIES + 1))).toThrow('전략은 20개까지 저장할 수 있어요');

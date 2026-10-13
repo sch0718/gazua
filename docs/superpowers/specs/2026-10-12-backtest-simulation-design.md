@@ -119,7 +119,7 @@ interface Strategy {
 ### 3.2 저장
 
 - 키 `gazua:v1:p:<profileId>:strategies` → `{ strategies: Strategy[] }`. 프로필당 최대 20개.
-- 읽을 때 `sanitizeStrategies`로 검증한다. 깨진 전략 하나는 빼고 저장소 배너로 알린다(기존 `reportCorrupt` 방식). 빠진 필드는 기본값.
+- 읽을 때 `sanitizeStrategies`로 검증한다. 깨진 전략 하나는 빼고 저장소 배너로 알린다(기존 `reportCorrupt` 방식). `id`가 비었거나 공백뿐인 전략도 깨진 것으로 본다. 빠진 필드는 기본값. 정수여야 하는 칸(이동평균 기간, 하락·반등 일수, 최대 추가 매수 횟수, 처음 자금)에 소수가 있으면 틀린 값으로 보고 기본값으로 되돌린다(소수 기간은 이동평균이 계산되지 않아 거래가 0건이 된다).
 - 내보내기·가져오기 파일에 `strategies`를 선택 필드로 넣는다. `schemaVersion`은 1 그대로(없으면 빈 목록).
 - 프로필 삭제 때 함께 지운다.
 

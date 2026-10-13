@@ -190,6 +190,44 @@ describe('sanitizeStrategies', () => {
   });
 });
 
+describe('sanitizeStrategies: 정수 칸과 id', () => {
+  const s = newStrategy(now, 'g1');
+
+  it('이동평균 기간 등 정수 칸에 소수가 오면 기본값으로 되돌리고 repaired (aboveMa 2.5는 NaN이 돼 거래가 0건이던 경로)', () => {
+    const cases: [string, (x: any, v: number) => void, (x: any) => number][] = [
+      ['aboveMa.period', (x, v) => (x.entry.filter.aboveMa = { on: true, period: v }), (x) => x.entry.filter.aboveMa.period],
+      ['maCross.period', (x, v) => (x.entry.triggers.maCross.period = v), (x) => x.entry.triggers.maCross.period],
+      ['goldenCross.short', (x, v) => (x.entry.triggers.goldenCross.short = v), (x) => x.entry.triggers.goldenCross.short],
+      ['goldenCross.long', (x, v) => (x.entry.triggers.goldenCross.long = v), (x) => x.entry.triggers.goldenCross.long],
+      ['decline.days', (x, v) => (x.entry.decline.days.value = v), (x) => x.entry.decline.days.value],
+      ['reboundDays', (x, v) => (x.entry.triggers.reboundDays.value = v), (x) => x.entry.triggers.reboundDays.value],
+      ['maxAdds', (x, v) => (x.scaleIn.maxAdds = v), (x) => x.scaleIn.maxAdds],
+      ['capital.initial', (x, v) => (x.capital.initial = v), (x) => x.capital.initial],
+    ];
+    const def = newStrategy(now, null);
+    for (const [name, set, get] of cases) {
+      const bad = structuredClone(s) as any;
+      set(bad, 2.5);
+      const r = sanitizeStrategies({ strategies: [bad] }, now);
+      expect(get(r.strategies[0]), name).toBe(get(def));
+      expect(r.repaired, name).toBe(true);
+      const ok = structuredClone(s) as any;
+      set(ok, 3);
+      const r2 = sanitizeStrategies({ strategies: [ok] }, now);
+      expect(get(r2.strategies[0]), name).toBe(3);
+      expect(r2.repaired, name).toBe(false);
+    }
+  });
+
+  it('id가 빈 문자열이거나 공백뿐이면 그 항목만 버리고 repaired', () => {
+    for (const id of ['', '   ', '\t']) {
+      const r = sanitizeStrategies({ strategies: [{ ...structuredClone(s), id }, { ...structuredClone(s), id: 'ok' }] }, now);
+      expect(r.strategies.map((x) => x.id)).toEqual(['ok']);
+      expect(r.repaired).toBe(true);
+    }
+  });
+});
+
 describe('sanitizeStrategies: 날짜와 기본값 생성', () => {
   const s = newStrategy(now, 'g1');
   const dp = newStrategy(now, null).period;
