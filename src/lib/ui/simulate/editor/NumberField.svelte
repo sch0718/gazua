@@ -194,13 +194,13 @@
     outline: none;
     padding: 0;
   }
-  /* 천 단위 쉼표가 들어가므로 최댓값 `10,000,000,000,000`(18자)까지 보이게.
+  /* 천 단위 쉼표가 들어가므로 최댓값 `100,000,000,000`(15자)까지 보이게.
      좁은 화면에서는 라벨이 가장 긴 낱말 폭(min-content)을 지키고 숫자 칸 박스가 남은 폭으로 줄어든다 */
   .field.won {
     grid-template-columns: minmax(min-content, 1fr) minmax(0, auto);
   }
   .won input {
-    width: 18ch;
+    width: 15ch;
   }
   /* 아주 좁은 폭에서도 박스가 줄 밖으로 나가지 않게(128px 하한을 풀고 칸 폭까지만) */
   .won .box {

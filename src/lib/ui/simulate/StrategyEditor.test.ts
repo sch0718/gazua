@@ -599,9 +599,9 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(cap.getAttribute('aria-describedby')?.split(' ')).toHaveLength(1); // 단위만
   });
 
-  it('금액 칸은 최댓값(18자 `10,000,000,000,000`)이 보이는 폭', () => {
+  it('금액 칸은 최댓값(15자 `100,000,000,000`)이 보이는 폭', () => {
     const css = numberFieldSource.slice(numberFieldSource.indexOf('<style>'));
-    expect(/\.won input\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/width:\s*18ch/);
+    expect(/\.won input\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/width:\s*15ch/);
   });
 
   it('금액 칸 범위 오류의 최소·최대도 천 단위로', async () => {
@@ -610,7 +610,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     const cap = screen.getByRole('textbox', { name: '처음 자금' });
     await fireEvent.focus(cap);
     await fireEvent.input(cap, { target: { value: '0' } });
-    expect(screen.getByText('1~10,000,000,000,000 사이로 적어 주세요')).toBeTruthy();
+    expect(screen.getByText('1~100,000,000,000 사이로 적어 주세요')).toBeTruthy();
   });
 
   it('정수 칸에 소수를 적으면 정수로 적어 주세요', async () => {

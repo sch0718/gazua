@@ -224,15 +224,15 @@ test('편집: 처음 자금 칸에 키보드로 들어와 바로 치면 값이 �
   await expect(cap).toHaveValue('5,000,000');
   await expect(page.getByText('= 500만 원')).toBeVisible();
 
-  // 최댓값(18자)도 포커스 밖에서 칸 안에 다 보인다(포커스 때 쉼표를 빼는 갱신이 끝난 뒤 채운다)
+  // 최댓값(15자)도 포커스 밖에서 칸 안에 다 보인다(포커스 때 쉼표를 빼는 갱신이 끝난 뒤 채운다)
   await cap.focus();
   await expect(cap).toHaveValue('5000000');
-  await cap.fill('10000000000000');
+  await cap.fill('100000000000');
   await cap.blur();
-  await expect(cap).toHaveValue('10,000,000,000,000');
+  await expect(cap).toHaveValue('100,000,000,000');
   const clip = await cap.evaluate((el: HTMLInputElement) => el.scrollWidth - el.clientWidth);
   expect(clip, `처음 자금 칸이 ${clip}px 잘림`).toBeLessThanOrEqual(0);
-  await expect(page.getByText('= 10조 원')).toBeVisible();
+  await expect(page.getByText('= 1,000억 원')).toBeVisible();
   await expectNoHorizontalScroll(page);
 });
 
@@ -248,9 +248,9 @@ test('편집: 폭 320px에서도 처음 자금 칸(최댓값)이 줄 안에 맞�
   const cap = page.getByRole('textbox', { name: '처음 자금' });
   await cap.focus();
   await expect(cap).toHaveValue('10000000');
-  await cap.fill('10000000000000');
+  await cap.fill('100000000000');
   await cap.blur();
-  await expect(cap).toHaveValue('10,000,000,000,000');
+  await expect(cap).toHaveValue('100,000,000,000');
   await expectNoHorizontalScroll(page);
 
   // 숫자 칸 박스의 오른쪽 끝이 구역 안쪽(본문 여백 안) 오른쪽 끝을 넘지 않는다

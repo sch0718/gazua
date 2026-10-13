@@ -32,19 +32,19 @@ function buyAndHold(days: string[], candles: Candle[], slice: number, feePct: nu
       }
       lastClose = b.c;
     }
-    return roundMoney(cash + (lastClose === null ? 0 : qty * lastClose));
+    return cash + (lastClose === null ? 0 : roundMoney(qty * lastClose)); // 합친 뒤 호출자가 반올림(못 산 몫의 나머지를 잃지 않게)
   });
 }
 
 export function holdCurve(days: string[], stocks: SimInput['stocks'], initial: number, feePct: number): number[] {
   if (stocks.length === 0) return days.map(() => initial);
-  const slice = roundMoney(initial / stocks.length);
+  const slice = initial / stocks.length; // 나머지를 잃지 않게 반올림하지 않는다. maxShares가 예산을 스스로 반올림한다
   const curves = stocks.map((s) => buyAndHold(days, s.candles, slice, feePct));
   return days.map((_, i) => roundMoney(curves.reduce((sum, c) => sum + c[i], 0)));
 }
 
 export function singleCurve(days: string[], candles: Candle[], initial: number, feePct: number): number[] {
-  return buyAndHold(days, candles, initial, feePct);
+  return buyAndHold(days, candles, initial, feePct).map(roundMoney);
 }
 
 /** 첫날·마지막 날 봉이 없으면 null (스펙 6.1). 중간에 빠진 날은 직전 값 */

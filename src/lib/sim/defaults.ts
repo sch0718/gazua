@@ -5,6 +5,8 @@ export const MAX_SYMBOLS = 8;
 export const MAX_STRATEGIES = 20;
 export const MAX_TAKE_STAGES = 3;
 export const NAME_MAX = 30;
+/** 처음 자금 상한(1,000억 원). 이 위는 float 간격이 0.0001원을 넘어 roundMoney가 정확한 비용을 표현하지 못한다 */
+export const MAX_INITIAL = 1e11;
 
 /** 어제(KST) 기준 3년 전 같은 날부터 어제까지. 윤일이면 2월 28일로 맞춘다. */
 export function defaultPeriod(now: number): { from: string; to: string } {

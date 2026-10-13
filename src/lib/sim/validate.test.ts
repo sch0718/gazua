@@ -219,6 +219,17 @@ describe('sanitizeStrategies: 정수 칸과 id', () => {
     }
   });
 
+  it('처음 자금은 1,000억 원(1e11)까지: 넘으면 기본값으로 되돌리고 repaired (그 위는 반올림 단위가 표현되지 않는다)', () => {
+    const def = newStrategy(now, null);
+    for (const [v, ok] of [[1e11, true], [1e11 + 1, false], [1e13, false]] as const) {
+      const t = structuredClone(s) as any;
+      t.capital.initial = v;
+      const r = sanitizeStrategies({ strategies: [t] }, now);
+      expect(r.strategies[0].capital.initial, String(v)).toBe(ok ? v : def.capital.initial);
+      expect(r.repaired, String(v)).toBe(!ok);
+    }
+  });
+
   it('id가 빈 문자열이거나 공백뿐이면 그 항목만 버리고 repaired', () => {
     for (const id of ['', '   ', '\t']) {
       const r = sanitizeStrategies({ strategies: [{ ...structuredClone(s), id }, { ...structuredClone(s), id: 'ok' }] }, now);

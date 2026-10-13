@@ -240,7 +240,7 @@ export function simulateCore(input: SimInput): CoreResult {
         if (closed.has(st)) st.tracker.reset(i);
         st.lastClose = st.stock.candles[i].c;
       }
-      if (st.pos) held = roundMoney(held + st.pos.qty * st.lastClose!); // 봉 없는 날은 마지막 종가
+      if (st.pos) held = roundMoney(held + roundMoney(st.pos.qty * st.lastClose!)); // 봉 없는 날은 마지막 종가
     }
     equity.push({ date, value: roundMoney(wallet.cash + held), cash: wallet.cash });
   });

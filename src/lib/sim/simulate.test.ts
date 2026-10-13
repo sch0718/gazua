@@ -470,4 +470,87 @@ describe('simulate', () => {
     expect(r.trades[0]).toMatchObject({ kind: 'buy', price: 10_200, qty: 100, fee: 153 });
     expect(r.equity[r.equity.length - 1]).toMatchObject({ strategy: 1_200_000, cash: 0 });
   });
+
+  it('평가액의 보유 가치는 종목마다 반올림한 값의 합이다(보유 중 손익과 같은 기준)', () => {
+    // 5000.00004원 1주씩 2종목: 종목별 반올림 5000 + 5000, 곱을 합친 뒤 반올림하면 10000.0001
+    const s = strat((x) => {
+      x.capital = { initial: 10_001, perBuyPct: 50 };
+    });
+    const bars = (): Candle[] => candles(BASE.map((c) => c * 100), [[5000.00004, 5000.00004, 5000.00004, 5000.00004]]);
+    const core = simulateCore(input(s, [bars(), bars()]));
+    expect(core.trades.map((t) => t.qty)).toEqual([1, 1]);
+    const last = core.equity[core.equity.length - 1];
+    expect(last.cash).toBe(1);
+    expect(last.value).toBe(10_001);
+  });
+
+  describe('독립 정답: BigInt 정수로 만든 정확한 예산이면 정확히 q주를 사고 현금 0', () => {
+    const FEE_U = [0, 15, 100, 250, 1000]; // 0.001% 단위 (15 = 0.015%)
+    /** q·P·(100000+feeU)/100000 이 정수일 때만 그 값을 돌려준다 */
+    const exactBudget = (q: number, price: number, feeU: number): number | null => {
+      const num = BigInt(q) * BigInt(price) * BigInt(100_000 + feeU);
+      return num % 100_000n === 0n ? Number(num / 100_000n) : null;
+    };
+    const run = (n: number, price: number, feeU: number) => {
+      const s = strat((x) => {
+        x.capital = { initial: n, perBuyPct: 100 };
+        x.costs.feePct = feeU / 1000;
+        x.exit.takeProfit = [{ pct: 500, sellPct: 100 }];
+        x.exit.stopLoss = { pct: 50, basis: 'avgAlways' };
+      });
+      return simulate(input(s, [candles(BASE.map((c) => c * 1000), [[price, price, price, price]])]));
+    };
+    const check = (q: number, price: number, feeU: number, n: number) => {
+      const r = run(n, price, feeU);
+      const ok =
+        r.skipped.length === 0 && r.trades.length === 1 && r.trades[0].qty === q && r.trades[0].price === price &&
+        r.equity[r.equity.length - 1].cash === 0;
+      return ok ? null : `P=${price} q=${q} feeU=${feeU} N=${n}: trades=${r.trades.length} qty=${r.trades[0]?.qty} skipped=${r.skipped.map((x) => x.reason)}`;
+    };
+
+    it('손으로 쓴 표 (검토자의 10,200원 × 100주, 수수료 0.015% 포함)', () => {
+      const table: [number, number, number, number][] = [
+        // [가격, 수량, feeU, 정확한 예산]
+        [10_200, 100, 15, 1_020_153],
+        [80_000, 7, 15, 560_084],
+        [333, 7, 0, 2_331],
+        [10_000, 10, 100, 100_100],
+        [250_000, 4, 250, 1_002_500],
+        [100, 1, 1000, 101],
+      ];
+      for (const [price, q, feeU, n] of table) {
+        expect(exactBudget(q, price, feeU), `표 검산 P=${price}`).toBe(n);
+        expect(check(q, price, feeU, n)).toBeNull();
+      }
+    });
+
+    it('시드 고정 4000건', () => {
+      let a = 20261013;
+      const rnd = () => {
+        a = (a + 0x6d2b79f5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      const gcd = (x: number, y: number): number => (y === 0 ? x : gcd(y, x % y));
+      const bad: string[] = [];
+      let made = 0;
+      while (made < 4000) {
+        const feeU = FEE_U[Math.floor(rnd() * FEE_U.length)];
+        const price = 100 + Math.floor(rnd() * 499_901);
+        // q·P가 g의 배수여야 N이 정수: q는 g / gcd(g, P)의 배수
+        const g = 100_000 / gcd(100_000, 100_000 + feeU);
+        const m = g / gcd(g, price);
+        if (m > 5000) continue;
+        const q = m * (1 + Math.floor(rnd() * Math.floor(5000 / m)));
+        const n = exactBudget(q, price, feeU);
+        if (n === null || n > 1e11) throw new Error(`예산 생성 실패 P=${price} q=${q} feeU=${feeU}`);
+        made++;
+        const msg = check(q, price, feeU, n);
+        if (msg) bad.push(msg);
+      }
+      expect(bad.length, `${bad.length}/4000 실패. 예: ${bad.slice(0, 3).join(' | ')}`).toBe(0);
+    });
+  });
 });

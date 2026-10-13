@@ -89,3 +89,10 @@ describe('singleCurve', () => {
     expect(c[3]).toBe(1500);
   });
 });
+
+describe('holdCurve 나머지', () => {
+  it('봉이 없는 3종목은 몫이 나누어 떨어지지 않아도 곡선이 처음 자금 그대로', () => {
+    const none = [stock('A', []), stock('B', []), stock('C', [])];
+    expect(holdCurve(DAYS, none, 1_000_000, 0.015)).toEqual(DAYS.map(() => 1_000_000));
+  });
+});

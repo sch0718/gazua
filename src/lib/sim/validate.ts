@@ -1,7 +1,7 @@
 // 저장된 전략의 검증과 편집 화면 경고. state/validate.ts처럼 아는 필드만 타입을 검사하고 틀리면 기본값으로 되돌린다.
 import type { Watchlists } from '../state/schema';
 import { addDays, kstDate, kstEpoch } from '../time/kst';
-import { defaultPeriod, MAX_STRATEGIES, MAX_SYMBOLS, MAX_TAKE_STAGES, NAME_MAX, newStrategy } from './defaults';
+import { defaultPeriod, MAX_INITIAL, MAX_STRATEGIES, MAX_SYMBOLS, MAX_TAKE_STAGES, NAME_MAX, newStrategy } from './defaults';
 import type { StopBasis, Strategy } from './types';
 
 type Row = Record<string, unknown>;
@@ -62,7 +62,7 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
 
   const cap = rec(raw.capital);
   const capital = {
-    initial: int(cap.initial, d.capital.initial, 1, 1e13),
+    initial: int(cap.initial, d.capital.initial, 1, MAX_INITIAL),
     perBuyPct: num(cap.perBuyPct, d.capital.perBuyPct, 1, 100),
   };
 
