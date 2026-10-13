@@ -54,7 +54,7 @@
 - ~~AUTO 과거일 보정 테스트가 없고 실패를 메모하지 않는 동작을 고정하는 테스트도 없음 · `candleService.test.ts`~~ → 해결: AUTO 과거일 보정 테스트와 "RVOL 실패는 메모하지 않음" 테스트를 더했어요. (`f503ef7`)
 - D1 초과수익은 캔들 값을 시세 가격 옆에 둠, `series.daily` 종가에는 시세를 덮지 않음(쓰는 곳 없음) · `rows.ts` · 문서화된 허용 동작이에요. → 남음: 허용 동작이에요.
 - ~~`priceOf`가 `rowSeries`를 다시 돌려 행마다 복사가 두 번 · `rows.ts:59`~~ → 해결: `priceOf`가 다시 계산하지 않아요. (`f503ef7`)
-- UNIFIED 일봉 테스트가 KRX 꼬리 구간을 가정하고, AUTO가 KRX로 넘기는 16:00은 실제 KRX 시간표와 대조하지 않음 · `rows.test.ts`, `sessions` 설정 · 실제 시간표 확인이 필요해요. → 남음: 실제 시간표 확인이 필요해요.
+- ~~UNIFIED 일봉 테스트가 KRX 꼬리 구간을 가정하고, AUTO가 KRX로 넘기는 16:00은 실제 KRX 시간표와 대조하지 않음 · `rows.test.ts`, `sessions` 설정~~ → 검증함 (2026-10-13 확인, 고칠 것 없음): KRX가 2026-09-14부터 시간외 단일가(16:00–18:00)를 없애고 16:00–20:00 연속매매 애프터마켓을 열었어요(ETF·ETN과 관리종목·투자경고 등 일부 종목 제외). NXT 시간표는 그대로예요(프리 08:00–08:50, 메인 09:00:30–15:20, 종가 단일가 15:30–15:40, 애프터 15:40–20:00). `sessions.config.ts`가 이와 일치해서 AUTO가 16:00에 KRX로 넘기는 것이 맞아요. 출처: KRX 규정 사이트 regulation.krx.co.kr/contents/RGL/03/03010301/RGL03010301.jsp (2026-10-13 확인), nextrade.co.kr (2026-10-13 확인), hankyung.com/article/2026091442517 (2026-09-14).
 
 ### 오류 안내
 - ~~`LoadIssue.allFailed`를 읽는 곳이 없고 "● 실시간" 주석이 헷갈림 · `loadIssue.ts:24`, `compareController.svelte.ts:69,414`~~ → 해결: `allFailed`를 지우고 주석을 고쳤어요. (`f503ef7`)
@@ -85,7 +85,12 @@
 - 시트가 열린 중 다른 스낵바 동작 · 스펙 §7.3이 허용해요. → 남음: 허용 동작이에요.
 
 ### 2차 브랜치 리뷰에서 남김 (2026-10-13)
-- Safari에서 순서가 고정된 채 행을 누르면 `focusout`의 `relatedTarget`이 null이라 고정이 풀려 누르고 떼는 사이에 다시 정렬됨 · `Leaderboard.svelte`의 `onfocusout` · 누름이 목록 안에서 시작했으면 `leave()`를 `pointerup`까지 미루면 돼요. Safari 실기기에서 확인하며 고치려고 미뤘어요.
-- 편집기 DX: 테스트·설정 파일이 루트 `tsconfig.json`에서 빠져 편집기가 비엄격 프로젝트로 추론함 · `tsconfig.json`, `tsconfig.test.json` · 넓은 루트 + `tsconfig.app.json`으로 나누면 돼요. 동작에는 영향이 없어 미뤘어요.
-- 테스트 다듬기 · 컨트롤러 혼합 실패 테스트(3개 중 프록시 1 + 타임아웃 1 + 정상 1로), `loadIssue.test.ts`의 중복 타임아웃 단언, Toggle 테스트 정리를 `finally`로, StrategyList의 복제 뒤 다른 것 삭제 테스트, 두 번째 로드의 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트, `Leaderboard.test.ts`의 "이미 고정된 목록 안 포인터 누름" 테스트가 가드만 확인함 · 동작은 이미 다른 테스트가 덮고 있어 미뤘어요.
-- `write-failed` 저장소 안내는 기록만 되고 화면에 안 나옴 · `storage.ts` · 이번 브랜치 이전부터 있던 일이고 안내 문구와 위치를 먼저 정해야 해서 미뤘어요.
+2026-10-13에 `feat/followups-3` 브랜치에서 처리했어요([계획](../plans/2026-10-13-followups-3.md)).
+- ~~Safari에서 순서가 고정된 채 행을 누르면 `focusout`의 `relatedTarget`이 null이라 고정이 풀려 누르고 떼는 사이에 다시 정렬됨 · `Leaderboard.svelte`의 `onfocusout`~~ → 해결: 목록 안에서 누르면 클릭이 끝날 때까지 순서를 고정하고, 다음 `pointerdown`·300ms 안전 해제·`pointercancel`·키 입력에서 풀어요. 실제 WebKit 하니스에서 누른 행마다 클릭이 들어가는 것을 확인했어요. (`5fd6c96`, `d90169b`)
+- ~~편집기 DX: 테스트·설정 파일이 루트 `tsconfig.json`에서 빠져 편집기가 비엄격 프로젝트로 추론함 · `tsconfig.json`, `tsconfig.test.json`~~ → 해결: 루트 `tsconfig.json`이 테스트·설정 파일까지 넓게 덮고(strict, node 타입), 앱만 검사하는 설정은 `tsconfig.app.json`으로 옮겼어요. `tsconfig.test.json`은 없앴어요. `tests/e2e`는 기존대로 `tsconfig.e2e.json`을 써요. (`9afc714`)
+- ~~테스트 다듬기 · 컨트롤러 혼합 실패 테스트(3개 중 프록시 1 + 타임아웃 1 + 정상 1로), `loadIssue.test.ts`의 중복 타임아웃 단언, Toggle 테스트 정리를 `finally`로, StrategyList의 복제 뒤 다른 것 삭제 테스트, 두 번째 로드의 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트, `Leaderboard.test.ts`의 "이미 고정된 목록 안 포인터 누름" 테스트가 가드만 확인함~~ → 해결: 항목을 모두 처리했어요. 혼합 실패(프록시 1 + 타임아웃 1 + 정상 1) 테스트 추가, 중복 타임아웃 단언 제거, Toggle 정리를 `afterEach`로 이동, StrategyList 복제 뒤 삭제 테스트, 두 번째 로드 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트를 더하고, Leaderboard 누름 테스트가 실제 동작을 단언하도록 고쳤어요. (`ee9edd2`)
+- ~~`write-failed` 저장소 안내는 기록만 되고 화면에 안 나옴 · `storage.ts`~~ → 해결 (의도한 동작으로 결정): 정리용 최선 노력 쓰기의 실패이고 사용자가 할 일이 없어서 배너를 띄우지 않아요. 스펙 §10.1에 적었어요. (`ee9edd2`)
+- KRX 시간외종가(전일 종가로 08:30–08:40, 당일 종가로 15:40–16:00)를 모델링하지 않음 · `sessions.config.ts` · 고정가 체결이에요. KIS 분봉에 이 구간이 들어오는지 몰라서 실연결 점검 ②에서 먼저 확인해야 해요. 그대로 두면 NXT가 지원하지 않는 종목은 15:40–16:00에 거래 불가로 보여요. → 남음: 실연결 점검 ②가 먼저예요.
+- KRX 애프터마켓의 종목별 추가 제외(관리종목·투자경고 등)를 모델링하지 않음 · 앱에 해당 메타데이터가 없어서 지금은 반영할 수 없어요. → 남음: 메타데이터가 없어요.
+- iOS Safari에서 누름 고정이 실제 기기 터치 타이밍으로 잘 동작하는지 확인하지 못함 · `Leaderboard.svelte` · WebKit 하니스로만 확인했어요. → 남음: 실제 기기가 있어야 해요.
+
