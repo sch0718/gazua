@@ -309,6 +309,14 @@ describe('importData — repaired flag', () => {
     expect(importData(st, file({ strategies: [{ ...strat, id: '' }, { ...strat, id: 's2' }] }))).toMatchObject({ ok: true, repaired: true });
   });
 
+  it('문자열이 아닌 최근 종목을 버리면 repaired true', () => {
+    const { st } = source();
+    const res = importData(st, file({ recent: [1, '005930'] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadRecent(st, res.profileId)).toEqual(['005930']);
+  });
+
   it('맞지 않는 설정 필드를 기본값으로 바꾸면 repaired true', () => {
     const { st } = source();
     expect(importData(st, file({ settings: { provider: 'nope' } }))).toMatchObject({ ok: true, repaired: true });

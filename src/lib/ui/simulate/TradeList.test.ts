@@ -87,6 +87,8 @@ describe('TradeList', () => {
     const { unmount } = render(TradeList, { trades: structuredClone(doneState().result.trades), names, onTrade: vi.fn() });
     const note = screen.getByText(NOTE);
     expect(note.tagName).toBe('P');
+    // 안내는 `거래 내역` 그룹 밖, 목록 위에 있다
+    expect(within(screen.getByRole('group', { name: '거래 내역' })).queryByText(NOTE)).toBeNull();
     unmount();
     const buys = structuredClone(doneState().result.trades).filter((t) => t.kind === 'buy' || t.kind === 'add');
     render(TradeList, { trades: buys, names, onTrade: vi.fn() });
