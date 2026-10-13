@@ -24,7 +24,7 @@
   import { issueView, runIssueAction } from '../lib/ui/compare/loadIssue';
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
+  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, isSuspended, sortRows } from '../lib/ui/compare/rows';
@@ -138,6 +138,8 @@
         return !!series && !!pair?.series && indexBaseFor(series, pair.series) === null;
       }),
   );
+  // 1일 RVOL 분모가 분봉과 다른 거래소(KRX)의 일평균인 종목이 있으면 알린다.
+  const rvolNote = $derived(rvolBaseNote({ metric, period, series: loaded.filter(onChartDay) }));
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
 
@@ -380,6 +382,9 @@
         {/if}
         {#if indexBaseMissing}
           <p class="fallback" role="status">{INDEX_BASE_MISSING_NOTE}</p>
+        {/if}
+        {#if rvolNote}
+          <p class="fallback" role="status">{rvolNote}</p>
         {/if}
         <div class="chart-slot">
           <ChartPanel

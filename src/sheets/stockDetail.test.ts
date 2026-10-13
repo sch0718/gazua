@@ -28,6 +28,7 @@ const series = (p: Partial<SnapshotSeries> = {}): SnapshotSeries => ({
   base: 70_000,
   baseDate: '2026-10-08',
   avgDailyVolume: null,
+  avgVolumeVenue: 'KRX',
   candles: [candle(at('09:00'), 70_500), candle(at('10:00'), 71_400)],
   daily: [candle(kstEpoch('2026-10-08', '00:00:00'), 69_000), candle(kstEpoch(DAY, '00:00:00'), 71_200)],
   segments: [],

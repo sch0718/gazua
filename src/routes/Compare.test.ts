@@ -160,6 +160,21 @@ describe('Compare (demo provider)', () => {
     expect(screen.getByText(`1주 · 등락률 · 기준 ${m}/${d} 종가`)).toBeTruthy();
   });
 
+  it('RVOL on 1 day in AUTO says the denominator is the KRX average; KRX mode and other metrics do not', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { metric: 'rvol', venueMode: 'AUTO' });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    // 자동 모드는 NXT 프리마켓 분봉이 섞이고 분모는 KRX 평균
+    const note = await screen.findByText('KRX 20일 평균 거래량 대비예요');
+    expect(note.getAttribute('role')).toBe('status');
+    app.updateSettings({ metric: 'change' });
+    await vi.waitFor(() => expect(screen.queryByText('KRX 20일 평균 거래량 대비예요')).toBeNull());
+    app.updateSettings({ metric: 'rvol', venueMode: 'KRX' });
+    await vi.waitFor(() => expect(screen.getByText('오늘 · 상대 거래량 · 기준 전일 종가')).toBeTruthy(), { timeout: 3000 });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(screen.queryByText('KRX 20일 평균 거래량 대비예요')).toBeNull();
+  });
+
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {
     const app = makeApp(EXAMPLE.slice(0, 2), { metric: 'excess' });
     // 지수 봉을 주지 않는 공급자(토스 지수 미지원과 같은 경우)

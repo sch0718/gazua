@@ -499,6 +499,111 @@ describe('daily: one request, memo, adjusted prices', () => {
   });
 });
 
+describe('RVOL denominator venue (same venue as the minutes, KRX fallback)', () => {
+  // 거래소마다 거래량이 다르다: KRX 1000, NXT 200, 통합 1200
+  const VOL: Record<Venue, number> = { KRX: 1000, NXT: 200, UNIFIED: 1200 };
+  const byVenue: DailyFn = (venue) => ({ c: VENUE_PRICE[venue], v: VOL[venue] });
+  const load = (f: ReturnType<typeof fakeProvider>, clock: { now: number }, venueMode: VenueMode, over: Partial<StockMeta> = {}, period = D1, d = deps(clock)) =>
+    loadSeries({ provider: f.provider, ...d, meta: meta(over), period, venueMode, now: clock.now });
+  const dailyVenues = (f: ReturnType<typeof fakeProvider>) => f.calls.filter((c) => c.interval === '1d').map((c) => c.venue);
+
+  it('NXT mode RVOL uses NXT daily average', async () => {
+    const clock = { now: THU_10 };
+    const f = fakeProvider({ now: () => clock.now, daily: byVenue });
+    const s = await load(f, clock, 'NXT');
+    expect(s.avgDailyVolume).toBe(200);
+    expect(s.avgVolumeVenue).toBe('NXT');
+    // 시리즈 일봉(NXT)을 그대로 쓴다: 추가 일봉 조회 없음
+    expect(dailyVenues(f).sort()).toEqual(['KRX', 'NXT']);
+  });
+
+  it('KRX mode, AUTO, and NXT mode of a stock without NXT use the KRX average', async () => {
+    for (const [mode, over] of [
+      ['KRX', {}],
+      ['AUTO', {}],
+      ['AUTO', { nxtSupported: false }],
+      ['NXT', { nxtSupported: false }],
+    ] as [VenueMode, Partial<StockMeta>][]) {
+      const clock = { now: THU_10 };
+      const f = fakeProvider({ now: () => clock.now, daily: byVenue });
+      const s = await load(f, clock, mode, over);
+      expect(s.avgDailyVolume).toBe(1000);
+      expect(s.avgVolumeVenue).toBe('KRX');
+      expect(dailyVenues(f)).toEqual(['KRX']);
+    }
+  });
+
+  it('UNIFIED mode fetches the UNIFIED daily once more on 1 day only, memoized with the same key rule', async () => {
+    const clock = { now: THU_10 };
+    const f = fakeProvider({ now: () => clock.now, daily: byVenue });
+    const d = deps(clock);
+    const s = await load(f, clock, 'UNIFIED', {}, D1, d);
+    expect(s.avgDailyVolume).toBe(1200);
+    expect(s.avgVolumeVenue).toBe('UNIFIED');
+    const plan = fetchPlanFor(D1, '2026-10-08');
+    expect(f.calls.filter((c) => c.interval === '1d')).toEqual([
+      { symbol: '005930', venue: 'KRX', interval: '1d', from: plan.lookbackFrom, to: '2026-10-08' },
+      { symbol: '005930', venue: 'UNIFIED', interval: '1d', from: plan.lookbackFrom, to: '2026-10-08' },
+    ]);
+    // 메모 안(60초)에서는 다시 받지 않고, 만료되면 함께 다시 받는다
+    clock.now += 59_000;
+    await load(f, clock, 'UNIFIED', {}, D1, d);
+    expect(dailyVenues(f)).toHaveLength(2);
+    clock.now += 2_000;
+    await load(f, clock, 'UNIFIED', {}, D1, d);
+    expect(dailyVenues(f).slice(2).sort()).toEqual(['KRX', 'UNIFIED']);
+
+    // 일봉 기간은 추가 조회가 없다(RVOL 일봉은 시리즈 일봉에서 계산)
+    const g = fakeProvider({ now: () => clock.now, daily: byVenue });
+    await load(g, clock, 'UNIFIED', {}, W1);
+    expect(dailyVenues(g)).toEqual(['KRX']);
+  });
+
+  it('falls back to the KRX average when the same-venue daily has fewer than 20 bars', async () => {
+    // 통합 일봉이 비어 있음 / NXT는 최근 5일만
+    const cases: [VenueMode, DailyFn][] = [
+      ['UNIFIED', (venue) => (venue === 'UNIFIED' ? null : byVenue(venue, ''))],
+      ['UNIFIED', (venue, d) => (venue === 'UNIFIED' && d < '2026-10-01' ? null : byVenue(venue, d))],
+      ['NXT', (venue, d) => (venue === 'NXT' && d < '2026-10-01' ? null : byVenue(venue, d))],
+    ];
+    for (const [mode, daily] of cases) {
+      const clock = { now: THU_10 };
+      const f = fakeProvider({ now: () => clock.now, daily });
+      const s = await load(f, clock, mode);
+      expect(s.avgDailyVolume).toBe(1000);
+      expect(s.avgVolumeVenue).toBe('KRX');
+      expect(s.candles.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a failing UNIFIED daily request falls back to KRX silently and the series still loads', async () => {
+    const clock = { now: THU_10 };
+    const daily: DailyFn = (venue, d) => {
+      if (venue === 'UNIFIED') throw new ApiError('upstream', 'UN daily not supported');
+      return byVenue(venue, d);
+    };
+    const f = fakeProvider({ now: () => clock.now, daily });
+    const s = await createSeriesSnapshots().load({
+      provider: f.provider, ...deps(clock), meta: meta(), period: D1, venueMode: 'UNIFIED', now: clock.now,
+    });
+    expect(s.stale).toBe(false);
+    expect(s.avgDailyVolume).toBe(1000);
+    expect(s.avgVolumeVenue).toBe('KRX');
+    expect(s.base).toBe(100);
+    expect(s.candles.length).toBeGreaterThan(0);
+    expect(new Set(s.segments.map((x) => x.venue))).toEqual(new Set(['UNIFIED']));
+  });
+
+  it('keeps the adjustment factor on the denominator', async () => {
+    // 지난 거래일: 일봉(수정주가) 종가 50·거래량 2000, 원래 가격 1분봉 종가 단일가 100 → factor 0.5
+    const clock = { now: SUN };
+    const f = fakeProvider({ now: () => clock.now, daily: () => ({ c: 50, v: 2000 }), minute: () => ({ c: 100 }) });
+    const s = await load(f, clock, 'KRX');
+    expect(s.avgDailyVolume).toBe(1000);
+    expect(s.avgVolumeVenue).toBe('KRX');
+  });
+});
+
 describe('adjustmentFactor', () => {
   const d = '2026-10-08';
   const sessions = sessionsForDay({ date: d, isOpen: true });
