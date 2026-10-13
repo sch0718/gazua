@@ -186,7 +186,7 @@ describe('Simulate list', () => {
   });
 
   describe('menu: delete returns focus (the row and its menu button are gone)', () => {
-    const row = (id: string) => document.querySelector<HTMLElement>(`[data-strategy-row="${id}"]`);
+    const row = (id: string) => [...document.querySelectorAll<HTMLElement>('[data-strategy-row]')].find((el) => el.dataset.strategyRow === id) ?? null;
     const del = async (name: string) => {
       const more = screen.getByRole('button', { name: `${name} 메뉴` });
       more.focus(); // 실제 클릭은 포커스를 주지만 fireEvent.click은 주지 않는다
@@ -210,6 +210,20 @@ describe('Simulate list', () => {
       setup(['가']);
       await del('가');
       await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '＋ 새 전략' })));
+    });
+
+    it("a strategy id with a quote (imported) does not break the lookup: focus goes to that row's button", async () => {
+      const app = setup(['가', '나', '다']);
+      const file = JSON.parse(app.exportData(false));
+      file.strategies[1].id = 'x"';
+      const res = app.importData(JSON.stringify(file));
+      expect(res).toMatchObject({ ok: true, repaired: false });
+      if (!res.ok) throw new Error('import failed');
+      app.switchProfile(res.profileId);
+      await tick();
+      await del('가');
+      await waitFor(() => expect(app.strategies.map((s) => s.id)).toEqual(['x"', 's2']));
+      await waitFor(() => expect(document.activeElement).toBe(row('x"')));
     });
 
     it('복제 keeps the usual return to the menu button', async () => {

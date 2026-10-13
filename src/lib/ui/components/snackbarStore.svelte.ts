@@ -86,11 +86,20 @@ export function holdSnackbarWhileFocused(el: HTMLElement): void {
     if (!el.isConnected) release();
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  el.addEventListener('focusout', release);
-  unwatch = () => {
-    observer.disconnect();
-    el.removeEventListener('focusout', release);
+  // 다시 정렬하느라 요소가 옮겨지면 브라우저가 포커스를 잠깐 버렸다가(focusout) 같은 렌더 안에서 되돌려 받는다.
+  // 포커스가 다른 요소로 갔으면 바로 놓고(스낵바 버튼이면 그쪽 멈춤이 이어받는다), 어디에도 없으면 한 틱 뒤에도 그대로인지 본다.
+  const onfocusout = (e: FocusEvent) => {
+    if (e.relatedTarget) return release();
+    void Promise.resolve().then(() => {
+      if (unwatch === stop && document.activeElement !== el) release();
+    });
   };
+  const stop = () => {
+    observer.disconnect();
+    el.removeEventListener('focusout', onfocusout);
+  };
+  el.addEventListener('focusout', onfocusout);
+  unwatch = stop;
 }
 
 /** 버튼 동작: 먼저 닫고 실행한다(동작이 새 스낵바를 띄워도 지워지지 않게). */

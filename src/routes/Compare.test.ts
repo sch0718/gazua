@@ -649,8 +649,8 @@ describe('Compare sheets', () => {
     const mainOf = (symbol: string) => screen.getByRole('region', { name: '리더보드' }).querySelector<HTMLElement>(`li[data-symbol="${symbol}"] .main-btn`)!;
     const [A, B, C, D] = EXAMPLE;
     const refreshQuotes = () => window.dispatchEvent(new Event('online'));
-    async function setup(pct: Record<string, number>, wide = false) {
-      const app = makeApp([A, B, C]);
+    async function setup(pct: Record<string, number>, wide = false, symbols = [A, B, C]) {
+      const app = makeApp(symbols);
       const q = controlQuotes(app, pct);
       render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
       await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
@@ -737,6 +737,74 @@ describe('Compare sheets', () => {
       await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
       expect(order()).toEqual([C, B, A]);
       expect(document.activeElement).toBe(mainOf(B));
+    });
+
+    it('a key press on a row that was focused with the mouse starts holding the order; focus leaving re-sorts', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { valueText } = await setup(pct);
+      const dot = screen.getByRole('button', { name: /삼성전자 차트에/ });
+      await fireEvent.pointerDown(dot);
+      dot.focus();
+      await fireEvent.pointerUp(dot);
+      expect(document.activeElement).toBe(dot);
+      // 같은 버튼에서 이어 키보드를 쓴다: 새 focusin은 없지만 마지막 입력이 키보드다
+      await fireEvent.keyDown(dot, { key: ' ' });
+      await fireEvent.keyUp(dot, { key: ' ' });
+      await fireEvent.click(dot);
+      Object.assign(pct, { [A]: 1, [C]: 3 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([A, B, C]);
+      expect(document.activeElement).toBe(dot);
+      board().getByRole('button', { name: '＋ 종목 추가' }).focus();
+      await tick();
+      expect(order()).toEqual([C, B, A]);
+    });
+
+    it('undo snackbar hold survives the focused row moving in a re-sort (focusout then focus back)', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1, [D]: 0 };
+      const { valueText } = await setup(pct, false, [A, B, C, D]);
+      // jsdom은 포커스가 있는 노드를 옮겨도 focusout을 보내지 않는다. 브라우저처럼 옮긴 직후 보낸다.
+      const spies = [Element.prototype, CharacterData.prototype].map((proto) => {
+        const real = proto.before;
+        return vi.spyOn(proto, 'before').mockImplementation(function (this: ChildNode, ...nodes) {
+          const active = document.activeElement;
+          real.apply(this, nodes);
+          if (active && active !== document.activeElement) {
+            active.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+          }
+        });
+      });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      try {
+        // 마우스로 B를 열어 삭제한다: 포커스는 그 자리의 C로 가고, 스낵바는 C에 머무는 동안 멈춘다
+        await fireEvent.pointerDown(mainOf(B));
+        mainOf(B).focus();
+        await fireEvent.click(mainOf(B));
+        const del = within(screen.getByRole('dialog', { name: '종목 상세' })).getByRole('button', { name: '삭제' });
+        del.focus();
+        await fireEvent.click(del);
+        await tick();
+        expect(document.activeElement).toBe(mainOf(C));
+        expect(currentSnackbar()).not.toBeNull();
+        // C가 꼴찌로 내려가 C의 행이 옮겨진다: [A,C,D] → [A,D,C]
+        Object.assign(pct, { [C]: -5 });
+        refreshQuotes();
+        await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+        expect(order()).toEqual([A, D, C]);
+        expect(document.activeElement).toBe(mainOf(C));
+        vi.advanceTimersByTime(6000);
+        expect(currentSnackbar()).not.toBeNull();
+        // 포커스가 떠나면 남은 시간 뒤에 사라진다
+        board().getByRole('button', { name: '＋ 종목 추가' }).focus();
+        await tick();
+        expect(currentSnackbar()).not.toBeNull();
+        vi.advanceTimersByTime(5000);
+        expect(currentSnackbar()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+        for (const spy of spies) spy.mockRestore();
+      }
     });
 
     it('<1024: closing the detail sheet with the mouse returns focus to the row without holding the order', async () => {

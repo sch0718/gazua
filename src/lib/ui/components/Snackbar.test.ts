@@ -223,6 +223,41 @@ describe('Snackbar', () => {
       expect(text()).toBe('');
     });
 
+    it('a focusout caused by a re-sort (focus is back on the element right away) keeps the hold', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+      vi.advanceTimersByTime(1000);
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      // 행이 옮겨지며 브라우저가 포커스를 버렸다가(focusout) 같은 렌더 안에서 되돌린다
+      row.blur();
+      row.focus();
+      await Promise.resolve();
+      vi.advanceTimersByTime(60_000);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      // 그 뒤 다른 곳으로 옮기면 멈춘 시점의 남은 시간(4초)부터 다시 흐른다
+      other.focus();
+      vi.advanceTimersByTime(3999);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      vi.advanceTimersByTime(1);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('a focusout to nowhere that stays gone releases the hold after a microtask', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요');
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      row.blur();
+      await Promise.resolve();
+      vi.advanceTimersByTime(5000);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
     it('a new snackbar is not held by the earlier element, and leaving that element later does nothing', () => {
       render(SnackbarHost);
       showSnackbar('삭제했어요');

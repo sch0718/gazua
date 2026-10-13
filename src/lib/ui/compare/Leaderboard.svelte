@@ -80,10 +80,18 @@
   // 마우스·터치로 누른 뒤의 포커스는 고정하지 않는다(마지막 입력이 포인터인지 키보드인지로 가린다).
   // 이미 고정 중이면 포인터로 눌러도 풀지 않는다(누르고 떼는 사이에 행이 옮겨지면 클릭이 빗나간다).
   let focusInside = false;
-  function onfocusin() {
-    if (focusInside || pointerFocus) return;
+  function hold() {
     focusInside = true;
     onfocuswithin?.(ordered.map((r) => r.symbol));
+  }
+  function onfocusin() {
+    if (focusInside || pointerFocus) return;
+    hold();
+  }
+  // 마우스로 포커스한 요소에서 이어 키보드를 쓰면 새 focusin이 없다. 키를 누르는 시점에 고정을 시작한다.
+  function onlistkeydown() {
+    if (focusInside || !listEl.contains(document.activeElement)) return;
+    hold();
   }
   function leave() {
     focusInside = false;
@@ -227,7 +235,8 @@
     <span>{metricLabel} 순 · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span>
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
-  <ul bind:this={listEl} {onfocusin} {onfocusout}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
       {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}

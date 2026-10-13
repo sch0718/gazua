@@ -63,9 +63,11 @@
 
   // 지운 행의 메뉴 버튼은 사라지므로 시트가 닫힐 때 같은 자리의 다음 행 → 이전 행 → ＋ 새 전략 순으로 포커스한다.
   let neighbors: string[] = [];
+  // 가져온 ID에는 따옴표 등이 들어올 수 있어 선택자에 끼우지 않고 dataset으로 비교한다.
   const returnFocus = () => {
+    const rows = [...(listEl?.querySelectorAll<HTMLElement>('[data-strategy-row]') ?? [])];
     for (const id of neighbors) {
-      const el = listEl?.querySelector<HTMLElement>(`[data-strategy-row="${id}"]`);
+      const el = rows.find((r) => r.dataset.strategyRow === id);
       if (el) return el;
     }
     return listEl?.querySelector<HTMLElement>('[data-new-strategy]');
