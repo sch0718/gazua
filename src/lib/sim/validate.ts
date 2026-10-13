@@ -193,6 +193,8 @@ export function strategyIssues(s: Strategy, w: Watchlists): Issue[] {
     out.push({ section: 'exit', text: '추가 매수보다 손절이 먼저 일어나요. 추가 매수 간격을 손절폭보다 작게 해 주세요', blocking: false });
   if (takeProfit.some((x, i) => i > 0 && x.pct <= takeProfit[i - 1].pct))
     out.push({ section: 'exit', text: '익절 단계는 낮은 %부터 차례로 적어 주세요', blocking: true });
+  if (takeProfit.slice(0, -1).reduce((a, x) => a + x.sellPct, 0) >= 100)
+    out.push({ section: 'exit', text: '마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요', blocking: false });
 
   const buys = 1 + (s.scaleIn.on ? s.scaleIn.maxAdds : 0); // 분할 매수를 껐으면 추가 매수는 없다
   if (s.capital.perBuyPct * buys * n > 100)

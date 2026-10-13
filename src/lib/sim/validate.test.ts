@@ -71,6 +71,19 @@ describe('strategyIssues', () => {
     });
   });
 
+  it('마지막 전 단계들이 100% 이상 팔면 뒤 단계가 실행되지 않는다는 경고(막지 않음)', () => {
+    const t = structuredClone(s);
+    const dead = { section: 'exit', text: '마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요', blocking: false };
+    t.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
+    expect(strategyIssues(t, w)).toContainEqual(dead);
+    t.exit.takeProfit = [{ pct: 10, sellPct: 100 }, { pct: 20, sellPct: 100 }];
+    expect(strategyIssues(t, w)).toContainEqual(dead);
+    t.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 25 }, { pct: 30, sellPct: 100 }];
+    expect(strategyIssues(t, w)).not.toContainEqual(dead);
+    t.exit.takeProfit = [{ pct: 10, sellPct: 100 }];
+    expect(strategyIssues(t, w)).not.toContainEqual(dead);
+  });
+
   it('from ≥ to 이면 막는다', () => {
     const t = structuredClone(s);
     t.period = { from: '2026-01-02', to: '2026-01-02' };

@@ -13,7 +13,9 @@
       const tp = x.exit.takeProfit;
       if (tp.length >= MAX_TAKE_STAGES) return;
       const last = tp[tp.length - 1];
-      last.sellPct = 50; // 이제 마지막이 아니니 일부만 판다
+      // 이제 마지막이 아니니 남은 몫의 절반만 판다(앞 단계 합이 100 미만이어야 새 단계가 실행된다)
+      const sold = tp.slice(0, -1).reduce((a, t) => a + t.sellPct, 0);
+      last.sellPct = Math.max(1, Math.floor((100 - sold) / 2));
       tp.push({ pct: Math.min(500, last.pct + 10), sellPct: 100 });
     });
   }

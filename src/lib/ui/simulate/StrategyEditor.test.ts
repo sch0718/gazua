@@ -101,6 +101,9 @@ describe('매도 구역', () => {
     await settle();
     expect(saved(app).exit.takeProfit).toHaveLength(3);
     expect(saved(app).exit.takeProfit[2].sellPct).toBe(100);
+    // 앞 단계들이 나머지를 남겨서 모든 단계가 실행될 수 있다
+    expect(saved(app).exit.takeProfit.map((t) => t.sellPct)).toEqual([50, 25, 100]);
+    expect(screen.queryByText('마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요')).toBeNull();
 
     await fireEvent.click(screen.getByRole('button', { name: '3단계 삭제' }));
     await settle();
@@ -121,6 +124,16 @@ describe('매도 구역', () => {
     const run = screen.getByRole('button', { name: '시뮬레이션 실행' });
     expect((run as HTMLButtonElement).disabled).toBe(false);
     await fireEvent.click(run);
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('앞 단계들이 모두 팔면 Banner 경고, 실행은 그대로 된다', async () => {
+    const { onRun } = setup((s) => {
+      s.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
+    });
+    await openSection('매도');
+    expect(screen.getByText('마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
     expect(onRun).toHaveBeenCalledTimes(1);
   });
 
