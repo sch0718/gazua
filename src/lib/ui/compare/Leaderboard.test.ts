@@ -154,6 +154,37 @@ describe('Leaderboard', () => {
     expect(onfocuswithin).toHaveBeenLastCalledWith(null);
   });
 
+  it('onfocuswithin: focus after a pointer press does not report; focus after a key press does', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3), row('C', 2)], { onfocuswithin });
+    await fireEvent.pointerDown(mainBtn('A'), { clientX: 10, clientY: 10, pointerId: 1 });
+    await fireEvent.pointerUp(mainBtn('A'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('A').focus();
+    expect(onfocuswithin).not.toHaveBeenCalled();
+    // 색 점을 눌러도 마찬가지
+    const dot = within(rowOf('C')).getByRole('button', { name: /숨기기/ });
+    screen.getByRole('button', { name: '＋ 종목 추가' }).focus();
+    await fireEvent.pointerDown(dot);
+    dot.focus();
+    expect(onfocuswithin).not.toHaveBeenCalled();
+    // 키보드로 들어오면 고정
+    screen.getByRole('button', { name: '＋ 종목 추가' }).focus();
+    await fireEvent.keyDown(document, { key: 'Tab' });
+    mainBtn('B').focus();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+    expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'C', 'A']);
+  });
+
+  it('a pointer press inside an already held list does not release it (the click must land on the row it pressed)', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'A']);
+    await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('B').focus();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+  });
+
   it('onfocuswithin: the focused row disappearing (no focusout) or the board unmounting also reports null', async () => {
     const onfocuswithin = vi.fn();
     const props = setup([row('A', 1), row('B', 3)], { onfocuswithin });

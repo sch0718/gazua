@@ -361,7 +361,7 @@ describe('Compare sheets', () => {
     }
   });
 
-  it('deleting with the mouse (focus on the page, not moved to a row) keeps the usual 5 seconds', async () => {
+  it('when the delete leaves focus on the page (e.g. a browser where clicks do not focus) the usual 5 seconds apply', async () => {
     const app = makeApp(EXAMPLE.slice(0, 3));
     render(SnackbarHost);
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: false });
@@ -647,10 +647,10 @@ describe('Compare sheets', () => {
     const mainOf = (symbol: string) => screen.getByRole('region', { name: '리더보드' }).querySelector<HTMLElement>(`li[data-symbol="${symbol}"] .main-btn`)!;
     const [A, B, C, D] = EXAMPLE;
     const refreshQuotes = () => window.dispatchEvent(new Event('online'));
-    async function setup(pct: Record<string, number>) {
+    async function setup(pct: Record<string, number>, wide = false) {
       const app = makeApp([A, B, C]);
       const q = controlQuotes(app, pct);
-      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
       await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
       // 첫 시세는 기준가를 알기 전에 오므로 한 번 더 받는다
       refreshQuotes();
@@ -712,12 +712,45 @@ describe('Compare sheets', () => {
       refreshQuotes();
       await vi.waitFor(() => expect(within(mainOf(A)).getByText(valueText(A))).toBeTruthy(), { timeout: 3000 });
       expect(order()).toEqual([B, C, A]);
+      // 다시 정렬해도 포커스를 리더보드로 끌어오지 않는다
+      expect(dialog.contains(document.activeElement)).toBe(true);
       const del = within(dialog).getByRole('button', { name: '삭제' });
       del.focus();
       await fireEvent.click(del);
       await tick();
       expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual([B, C]);
       expect(document.activeElement).toBe(board().getByRole('button', { name: '＋ 종목 추가' }));
+    });
+
+    it('≥1024: a row clicked with the mouse keeps focus but does not hold the order', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { valueText } = await setup(pct, true);
+      await fireEvent.pointerDown(mainOf(B));
+      mainOf(B).focus();
+      await fireEvent.pointerUp(mainOf(B));
+      await fireEvent.click(mainOf(B));
+      expect(screen.getByRole('region', { name: '선택한 종목' })).toBeTruthy();
+      Object.assign(pct, { [A]: 1, [C]: 3 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([C, B, A]);
+      expect(document.activeElement).toBe(mainOf(B));
+    });
+
+    it('<1024: closing the detail sheet with the mouse returns focus to the row without holding the order', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { valueText } = await setup(pct);
+      mainOf(B).focus();
+      await fireEvent.click(mainOf(B));
+      const close = within(screen.getByRole('dialog', { name: '종목 상세' })).getByRole('button', { name: '닫기' });
+      await fireEvent.pointerDown(close);
+      await fireEvent.click(close);
+      await tick();
+      expect(document.activeElement).toBe(mainOf(B));
+      Object.assign(pct, { [A]: 1, [C]: 3 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([C, B, A]);
     });
 
     it('Alt+Arrow while held still moves the row', async () => {

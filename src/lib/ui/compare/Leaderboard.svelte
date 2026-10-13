@@ -67,9 +67,22 @@
   }
 
   // 키보드 포커스가 목록 안에 있는지. 들어오고 나갈 때만 알린다(목록 안에서 옮길 때는 알리지 않는다).
+  // 마우스·터치로 누른 뒤의 포커스는 고정하지 않는다(마지막 입력이 포인터인지 키보드인지로 가린다).
+  // 이미 고정 중이면 포인터로 눌러도 풀지 않는다(누르고 떼는 사이에 행이 옮겨지면 클릭이 빗나간다).
   let focusInside = false;
+  let pointerFocus = false;
+  $effect(() => {
+    const onpointer = () => (pointerFocus = true);
+    const onkey = () => (pointerFocus = false);
+    document.addEventListener('pointerdown', onpointer, true);
+    document.addEventListener('keydown', onkey, true);
+    return () => {
+      document.removeEventListener('pointerdown', onpointer, true);
+      document.removeEventListener('keydown', onkey, true);
+    };
+  });
   function onfocusin() {
-    if (focusInside) return;
+    if (focusInside || pointerFocus) return;
     focusInside = true;
     onfocuswithin?.(ordered.map((r) => r.symbol));
   }
