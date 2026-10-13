@@ -18,7 +18,7 @@ export type Issue = {
   blocking: boolean;
 };
 
-/** 항목 하나를 고친다. 맞지 않거나 빠진 필드는 기본값으로 바꾸고 repaired를 켠다. */
+/** 항목 하나를 고친다. 맞지 않는 필드는 기본값으로 바꾸고 repaired를 켠다(빠진 필드는 조용히 기본값). */
 function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Strategy; repaired: boolean } | null {
   if (typeof raw.id !== 'string' || raw.id.trim() === '' || typeof raw.name !== 'string') return null;
   const d = structuredClone(template);
@@ -157,7 +157,7 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
  * repaired: 무언가를 버렸거나, 있는 값을 기본값으로 바꾸거나 잘라내거나 맞췄다(없는 필드는 조용히 기본값).
  */
 export function sanitizeStrategies(raw: unknown, now = Date.now()): { strategies: Strategy[]; repaired: boolean } {
-  // 없거나 null이면 조용히 빈 목록, 있는데 모양이 틀리면 버린 것으로 센다
+  // 루트가 없거나 null이면 조용히 빈 목록, 있는데 모양이 틀리면 버린 것으로 센다
   if (!isRecord(raw) || !Array.isArray(raw.strategies))
     return { strategies: [], repaired: isRecord(raw) ? raw.strategies !== undefined : raw !== undefined && raw !== null };
   const strategies: Strategy[] = [];
