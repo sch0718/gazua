@@ -26,6 +26,7 @@
 
 <p class="hint">같은 종목을 사서 그대로 둔 경우와 아래 지수는 항상 함께 비교해요.</p>
 <Segmented
+  onSurface
   label="비교 지수"
   value={s.benchmarks.index}
   onchange={(v) => update((x) => (x.benchmarks.index = v as 'KOSPI' | 'KOSDAQ'))}

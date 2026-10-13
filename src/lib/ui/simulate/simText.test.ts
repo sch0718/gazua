@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import type { Watchlists } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { fmtReturnPct, nearMissText, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, trendReturn } from './simText';
+import { fmtReturnPct, money, nearMissText, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, trendReturn } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -57,14 +57,14 @@ describe('sectionSummary (default strategy)', () => {
     expect(sum('period')).toBe('2023.10.11 ~ 2026.10.11');
     expect(sum('capital')).toBe('1,000만 원 · 회당 10%');
   });
-  it('entry', () => expect(sum('entry')).toBe('고점 대비 10%↓ 뒤 → 3일 연속 상승 또는 B 돌파'));
+  it('entry', () => expect(sum('entry')).toBe('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 B 돌파'));
   it('scaleIn off', () => expect(sum('scaleIn')).toBe('끔'));
-  it('exit', () => expect(sum('exit')).toBe('익절 +15% 전량 · 손절 −5% 분할 완료 후 평단'));
+  it('exit: 단계 하나는 전량, 분할 매수를 끄면 손절 기준을 뺀다', () => expect(sum('exit')).toBe('익절 +15%에 전량 · 손절 −5%'));
   it('benchmarks', () => {
-    expect(sum('benchmarks')).toBe('같은 종목 보유 · KOSPI · 069500');
-    expect(sum('benchmarks', 'KODEX 200')).toBe('같은 종목 보유 · KOSPI · KODEX 200');
+    expect(sum('benchmarks')).toBe('같은 종목 사서 보유 · KOSPI · 069500');
+    expect(sum('benchmarks', 'KODEX 200')).toBe('같은 종목 사서 보유 · KOSPI · KODEX 200');
   });
-  it('costs', () => expect(sum('costs')).toBe('수수료 0.015% · 매도 세금'));
+  it('costs', () => expect(sum('costs')).toBe('수수료 0.015% · 팔 때 세금 포함'));
 
   it('other variants', () => {
     const y = structuredClone(x);
@@ -89,9 +89,35 @@ describe('sectionSummary (default strategy)', () => {
     expect(sectionSummary(y, 'entry', W, null)).toBe(
       '7일 하락 뒤 → A 돌파 또는 20일선 돌파 또는 5·20 골든크로스 · 60일선 위',
     );
-    expect(sectionSummary(y, 'scaleIn', W, null)).toBe('3%씩 최대 2번');
-    expect(sectionSummary(y, 'exit', W, null)).toBe('익절 +10% 50% → +20% 전량 · 손절 −7% 첫 매수가');
-    expect(sectionSummary(y, 'benchmarks', W, null)).toBe('같은 종목 보유 · KOSPI');
+    expect(sectionSummary(y, 'scaleIn', W, null)).toBe('3% 내릴 때마다 최대 2번 더');
+    expect(sectionSummary(y, 'exit', W, null)).toBe('익절 +10%에 50% → +20%에 나머지 · 손절 −7% 첫 매수가');
+    expect(sectionSummary(y, 'benchmarks', W, null)).toBe('같은 종목 사서 보유 · KOSPI');
+  });
+
+  it('익절 세 단계는 마지막이 나머지, 분할 매수를 켜면 손절 기준을 보인다', () => {
+    const y = structuredClone(x);
+    y.exit.takeProfit = [
+      { pct: 15, sellPct: 50 },
+      { pct: 25, sellPct: 25 },
+      { pct: 35, sellPct: 100 },
+    ];
+    y.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+    expect(sectionSummary(y, 'exit', W, null)).toBe('익절 +15%에 50% → +25%에 25% → +35%에 나머지 · 손절 −5% 분할 후 평단');
+    y.exit.stopLoss.basis = 'avgAlways';
+    expect(sectionSummary(y, 'exit', W, null)).toBe('익절 +15%에 50% → +25%에 25% → +35%에 나머지 · 손절 −5% 매번 평단');
+  });
+
+  it('사는 신호가 하나도 없으면 사는 신호 없음', () => {
+    const y = structuredClone(x);
+    y.entry.triggers.reboundDays.on = y.entry.triggers.breakout.on = false;
+    expect(sectionSummary(y, 'entry', W, null)).toBe('고점 대비 10% 하락 뒤 → 사는 신호 없음');
+  });
+});
+
+describe('money', () => {
+  it('만 원 단위면 만 원, 아니면 원', () => {
+    expect(money(10_000_000)).toBe('1,000만 원');
+    expect(money(12_345)).toBe('12,345원');
   });
 });
 
@@ -168,6 +194,6 @@ describe('nearMissText', () => {
     const x = s();
     x.entry.decline.dropPct = { on: false, value: 10 };
     x.entry.decline.days = { on: true, value: 7 };
-    expect(nearMissText({ maxDropPct: 30, declineDays: 0 }, x)).toBe('고점 뒤 7거래일 넘게 떨어진 적이 없었어요(조건 7일 이상)');
+    expect(nearMissText({ maxDropPct: 30, declineDays: 0 }, x)).toBe('고점 뒤 하락이 7거래일 이상 이어진 적이 없었어요');
   });
 });

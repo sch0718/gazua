@@ -23,16 +23,16 @@
 </div>
 <p class="hint">날짜는 한국 시간 기준이고, 시작일과 종료일 모두 포함해요.</p>
 <div class="row">
-  <NumberField label="처음 자금" value={s.capital.initial} min={1} max={1e13} step={1} suffix="원" onchange={(v) => update((x) => (x.capital.initial = v))} />
+  <NumberField label="처음 자금" value={s.capital.initial} min={1} max={1e13} step={1} suffix="원" format="won" onchange={(v) => update((x) => (x.capital.initial = v))} />
 </div>
 <div class="row">
-  <NumberField label="한 번에 사는 금액" value={s.capital.perBuyPct} min={1} max={100} suffix="% (자금 대비)" onchange={(v) => update((x) => (x.capital.perBuyPct = v))} />
+  <NumberField label="회당 매수 비중" value={s.capital.perBuyPct} min={1} max={100} suffix="% (처음 자금 대비)" onchange={(v) => update((x) => (x.capital.perBuyPct = v))} />
 </div>
 
 <style>
   .dates {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
   }
   label {
@@ -43,6 +43,8 @@
     color: var(--t2);
   }
   input {
+    width: 100%;
+    min-width: 0;
     min-height: var(--touch);
     padding: 0 10px;
     border-radius: 10px;

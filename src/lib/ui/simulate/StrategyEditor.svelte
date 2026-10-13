@@ -49,7 +49,7 @@
     { key: 'benchmarks', title: '비교 기준' },
     { key: 'costs', title: '비용' },
   ];
-  // 자금(capital) 경고는 기간·자금 구역에서 보인다.
+  // 자금(capital) 경고는 기간·자금 구역에서 보인다(분할 매수를 켰으면 분할 매수 구역에도, sectionIssues).
   const keyOf = (s: Issue['section']): Key => (s === 'capital' ? 'period' : s);
 
   // 작업본: 편집은 여기에 바로 반영하고, 저장은 디바운스한다. 편집기는 전략마다 새로 만들어진다.
@@ -62,6 +62,8 @@
   let dirty = false;
   const uid = Math.random().toString(36).slice(2, 9);
 
+  // 불변식: flush는 저장된 전략 전체를 작업본으로 덮어쓴다. 그래도 안전한 이유 —
+  // 목록과 편집은 동시에 열리지 않고(다른 곳에서 이 전략을 고치지 않는다), 실행은 전략을 쓰지 않는다(작업본 사본만 읽는다).
   function flush() {
     clearTimeout(timer);
     timer = undefined;
@@ -91,12 +93,23 @@
       (items) => (universe = items),
       () => {}, // 이름을 못 찾으면 종목 코드로 보인다
     );
+    // 탭을 닫거나 앱을 내리면 500ms를 기다리지 않고 저장한다(모바일은 unload가 오지 않을 수 있다)
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
   });
 
   const names = $derived(universe ? Object.fromEntries(universe.map((u) => [u.s, u.n])) : {});
   const benchName = $derived(draft.benchmarks.symbol ? (names[draft.benchmarks.symbol] ?? null) : null);
   const issues = $derived(strategyIssues(draft, app.watchlists));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
+
+  // 분할 매수를 켜면 추가 매수가 자금 부족의 원인이므로 자금 경고를 분할 매수 구역에도 보인다(id는 겹치지 않게).
+  function sectionIssues(key: Key) {
+    const rows = issueRows.filter((r) => keyOf(r.issue.section) === key);
+    if (key !== 'scaleIn' || !draft.scaleIn.on) return rows;
+    const capital = issueRows.filter((r) => r.issue.section === 'capital').map((r) => ({ id: `${r.id}-scale`, issue: r.issue }));
+    return [...rows, ...capital];
+  }
 
   function summary(key: Key): string {
     const sum = (k: Issue['section']) => sectionSummary(draft, k, app.watchlists, benchName);
@@ -150,7 +163,7 @@
       summary={summary(key)}
       open={!!openKeys[key]}
       ontoggle={() => toggle(key)}
-      issues={issueRows.filter((r) => keyOf(r.issue.section) === key)}
+      issues={sectionIssues(key)}
     >
       {#if key === 'universe'}
         <UniverseSection {app} s={draft} {update} {names} {loadItems} />

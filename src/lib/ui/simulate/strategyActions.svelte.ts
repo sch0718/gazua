@@ -9,7 +9,7 @@ export const STRATEGIES_FULL_TEXT = `전략은 ${MAX_STRATEGIES}개까지 저장
 export function duplicateStrategy(app: App, s: Strategy): string | null {
   if (app.strategies.length >= MAX_STRATEGIES) return null;
   const name = `${s.name.slice(0, NAME_MAX - 3)} 사본`;
-  const copy: Strategy = { ...structuredClone($state.snapshot(s)), id: crypto.randomUUID(), name, updatedAt: Date.now() };
+  const copy: Strategy = { ...($state.snapshot(s) as Strategy), id: crypto.randomUUID(), name, updatedAt: Date.now() };
   const i = app.strategies.findIndex((x) => x.id === s.id);
   const next = [...app.strategies];
   next.splice(i + 1, 0, copy);

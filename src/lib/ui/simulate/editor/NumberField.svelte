@@ -1,5 +1,10 @@
 <script lang="ts">
+  // 숫자 칸 한 줄: 라벨 · 숫자 칸 · (있으면) 오른쪽 토글 — 설정 화면 .row와 같은 순서.
+  // 토글이 있으면 라벨은 토글과 연결된다(라벨을 누르면 켜고 끈다). 숫자 칸 박스는 입력과 연결된 label이라 어디를 눌러도 입력에 포커스.
   import { untrack } from 'svelte';
+  import Toggle from '../../components/Toggle.svelte';
+  import { fmtWon } from '../../format';
+  import { money } from '../simText';
 
   let {
     label,
@@ -9,6 +14,9 @@
     step,
     suffix,
     onchange,
+    muted = false,
+    format,
+    toggle,
   }: {
     label: string;
     value: number;
@@ -18,25 +26,42 @@
     step?: number;
     suffix?: string;
     onchange: (v: number) => void;
+    /** 꺼진 조건의 칸: 흐리게 보이지만 계속 고칠 수 있다 */
+    muted?: boolean;
+    /** 'won': 포커스가 없을 때 천 단위로 보이고 아래에 `= 1,000만 원` */
+    format?: 'won';
+    /** 같은 줄 오른쪽 토글. 라벨이 이 토글과 연결된다 */
+    toggle?: { label: string; checked: boolean; onchange: (v: boolean) => void };
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
+  const inputId = `nf-${uid}`;
+  const toggleId = `nf-${uid}-t`;
   const integer = $derived(step !== undefined && Number.isInteger(step));
+  const won = $derived(format === 'won');
 
-  let text = $state(untrack(() => String(value)));
+  let focused = $state(false);
+  const show = (v: number) => (won && !focused ? fmtWon(v) : String(v));
+  let text = $state(untrack(() => show(value)));
   let bad = $state(false);
 
   function parse(t: string): number {
     const clean = t.replaceAll(',', '').trim();
     return clean === '' ? NaN : Number(clean);
   }
-  const valid = (v: number) => Number.isFinite(v) && v >= min && v <= max && (!integer || Number.isInteger(v));
+  const inRange = (v: number) => Number.isFinite(v) && v >= min && v <= max;
+  const valid = (v: number) => inRange(v) && (!integer || Number.isInteger(v));
+
+  const bound = (n: number) => (won ? fmtWon(n) : String(n));
+  const errText = $derived(
+    inRange(parse(text)) && integer ? '정수로 적어 주세요' : `${bound(min)}~${bound(max)} 사이로 적어 주세요`,
+  );
 
   // 밖에서 값이 바뀌면(다른 칸·되돌리기) 입력 칸도 맞춘다. 고치는 중인 틀린 입력은 건드리지 않는다.
   $effect(() => {
     const v = value;
     untrack(() => {
-      if (!bad && parse(text) !== v) text = String(v);
+      if (!bad && parse(text) !== v) text = show(v);
     });
   });
 
@@ -46,56 +71,77 @@
     if (!bad && v !== value) onchange(v);
   }
 
+  function onfocus() {
+    focused = true;
+    if (won && !bad) text = String(value);
+  }
+
   function onblur() {
-    if (!bad) return;
+    focused = false;
     bad = false;
-    text = String(value);
+    text = show(value);
   }
 </script>
 
-<div class="field">
-  <label for="nf-{uid}">{label}</label>
-  <span class="box" class:bad>
+<div class="field" class:muted class:won class:has-toggle={!!toggle}>
+  <label class="lab" id="{inputId}-l" for={toggle ? toggleId : inputId}>{label}</label>
+  <label class="box" class:bad for={inputId}>
     <input
-      id="nf-{uid}"
+      id={inputId}
+      class="num"
       type="text"
       inputmode="decimal"
       autocomplete="off"
+      aria-labelledby="{inputId}-l"
       bind:value={text}
       {oninput}
+      {onfocus}
       {onblur}
       aria-invalid={bad ? 'true' : undefined}
-      aria-describedby={bad ? `nf-err-${uid}` : undefined}
+      aria-describedby={bad ? `${inputId}-err` : undefined}
     />
     {#if suffix}<span class="suffix">{suffix}</span>{/if}
-  </span>
+  </label>
+  {#if toggle}
+    <Toggle id={toggleId} label={toggle.label} checked={toggle.checked} onchange={toggle.onchange} />
+  {/if}
   {#if bad}
-    <p class="err" id="nf-err-{uid}" role="alert">{min}~{max} 사이로 적어 주세요</p>
+    <p class="err" id="{inputId}-err" role="alert">{errText}</p>
+  {:else if won}
+    <p class="money num">= {money(value)}</p>
   {/if}
 </div>
 
 <style>
   .field {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     column-gap: 12px;
     flex: 1;
     min-width: 0;
   }
-  label {
+  .field.has-toggle {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .lab {
     font-size: var(--fs-body);
     color: var(--t1);
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
   .box {
     display: inline-flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 6px;
+    min-width: 128px;
     min-height: var(--touch);
     padding: 0 12px;
     border-radius: 10px;
     background: var(--surface2);
     border: 1px solid transparent;
+    cursor: text;
   }
   .box:focus-within {
     border-color: var(--accent);
@@ -103,8 +149,12 @@
   .box.bad {
     border-color: var(--err);
   }
+  /* 꺼진 조건: Toggle:disabled·Segmented aria-disabled와 같은 흐림. 입력은 막지 않는다 */
+  .muted .box {
+    opacity: 0.5;
+  }
   input {
-    width: 84px;
+    width: 7ch;
     min-width: 0;
     border: 0;
     background: none;
@@ -114,16 +164,26 @@
     outline: none;
     padding: 0;
   }
+  /* 천 단위 쉼표가 들어가므로 `999,999,999`까지 보이게 */
+  .won input {
+    width: 11ch;
+  }
   .suffix {
     font-size: var(--fs-sub);
     color: var(--t2);
     white-space: nowrap;
   }
-  .err {
+  .err,
+  .money {
     grid-column: 1 / -1;
     margin: 4px 0 0;
     font-size: var(--fs-sub);
-    color: var(--err);
     text-align: right;
+  }
+  .err {
+    color: var(--err);
+  }
+  .money {
+    color: var(--t3);
   }
 </style>

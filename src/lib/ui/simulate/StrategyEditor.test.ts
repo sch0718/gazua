@@ -9,6 +9,8 @@ import { kstEpoch } from '../../time/kst';
 import { makeTestApp, itemsOf } from '../../../sheets/testApp';
 import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
 import StrategyEditor from './StrategyEditor.svelte';
+import editorSectionSource from './editor/EditorSection.svelte?raw';
+import periodSource from './editor/PeriodSection.svelte?raw';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const UNIVERSE: UniverseItem[] = [
@@ -74,11 +76,11 @@ describe('StrategyEditor 구역', () => {
     expect(heads.map((b) => b.querySelector('b')?.textContent)).toEqual(TITLES);
     expect(heads.every((b) => b.getAttribute('aria-expanded') === 'false')).toBe(true);
     expect(screen.getByText('반도체 · 2종목')).toBeTruthy();
-    expect(screen.getByText('고점 대비 10%↓ 뒤 → 3일 연속 상승 또는 B 돌파')).toBeTruthy();
+    expect(screen.getByText('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 B 돌파')).toBeTruthy();
     expect(screen.getByText('끔')).toBeTruthy();
-    expect(screen.getByText('익절 +15% 전량 · 손절 −5% 분할 완료 후 평단')).toBeTruthy();
+    expect(screen.getByText('익절 +15%에 전량 · 손절 −5%')).toBeTruthy();
     await vi.advanceTimersByTimeAsync(0);
-    expect(screen.getByText('같은 종목 보유 · KOSPI · KODEX 200')).toBeTruthy(); // 유니버스에서 이름을 찾는다
+    expect(screen.getByText('같은 종목 사서 보유 · KOSPI · KODEX 200')).toBeTruthy(); // 유니버스에서 이름을 찾는다
   });
 
   it('changing the breakout level to A saves after 500ms', async () => {
@@ -90,7 +92,7 @@ describe('StrategyEditor 구역', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(saved(app).entry.triggers.breakout.level).toBe('A');
     expect(saved(app).updatedAt).toBe(NOW + 1000 + 500);
-    expect(screen.getByText('고점 대비 10%↓ 뒤 → 3일 연속 상승 또는 A 돌파')).toBeTruthy();
+    expect(screen.getByText('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 A 돌파')).toBeTruthy();
   });
 
   it('a pending edit is saved when the editor goes away', async () => {
@@ -335,5 +337,231 @@ describe('PatternHelp', () => {
     const img = screen.getByRole('img');
     expect(img.getAttribute('aria-label')).toMatch(/A.*B.*L/);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  });
+});
+
+describe('편집 행 (설정 .row 패턴)', () => {
+  const field = (name: string) => screen.getByRole('textbox', { name }).closest('.field') as HTMLElement;
+
+  it('라벨을 누르면 같은 줄의 토글이 바뀐다', async () => {
+    const { app } = setup();
+    await openSection('매수');
+    const sw = screen.getByRole('switch', { name: '하락폭 조건 사용' });
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    await fireEvent.click(screen.getByText('고점 대비 하락폭', { selector: 'label' }));
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    await fireEvent.click(screen.getByText('골든크로스', { selector: 'label' }));
+    expect(screen.getByRole('switch', { name: '골든크로스 트리거 사용' }).getAttribute('aria-checked')).toBe('true');
+    await settle();
+    expect(saved(app).entry.decline.dropPct.on).toBe(false);
+    expect(saved(app).entry.triggers.goldenCross.on).toBe(true);
+  });
+
+  it('꺼진 조건의 숫자 칸·A/B 세그먼트·골든크로스 칸은 muted, 입력은 그대로 된다', async () => {
+    const { app } = setup((s) => {
+      s.entry.triggers.breakout.on = false;
+    });
+    await openSection('매수');
+    expect(field('고점 대비 하락폭').classList.contains('muted')).toBe(false);
+    expect(field('고점 뒤 지난 거래일').classList.contains('muted')).toBe(true); // 기본 끔
+    expect(field('짧은 이동평균').classList.contains('muted')).toBe(true);
+    expect(field('긴 이동평균').classList.contains('muted')).toBe(true);
+    expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeTruthy();
+    const days = screen.getByRole('textbox', { name: '고점 뒤 지난 거래일' }) as HTMLInputElement;
+    expect(days.disabled).toBe(false);
+    await fireEvent.input(days, { target: { value: '12' } });
+    await settle();
+    expect(saved(app).entry.decline.days.value).toBe(12);
+
+    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }));
+    expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeNull();
+  });
+
+  it('숫자 칸의 박스는 입력과 연결된 label(for)이고 입력은 num', async () => {
+    setup();
+    await openSection('매도');
+    const input = screen.getByRole('textbox', { name: '손절폭' }) as HTMLInputElement;
+    const box = input.closest('.box') as HTMLLabelElement;
+    expect(box.tagName).toBe('LABEL');
+    expect(box.htmlFor).toBe(input.id);
+    expect(input.classList.contains('num')).toBe(true);
+    // jsdom은 label 클릭으로 글자 입력에 포커스를 옮기지 않는다. 실제 포커스는 e2e(simulate.spec)에서 본다.
+  });
+
+  it('금액 칸은 포커스가 없을 때 천 단위로 보이고 아래에 = 만 원 힌트', async () => {
+    const { app } = setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' }) as HTMLInputElement;
+    expect(cap.value).toBe('10,000,000');
+    expect(screen.getByText('= 1,000만 원')).toBeTruthy();
+    await fireEvent.focus(cap);
+    expect(cap.value).toBe('10000000');
+    await fireEvent.input(cap, { target: { value: '15000000' } });
+    expect(screen.getByText('= 1,500만 원')).toBeTruthy();
+    await fireEvent.blur(cap);
+    expect(cap.value).toBe('15,000,000');
+    await settle();
+    expect(saved(app).capital.initial).toBe(15_000_000);
+  });
+
+  it('금액 칸 범위 오류의 최소·최대도 천 단위로', async () => {
+    setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' });
+    await fireEvent.focus(cap);
+    await fireEvent.input(cap, { target: { value: '0' } });
+    expect(screen.getByText('1~10,000,000,000,000 사이로 적어 주세요')).toBeTruthy();
+  });
+
+  it('정수 칸에 소수를 적으면 정수로 적어 주세요', async () => {
+    const { app } = setup();
+    await openSection('매수');
+    await fireEvent.input(screen.getByRole('textbox', { name: '저점 뒤 연속 상승' }), { target: { value: '3.5' } });
+    expect(screen.getByText('정수로 적어 주세요')).toBeTruthy();
+    await settle();
+    expect(saved(app).entry.triggers.reboundDays.value).toBe(3);
+  });
+
+  it('기간·자금 문구: 회당 매수 비중 · % (처음 자금 대비), 날짜 칸은 카드 안에 맞춘다', async () => {
+    setup();
+    await openSection('기간·자금');
+    expect(screen.getByRole('textbox', { name: '회당 매수 비중' })).toBeTruthy();
+    expect(screen.getByText('% (처음 자금 대비)')).toBeTruthy();
+    const dates = /\.dates\s*\{([^}]*)\}/.exec(periodSource)?.[1] ?? '';
+    expect(dates).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/);
+    const input = /\binput\s*\{([^}]*)\}/.exec(periodSource)?.[1] ?? '';
+    expect(input).toMatch(/width:\s*100%/);
+    expect(input).toMatch(/min-width:\s*0/);
+  });
+});
+
+describe('구역 머리', () => {
+  it('막는 경고는 !와 sr-only `· 고쳐야 실행돼요`, 비차단 경고는 △와 `· 확인할 점이 있어요`', async () => {
+    setup((s) => {
+      s.entry.triggers.reboundDays.on = s.entry.triggers.breakout.on = false;
+      s.exit.stopLoss.basis = 'avgAlways';
+      s.scaleIn = { on: true, stepPct: 6, maxAdds: 1 };
+    });
+    const entry = header('매수');
+    expect(entry.querySelector('.flag')?.textContent).toBe('!');
+    expect(entry.querySelector('.sr-only')?.textContent).toBe('· 고쳐야 실행돼요');
+    const exit = header('매도');
+    expect(exit.querySelector('.flag')?.textContent).toBe('△');
+    expect(exit.querySelector('.sr-only')?.textContent).toBe('· 확인할 점이 있어요');
+    expect(header('비용').querySelector('.flag')).toBeNull();
+    expect(header('비용').querySelector('.sr-only')).toBeNull();
+  });
+
+  it('접혀 있으면 aria-controls가 없고, 펼치면 본문을 가리킨다', async () => {
+    setup();
+    const h = header('비용');
+    expect(h.hasAttribute('aria-controls')).toBe(false);
+    await openSection('비용');
+    const id = h.getAttribute('aria-controls');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)).toBeTruthy();
+  });
+
+  it('셰브런은 회전하는 ▾ 하나, 열리면 open 클래스', async () => {
+    setup();
+    const chev = () => header('비용').querySelector('.chev')!;
+    expect(chev().textContent).toBe('▾');
+    expect(chev().classList.contains('open')).toBe(false);
+    await openSection('비용');
+    expect(chev().textContent).toBe('▾');
+    expect(chev().classList.contains('open')).toBe(true);
+    expect(/\.chev\s*\{([^}]*)\}/.exec(editorSectionSource)?.[1]).toMatch(/grid-column:\s*-2\s*\/\s*-1/);
+    expect(/\.chev\.open\s*\{([^}]*)\}/.exec(editorSectionSource)?.[1]).toMatch(/rotate\(180deg\)/);
+  });
+
+  it('요약은 숫자 정렬(num)', () => {
+    setup();
+    expect(header('기간·자금').querySelector('.sum')!.classList.contains('num')).toBe(true);
+  });
+});
+
+describe('자금 경고 위치', () => {
+  const msg = '모든 종목이 한꺼번에 사면 현금이 모자라요. 신호 일부를 건너뛸 수 있어요';
+
+  it('분할 매수가 켜져 있으면 기간·자금과 분할 매수 두 구역 모두에 보인다', async () => {
+    setup((s) => {
+      s.capital.perBuyPct = 30;
+      s.scaleIn = { on: true, stepPct: 3, maxAdds: 2 }; // 30 × 3 × 2종목 = 180
+    });
+    expect(header('기간·자금').querySelector('.flag')?.textContent).toBe('△');
+    expect(header('분할 매수').querySelector('.flag')?.textContent).toBe('△');
+    await openSection('기간·자금');
+    await openSection('분할 매수');
+    const banners = screen.getAllByText(msg).map((el) => el.closest('.banner') as HTMLElement);
+    expect(banners).toHaveLength(2);
+    expect(new Set(banners.map((b) => b.id)).size).toBe(2); // id가 겹치지 않는다
+  });
+
+  it('분할 매수가 꺼져 있으면 기간·자금에만', async () => {
+    setup((s) => {
+      s.capital.perBuyPct = 60; // 60 × 1 × 2종목 = 120
+    });
+    expect(header('분할 매수').querySelector('.flag')).toBeNull();
+    await openSection('기간·자금');
+    await openSection('분할 매수');
+    expect(screen.getAllByText(msg)).toHaveLength(1);
+  });
+});
+
+describe('매도 구역 문구·삭제', () => {
+  it('손절 기준 라벨과 평단 힌트', async () => {
+    setup();
+    await openSection('매도');
+    for (const name of ['분할 후 평단', '매번 평단', '첫 매수가']) expect(screen.getByRole('radio', { name })).toBeTruthy();
+    expect(screen.getByText('평단 = 평균 매수가예요. 분할 매수를 끄면 세 기준이 같아요')).toBeTruthy();
+  });
+
+  it('익절 단계 삭제는 단계 제목 줄 끝의 ✕(--err)', async () => {
+    setup((s) => {
+      s.exit.takeProfit = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
+    });
+    await openSection('매도');
+    const del = screen.getByRole('button', { name: '2단계 삭제' });
+    expect(del.textContent?.trim()).toBe('✕');
+    expect(del.classList.contains('x')).toBe(true);
+    expect(del.classList.contains('danger')).toBe(true);
+    expect(del.closest('.stage-title')?.textContent).toContain('2단계');
+    expect(/:global\(\.x\.danger\)\s*\{([^}]*)\}/.exec(editorSectionSource)?.[1]).toMatch(/color:\s*var\(--err\)/);
+    expect(/:global\(\.act\.danger\)\s*\{([^}]*)\}/.exec(editorSectionSource)?.[1]).toMatch(/color:\s*var\(--err\)/);
+    expect(editorSectionSource).not.toMatch(/var\(--down\)/);
+  });
+
+  it('카드 안 세그먼트는 onSurface 변형', async () => {
+    setup();
+    await openSection('매도');
+    expect(screen.getByRole('radiogroup', { name: '손절 기준 가격' }).classList.contains('on-surface')).toBe(true);
+    expect(screen.getByRole('radiogroup', { name: '1단계 익절 뒤 손절선' }).classList.contains('on-surface')).toBe(true);
+    await openSection('매수');
+    expect(screen.getByRole('radiogroup', { name: '전 고점' }).classList.contains('on-surface')).toBe(true);
+    await openSection('종목');
+    expect(screen.getByRole('radiogroup', { name: '종목 고르는 방법' }).classList.contains('on-surface')).toBe(true);
+    await openSection('비교 기준');
+    expect(screen.getByRole('radiogroup', { name: '비교 지수' }).classList.contains('on-surface')).toBe(true);
+  });
+});
+
+describe('저장 시점', () => {
+  it('pagehide에서 저장 대기분을 바로 저장한다', async () => {
+    const { app } = setup();
+    const spy = vi.spyOn(app, 'setStrategies');
+    await fireEvent.input(screen.getByRole('textbox', { name: '전략 이름' }), { target: { value: '숨김 전' } });
+    expect(spy).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(saved(app).name).toBe('숨김 전');
+  });
+});
+
+describe('PatternHelp 문구', () => {
+  it('A는 마지막으로 전량 판 뒤(처음이면 기간 시작부터)', async () => {
+    setup();
+    await openSection('매수');
+    await fireEvent.click(screen.getByRole('button', { name: '전 고점이 뭔가요?' }));
+    expect(screen.getByText(/마지막으로 전량 판 뒤\(처음이면 기간 시작부터\)/)).toBeTruthy();
   });
 });

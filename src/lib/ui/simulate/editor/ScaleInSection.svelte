@@ -5,11 +5,12 @@
   import NumberField from './NumberField.svelte';
 
   let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
+  const uid = Math.random().toString(36).slice(2, 9);
 </script>
 
 <div class="row">
-  <Toggle label="분할 매수 사용" checked={s.scaleIn.on} onchange={(v) => update((x) => (x.scaleIn.on = v))} />
-  <span>분할 매수</span>
+  <label for="{uid}-on">분할 매수</label>
+  <Toggle id="{uid}-on" label="분할 매수 사용" checked={s.scaleIn.on} onchange={(v) => update((x) => (x.scaleIn.on = v))} />
 </div>
 {#if s.scaleIn.on}
   <div class="row">

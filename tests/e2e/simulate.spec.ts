@@ -110,3 +110,43 @@ test('시뮬레이션: 목록·편집·로딩·결과 어느 상태에서도 가
   // 앱 바의 시뮬레이션 아이콘은 현재 위치를 알린다
   await expect(page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true })).toHaveAttribute('aria-current', 'page');
 });
+
+test('편집: 모든 구역을 펼쳐도 카드 밖으로 넘치지 않고, 숫자 칸 박스·라벨이 크게 눌린다', async ({ page }, testInfo) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
+
+  for (const title of ['종목', '기간·자금', '매수', '분할 매수', '매도', '비교 기준', '비용']) {
+    const head = page.locator('button[aria-expanded]', { has: page.getByText(title, { exact: true }) });
+    await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
+  }
+  // 분할 매수를 켜서 그 칸들도 그린다(라벨을 눌러 켠다)
+  await page.locator('label', { hasText: /^분할 매수$/ }).click();
+  await expect(page.getByRole('switch', { name: '분할 매수 사용' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('textbox', { name: '추가 매수 간격' })).toBeVisible();
+
+  await expectNoHorizontalScroll(page);
+  // 구역 카드는 overflow:hidden이라 문서 폭으로는 안 잡힌다: 카드마다 내용이 카드 폭을 넘지 않는지 본다
+  const overflow = await page.locator('section.sec').evaluateAll((els) =>
+    els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.querySelector('b')?.textContent),
+  );
+  expect(overflow, `cards overflow: ${overflow.join(', ')}`).toEqual([]);
+  await shot(page, testInfo, 'sim-4-editor-open');
+
+  // 숫자 칸 박스의 여백을 눌러도 입력에 포커스, 박스 높이 44px 이상
+  const stop = page.getByRole('textbox', { name: '손절폭' });
+  const box = stop.locator('xpath=ancestor::label[1]');
+  expect((await box.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await box.click({ position: { x: 4, y: 4 } });
+  await expect(stop).toBeFocused();
+
+  // 라벨을 누르면 그 줄의 토글이 바뀐다
+  const sw = page.getByRole('switch', { name: '하락폭 조건 사용' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await page.locator('label', { hasText: /^고점 대비 하락폭$/ }).click();
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+});

@@ -59,6 +59,7 @@
   }
   .why {
     color: var(--t2);
+    font-variant-numeric: tabular-nums;
   }
   .pnl {
     font-weight: 600;

@@ -32,33 +32,38 @@ export function strategyLine(s: Strategy, w: Watchlists): string {
   return `${universeName(s, w)} · ${dots(s.period.from)}~${dots(s.period.to)}`;
 }
 
-function money(n: number): string {
+/** 금액: 만 원 단위면 `1,000만 원`, 아니면 `12,345원` */
+export function money(n: number): string {
   return n % 10_000 === 0 ? `${fmtWon(n / 10_000)}만 원` : `${fmtWon(n)}원`;
 }
 
 function entrySummary(s: Strategy): string {
   const { decline, triggers: t, filter } = s.entry;
   const down: string[] = [];
-  if (decline.dropPct.on) down.push(`고점 대비 ${decline.dropPct.value}%↓`);
+  if (decline.dropPct.on) down.push(`고점 대비 ${decline.dropPct.value}% 하락`);
   if (decline.days.on) down.push(`${decline.days.value}일 하락`);
   const trig: string[] = [];
   if (t.reboundDays.on) trig.push(`${t.reboundDays.value}일 연속 상승`);
   if (t.breakout.on) trig.push(`${t.breakout.level} 돌파`);
   if (t.maCross.on) trig.push(`${t.maCross.period}일선 돌파`);
   if (t.goldenCross.on) trig.push(`${t.goldenCross.short}·${t.goldenCross.long} 골든크로스`);
-  let out = `${down.length ? down.join(' · ') : '하락 조건 없음'} 뒤 → ${trig.length ? trig.join(' 또는 ') : '트리거 없음'}`;
+  let out = `${down.length ? down.join(' · ') : '하락 조건 없음'} 뒤 → ${trig.length ? trig.join(' 또는 ') : '사는 신호 없음'}`;
   if (filter.aboveMa.on) out += ` · ${filter.aboveMa.period}일선 위`;
   return out;
 }
 
-const BASIS = { avgAfterScaleIn: '분할 완료 후 평단', avgAlways: '평단', firstBuy: '첫 매수가' } as const;
+/** 손절 기준 표시 문구(편집 세그먼트와 같은 말) */
+export const STOP_BASIS_LABEL = { avgAfterScaleIn: '분할 후 평단', avgAlways: '매번 평단', firstBuy: '첫 매수가' } as const;
 
 function exitSummary(s: Strategy): string {
   const { takeProfit, stopLoss, afterFirstTake } = s.exit;
-  const tp = takeProfit.length
-    ? '익절 ' + takeProfit.map((t) => `+${t.pct}% ${t.sellPct >= 100 ? '전량' : `${t.sellPct}%`}`).join(' → ')
-    : '익절 없음';
-  let out = `${tp} · 손절 ${MINUS}${stopLoss.pct}% ${BASIS[stopLoss.basis]}`;
+  const n = takeProfit.length;
+  // 마지막 단계는 남은 것 전부: 단계가 하나면 전량, 여럿이면 나머지
+  const amount = (sellPct: number, i: number) => (i === n - 1 ? (n === 1 ? '전량' : '나머지') : `${sellPct}%`);
+  const tp = n ? '익절 ' + takeProfit.map((t, i) => `+${t.pct}%에 ${amount(t.sellPct, i)}`).join(' → ') : '익절 없음';
+  // 분할 매수를 끄면 세 기준이 같으므로 기준을 뺀다
+  const basis = s.scaleIn.on ? ` ${STOP_BASIS_LABEL[stopLoss.basis]}` : '';
+  let out = `${tp} · 손절 ${MINUS}${stopLoss.pct}%${basis}`;
   if (afterFirstTake === 'breakeven') out += ' · 1단계 뒤 본전 손절';
   return out;
 }
@@ -75,15 +80,15 @@ export function sectionSummary(s: Strategy, section: Issue['section'], w: Watchl
     case 'entry':
       return entrySummary(s);
     case 'scaleIn':
-      return s.scaleIn.on ? `${s.scaleIn.stepPct}%씩 최대 ${s.scaleIn.maxAdds}번` : '끔';
+      return s.scaleIn.on ? `${s.scaleIn.stepPct}% 내릴 때마다 최대 ${s.scaleIn.maxAdds}번 더` : '끔';
     case 'exit':
       return exitSummary(s);
     case 'benchmarks': {
       const name = s.benchmarks.symbol ? (benchName ?? s.benchmarks.symbol) : null;
-      return ['같은 종목 보유', s.benchmarks.index, name].filter(Boolean).join(' · ');
+      return ['같은 종목 사서 보유', s.benchmarks.index, name].filter(Boolean).join(' · ');
     }
     case 'costs':
-      return `수수료 ${s.costs.feePct}% · 매도 세금`;
+      return `수수료 ${s.costs.feePct}% · 팔 때 세금 포함`;
   }
 }
 
@@ -144,7 +149,7 @@ export function nearMissText(nm: { maxDropPct: number; declineDays: number }, s:
   const { dropPct, days } = s.entry.decline;
   if (dropPct.on && nm.maxDropPct < dropPct.value) return `고점 대비 가장 크게 빠진 때도 ${drop}라, 하락 조건(${dropPct.value}% 이상)에 닿지 않았어요`;
   if (nm.declineDays > 0) return `충분히 떨어진 날은 ${nm.declineDays}일 있었지만, 그 뒤 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요`;
-  if (days.on) return `고점 뒤 ${days.value}거래일 넘게 떨어진 적이 없었어요(조건 ${days.value}일 이상)`;
+  if (days.on) return `고점 뒤 하락이 ${days.value}거래일 이상 이어진 적이 없었어요`;
   return `가장 크게 빠진 때는 ${drop}였어요`;
 }
 

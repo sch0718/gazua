@@ -48,6 +48,7 @@
 </script>
 
 <Segmented
+  onSurface
   label="종목 고르는 방법"
   value={s.universe.kind}
   onchange={setKind}
@@ -132,11 +133,6 @@
     margin-left: 8px;
     font-style: normal;
     font-size: var(--fs-sub);
-    color: var(--t3);
-  }
-  .x {
-    width: var(--touch);
-    height: var(--touch);
     color: var(--t3);
   }
 </style>
