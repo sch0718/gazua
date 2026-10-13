@@ -297,7 +297,14 @@
     const i = selected ? boardOrder.indexOf(selected) : -1;
     if (i >= 0) selectedIndex = i;
   });
-  const detailReturnFocus = () => board?.rowButtonAt(selectedIndex);
+  // 마지막 종목이었으면 리더보드가 통째로 사라지므로 빈 상태의 `＋ 종목 추가`로.
+  const emptyAddButton = () => document.querySelector<HTMLElement>('[data-empty-add]');
+  const detailReturnFocus = () => {
+    const el = board?.rowButtonAt(selectedIndex);
+    return el?.isConnected ? el : emptyAddButton();
+  };
+  // 되돌리면 그 행으로. 0개에서 되돌리면 리더보드가 다시 그려진 뒤의 새 인스턴스에서 찾는다.
+  const detailRestoredFocus = (symbol: string) => board?.rowButtonFor(symbol);
 
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
@@ -483,6 +490,7 @@
         {sessions}
         {isOpenToday}
         returnFocus={detailReturnFocus}
+        restoredFocus={detailRestoredFocus}
         onclose={() => (selected = null)}
       />
     {:else}
@@ -491,7 +499,7 @@
   {/if}
 {/snippet}
 
-<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} />
+<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} {detailRestoredFocus} />
 
 <style>
   .compare {

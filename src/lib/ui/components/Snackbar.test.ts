@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SnackbarHost from './SnackbarHost.svelte';
 import { dismissSnackbar, holdSnackbar, releaseSnackbar, showSnackbar } from './snackbarStore.svelte';
@@ -119,6 +119,42 @@ describe('Snackbar', () => {
     showSnackbar('둘째', undefined, 1000);
     vi.advanceTimersByTime(1000);
     flushSync();
+    expect(screen.getByRole('status').textContent).toBe('');
+  });
+
+  it('after the action, focuses what action.focus() returns once the update has rendered', async () => {
+    render(SnackbarHost);
+    const target = document.createElement('button');
+    const order: string[] = [];
+    const focus = vi.fn(() => {
+      order.push('focus');
+      return target;
+    });
+    showSnackbar('삭제했어요', {
+      label: '되돌리기',
+      run: () => {
+        order.push('run');
+        document.body.append(target);
+      },
+      focus,
+    });
+    flushSync();
+    screen.getByRole('button', { name: '되돌리기' }).click();
+    expect(focus).not.toHaveBeenCalled(); // 렌더(tick) 뒤에 찾는다
+    await tick();
+    expect(order).toEqual(['run', 'focus']);
+    expect(document.activeElement).toBe(target);
+    target.remove();
+  });
+
+  it('action.focus() returning nothing leaves focus alone', async () => {
+    render(SnackbarHost);
+    const focus = vi.fn(() => null);
+    showSnackbar('삭제했어요', { label: '되돌리기', run: () => {}, focus });
+    flushSync();
+    await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+    await tick();
+    expect(focus).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('status').textContent).toBe('');
   });
 });

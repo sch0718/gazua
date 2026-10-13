@@ -26,6 +26,7 @@
     open = false,
     inline = false,
     returnFocus,
+    restoredFocus,
     onclose,
   }: {
     app: App;
@@ -40,6 +41,8 @@
     inline?: boolean;
     /** 지우거나 옮겨 이 종목의 행이 사라진 뒤 포커스할 곳. 시트는 Sheet가, inline은 여기서 옮긴다. */
     returnFocus?: () => HTMLElement | null | undefined;
+    /** 되돌리기 뒤 포커스할 곳(되돌린 행) */
+    restoredFocus?: (symbol: string) => HTMLElement | null | undefined;
     /** 시트를 닫거나(모바일) 선택을 푼다(PC). 삭제·이동 뒤에도 부른다. */
     onclose: () => void;
   } = $props();
@@ -126,7 +129,9 @@
   }
 
   function remove() {
-    if (removeWithUndo(app, groupId, symbol, name)) left();
+    const sym = symbol;
+    const focus = restoredFocus;
+    if (removeWithUndo(app, groupId, sym, name, focus && (() => focus(sym)))) left();
   }
 
   function moveTo(target: string) {

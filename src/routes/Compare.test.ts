@@ -10,6 +10,7 @@ import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
 import { formatMetricValue } from '../lib/ui/compare/compareText';
 import { fmtWon } from '../lib/ui/format';
+import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
@@ -266,8 +267,56 @@ describe('Compare sheets', () => {
       await fireEvent.click(del);
       await tick();
     };
+    const emptyAdd = () => screen.getByText('비교할 종목을 추가해 보세요').parentElement!.querySelector<HTMLElement>('button')!;
     for (const wide of [false, true]) {
       const label = wide ? 'inline (≥1024)' : 'sheet (<1024)';
+      it(`${label}: deleting the only stock focuses the empty state's ＋ 종목 추가, and 되돌리기 focuses the restored row`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 1));
+        render(SnackbarHost);
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(0, wide);
+        expect(screen.queryByRole('region', { name: '리더보드' })).toBeNull();
+        expect(document.activeElement).toBe(emptyAdd());
+
+        await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+        await tick();
+        await tick();
+        expect(mainButtons()).toHaveLength(1);
+        expect(document.activeElement).toBe(mainButtons()[0]);
+      });
+
+      it(`${label}: moving the only stock to another group focuses the empty state's ＋ 종목 추가`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 1));
+        app.setWatchlists({ ...app.watchlists, groups: [...app.watchlists.groups, { id: 'g2', name: '배당', items: [] }] });
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        const btn = mainButtons()[0];
+        btn.focus();
+        await fireEvent.click(btn);
+        const detail = wide ? screen.getByRole('region', { name: '선택한 종목' }) : screen.getByRole('dialog', { name: '종목 상세' });
+        await fireEvent.click(within(detail).getByRole('button', { name: '그룹 이동' }));
+        const target = within(detail).getByRole('button', { name: /^배당 / });
+        target.focus();
+        await fireEvent.click(target);
+        await tick();
+        expect(app.watchlists.groups[1].items.map((i) => i.symbol)).toEqual([EXAMPLE[0]]);
+        expect(document.activeElement).toBe(emptyAdd());
+      });
+
+      it(`${label}: 되돌리기 focuses the restored row`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 3));
+        render(SnackbarHost);
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        const symbol = mainButtons()[1].closest('li')!.dataset.symbol;
+        await deleteAt(1, wide);
+        await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+        await tick();
+        expect(document.activeElement?.closest('li')?.dataset.symbol).toBe(symbol);
+        expect(document.activeElement?.classList.contains('main-btn')).toBe(true);
+      });
+
       it(`${label}: focus lands on the row now at the same position`, async () => {
         const app = makeApp(EXAMPLE.slice(0, 3));
         render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });

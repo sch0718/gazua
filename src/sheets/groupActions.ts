@@ -10,7 +10,7 @@ import {
   restoreItem,
   type RemovedItem,
 } from '../lib/state/watchlist';
-import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { showSnackbar, type SnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
 
 /** App이 이 모양을 만족한다. */
 export interface WatchlistStore {
@@ -23,11 +23,16 @@ export interface WatchlistStore {
 export const FULL_MESSAGE = '한 차트에 8개까지 비교할 수 있어요';
 const UNDO = '되돌리기';
 
+/** 되돌리기 뒤 포커스할 요소를 찾는다(없으면 null). */
+export type FocusAfterUndo = () => HTMLElement | null | undefined;
+
 /** 되돌리기 동작: 프로필이 바뀌었으면 그 프로필을 건드리지 않고 알린다. */
-function undoAction(s: WatchlistStore, run: () => void) {
+function undoAction(s: WatchlistStore, run: () => void, focus?: FocusAfterUndo): SnackbarAction {
   const profile = s.meta.activeProfileId;
   return {
     label: UNDO,
+    // 다른 프로필이면 되돌리지 않았으니 포커스도 옮기지 않는다.
+    focus: focus && (() => (s.meta.activeProfileId === profile ? focus() : null)),
     run: () => {
       if (s.meta.activeProfileId !== profile) {
         showSnackbar('다른 프로필에서는 되돌릴 수 없어요');
@@ -83,13 +88,13 @@ function restore(s: WatchlistStore, groupId: string, removed: RemovedItem) {
   showSnackbar(slot === removed.item.colorSlot ? '되돌렸어요' : '되돌렸어요 · 색이 겹쳐 새 색을 줬어요');
 }
 
-/** 종목을 빼고 `{name}을(를) 삭제했어요 · 되돌리기`를 띄운다. */
-export function removeWithUndo(s: WatchlistStore, groupId: string, symbol: string, name: string): boolean {
+/** 종목을 빼고 `{name}을(를) 삭제했어요 · 되돌리기`를 띄운다. focus: 되돌린 뒤 포커스할 요소. */
+export function removeWithUndo(s: WatchlistStore, groupId: string, symbol: string, name: string, focus?: FocusAfterUndo): boolean {
   const g = findGroup(s, groupId);
   if (!g || !g.items.some((i) => i.symbol === symbol)) return false;
   const { group, removed } = removeItem(g, symbol);
   saveGroups(s, [group]);
-  showSnackbar(`${name}을(를) 삭제했어요`, undoAction(s, () => restore(s, groupId, removed)));
+  showSnackbar(`${name}을(를) 삭제했어요`, undoAction(s, () => restore(s, groupId, removed), focus));
   return true;
 }
 
@@ -117,8 +122,8 @@ export function moveToGroup(
   return 'moved';
 }
 
-/** 그룹을 지우고 `그룹을 삭제했어요 · 되돌리기`를 띄운다. 마지막 남은 그룹은 지우지 않는다. */
-export function deleteGroupWithUndo(s: WatchlistStore, groupId: string): boolean {
+/** 그룹을 지우고 `그룹을 삭제했어요 · 되돌리기`를 띄운다. 마지막 남은 그룹은 지우지 않는다. focus: 되돌린 뒤 포커스할 요소. */
+export function deleteGroupWithUndo(s: WatchlistStore, groupId: string, focus?: FocusAfterUndo): boolean {
   if (s.watchlists.groups.length <= 1 || !findGroup(s, groupId)) return false;
   const { watchlists, removed } = deleteGroup(s.watchlists, groupId);
   s.setWatchlists(watchlists);
@@ -127,7 +132,7 @@ export function deleteGroupWithUndo(s: WatchlistStore, groupId: string): boolean
     undoAction(s, () => {
       s.setWatchlists(restoreGroup(s.watchlists, removed));
       showSnackbar('되돌렸어요');
-    }),
+    }, focus),
   );
   return true;
 }

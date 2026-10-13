@@ -1,4 +1,11 @@
-export type SnackbarAction = { label: string; run: () => void };
+import { tick } from 'svelte';
+
+export type SnackbarAction = {
+  label: string;
+  run: () => void;
+  /** 동작 뒤 포커스할 요소(예: 되돌린 행). 버튼이 사라져 포커스가 body로 빠지지 않게 렌더 뒤에 찾는다. */
+  focus?: () => HTMLElement | null | undefined;
+};
 export type SnackbarItem = { id: number; message: string; action?: SnackbarAction };
 
 let current = $state<SnackbarItem | null>(null);
@@ -55,7 +62,14 @@ export function releaseSnackbar(): void {
 
 /** 버튼 동작: 먼저 닫고 실행한다(동작이 새 스낵바를 띄워도 지워지지 않게). */
 export function runSnackbarAction(): void {
-  const run = current?.action?.run;
+  const action = current?.action;
   dismissSnackbar();
-  run?.();
+  action?.run();
+  const focus = action?.focus;
+  if (focus) {
+    void tick().then(() => {
+      const el = focus();
+      if (el?.isConnected) el.focus();
+    });
+  }
 }

@@ -101,12 +101,12 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
 type DeleteRecord = { before: string[]; after?: string[]; focused?: string };
 
 /** 지금 포커스가 target에 올 때까지 Tab을 누른다(키보드만으로 도달할 수 있는지 확인). */
-async function tabUntil(page: Page, target: Locator, max = 80): Promise<void> {
+async function tabUntil(page: Page, target: Locator, max = 40): Promise<void> {
   for (let i = 0; i < max; i++) {
     if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
     await page.keyboard.press('Tab');
   }
-  await expect(target).toBeFocused();
+  await expect(target, `${max}번 Tab 안에 닿지 않았어요`).toBeFocused({ timeout: 1000 });
 }
 
 test('delete in detail sheet keeps focus and reaches undo by Tab', async ({ page }) => {
@@ -160,10 +160,13 @@ test('delete in detail sheet keeps focus and reaches undo by Tab', async ({ page
   // Tab으로 되돌리기에 닿고 Enter로 복원한다
   const undo = page.getByRole('button', { name: '되돌리기' });
   await expect(undo).toBeVisible();
-  await tabUntil(page, undo);
+  // 스낵바는 5초 뒤 닫히고 포커스가 닿아야 멈춘다. 다음 행에서 되돌리기까지는 실제로 7번 이하라 상한을 좁게 둔다.
+  await tabUntil(page, undo, 12);
   await page.keyboard.press('Enter');
   await expect(rows).toHaveCount(4);
   await expect(leaderboard(page).locator(`li[data-symbol="${deleted}"]`)).toHaveCount(1);
+  // 포커스는 body로 빠지지 않고 되돌린 행으로 간다
+  await expect(leaderboard(page).locator(`li[data-symbol="${deleted}"] > .main-btn`)).toBeFocused();
 });
 
 test('다크 모드 비교 화면 스크린샷', async ({ page }, testInfo) => {

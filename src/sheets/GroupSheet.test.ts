@@ -156,6 +156,9 @@ describe('GroupSheet', () => {
       expect(document.activeElement).toBe(undo);
       await fireEvent.click(undo);
       expect(names(app)).toEqual(['반도체', '배당', '해외']);
+      // 되돌린 그룹의 삭제 버튼으로(대화상자 밖 body로 빠지지 않게)
+      await tick();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '해외 삭제' }));
     });
   });
 });

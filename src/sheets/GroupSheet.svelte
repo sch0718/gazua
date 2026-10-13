@@ -93,7 +93,10 @@
     if (!g) return;
     const index = groups.findIndex((x) => x.id === g.id);
     const wasActive = app.route.name === 'compare' && app.route.groupId === g.id;
-    if (!deleteGroupWithUndo(app, g.id)) return void focusDeleteAt(index);
+    // 되돌리면 그 그룹의 삭제 버튼으로. 시트가 닫혔으면 찾지 않는다.
+    const focusRestored = () =>
+      open ? [...(listEl?.querySelectorAll<HTMLElement>('[data-group-delete]') ?? [])].find((b) => b.dataset.groupDelete === g.id) : null;
+    if (!deleteGroupWithUndo(app, g.id, focusRestored)) return void focusDeleteAt(index);
     if (wasActive) app.navigate({ name: 'compare', groupId: app.watchlists.groups[0].id });
     void focusDeleteAt(index);
   }
@@ -138,7 +141,7 @@
           type="button"
           class="icon danger"
           aria-label="{g.name} 삭제"
-          data-group-delete
+          data-group-delete={g.id}
           aria-disabled={lastOne ? 'true' : undefined}
           aria-describedby={lastOne ? 'last-group-reason' : undefined}
           onclick={() => askDelete(g)}>✕</button

@@ -45,9 +45,31 @@
   let addBtn: HTMLButtonElement;
 
   /** 지운 종목 자리로 포커스를 옮길 때: 지금 index번째 행의 버튼, 그 자리에 행이 없으면 `＋ 종목 추가`. */
-  export function rowButtonAt(index: number): HTMLElement {
-    return (index >= 0 ? listEl.querySelectorAll<HTMLElement>(':scope > li > .main-btn')[index] : undefined) ?? addBtn;
+  export function rowButtonAt(index: number): HTMLElement | undefined {
+    return (index >= 0 ? listEl?.querySelectorAll<HTMLElement>(':scope > li > .main-btn')[index] : undefined) ?? addBtn;
   }
+
+  /** symbol 행의 버튼(되돌린 행으로 포커스를 옮길 때). */
+  export function rowButtonFor(symbol: string): HTMLElement | undefined {
+    const li = [...(listEl?.querySelectorAll<HTMLElement>(':scope > li') ?? [])].find((l) => l.dataset.symbol === symbol);
+    return li?.querySelector<HTMLElement>(':scope > .main-btn') ?? undefined;
+  }
+
+  // 다시 정렬하며 행(DOM 노드)을 옮기면 브라우저가 그 안의 포커스를 버린다(예: 되돌린 행에 값이 들어와 위로 갈 때).
+  // 옮기기 전에 리스트 안의 포커스를 기억했다가, body로 빠졌으면 같은 요소로 되돌린다.
+  let focusBeforeSort: HTMLElement | null = null;
+  $effect.pre(() => {
+    void ordered;
+    const a = document.activeElement;
+    focusBeforeSort = a instanceof HTMLElement && listEl?.contains(a) ? a : null;
+  });
+  $effect(() => {
+    void ordered;
+    const el = focusBeforeSort;
+    focusBeforeSort = null;
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (el?.isConnected && lost) el.focus({ preventScroll: true });
+  });
 
   let press: { symbol: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   let dragging = $state<string | null>(null);
