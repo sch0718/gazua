@@ -183,3 +183,37 @@ test('편집: 모든 구역을 펼쳐도 카드 밖으로 넘치지 않고, 숫�
   await page.locator('label', { hasText: /^고점 대비 하락폭$/ }).click();
   await expect(sw).toHaveAttribute('aria-checked', 'false');
 });
+
+test('편집: 처음 자금 칸에 키보드로 들어와 바로 치면 값이 바뀌고, 최댓값도 잘리지 않는다', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  const head = page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) });
+  await head.click();
+
+  const cap = page.getByRole('textbox', { name: '처음 자금' });
+  await expect(cap).toHaveValue('10,000,000');
+  // 다음 칸에서 Shift+Tab으로 들어온다(브라우저가 전체 선택) → 바로 친다
+  await page.getByRole('textbox', { name: '회당 매수 비중' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(cap).toBeFocused();
+  await expect(cap).toHaveValue('10000000');
+  await page.keyboard.type('5000000');
+  await expect(cap).toHaveValue('5000000');
+  await page.keyboard.press('Tab');
+  await expect(cap).toHaveValue('5,000,000');
+  await expect(page.getByText('= 500만 원')).toBeVisible();
+
+  // 최댓값(18자)도 포커스 밖에서 칸 안에 다 보인다(포커스 때 쉼표를 빼는 갱신이 끝난 뒤 채운다)
+  await cap.focus();
+  await expect(cap).toHaveValue('5000000');
+  await cap.fill('10000000000000');
+  await cap.blur();
+  await expect(cap).toHaveValue('10,000,000,000,000');
+  const clip = await cap.evaluate((el: HTMLInputElement) => el.scrollWidth - el.clientWidth);
+  expect(clip, `처음 자금 칸이 ${clip}px 잘림`).toBeLessThanOrEqual(0);
+  await expect(page.getByText('= 10조 원')).toBeVisible();
+  await expectNoHorizontalScroll(page);
+});

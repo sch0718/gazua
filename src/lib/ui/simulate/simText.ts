@@ -32,9 +32,18 @@ export function strategyLine(s: Strategy, w: Watchlists): string {
   return `${universeName(s, w)} · ${dots(s.period.from)}~${dots(s.period.to)}`;
 }
 
-/** 금액: 만 원 단위면 `1,000만 원`, 아니면 `12,345원` */
+/** 금액: 만 원 단위면 조·억·만으로 끊어 `1억 2,000만 원`·`1,000만 원`, 아니면 `12,345원` */
 export function money(n: number): string {
-  return n % 10_000 === 0 ? `${fmtWon(n / 10_000)}만 원` : `${fmtWon(n)}원`;
+  if (n === 0 || n % 10_000 !== 0) return `${fmtWon(n)}원`;
+  let man = n / 10_000;
+  const parts: string[] = [];
+  for (const [unit, size] of [['조', 100_000_000], ['억', 10_000]] as const) {
+    const q = Math.floor(man / size);
+    if (q) parts.push(`${fmtWon(q)}${unit}`);
+    man -= q * size;
+  }
+  if (man) parts.push(`${fmtWon(man)}만`);
+  return `${parts.join(' ')} 원`;
 }
 
 function entrySummary(s: Strategy): string {

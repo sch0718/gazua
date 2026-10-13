@@ -119,6 +119,14 @@ describe('money', () => {
     expect(money(10_000_000)).toBe('1,000만 원');
     expect(money(12_345)).toBe('12,345원');
   });
+  it('억·조 단위로 끊어 읽는다', () => {
+    expect(money(100_000_000)).toBe('1억 원');
+    expect(money(120_000_000)).toBe('1억 2,000만 원');
+    expect(money(1_000_050_000)).toBe('10억 5만 원');
+    expect(money(10_000_000_000_000)).toBe('10조 원');
+    expect(money(1_234_567_890_000)).toBe('1조 2,345억 6,789만 원');
+    expect(money(99_990_000)).toBe('9,999만 원');
+  });
 });
 
 describe('resultHeadline', () => {

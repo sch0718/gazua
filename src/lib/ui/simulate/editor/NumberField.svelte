@@ -2,7 +2,7 @@
   // 숫자 칸 한 줄: 라벨 · 숫자 칸 · (있으면) 오른쪽 토글 — 설정 화면 .row와 같은 순서.
   // 토글이 있으면 라벨은 토글과 연결된다(라벨을 누르면 켜고 끈다). 숫자 칸 박스는 입력과 연결된 label이라 어디를 눌러도 입력에 포커스.
   // 토글 이름은 `{라벨} 사용`(보이는 라벨로 시작, WCAG 2.5.3). 단위·금액 힌트·오류는 입력의 설명(aria-describedby).
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import Toggle from '../../components/Toggle.svelte';
   import { fmtWon } from '../../format';
   import { money } from '../simText';
@@ -48,9 +48,13 @@
   const show = (v: number) => (won && !focused ? fmtWon(v) : String(v));
   let text = $state(untrack(() => show(value)));
   let bad = $state(false);
+  let inputEl: HTMLInputElement;
+  // 금액 힌트(`= 1억 2,000만 원`)는 만 원 단위일 때만. 아니면 값과 같은 글이라 숨긴다
+  const showMoney = $derived(won && !bad && value % 10_000 === 0);
 
+  // 붙여 넣은 `10,000,000원`·`1 000 000`도 숫자로 읽는다
   function parse(t: string): number {
-    const clean = t.replaceAll(',', '').trim();
+    const clean = t.replace(/[,\s원]/g, '');
     return clean === '' ? NaN : Number(clean);
   }
   const inRange = (v: number) => Number.isFinite(v) && v >= min && v <= max;
@@ -70,7 +74,7 @@
   });
 
   const describedBy = $derived(
-    [suffix ? `${inputId}-sfx` : null, bad ? `${inputId}-err` : won ? `${inputId}-money` : null].filter(Boolean).join(' ') || undefined,
+    [suffix ? `${inputId}-sfx` : null, bad ? `${inputId}-err` : showMoney ? `${inputId}-money` : null].filter(Boolean).join(' ') || undefined,
   );
 
   function oninput() {
@@ -81,7 +85,12 @@
 
   function onfocus() {
     focused = true;
-    if (won && !bad) text = String(value);
+    if (won && !bad) {
+      // Tab으로 들어오면 브라우저가 전체를 선택한다. 쉼표를 빼며 값을 바꾸면 선택이 풀리므로 다시 전체 선택한다
+      const all = inputEl.value.length > 0 && inputEl.selectionStart === 0 && inputEl.selectionEnd === inputEl.value.length;
+      text = String(value);
+      if (all) void tick().then(() => document.activeElement === inputEl && inputEl.select());
+    }
   }
 
   function onblur() {
@@ -102,6 +111,7 @@
       autocomplete="off"
       aria-labelledby={namePrefixId ? `${namePrefixId} ${inputId}-l` : `${inputId}-l`}
       bind:value={text}
+      bind:this={inputEl}
       {oninput}
       {onfocus}
       {onblur}
@@ -115,7 +125,7 @@
   {/if}
   {#if bad}
     <p class="err" id="{inputId}-err" role="alert">{errText}</p>
-  {:else if won}
+  {:else if showMoney}
     <p class="money num" id="{inputId}-money">= {money(value)}</p>
   {/if}
 </div>
@@ -180,9 +190,13 @@
     outline: none;
     padding: 0;
   }
-  /* 천 단위 쉼표가 들어가므로 `999,999,999`까지 보이게 */
+  /* 천 단위 쉼표가 들어가므로 최댓값 `10,000,000,000,000`(18자)까지 보이게.
+     좁은 화면에서는 라벨이 가장 긴 낱말 폭(min-content)을 지키고 숫자 칸 박스가 남은 폭으로 줄어든다 */
+  .field.won {
+    grid-template-columns: minmax(min-content, 1fr) minmax(0, auto);
+  }
   .won input {
-    width: 11ch;
+    width: 18ch;
   }
   .suffix {
     font-size: var(--fs-sub);

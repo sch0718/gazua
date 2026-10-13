@@ -482,6 +482,67 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(saved(app).capital.initial).toBe(15_000_000);
   });
 
+  it('금액 칸에 Tab으로 들어와 전체 선택된 채 숫자를 치면 값이 바뀐다(뒤에 붙지 않는다)', async () => {
+    const { app } = setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' }) as HTMLInputElement;
+    // 브라우저는 Tab으로 글자 칸에 들어오면 전체를 선택한다
+    cap.setSelectionRange(0, cap.value.length);
+    cap.focus();
+    await fireEvent.focus(cap);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cap.value).toBe('10000000');
+    expect([cap.selectionStart, cap.selectionEnd]).toEqual([0, 8]);
+    // 선택을 바꿔 치는 입력
+    const typed = cap.value.slice(0, cap.selectionStart!) + '5000000' + cap.value.slice(cap.selectionEnd!);
+    await fireEvent.input(cap, { target: { value: typed } });
+    await fireEvent.blur(cap);
+    expect(cap.value).toBe('5,000,000');
+    await settle();
+    expect(saved(app).capital.initial).toBe(5_000_000);
+  });
+
+  it('금액 칸에 커서만 둔 채 들어오면 선택을 만들지 않는다', async () => {
+    setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' }) as HTMLInputElement;
+    cap.setSelectionRange(3, 3);
+    cap.focus();
+    await fireEvent.focus(cap);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(cap.selectionStart).toBe(cap.selectionEnd);
+  });
+
+  it('금액 칸에 `10,000,000원`·띄어쓰기를 붙여 넣어도 숫자로 읽는다', async () => {
+    const { app } = setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' });
+    await fireEvent.focus(cap);
+    await fireEvent.input(cap, { target: { value: '20,000,000원' } });
+    expect(screen.queryByText(/사이로 적어 주세요/)).toBeNull();
+    await fireEvent.input(cap, { target: { value: '30 000 000 원' } });
+    expect(screen.queryByText(/사이로 적어 주세요/)).toBeNull();
+    await settle();
+    expect(saved(app).capital.initial).toBe(30_000_000);
+  });
+
+  it('금액 힌트는 억 단위로 끊고, 만 원 단위가 아니면 값과 같아서 숨긴다', async () => {
+    setup();
+    await openSection('기간·자금');
+    const cap = screen.getByRole('textbox', { name: '처음 자금' });
+    await fireEvent.focus(cap);
+    await fireEvent.input(cap, { target: { value: '120000000' } });
+    expect(screen.getByText('= 1억 2,000만 원')).toBeTruthy();
+    await fireEvent.input(cap, { target: { value: '12345678' } });
+    expect(screen.queryByText(/^= /)).toBeNull();
+    expect(cap.getAttribute('aria-describedby')?.split(' ')).toHaveLength(1); // 단위만
+  });
+
+  it('금액 칸은 최댓값(18자 `10,000,000,000,000`)이 보이는 폭', () => {
+    const css = numberFieldSource.slice(numberFieldSource.indexOf('<style>'));
+    expect(/\.won input\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/width:\s*18ch/);
+  });
+
   it('금액 칸 범위 오류의 최소·최대도 천 단위로', async () => {
     setup();
     await openSection('기간·자금');
