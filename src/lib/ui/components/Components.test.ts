@@ -67,9 +67,31 @@ describe('Toggle', () => {
     expect(onchange).toHaveBeenCalledExactlyOnceWith(true);
   });
 
-  it('draws the on-thumb in --on-accent and the off-track in --t3 (non-text 3:1)', () => {
-    const css = toggleSource;
-    expect(css).toMatch(/\.track \{[^}]*background: var\(--t3\)/);
-    expect(css).toMatch(/\.on \.thumb \{[^}]*background: var\(--on-accent\)/);
+  // 컴포넌트의 <style>만 문서에 넣어 계산된 스타일로 확인한다(Svelte 스코프 클래스는 없다).
+  // jsdom은 var()를 풀지 않으므로 토큰 이름이 그대로 나온다.
+  function draw(checked: boolean) {
+    const style = document.createElement('style');
+    style.textContent = /<style>([\s\S]*)<\/style>/.exec(toggleSource)![1];
+    document.head.append(style);
+    const { container } = render(Toggle, { checked, label: '토글', onchange: vi.fn() });
+    const track = container.querySelector('.track')!;
+    const thumb = container.querySelector('.thumb')!;
+    return { track, thumb, bg: (el: Element) => getComputedStyle(el).background, undo: () => style.remove() };
+  }
+
+  it('off: the track is --t3 and the thumb is white (non-text 3:1)', () => {
+    const v = draw(false);
+    expect(v.track.classList.contains('on')).toBe(false);
+    expect(v.bg(v.track)).toBe('var(--t3)');
+    expect(v.bg(v.thumb)).toBe('rgb(255, 255, 255)');
+    v.undo();
+  });
+
+  it('on: the track is --accent and the thumb is --on-accent', () => {
+    const v = draw(true);
+    expect(v.track.classList.contains('on')).toBe(true);
+    expect(v.bg(v.track)).toBe('var(--accent)');
+    expect(v.bg(v.thumb)).toBe('var(--on-accent)');
+    v.undo();
   });
 });

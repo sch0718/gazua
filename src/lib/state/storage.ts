@@ -21,6 +21,8 @@ export interface SafeStorage {
   reportCorrupt(key: string): void;
   /** 저장된 프록시 주소를 지웠을 때. detail은 보여 줘도 되는 origin(없으면 이유를 말하지 않는다). */
   reportProxyCleared(key: string, detail?: string): void;
+  /** 이 키의 proxy-cleared 안내만 거둔다(사용자가 프록시 주소를 다시 저장했을 때). 다른 종류의 안내는 그대로. */
+  clearProxyCleared(key: string): void;
 }
 
 /** 저장소 키 앞에 붙는 접두어(storage 이벤트의 key와 비교할 때 쓴다). */
@@ -129,6 +131,11 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
     },
     reportProxyCleared(key, detail) {
       report(key, 'proxy-cleared', detail);
+    },
+    clearProxyCleared(key) {
+      for (let i = issues.length - 1; i >= 0; i--) {
+        if (issues[i].key === key && issues[i].kind === 'proxy-cleared') issues.splice(i, 1);
+      }
     },
   };
 }

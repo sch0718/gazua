@@ -39,41 +39,53 @@
 ## 새 후속 (2026-10-13 브랜치 리뷰에서 남김)
 `feat/followups`의 작업별 리뷰와 최종 리뷰에서 나온, 영향이 작거나 실제 기기·키가 있어야 확인되는 것들이에요. 줄마다 무엇 · 어디 · 왜 미뤘는지를 적었어요.
 
+2026-10-13에 `feat/followups-2` 브랜치에서 코드로 처리할 수 있는 항목을 처리했어요([계획](../plans/2026-10-13-followups-2.md)). 처리한 항목은 `→ 해결`로 결과와 커밋을 적었고, 범위 밖 항목은 `→ 남음`으로 사유를 그대로 뒀어요. 결정이 바뀐 두 가지는 아래 해당 줄에 `결정 변경`으로 적었어요.
+
 **먼저 하면 좋은 것 셋** (표시: ★)
-- ★ proxy-cleared 값을 저장소에 되쓰지 않음 · `src/lib/state/storage.ts:131` · 배너가 설정을 한 번 저장할 때까지 로드마다 반복돼요. 사용자에게 보이는데도 이번 범위에서 못 다뤘어요.
-- ★ Playwright 캐시 키가 `1.63.0`으로 고정 · `.github/workflows/ci.yml:63` · `hashFiles('pnpm-lock.yaml')`로 바꾸거나 캐시 적중 때도 설치하도록 하고, 스펙 §12 표현도 맞춰요. 버전을 올리면 낡은 캐시를 쓰게 돼요.
-- ★ 전략 목록 삭제 뒤 포커스가 body에 남음 · `src/routes/Simulate.svelte`의 StrategyList 삭제 · `returnFocus`로 싸게 고칠 수 있는데 최종 리뷰 직전에 나와 미뤘어요.
+- ~~★ proxy-cleared 값을 저장소에 되쓰지 않음 · `src/lib/state/storage.ts:131` · 배너가 설정을 한 번 저장할 때까지 로드마다 반복돼요.~~ → 해결: 지운 주소를 저장소에 되써서 배너가 로드마다 반복되지 않아요. 다른 설정 값은 건드리지 않고, 쓰기가 실패해도 메모리 전용 모드로 넘어가지 않아요. (`60d6595`)
+- ~~★ Playwright 캐시 키가 `1.63.0`으로 고정 · `.github/workflows/ci.yml:63` · 스펙 §12 표현도 맞춰요.~~ → 해결: 캐시 키가 `pnpm-lock.yaml` 해시를 따라가요. 스펙 §12도 맞췄어요. (`393d9b0`)
+- ~~★ 전략 목록 삭제 뒤 포커스가 body에 남음 · `src/routes/Simulate.svelte`의 StrategyList 삭제~~ → 해결: 삭제 뒤 포커스가 알맞은 곳으로 돌아가요. Simulate 테스트를 더했어요. (`b553d37`)
 
 ### 정확도·데이터
-- `isSuspended` 규칙이 `badgesOf`와 중복 · `src/lib/ui/compare/rows.ts:103,107` · `badgesOf`가 `isSuspended`를 쓰게 하고 표 테스트와 Compare 연결 테스트를 더해요. 동작은 같아서 미뤘어요.
-- 기간 내내 거래정지인 종목은 봉이 없어 띠가 안 그려짐 · 스펙 §5.4 · 한계로 문서화만 했어요.
-- `ensureMetas` 주석이 "지금 종목 전체"로 남음(지금은 종목별) · `compareController.svelte.ts:214` · 상장폐지 종목은 그날 로드마다 메타를 다시 받아요. 해롭지 않아 미뤘어요.
-- UN 일봉이 5xx·타임아웃이면 재시도로 로드가 약 3.5초 늦음, 일시 실패 시 RVOL과 메모가 1분간 바뀌고 메모에 어떤 종목인지 안 나옴 · `candleService.ts` · 결정적인 KIS 거절을 하루 동안 기억하게 하려면 live-check ②가 먼저 필요해요.
-- AUTO 과거일 보정 테스트가 없고 실패를 메모하지 않는 동작을 고정하는 테스트도 없음 · `candleService.test.ts` · 동작은 맞고 테스트만 비어 있어요.
-- D1 초과수익은 캔들 값을 시세 가격 옆에 둠, `series.daily` 종가에는 시세를 덮지 않음(쓰는 곳 없음) · `rows.ts` · 문서화된 허용 동작이에요.
-- `priceOf`가 `rowSeries`를 다시 돌려 행마다 복사가 두 번 · `rows.ts:59` · 값싼 비용이라 미뤘어요.
-- UNIFIED 일봉 테스트가 KRX 꼬리 구간을 가정하고, AUTO가 KRX로 넘기는 16:00은 실제 KRX 시간표와 대조하지 않음 · `rows.test.ts`, `sessions` 설정 · 실제 시간표 확인이 필요해요.
+- ~~`isSuspended` 규칙이 `badgesOf`와 중복 · `src/lib/ui/compare/rows.ts:103,107`~~ → 해결: `badgesOf`가 `isSuspended`를 써요. 표 테스트를 더했어요. (`f503ef7`)
+- 기간 내내 거래정지인 종목은 봉이 없어 띠가 안 그려짐 · 스펙 §5.4 · 한계로 문서화만 했어요. → 남음: 문서화된 한계예요.
+- ~~`ensureMetas` 주석이 "지금 종목 전체"로 남음(지금은 종목별) · `compareController.svelte.ts:214`~~ → 해결: 주석을 종목별 동작에 맞게 고쳤어요. (`f503ef7`)
+- UN 일봉이 5xx·타임아웃이면 재시도로 로드가 약 3.5초 늦음, 일시 실패 시 RVOL과 메모가 1분간 바뀌고 메모에 어떤 종목인지 안 나옴 · `candleService.ts` · 결정적인 KIS 거절을 하루 동안 기억하게 하려면 live-check ②가 먼저 필요해요. → 남음: 실연결 점검 ②가 먼저예요.
+- ~~AUTO 과거일 보정 테스트가 없고 실패를 메모하지 않는 동작을 고정하는 테스트도 없음 · `candleService.test.ts`~~ → 해결: AUTO 과거일 보정 테스트와 "RVOL 실패는 메모하지 않음" 테스트를 더했어요. (`f503ef7`)
+- D1 초과수익은 캔들 값을 시세 가격 옆에 둠, `series.daily` 종가에는 시세를 덮지 않음(쓰는 곳 없음) · `rows.ts` · 문서화된 허용 동작이에요. → 남음: 허용 동작이에요.
+- ~~`priceOf`가 `rowSeries`를 다시 돌려 행마다 복사가 두 번 · `rows.ts:59`~~ → 해결: `priceOf`가 다시 계산하지 않아요. (`f503ef7`)
+- UNIFIED 일봉 테스트가 KRX 꼬리 구간을 가정하고, AUTO가 KRX로 넘기는 16:00은 실제 KRX 시간표와 대조하지 않음 · `rows.test.ts`, `sessions` 설정 · 실제 시간표 확인이 필요해요. → 남음: 실제 시간표 확인이 필요해요.
 
 ### 오류 안내
-- `LoadIssue.allFailed`를 읽는 곳이 없고 "● 실시간" 주석이 헷갈림 · `loadIssue.ts:24`, `compareController.svelte.ts:69,414` · 지우거나 쓰도록 정해야 해요.
-- 행 하나만 타임아웃인 경우를 컨트롤러 수준에서 검사하는 테스트가 없음 · `compareController.test.ts`.
-- 프록시 오류 3 + 타임아웃 2(8개 중)처럼 섞이면 배너가 안 뜸(같은 코드로 과반일 때만 셈) · `compareController.svelte.ts`, 스펙 §11 · 제품 결정이라 그대로 뒀어요.
-- proxy-cleared 배너가 주소를 고친 뒤에도 그 세션에 남음 · `src/lib/state/storage.ts`의 issues가 지워지지 않아요. corrupt 배너와 같은 패턴이에요.
-- proxy-cleared 문구가 `DEV=true`일 때 query·userinfo 사유와 안 맞고, `localHttpOrigin` 직접 단위 테스트와 `{groups:[]}` 케이스의 corrupt 배너 단언이 없음 · `storage.ts`, `storage.test.ts` · 다른 프로필 내보내기가 그 프로필 배너를 더하는 것은 원래 있던 동작이에요.
-- KIS 토큰 발급 시각이 프로필 단위이고 키 단위가 아님 · `app.svelte.ts` · 스펙 §11에 한 줄을 더해요. 프로필 전환 때 저장소를 검사하는 테스트도 없어요.
+- ~~`LoadIssue.allFailed`를 읽는 곳이 없고 "● 실시간" 주석이 헷갈림 · `loadIssue.ts:24`, `compareController.svelte.ts:69,414`~~ → 해결: `allFailed`를 지우고 주석을 고쳤어요. (`f503ef7`)
+- ~~행 하나만 타임아웃인 경우를 컨트롤러 수준에서 검사하는 테스트가 없음 · `compareController.test.ts`.~~ → 해결: 행 하나만 타임아웃인 경우의 컨트롤러 테스트를 더했어요. (`f503ef7`)
+- ~~프록시 오류 3 + 타임아웃 2(8개 중)처럼 섞이면 배너가 안 뜸(같은 코드로 과반일 때만 셈) · `compareController.svelte.ts`, 스펙 §11~~ → 해결 (결정 변경): `proxy-unreachable`과 `timeout`을 합쳐 세요. 합계가 행의 과반이면 배너를 띄우고, 코드는 더 많은 쪽(같으면 `proxy-unreachable`)이에요. 그 밖의 코드는 지금처럼 코드별로 판단해요. 스펙 §11도 고쳤어요. (`f503ef7`)
+- ~~proxy-cleared 배너가 주소를 고친 뒤에도 그 세션에 남음 · `src/lib/state/storage.ts`의 issues가 지워지지 않아요.~~ → 해결: 새 주소를 저장하면 배너가 사라져요. 연결 설정 테스트를 더했어요. (`60d6595`)
+- ~~proxy-cleared 문구가 `DEV=true`일 때 query·userinfo 사유와 안 맞고, `localHttpOrigin` 직접 단위 테스트와 `{groups:[]}` 케이스의 corrupt 배너 단언이 없음 · `storage.ts`, `storage.test.ts`~~ → 해결: DEV 문구를 맞추고 `localHttpOrigin` 단위 테스트와 `{groups:[]}`의 corrupt 배너 단언을 더했어요. (`60d6595`)
+- ~~KIS 토큰 발급 시각이 프로필 단위이고 키 단위가 아님 · `app.svelte.ts`~~ → 해결: 스펙 §11에 "발급 시각은 프로필 단위"를 적고, 프로필 전환 때 저장소를 검사하는 `issuedAt` 테스트를 더했어요. (`60d6595`)
 
 ### 보안·운영
-- 한 그룹의 여러 요청이 잇달아 429를 받는 경우의 테스트가 없음(한 요청의 연속 429는 있음) · `requestQueue.test.ts`.
-- `window.confirm` 기본값이 특이한 환경에서는 조용히 거절로 처리됨 · 키 포함 내보내기 확인 · 대체 UI는 필요할 때 정해요.
-- 스펙 §3.3 "같은 시간"이 과장이고, §7.4 설정 데이터 행에 새 확인 대화상자가 빠져 있음 · 스펙 문구 정리예요.
-- 유니버스 캐시: 일부 복원 뒤 내려받기가 실패하면 낡은 파일이 이번 주 키로 저장될 수 있음 · `.github/workflows/ci.yml` · 드문 경로예요.
-- 유니버스 테스트가 `URL.pathname`을 씀(`fileURLToPath`로 바꾸기) · `tests/universe-reuse.test.mjs` · 공백이 든 경로에서만 깨져요. 병렬 캐시 저장 경고는 해롭지 않아요.
-- 앱 `pnpm check`에 `@types/node`가 보임 · `tsconfig.json`에 `types`가 없어요. `"types": []`와 vite client 타입을 더해요.
+- ~~한 그룹의 여러 요청이 잇달아 429를 받는 경우의 테스트가 없음 · `requestQueue.test.ts`.~~ → 해결: 한 그룹의 여러 요청이 429를 받는 테스트를 더했어요. (`393d9b0`)
+- `window.confirm` 기본값이 특이한 환경에서는 조용히 거절로 처리됨 · 키 포함 내보내기 확인 · 대체 UI는 필요할 때 정해요. → 남음: 대체 UI는 필요할 때 정해요.
+- ~~스펙 §3.3 "같은 시간"이 과장이고, §7.4 설정 데이터 행에 새 확인 대화상자가 빠져 있음~~ → 해결: 스펙 §3.3·§7.4·§12 문구를 고쳤어요. (`393d9b0`)
+- ~~유니버스 캐시: 일부 복원 뒤 내려받기가 실패하면 낡은 파일이 이번 주 키로 저장될 수 있음 · `.github/workflows/ci.yml`~~ → 해결: 캐시를 복원과 저장으로 나누고, 새로 받은 파일만 저장하도록 신선도 검사를 넣었어요. (`393d9b0`)
+- ~~유니버스 테스트가 `URL.pathname`을 씀(`fileURLToPath`로 바꾸기) · `tests/universe-reuse.test.mjs`~~ → 해결: `fileURLToPath`를 써요. (`393d9b0`)
+- ~~앱 `pnpm check`에 `@types/node`가 보임 · `tsconfig.json`에 `types`가 없어요.~~ → 해결: 앱 `tsconfig.json`에 `"types": []`를 두고, 테스트용 `tsconfig.test.json`을 새로 만들었어요. (`393d9b0`)
 
 ### 접근성·UI
-- 상세 시트에서 지운 뒤 되돌리기가 Tab 횟수에 의존함 · `src/sheets/StockDetailSheet.svelte` · 삭제 뒤 포커스가 닿은 행에 있는 동안 스낵바 타이머를 멈추게 해요(WCAG 2.2.1, 좁은 화면 점검 때).
-- GroupTabs가 Alt·Cmd·Ctrl+화살표·Home·End를 삼킴 · `GroupTabs.svelte` · 보조키가 있으면 넘기도록 해요. 탭 정지점이 마지막 포커스를 따르는 것은 APG에 맞고, `aria-controls`/`tabpanel`이 없는 것은 원래부터예요.
-- Toggle 테스트가 정규식에 기대 깨지기 쉽고 꺼진 손잡이의 `#fff` 단언이 없음 · `Components.test.ts`.
-- `groupActions`의 프로필 가드 테스트가 없음 · `GroupSheet.svelte`.
-- `detailRestoredFocus`가 심볼로만 행을 찾아 그룹을 바꾼 뒤에는 엉뚱한 행을 잡을 수 있음 · `Compare.svelte:307`.
-- 스크린리더가 aria-modal 밖 안내를 읽는지는 실기기에서 확인해야 해요. 열린 시트 상태의 e2e와 `selectedIndex` 정렬 중복(`Compare.svelte`), 실시간 재정렬 중 Tab 순서 변동, 시트가 열린 중 다른 스낵바 동작도 같은 후속이에요.
+- ~~상세 시트에서 지운 뒤 되돌리기가 Tab 횟수에 의존함 · `src/sheets/StockDetailSheet.svelte`~~ → 해결: 삭제 뒤 포커스가 행에 머무는 동안 스낵바 타이머를 멈추고(WCAG 2.2.1), 포커스가 벗어나면 남은 시간부터 다시 세요. (`219b3d2`)
+- ~~GroupTabs가 Alt·Cmd·Ctrl+화살표·Home·End를 삼킴 · `GroupTabs.svelte`~~ → 해결: 보조키가 있으면 넘겨요. 테스트를 더했어요. (`b553d37`)
+- ~~Toggle 테스트가 정규식에 기대 깨지기 쉽고 꺼진 손잡이의 `#fff` 단언이 없음 · `Components.test.ts`.~~ → 해결: 테스트를 단단하게 고치고 꺼진 손잡이 단언을 더했어요. (`b553d37`)
+- ~~`groupActions`의 프로필 가드 테스트가 없음 · `GroupSheet.svelte`.~~ → 해결: `groupActions` 프로필 가드 테스트를 더했어요. (`b553d37`)
+- ~~`detailRestoredFocus`가 심볼로만 행을 찾아 그룹을 바꾼 뒤에는 엉뚱한 행을 잡을 수 있음 · `Compare.svelte:307`.~~ → 해결: 그룹까지 확인해서 행을 찾아요. (`219b3d2`)
+- 스크린리더가 aria-modal 밖 안내를 읽는지는 실기기에서 확인해야 해요. → 남음: 실기기가 있어야 해요.
+- ~~열린 시트 상태의 되돌리기 e2e~~ → 해결: 열린 시트에서 되돌리기 e2e를 더했어요. (`b553d37`)
+- ~~`selectedIndex` 정렬 중복(`Compare.svelte`)~~ → 해결: 중복된 정렬을 없앴어요. (`219b3d2`, `cb79226`)
+- ~~실시간 재정렬 중 Tab 순서 변동~~ → 해결 (결정 변경): 키보드 포커스가 리더보드 안에 있는 동안만 행 순서를 고정하고 값은 계속 갱신해요. 클릭·시트 이동 등으로 포커스가 벗어나면 바로 다시 정렬해요. 스펙도 고쳤어요. (`219b3d2`, `cb79226`)
+- 시트가 열린 중 다른 스낵바 동작 · 스펙 §7.3이 허용해요. → 남음: 허용 동작이에요.
+
+### 2차 브랜치 리뷰에서 남김 (2026-10-13)
+- Safari에서 순서가 고정된 채 행을 누르면 `focusout`의 `relatedTarget`이 null이라 고정이 풀려 누르고 떼는 사이에 다시 정렬됨 · `Leaderboard.svelte`의 `onfocusout` · 누름이 목록 안에서 시작했으면 `leave()`를 `pointerup`까지 미루면 돼요. Safari 실기기에서 확인하며 고치려고 미뤘어요.
+- 편집기 DX: 테스트·설정 파일이 루트 `tsconfig.json`에서 빠져 편집기가 비엄격 프로젝트로 추론함 · `tsconfig.json`, `tsconfig.test.json` · 넓은 루트 + `tsconfig.app.json`으로 나누면 돼요. 동작에는 영향이 없어 미뤘어요.
+- 테스트 다듬기 · 컨트롤러 혼합 실패 테스트(3개 중 프록시 1 + 타임아웃 1 + 정상 1로), `loadIssue.test.ts`의 중복 타임아웃 단언, Toggle 테스트 정리를 `finally`로, StrategyList의 복제 뒤 다른 것 삭제 테스트, 두 번째 로드의 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트, `Leaderboard.test.ts`의 "이미 고정된 목록 안 포인터 누름" 테스트가 가드만 확인함 · 동작은 이미 다른 테스트가 덮고 있어 미뤘어요.
+- `write-failed` 저장소 안내는 기록만 되고 화면에 안 나옴 · `storage.ts` · 이번 브랜치 이전부터 있던 일이고 안내 문구와 위치를 먼저 정해야 해서 미뤘어요.

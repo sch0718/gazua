@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Group, WatchItem, Watchlists } from '../lib/state/schema';
 import { addItem } from '../lib/state/watchlist';
 import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
@@ -156,5 +156,45 @@ describe('deleteGroupWithUndo', () => {
     const s = store({ groups: [group('g1', ['A'])] });
     expect(deleteGroupWithUndo(s, 'g1')).toBe(false);
     expect(s.watchlists.groups).toHaveLength(1);
+  });
+});
+
+describe('undo focus profile gate', () => {
+  it('removeWithUndo: focus() is null and nothing is restored after the profile changed', () => {
+    const s = store({ groups: [group('g1', ['A', 'B'])] });
+    const el = {} as HTMLElement;
+    const find = vi.fn(() => el);
+    removeWithUndo(s, 'g1', 'A', 'A', find);
+    const action = currentSnackbar()!.action!;
+    expect(action.focus!()).toBe(el); // 같은 프로필이면 찾는다
+    expect(find).toHaveBeenCalledTimes(1);
+    const other: Watchlists = { groups: [group('g1', ['Z'])] };
+    s.switchTo('p2', other);
+    expect(action.focus!()).toBeNull();
+    expect(find).toHaveBeenCalledTimes(1); // 찾지도 않는다
+    action.run();
+    expect(s.watchlists).toBe(other);
+  });
+
+  it('deleteGroupWithUndo: focus() is null and nothing is restored after the profile changed', () => {
+    const s = store({ groups: [group('g1', ['A']), group('g2', [])] });
+    const el = {} as HTMLElement;
+    const find = vi.fn(() => el);
+    deleteGroupWithUndo(s, 'g1', find);
+    const action = currentSnackbar()!.action!;
+    expect(action.focus!()).toBe(el);
+    const other: Watchlists = { groups: [{ id: 'x1', name: '다른', items: [] }] };
+    s.switchTo('p2', other);
+    expect(action.focus!()).toBeNull();
+    expect(find).toHaveBeenCalledTimes(1);
+    action.run();
+    expect(s.watchlists).toBe(other);
+    expect(s.watchlists.groups.map((g) => g.id)).toEqual(['x1']);
+  });
+
+  it('without a focus finder the action has no focus()', () => {
+    const s = store({ groups: [group('g1', ['A'])] });
+    removeWithUndo(s, 'g1', 'A', 'A');
+    expect(currentSnackbar()!.action!.focus).toBeUndefined();
   });
 });

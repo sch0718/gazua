@@ -23,16 +23,30 @@ jobs:
       - name: 유니버스 주 키 계산
         id: week
         run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-      - name: 유니버스 캐시
+      # 복원과 저장을 나눈다. 지난 주 캐시(restore-keys)를 받은 뒤 내려받기가 실패하면
+      # 빌드는 경고만 남기고 성공하므로, 묵은 파일이 이번 주 키로 저장되지 않게 새로 만들어졌을 때만 저장한다.
+      - name: 유니버스 캐시 복원
         id: universe
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: public/universe.json
           key: universe-${{ steps.week.outputs.key }}
           restore-keys: universe-
+      - name: 유니버스 빌드 전 표시
+        run: touch "$RUNNER_TEMP/universe-before"
       - run: pnpm build
         env:
           UNIVERSE_REUSE: ${{ steps.universe.outputs.cache-hit }}
+      - name: 유니버스가 새로 만들어졌는지 확인
+        id: universe-fresh
+        run: |
+          if [ public/universe.json -nt "$RUNNER_TEMP/universe-before" ]; then echo "fresh=true" >> "$GITHUB_OUTPUT"; fi
+      - name: 유니버스 캐시 저장
+        if: steps.universe.outputs.cache-hit != 'true' && steps.universe-fresh.outputs.fresh == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: public/universe.json
+          key: universe-${{ steps.week.outputs.key }}
       - run: pnpm --filter proxy test
 
   e2e:
@@ -48,19 +62,22 @@ jobs:
       - name: 유니버스 주 키 계산
         id: week
         run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
-      - name: 유니버스 캐시
+      - name: 유니버스 캐시 복원
         id: universe
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: public/universe.json
           key: universe-${{ steps.week.outputs.key }}
           restore-keys: universe-
+      - name: 유니버스 빌드 전 표시
+        run: touch "$RUNNER_TEMP/universe-before"
+      # 브라우저 버전은 pnpm-lock.yaml의 Playwright 버전이 정한다. 락파일이 바뀌면 키도 바뀌어 새로 받는다.
       - name: Playwright 브라우저 캐시
         id: pw
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-1.63.0
+          key: pw-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - if: steps.pw.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
       - if: steps.pw.outputs.cache-hit == 'true'
@@ -68,6 +85,17 @@ jobs:
       - run: pnpm e2e
         env:
           UNIVERSE_REUSE: ${{ steps.universe.outputs.cache-hit }}
+      # e2e의 webServer가 pnpm build(= universe 빌드)를 돌린다. ci 잡과 같은 조건으로만 저장한다.
+      - name: 유니버스가 새로 만들어졌는지 확인
+        id: universe-fresh
+        run: |
+          if [ public/universe.json -nt "$RUNNER_TEMP/universe-before" ]; then echo "fresh=true" >> "$GITHUB_OUTPUT"; fi
+      - name: 유니버스 캐시 저장
+        if: steps.universe.outputs.cache-hit != 'true' && steps.universe-fresh.outputs.fresh == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: public/universe.json
+          key: universe-${{ steps.week.outputs.key }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

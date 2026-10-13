@@ -145,6 +145,15 @@ describe('GroupSheet', () => {
       expect(document.activeElement).toBe(del);
     });
 
+    it('a group id with a quote (imported) still gets its delete button back after 되돌리기', async () => {
+      const app = setup([...TWO, { id: 'x"', name: '해외', items: itemsOf(['133690']) }]);
+      await confirmDeleteOf('해외');
+      await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+      await tick();
+      expect(names(app)).toEqual(['반도체', '배당', '해외']);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '해외 삭제' }));
+    });
+
     it('되돌리기 is reachable by Tab from the last control and restores the group', async () => {
       const app = setup(THREE);
       await confirmDeleteOf('해외');

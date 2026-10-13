@@ -13,7 +13,7 @@
     "prebuild": "node scripts/build-universe.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.test.json",
     "check:e2e": "tsc -p tsconfig.e2e.json",
     "test": "TZ=America/New_York vitest run",
     "test:watch": "TZ=America/New_York vitest",

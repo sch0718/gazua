@@ -66,7 +66,6 @@ export interface CompareController {
   readonly quotes: Record<string, Quote>;
   /**
    * 지금 그룹의 마지막 로딩에서 가장 중요한 오류(스펙 11절 배너용). 오류가 없으면 null.
-   * allFailed면 새로 받은 종목이 하나도 없다(● 실시간을 보이지 않는다).
    */
   readonly issue: LoadIssue | null;
   /** 마지막으로 새 시리즈를 받은 시각(이 화면 키 기준). 없으면 null */
@@ -207,7 +206,7 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
 
   // ── 메타 ────────────────────────────────────────────────
   /**
-   * 메타는 메모리에만 두고 KST 날짜가 바뀌면 지금 종목 전체를 다시 받는다(거래정지·정리매매가 날마다 바뀌므로).
+   * 메타는 메모리에만 두고 종목별로 받은 KST 날짜가 오늘이 아니면 다시 받는다(거래정지·정리매매가 날마다 바뀌므로).
    * 다시 받기가 실패하면 이전 메타를 그대로 둔다. 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다).
    * 호출 자체가 실패하면 그 이유를 돌려준다.
    */
@@ -408,11 +407,10 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const all = entries;
       const symbols = query?.symbols ?? [];
       const current = symbols.flatMap((s) => (all[s] ? [all[s]] : []));
-      // 먼저 거르고(연결 오류는 과반일 때만) 그다음 대표를 고른다: 거른 뒤라야 억제된 proxy 오류가 키 오류를 가리지 않는다.
+      // 먼저 거르고(연결 오류는 합쳐서 과반일 때만) 그다음 대표를 고른다: 거른 뒤라야 억제된 proxy 오류가 키 오류를 가리지 않는다.
       const worst = dominantFault(issueFaults(current.flatMap((e) => (e.fault ? [e.fault] : [])), symbols.length));
       if (!worst) return null;
-      const allFailed = current.length === symbols.length && current.every((e) => e.series === null || e.series.stale);
-      return { ...worst, allFailed, lastOkAt };
+      return { ...worst, lastOkAt };
     },
 
     setQuery(q) {

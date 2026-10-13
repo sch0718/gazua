@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { flushSync, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SnackbarHost from './SnackbarHost.svelte';
-import { dismissSnackbar, holdSnackbar, releaseSnackbar, showSnackbar } from './snackbarStore.svelte';
+import { dismissSnackbar, holdSnackbar, holdSnackbarWhileFocused, releaseSnackbar, showSnackbar } from './snackbarStore.svelte';
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
@@ -156,5 +156,122 @@ describe('Snackbar', () => {
     await tick();
     expect(focus).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('status').textContent).toBe('');
+  });
+
+  describe('holdSnackbarWhileFocused (focus moved after a delete)', () => {
+    const text = () => screen.getByRole('status').textContent;
+    let row: HTMLButtonElement;
+    let other: HTMLButtonElement;
+    beforeEach(() => {
+      row = document.createElement('button');
+      other = document.createElement('button');
+      document.body.append(row, other);
+    });
+    afterEach(() => {
+      row.remove();
+      other.remove();
+    });
+
+    it('holds while focus rests on the element, then resumes the remaining time after it leaves', () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+      vi.advanceTimersByTime(1000);
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      vi.advanceTimersByTime(60_000);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      other.focus();
+      vi.advanceTimersByTime(3999);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      vi.advanceTimersByTime(1);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('does nothing when the element does not have focus', () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요');
+      holdSnackbarWhileFocused(row);
+      vi.advanceTimersByTime(5000);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('moving from the element to the snackbar button keeps it held by the snackbar itself', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+      flushSync();
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      screen.getByRole('button', { name: '되돌리기' }).focus();
+      vi.advanceTimersByTime(60_000);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+    });
+
+    it('the element leaving the document releases the hold', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요');
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      row.remove();
+      await Promise.resolve(); // MutationObserver
+      vi.advanceTimersByTime(5000);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('a focusout caused by a re-sort (focus is back on the element right away) keeps the hold', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+      vi.advanceTimersByTime(1000);
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      // 행이 옮겨지며 브라우저가 포커스를 버렸다가(focusout) 같은 렌더 안에서 되돌린다
+      row.blur();
+      row.focus();
+      await Promise.resolve();
+      vi.advanceTimersByTime(60_000);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      // 그 뒤 다른 곳으로 옮기면 멈춘 시점의 남은 시간(4초)부터 다시 흐른다
+      other.focus();
+      vi.advanceTimersByTime(3999);
+      flushSync();
+      expect(text()).toContain('삭제했어요');
+      vi.advanceTimersByTime(1);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('a focusout to nowhere that stays gone releases the hold after a microtask', async () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요');
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      row.blur();
+      await Promise.resolve();
+      vi.advanceTimersByTime(5000);
+      flushSync();
+      expect(text()).toBe('');
+    });
+
+    it('a new snackbar is not held by the earlier element, and leaving that element later does nothing', () => {
+      render(SnackbarHost);
+      showSnackbar('삭제했어요');
+      row.focus();
+      holdSnackbarWhileFocused(row);
+      showSnackbar('다음', undefined, 8000);
+      vi.advanceTimersByTime(3000);
+      other.focus(); // 이전 요소의 focusout: 새 스낵바의 남은 시간을 건드리지 않는다
+      vi.advanceTimersByTime(4999);
+      flushSync();
+      expect(text()).toContain('다음');
+      vi.advanceTimersByTime(1);
+      flushSync();
+      expect(text()).toBe('');
+    });
   });
 });

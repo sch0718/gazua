@@ -39,6 +39,22 @@ describe('createSafeStorage', () => {
     ]);
   });
 
+  it('clearProxyCleared drops only the proxy-cleared issue of that key', () => {
+    const st = createSafeStorage(makeBacking());
+    st.reportProxyCleared('k', 'http://localhost:8787');
+    st.reportCorrupt('k');
+    st.reportProxyCleared('j');
+    st.clearProxyCleared('k');
+    st.clearProxyCleared('nope');
+    expect(st.issues).toEqual([
+      { key: 'k', kind: 'corrupt' },
+      { key: 'j', kind: 'proxy-cleared' },
+    ]);
+    // 다시 지워진 뒤에는 새로 알릴 수 있다.
+    st.reportProxyCleared('k');
+    expect(st.issues).toContainEqual({ key: 'k', kind: 'proxy-cleared' });
+  });
+
   it('returns the fallback for missing keys', () => {
     const st = createSafeStorage(makeBacking());
     expect(st.get('nope', 42)).toBe(42);

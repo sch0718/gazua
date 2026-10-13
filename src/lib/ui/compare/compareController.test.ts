@@ -294,7 +294,7 @@ describe('compareController', () => {
     });
   });
 
-  it('exposes the dominant error of the last load and whether every row failed', async () => {
+  it('exposes the dominant error of the last load', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query());
     await vi.advanceTimersByTimeAsync(0);
@@ -304,9 +304,9 @@ describe('compareController', () => {
     t.pending.get('042700')!.reject(new ApiError('rate-limited', undefined, { retryAfterMs: 3000 }));
     t.pending.clear();
     await vi.advanceTimersByTimeAsync(0);
-    expect(t.ctl.issue).toMatchObject({ code: 'invalid-credentials', allFailed: true, lastOkAt: null, at: NOW });
+    expect(t.ctl.issue).toMatchObject({ code: 'invalid-credentials', lastOkAt: null, at: NOW });
 
-    // 다음 갱신에서 한 종목만 성공하면 allFailed가 풀리고, 모두 성공하면 문제가 사라진다.
+    // 다음 갱신에서 대표 오류가 바뀌고, 모두 성공하면 문제가 사라진다.
     t.setNow(NOW + RELOAD_IN_SESSION_MS);
     await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
     t.pending.get('005930')!.resolve(snap('005930'));
@@ -314,7 +314,7 @@ describe('compareController', () => {
     t.pending.get('042700')!.reject(new ApiError('upstream'));
     t.pending.clear();
     await vi.advanceTimersByTimeAsync(0);
-    expect(t.ctl.issue).toMatchObject({ code: 'rate-limited', allFailed: false, retryAfterMs: 3000, lastOkAt: NOW + RELOAD_IN_SESSION_MS });
+    expect(t.ctl.issue).toMatchObject({ code: 'rate-limited', retryAfterMs: 3000, lastOkAt: NOW + RELOAD_IN_SESSION_MS });
 
     await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
     t.resolveAll();
@@ -344,6 +344,34 @@ describe('compareController', () => {
     expect(issueView(t.ctl.issue, NOW)).toMatchObject({ kind: 'banner' });
   });
 
+  it('a single timed-out row raises no banner and the error stays on that row only', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('005930')!.reject(new ApiError('timeout'));
+    t.pending.get('000660')!.resolve(snap('000660'));
+    t.pending.get('042700')!.resolve(snap('042700'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toBeNull();
+    expect(issueView(t.ctl.issue, NOW)).toBeNull();
+    expect(t.ctl.entries['005930'].error).toBeTruthy();
+    expect(t.ctl.entries['000660'].error).toBeFalsy();
+    expect(t.ctl.entries['042700'].error).toBeFalsy();
+  });
+
+  it('mixed proxy and timeout failures count together and show the more frequent banner', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('000660')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('042700')!.reject(new ApiError('timeout'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable' });
+  });
+
   it('a stale row (last good result kept) still reports why the reload failed', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query({ symbols: ['005930'] }));
@@ -351,7 +379,7 @@ describe('compareController', () => {
     t.resolveAll({ stale: true, staleError: new ApiError('proxy-unreachable') });
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.entries['005930'].series?.stale).toBe(true);
-    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable', allFailed: true });
+    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable' });
   });
 
   it('a meta call that throws reports its error code for every row', async () => {
@@ -363,7 +391,7 @@ describe('compareController', () => {
     t.ctl.setQuery(t.query());
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.entries['005930']).toMatchObject({ series: null, error: META_ERROR });
-    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable', allFailed: true });
+    expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable' });
   });
 
   it('stale rows ignore live quotes', async () => {

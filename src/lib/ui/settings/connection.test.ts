@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskTail, mergeKeys, normalizeProxyUrl } from './connection';
+import { localHttpOrigin, maskTail, mergeKeys, normalizeProxyUrl } from './connection';
 
 describe('maskTail', () => {
   it('shows only the last 4 characters', () => {
@@ -37,6 +37,29 @@ describe('normalizeProxyUrl: plain http matches the CSP (connect-src https: only
     expect(normalizeProxyUrl('http://localhost:8787', { allowLocalHttp: true })).toEqual({ ok: true, url: 'http://localhost:8787' });
     expect(normalizeProxyUrl('http://127.0.0.1:8787/', { allowLocalHttp: true })).toEqual({ ok: true, url: 'http://127.0.0.1:8787' });
     expect(normalizeProxyUrl('http://p.example.net', { allowLocalHttp: true })).toMatchObject({ ok: false });
+  });
+});
+
+describe('localHttpOrigin', () => {
+  it('gives the origin only for an http address on a local host', () => {
+    expect(localHttpOrigin('http://localhost:8787')).toBe('http://localhost:8787');
+    expect(localHttpOrigin('http://127.0.0.1:8787/')).toBe('http://127.0.0.1:8787');
+    expect(localHttpOrigin('http://[::1]:8787')).toBe('http://[::1]:8787');
+    expect(localHttpOrigin('  http://localhost:8787  ')).toBe('http://localhost:8787');
+  });
+
+  it('drops userinfo, path, query and hash', () => {
+    expect(localHttpOrigin('http://user:pw@localhost:8787/x?k=v#h')).toBe('http://localhost:8787');
+  });
+
+  it('is null for https, other hosts, other schemes, unparsable and non-string values', () => {
+    expect(localHttpOrigin('https://localhost:8787')).toBeNull();
+    expect(localHttpOrigin('http://p.example.net')).toBeNull();
+    expect(localHttpOrigin('ftp://localhost')).toBeNull();
+    expect(localHttpOrigin('localhost:8787')).toBeNull();
+    expect(localHttpOrigin('')).toBeNull();
+    expect(localHttpOrigin(null)).toBeNull();
+    expect(localHttpOrigin(8787)).toBeNull();
   });
 });
 

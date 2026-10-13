@@ -25,6 +25,7 @@
     app.navigate({ name: 'simulate', strategyId: s.id });
   }
 
+  let listEl = $state<HTMLElement>();
   let menuId = $state<string | null>(null);
   let renaming = $state(false);
   let draft = $state('');
@@ -60,9 +61,22 @@
     closeMenu();
   }
 
+  // 지운 행의 메뉴 버튼은 사라지므로 시트가 닫힐 때 같은 자리의 다음 행 → 이전 행 → ＋ 새 전략 순으로 포커스한다.
+  let neighbors: string[] = [];
+  // 가져온 ID에는 따옴표 등이 들어올 수 있어 선택자에 끼우지 않고 dataset으로 비교한다.
+  const returnFocus = () => {
+    const rows = [...(listEl?.querySelectorAll<HTMLElement>('[data-strategy-row]') ?? [])];
+    for (const id of neighbors) {
+      const el = rows.find((r) => r.dataset.strategyRow === id);
+      if (el) return el;
+    }
+    return listEl?.querySelector<HTMLElement>('[data-new-strategy]');
+  };
+
   function remove(s: Strategy) {
     closeMenu();
     const index = app.strategies.findIndex((x) => x.id === s.id);
+    neighbors = [app.strategies[index + 1]?.id, app.strategies[index - 1]?.id].filter((id): id is string => !!id);
     app.setStrategies(app.strategies.filter((x) => x.id !== s.id));
     showSnackbar(`'${s.name}'을(를) 삭제했어요`, {
       label: '되돌리기',
@@ -79,17 +93,17 @@
   const modified = (s: Strategy) => kstDate(s.updatedAt).slice(5).replace('-', '.');
 </script>
 
-<div class="list">
+<div class="list" bind:this={listEl}>
   {#if app.strategies.length === 0}
     <div class="empty">
       <p>내 매매 규칙을 과거 데이터로 시험해 보세요</p>
-      <button type="button" class="primary" onclick={create}>＋ 새 전략</button>
+      <button type="button" class="primary" data-new-strategy onclick={create}>＋ 새 전략</button>
     </div>
   {:else}
     <ul>
       {#each app.strategies as s (s.id)}
         <li>
-          <button type="button" class="row" onclick={() => app.navigate({ name: 'simulate', strategyId: s.id })}>
+          <button type="button" class="row" data-strategy-row={s.id} onclick={() => app.navigate({ name: 'simulate', strategyId: s.id })}>
             <span class="name">{s.name}</span>
             <span class="line">{strategyLine(s, app.watchlists)}</span>
             <span class="date">최근 수정 {modified(s)}</span>
@@ -102,11 +116,11 @@
         </li>
       {/each}
     </ul>
-    <button type="button" class="primary add" onclick={create}>＋ 새 전략</button>
+    <button type="button" class="primary add" data-new-strategy onclick={create}>＋ 새 전략</button>
   {/if}
 </div>
 
-<Sheet open={target !== null} title={renaming ? '이름 바꾸기' : (target?.name ?? '')} onclose={closeMenu}>
+<Sheet open={target !== null} title={renaming ? '이름 바꾸기' : (target?.name ?? '')} onclose={closeMenu} {returnFocus}>
   {#if target}
     {#if renaming}
       <form

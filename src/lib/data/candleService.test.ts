@@ -472,6 +472,26 @@ describe('daily: one request, memo, adjusted prices', () => {
     }
   });
 
+  it('AUTO D1 on a past day: the adjusted daily is rescaled to the original-price minutes (NXT bars stay raw)', async () => {
+    const clock = { now: SUN };
+    const d = '2026-10-08';
+    const f = fakeProvider({
+      now: () => clock.now,
+      daily: () => ({ c: 50, v: 2000 }),
+      minute: (venue, t) => (venue === 'KRX' ? { c: t >= at(d, '16:00') ? 104 : 100 } : { c: 101 }),
+    });
+    const s = await loadSeries({ provider: f.provider, ...deps(clock), meta: meta(), period: D1, venueMode: 'AUTO', now: SUN });
+    // 일봉 종가 50 ↔ KRX 종가 단일가 봉 100 → 배율 0.5: 기준 종가 100, 평균 거래량 1000
+    expect(s.base).toBe(100);
+    expect(s.avgDailyVolume).toBe(1000);
+    expect(s.avgVolumeVenue).toBe('KRX');
+    // AUTO 구성: NXT 프리·애프터 구간은 NXT 원래 가격, 마지막은 KRX 애프터
+    expect(barAt(s, at(d, '08:10'))?.c).toBe(101);
+    expect(barAt(s, at(d, '15:45'))?.c).toBe(101);
+    expect(barAt(s, at(d, '17:00'))?.c).toBe(104);
+    expect(lastPct(s)).toBeCloseTo(4, 9);
+  });
+
   it('factor is applied exactly once', async () => {
     const clock = { now: SUN };
     const f = fakeProvider({ now: () => clock.now, daily: () => ({ c: 50, v: 2000 }), minute: () => ({ c: 100, v: 10 }) });
@@ -531,6 +551,34 @@ describe('RVOL denominator venue (same venue as the minutes, KRX fallback)', () 
       expect(s.avgVolumeVenue).toBe('KRX');
       expect(dailyVenues(f)).toEqual(['KRX']);
     }
+  });
+
+  it('a failed extra RVOL daily is not memoized: the next load asks again and recovers', async () => {
+    const clock = { now: THU_10 };
+    const f = fakeProvider({ now: () => clock.now, daily: byVenue });
+    const getCandles = f.provider.getCandles;
+    let unifiedDown = true;
+    f.provider.getCandles = async (q) => {
+      if (q.interval === '1d' && q.venue === 'UNIFIED' && unifiedDown) {
+        f.calls.push(q);
+        throw new ApiError('upstream');
+      }
+      return getCandles(q);
+    };
+    const d = deps(clock);
+    const first = await load(f, clock, 'UNIFIED', {}, D1, d);
+    // 실패하면 조용히 KRX 평균으로 대체한다
+    expect(first.avgDailyVolume).toBe(1000);
+    expect(first.avgVolumeVenue).toBe('KRX');
+    const unifiedCalls = () => f.calls.filter((c) => c.interval === '1d' && c.venue === 'UNIFIED').length;
+    expect(unifiedCalls()).toBe(1);
+
+    // 메모 안(같은 시각)에서 다시 불러도 실패를 기억하지 않고 UNIFIED 일봉을 다시 조회한다
+    unifiedDown = false;
+    const second = await load(f, clock, 'UNIFIED', {}, D1, d);
+    expect(unifiedCalls()).toBe(2);
+    expect(second.avgDailyVolume).toBe(1200);
+    expect(second.avgVolumeVenue).toBe('UNIFIED');
   });
 
   it('UNIFIED mode fetches the UNIFIED daily once more on 1 day only, memoized with the same key rule', async () => {

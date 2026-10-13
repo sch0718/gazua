@@ -1,10 +1,21 @@
+<script module lang="ts">
+  // 마지막 입력이 포인터인지 키보드인지. 보드가 다시 마운트돼도(빈 상태에서 마우스로 되돌리기) 이어지도록
+  // 모듈에 두고 한 번만 등록한다. 리스너가 둘뿐이라 떼지 않는다(인스턴스 수를 세는 쪽이 더 복잡하고 틈이 생긴다).
+  let pointerFocus = false;
+  if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', () => (pointerFocus = true), true);
+    document.addEventListener('keydown', () => (pointerFocus = false), true);
+  }
+</script>
+
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import Badge from '../components/Badge.svelte';
   import { fmtWon, trendClass } from '../format';
   import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
   import { sortRows, type LeaderRow } from './rows';
 
-  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 스크럽 중에는 frozenOrder를 지킨다.
+  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 고정 중(스크럽·키보드 포커스)에는 frozenOrder를 지킨다.
   let {
     rows,
     frozenOrder,
@@ -18,6 +29,7 @@
     ontogglehidden,
     onreorder,
     onopenadd,
+    onfocuswithin,
   }: {
     rows: LeaderRow[];
     frozenOrder: string[] | null;
@@ -34,6 +46,8 @@
     /** `symbol`을 그룹에서 `target` 자리로 옮긴다. */
     onreorder: (symbol: string, target: string) => void;
     onopenadd: () => void;
+    /** 포커스가 목록 안으로 들어오면 그때 보이는 순서를, 목록 밖으로 나가면 null을 알린다. */
+    onfocuswithin?: (order: string[] | null) => void;
   } = $props();
 
   const LONG_PRESS_MS = 500;
@@ -49,11 +63,47 @@
     return (index >= 0 ? listEl?.querySelectorAll<HTMLElement>(':scope > li > .main-btn')[index] : undefined) ?? addBtn;
   }
 
+  const shownRows = () => [...(listEl?.querySelectorAll<HTMLElement>(':scope > li') ?? [])];
+
+  /** symbol 행이 지금 몇 번째로 보이는지(없으면 -1). */
+  export function indexOf(symbol: string): number {
+    return shownRows().findIndex((l) => l.dataset.symbol === symbol);
+  }
+
   /** symbol 행의 버튼(되돌린 행으로 포커스를 옮길 때). */
   export function rowButtonFor(symbol: string): HTMLElement | undefined {
-    const li = [...(listEl?.querySelectorAll<HTMLElement>(':scope > li') ?? [])].find((l) => l.dataset.symbol === symbol);
+    const li = shownRows().find((l) => l.dataset.symbol === symbol);
     return li?.querySelector<HTMLElement>(':scope > .main-btn') ?? undefined;
   }
+
+  // 키보드 포커스가 목록 안에 있는지. 들어오고 나갈 때만 알린다(목록 안에서 옮길 때는 알리지 않는다).
+  // 마우스·터치로 누른 뒤의 포커스는 고정하지 않는다(마지막 입력이 포인터인지 키보드인지로 가린다).
+  // 이미 고정 중이면 포인터로 눌러도 풀지 않는다(누르고 떼는 사이에 행이 옮겨지면 클릭이 빗나간다).
+  let focusInside = false;
+  function hold() {
+    focusInside = true;
+    onfocuswithin?.(ordered.map((r) => r.symbol));
+  }
+  function onfocusin() {
+    if (focusInside || pointerFocus) return;
+    hold();
+  }
+  // 마우스로 포커스한 요소에서 이어 키보드를 쓰면 새 focusin이 없다. 키를 누르는 시점에 고정을 시작한다.
+  function onlistkeydown() {
+    if (focusInside || !listEl.contains(document.activeElement)) return;
+    hold();
+  }
+  function leave() {
+    focusInside = false;
+    onfocuswithin?.(null);
+  }
+  function onfocusout(e: FocusEvent) {
+    const next = e.relatedTarget as Node | null;
+    if (focusInside && (!next || !listEl.contains(next))) leave();
+  }
+  onDestroy(() => {
+    if (focusInside) leave();
+  });
 
   // 다시 정렬하며 행(DOM 노드)을 옮기면 브라우저가 그 안의 포커스를 버린다(예: 되돌린 행에 값이 들어와 위로 갈 때).
   // 옮기기 전에 리스트 안의 포커스를 기억했다가, body로 빠졌으면 같은 요소로 되돌린다.
@@ -69,6 +119,8 @@
     focusBeforeSort = null;
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (el?.isConnected && lost) el.focus({ preventScroll: true });
+    // 포커스가 있던 행이 사라지면 focusout이 오지 않을 수 있다. 목록에 포커스가 없으면 고정을 푼다.
+    if (focusInside && !listEl?.contains(document.activeElement)) leave();
   });
 
   let press: { symbol: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -183,7 +235,8 @@
     <span>{metricLabel} 순 · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span>
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
-  <ul bind:this={listEl}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
       {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}

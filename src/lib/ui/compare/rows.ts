@@ -35,6 +35,8 @@ export interface RowSource {
   /** 지금 지표의 점(시리즈가 없으면 null) */
   points?: Point[] | null;
   quote?: Quote;
+  /** rowSeries(series, quote, opts)를 호출자가 이미 계산했으면 그 결과(행마다 한 번만 계산하게). 없으면 priceOf가 계산한다. */
+  quoted?: (LoadedSeries & { stale?: boolean }) | null;
 }
 
 /** t 이하에서 마지막 값(null 건너뜀). t가 null이면 마지막 값. */
@@ -62,7 +64,7 @@ function priceOf(s: RowSource, opts: RowOpts): number | null {
   const closes = series.candles.map((c) => ({ t: c.t, v: c.c }));
   if (opts.scrubT !== null) return valueAt(closes, opts.scrubT);
   // 시세는 값 계산에 쓰였을 때만 보인다(가격과 %가 늘 같은 근거). 아니면 마지막 캔들 종가.
-  if (s.quote && rowSeries(series, s.quote, opts) !== series) return s.quote.price;
+  if (s.quote && (s.quoted ?? rowSeries(series, s.quote, opts)) !== series) return s.quote.price;
   return valueAt(closes, null);
 }
 
@@ -110,8 +112,7 @@ function badgesOf(s: RowSource, venueMode: VenueMode): string[] {
   if (type === 'ETF' || type === 'ETN') out.push(type);
   if (venueMode === 'NXT' && s.series?.intervals.some((iv) => iv.fallback)) out.push('KRX 대체');
   // NXT 모드에서 NXT만 정지면 종목 상세와 같은 말로 `NXT 거래정지`. KRX가 정지면(둘 다 포함) `거래정지`.
-  if (s.meta?.krxSuspended) out.push('거래정지');
-  else if (venueMode === 'NXT' && s.meta?.nxtSuspended === true) out.push('NXT 거래정지');
+  if (isSuspended(s.meta, venueMode)) out.push(s.meta?.krxSuspended ? '거래정지' : 'NXT 거래정지');
   return out;
 }
 

@@ -185,6 +185,57 @@ describe('Simulate list', () => {
     expect(app.strategies.map((s) => s.name)).toEqual(['가', '나', '다']);
   });
 
+  describe('menu: delete returns focus (the row and its menu button are gone)', () => {
+    const row = (id: string) => [...document.querySelectorAll<HTMLElement>('[data-strategy-row]')].find((el) => el.dataset.strategyRow === id) ?? null;
+    const del = async (name: string) => {
+      const more = screen.getByRole('button', { name: `${name} 메뉴` });
+      more.focus(); // 실제 클릭은 포커스를 주지만 fireEvent.click은 주지 않는다
+      await fireEvent.click(more);
+      await fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+    };
+
+    it('a middle row sends focus to the next row button', async () => {
+      setup(['가', '나', '다']);
+      await del('나');
+      await waitFor(() => expect(document.activeElement).toBe(row('s2')));
+    });
+
+    it('the last row sends focus to the previous row button', async () => {
+      setup(['가', '나', '다']);
+      await del('다');
+      await waitFor(() => expect(document.activeElement).toBe(row('s1')));
+    });
+
+    it('the only row sends focus to ＋ 새 전략', async () => {
+      setup(['가']);
+      await del('가');
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '＋ 새 전략' })));
+    });
+
+    it("a strategy id with a quote (imported) does not break the lookup: focus goes to that row's button", async () => {
+      const app = setup(['가', '나', '다']);
+      const file = JSON.parse(app.exportData(false));
+      file.strategies[1].id = 'x"';
+      const res = app.importData(JSON.stringify(file));
+      expect(res).toMatchObject({ ok: true, repaired: false });
+      if (!res.ok) throw new Error('import failed');
+      app.switchProfile(res.profileId);
+      await tick();
+      await del('가');
+      await waitFor(() => expect(app.strategies.map((s) => s.id)).toEqual(['x"', 's2']));
+      await waitFor(() => expect(document.activeElement).toBe(row('x"')));
+    });
+
+    it('복제 keeps the usual return to the menu button', async () => {
+      setup(['가', '나']);
+      const more = screen.getByRole('button', { name: '가 메뉴' });
+      more.focus(); // 실제 클릭은 포커스를 주지만 fireEvent.click은 주지 않는다
+      await fireEvent.click(more);
+      await fireEvent.click(screen.getByRole('button', { name: '복제' }));
+      await waitFor(() => expect(document.activeElement).toBe(more));
+    });
+  });
+
   it('new strategies are numbered: 새 전략, 새 전략 2', async () => {
     const app = setup();
     await fireEvent.click(screen.getByRole('button', { name: '＋ 새 전략' }));

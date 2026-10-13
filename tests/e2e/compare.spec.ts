@@ -169,6 +169,28 @@ test('delete in detail sheet keeps focus and reaches undo by Tab', async ({ page
   await expect(leaderboard(page).locator(`li[data-symbol="${deleted}"] > .main-btn`)).toBeFocused();
 });
 
+test('group sheet: delete a group, Tab to 되돌리기, Enter → focus lands on the restored group delete button', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  // 그룹이 둘이어야 지울 수 있다. 새 그룹(`새 그룹 2`)을 만들고 그룹 관리를 연다.
+  await page.getByRole('button', { name: /새 그룹/ }).click();
+  await page.getByRole('button', { name: '그룹 관리' }).click();
+  const sheet = page.getByRole('dialog', { name: '그룹 관리' });
+  await expect(sheet).toBeVisible();
+  const delBtn = sheet.getByRole('button', { name: '새 그룹 2 삭제' });
+  await delBtn.click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '삭제', exact: true }).click();
+  await expect(delBtn).toHaveCount(0);
+
+  // 스낵바 5초 안에 닿도록 상한을 좁게 둔다(지운 뒤 포커스는 닫기 버튼 → 컨트롤 몇 개 → 되돌리기).
+  const undo = page.getByRole('button', { name: '되돌리기' });
+  await expect(undo).toBeVisible();
+  await tabUntil(page, undo, 10);
+  await page.keyboard.press('Enter');
+  await expect(sheet.getByRole('button', { name: '새 그룹 2 삭제' })).toBeFocused();
+});
+
 test('다크 모드 비교 화면 스크린샷', async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await openApp(page);
