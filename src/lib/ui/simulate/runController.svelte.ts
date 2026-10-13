@@ -24,15 +24,21 @@ export interface DoneMeta {
   strategy: Strategy;
 }
 
+/** 진행 부가 줄에 쓸 이번 실행의 범위: 전략 종목 수와 비교 종목 유무 */
+export interface LoadScope {
+  stocks: number;
+  benchmark: boolean;
+}
+
 export type DoneState = { kind: 'done'; result: SimResult; meta: DoneMeta };
 
 export type RunState =
   | { kind: 'idle' }
-  | { kind: 'loading'; progress: LoadProgress }
+  | { kind: 'loading'; progress: LoadProgress; scope: LoadScope }
   | { kind: 'partial'; failed: SimFailure[]; proceed: () => void; cancel: () => void }
   | DoneState
   | { kind: 'noData'; failed: SimFailure[] }
-  | { kind: 'error'; error: unknown } // 연결 오류
+  | { kind: 'error'; error: unknown } // 연결 오류(메타 실패, 또는 모든 종목이 `받지 못했어요`)
   | { kind: 'crash' }; // 엔진 예외
 
 export interface RunController {
@@ -76,7 +82,15 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     state = { kind: 'done', result, meta: { ...meta, candles, names } };
   }
 
-  async function start(strategy: Strategy, id: number) {
+  // 남은 종목이 없을 때: 실패가 전부 `받지 못했어요`면 데이터가 없는 게 아니라 연결 문제다.
+  function noData(failed: SimFailure[]): RunState {
+    if (failed.length > 0 && failed.every((f) => f.reason === '받지 못했어요')) {
+      return { kind: 'error', error: new Error('모든 종목의 일봉을 받지 못했어요') };
+    }
+    return { kind: 'noData', failed };
+  }
+
+  async function start(strategy: Strategy, id: number, symbols: string[], scope: LoadScope) {
     const provider = app.provider;
     // 공급자가 바뀌면 받은 일봉을 버린다.
     if (provider !== memoProvider) {
@@ -86,25 +100,25 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     const outcome = await loadSimData({
       provider,
       strategy,
-      symbols: resolveSymbols(strategy, app.watchlists),
+      symbols,
       now: now(),
       memo,
       onProgress: (progress) => {
-        if (id === runId) state = { kind: 'loading', progress };
+        if (id === runId) state = { kind: 'loading', progress, scope };
       },
       isCancelled: () => id !== runId,
     });
     if (id !== runId) return;
     if (!outcome.ok) {
       if ('error' in outcome) state = { kind: 'error', error: outcome.error };
-      else if ('noData' in outcome) state = { kind: 'noData', failed: outcome.failed };
+      else if ('noData' in outcome) state = noData(outcome.failed);
       else state = { kind: 'idle' };
       return;
     }
     const { input, failed } = outcome;
     // 전략 종목이 하나도 남지 않으면 지수 날짜가 있어도 돌릴 것이 없다.
     if (input.stocks.length === 0) {
-      state = { kind: 'noData', failed };
+      state = noData(failed);
       return;
     }
     const meta = {
@@ -130,8 +144,10 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     run(strategy) {
       const id = ++runId;
       const snapshot = $state.snapshot(strategy) as Strategy;
-      state = { kind: 'loading', progress: { done: 0, total: 0, waiting: false } };
-      start(snapshot, id).catch((e) => {
+      const symbols = resolveSymbols(snapshot, app.watchlists);
+      const scope = { stocks: symbols.length, benchmark: snapshot.benchmarks.symbol !== null };
+      state = { kind: 'loading', progress: { done: 0, total: 0, waiting: false }, scope };
+      start(snapshot, id, symbols, scope).catch((e) => {
         if (id !== runId) return;
         console.error('시뮬레이션 데이터 처리 실패', e);
         state = { kind: 'crash' };

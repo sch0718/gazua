@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ResizeObserverStub } from '../../chart/lwcStub';
 import { ApiError } from '../../providers/errors';
+import { doneState } from './resultFixture';
 import RunPanel from './RunPanel.svelte';
 import type { RunState } from './runController.svelte';
 
@@ -11,9 +12,12 @@ vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).
 beforeEach(() => vi.stubGlobal('ResizeObserver', ResizeObserverStub));
 afterEach(() => vi.unstubAllGlobals());
 
-function setup(state: RunState) {
+const scope = { stocks: 4, benchmark: true };
+
+function setup(state: RunState, extra: { stale?: boolean; canRerun?: boolean } = {}) {
   const props = {
     state,
+    ...extra,
     colorConvention: 'kr' as const,
     onEdit: vi.fn(),
     onRetry: vi.fn(),
@@ -27,7 +31,7 @@ function setup(state: RunState) {
 
 describe('RunPanel', () => {
   it('받는 중: 진행 막대 + 문구 + 취소', async () => {
-    const p = setup({ kind: 'loading', progress: { done: 3, total: 10, waiting: false } });
+    const p = setup({ kind: 'loading', progress: { done: 3, total: 10, waiting: false }, scope });
     expect(screen.getByText('일봉 받는 중 3/10')).toBeTruthy();
     const bar = screen.getByRole('progressbar');
     expect(bar.getAttribute('aria-valuenow')).toBe('3');
@@ -37,7 +41,7 @@ describe('RunPanel', () => {
   });
 
   it('429로 기다리는 중이면 · 잠시 대기 중', () => {
-    setup({ kind: 'loading', progress: { done: 4, total: 10, waiting: true } });
+    setup({ kind: 'loading', progress: { done: 4, total: 10, waiting: true }, scope });
     expect(screen.getByText('일봉 받는 중 4/10 · 잠시 대기 중')).toBeTruthy();
   });
 
@@ -64,7 +68,17 @@ describe('RunPanel', () => {
     expect(screen.getByText('프록시에 연결할 수 없어요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '진단 열기' }));
     expect(p.onIssueAction).toHaveBeenCalledWith('diagnostics');
-    await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
+    await fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    expect(p.onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('모든 종목을 받지 못한 연결 문제: 연결 문구 + 진단 열기 + 다시 시도', async () => {
+    const p = setup({ kind: 'error', error: new Error('all failed') });
+    expect(screen.getByText('종목 정보를 받지 못했어요')).toBeTruthy();
+    expect(screen.queryByText('기간 안에 받은 데이터가 없어요')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '진단 열기' }));
+    expect(p.onIssueAction).toHaveBeenCalledWith('diagnostics');
+    await fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
     expect(p.onRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -83,5 +97,90 @@ describe('RunPanel', () => {
     expect(screen.getByText('계산 중 문제가 생겼어요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
     expect(p.onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('일부 실패 문구: 받지 못한 종목만', () => {
+    setup({ kind: 'partial', failed: [{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }], proceed: vi.fn(), cancel: vi.fn() });
+    expect(screen.getByText('SK하이닉스 일봉을 받지 못했어요. 빼고 계속할까요?')).toBeTruthy();
+  });
+
+  it('일부 실패 문구: 기간 안 데이터 없음만', () => {
+    setup({
+      kind: 'partial',
+      failed: [
+        { symbol: '035720', name: '카카오', reason: '기간 안에 데이터가 없어요' },
+        { symbol: '005930', name: '삼성전자', reason: '기간 안에 데이터가 없어요' },
+      ],
+      proceed: vi.fn(),
+      cancel: vi.fn(),
+    });
+    expect(screen.getByText('카카오, 삼성전자은(는) 이 기간에 데이터가 없어요. 빼고 계속할까요?')).toBeTruthy();
+    expect(screen.queryByText(/일봉을 받지 못했어요/)).toBeNull();
+  });
+
+  it('일부 실패 문구: 섞이면 두 줄', () => {
+    setup({
+      kind: 'partial',
+      failed: [
+        { symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' },
+        { symbol: '035720', name: '카카오', reason: '기간 안에 데이터가 없어요' },
+      ],
+      proceed: vi.fn(),
+      cancel: vi.fn(),
+    });
+    expect(screen.getByText('SK하이닉스 일봉을 받지 못했어요')).toBeTruthy();
+    expect(screen.getByText('카카오은(는) 이 기간에 데이터가 없어요. 빼고 계속할까요?')).toBeTruthy();
+  });
+
+  it('진행: 부가 줄에 종목 수 · 지수 · 비교 기준', () => {
+    setup({ kind: 'loading', progress: { done: 0, total: 7, waiting: false }, scope });
+    expect(screen.getByText('종목 4개 · 지수 · 비교 기준')).toBeTruthy();
+  });
+
+  it('진행: 비교 종목이 없으면 비교 기준 없이', () => {
+    setup({ kind: 'loading', progress: { done: 1, total: 6, waiting: false }, scope: { stocks: 3, benchmark: false } });
+    expect(screen.getByText('종목 3개 · 지수')).toBeTruthy();
+  });
+
+  it('진행: total이 0이면 숫자 없이 일봉 받는 중만', () => {
+    setup({ kind: 'loading', progress: { done: 0, total: 0, waiting: false }, scope });
+    expect(screen.getByText('일봉 받는 중')).toBeTruthy();
+    expect(screen.queryByText(/0\/0/)).toBeNull();
+  });
+
+  it('진행 막대 트랙은 --line', () => {
+    setup({ kind: 'loading', progress: { done: 1, total: 7, waiting: false }, scope });
+    // 컴포넌트 스타일은 jsdom에서 계산되지 않으므로 클래스만 확인한다
+    expect(screen.getByRole('progressbar').classList.contains('bar')).toBe(true);
+  });
+
+  it('idle: 넓은 화면 안내 문구', () => {
+    setup({ kind: 'idle' });
+    expect(screen.getByText('규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요')).toBeTruthy();
+  });
+
+  it('결과가 오래되면 배너 + 다시 실행, 본문은 흐리게', async () => {
+    const p = setup(doneState(), { stale: true, canRerun: true });
+    expect(screen.getByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeTruthy();
+    expect(document.querySelector('.dim')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
+    expect(p.onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('결과가 오래됐어도 규칙에 고칠 곳이 있으면 다시 실행은 없다', () => {
+    setup(doneState(), { stale: true, canRerun: false });
+    expect(screen.getByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '다시 실행' })).toBeNull();
+  });
+
+  it('최신 결과에는 배너가 없다', () => {
+    setup(doneState());
+    expect(screen.queryByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeNull();
+    expect(document.querySelector('.dim')).toBeNull();
+  });
+
+  it('작업본에 고칠 곳이 있으면 다시 시도·다시 실행 버튼이 꺼진다', () => {
+    setup({ kind: 'error', error: new Error('x') }, { canRerun: false });
+    expect((screen.getByRole('button', { name: '다시 시도' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

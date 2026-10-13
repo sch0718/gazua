@@ -5,6 +5,9 @@ import type { App } from '../../state/app.svelte';
 import { showSnackbar } from '../components/snackbarStore.svelte';
 import { kstHHMM } from './compareText';
 
+/** 종목 정보(메타)를 받지 못했을 때의 행 문구. 오류 코드를 모를 때 연결 문구의 fallback으로도 쓴다. */
+export const META_ERROR = '종목 정보를 받지 못했어요';
+
 /** 한 종목의 마지막 시도가 실패한 이유. */
 export interface LoadFault {
   code: ErrorCode;

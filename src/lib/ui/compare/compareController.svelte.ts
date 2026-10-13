@@ -8,7 +8,7 @@ import { ApiError } from '../../providers/errors';
 import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
 import type { Period, Settings } from '../../state/schema';
-import { dominantFault, type LoadFault, type LoadIssue } from './loadIssue';
+import { dominantFault, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
 import { quoteVenue } from './venue';
 
 export type SnapshotSeries = LoadedSeries & { stale: boolean; staleError?: ApiError };
@@ -90,7 +90,7 @@ export interface CompareController {
 
 export const RELOAD_IN_SESSION_MS = 60_000;
 export const RELOAD_OUTSIDE_MS = 600_000;
-export const META_ERROR = '종목 정보를 받지 못했어요';
+export { META_ERROR }; // loadIssue로 옮겼다(시뮬레이션도 쓴다). 기존 import 경로는 그대로 둔다
 
 /** 행에 보이는 짧은 오류 문구. 오류 메시지 원문(요청 정보가 섞일 수 있음)은 쓰지 않는다. */
 export function errorText(e: unknown): string {

@@ -147,9 +147,31 @@ describe('runController', () => {
     expect(ctl.state).toEqual({ kind: 'noData', failed: expect.any(Array) });
   });
 
-  it('지수도 없고 종목이 모두 실패하면 로더의 실패 목록이 noData에 실린다', async () => {
+  it('지수도 없고 종목이 모두 실패(모두 받지 못했어요)하면 연결 문제 error', async () => {
     const ctl = ctlFor(
       fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')), getIndexCandles: async () => [] })),
+    );
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error' });
+    expect(simulate).not.toHaveBeenCalled();
+  });
+
+  it('전략 종목이 모두 받지 못했어요(지수 날짜만 있어도)이면 연결 문제 error', async () => {
+    const ctl = ctlFor(fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')) })));
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error' });
+    expect(simulate).not.toHaveBeenCalled();
+  });
+
+  it('남은 종목이 없어도 사유가 섞이면 noData + 실패 목록', async () => {
+    const ctl = ctlFor(
+      fakeApp(
+        provider({
+          getCandles: async (q) => (q.symbol === '005930' ? Promise.reject(new Error('x')) : []),
+        }),
+      ),
     );
     ctl.run(strat());
     await settled(ctl);
@@ -157,23 +179,19 @@ describe('runController', () => {
       kind: 'noData',
       failed: [
         { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
-        { symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' },
+        { symbol: '000660', name: 'SK하이닉스', reason: '기간 안에 데이터가 없어요' },
       ],
     });
   });
 
-  it('전략 종목이 모두 실패하면 noData + 실패 목록(지수 날짜만 있어도)', async () => {
-    const ctl = ctlFor(fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')) })));
-    ctl.run(strat());
+  it('loading 상태에 종목 수와 비교 종목 여부(scope)가 실린다', async () => {
+    const ctl = ctlFor(fakeApp(provider()));
+    ctl.run(strat((s) => (s.benchmarks = { index: 'KOSPI', symbol: '069500' })));
+    expect(ctl.state).toMatchObject({ kind: 'loading', scope: { stocks: 2, benchmark: true } });
     await settled(ctl);
-    expect(ctl.state).toEqual({
-      kind: 'noData',
-      failed: [
-        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
-        { symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' },
-      ],
-    });
-    expect(simulate).not.toHaveBeenCalled();
+    ctl.run(strat());
+    expect(ctl.state).toMatchObject({ kind: 'loading', scope: { stocks: 2, benchmark: false } });
+    await settled(ctl);
   });
 
   it('simulate가 throw하면 crash, 콘솔 error 1회', async () => {

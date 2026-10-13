@@ -6,11 +6,17 @@ import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import { newStrategy } from '../lib/sim/defaults';
+import { simulate } from '../lib/sim/simulate';
+import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
 import { kstEpoch } from '../lib/time/kst';
 import { dismissSnackbar, currentSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import Simulate from './Simulate.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
+vi.mock('../lib/sim/simulate', async (orig) => {
+  const m = await orig<typeof import('../lib/sim/simulate')>();
+  return { ...m, simulate: vi.fn(m.simulate) };
+});
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 // 실제 barEnd처럼 compact(폰 폭)이면 상태 칩을 그리지 않는다.
@@ -32,6 +38,8 @@ function setup(names: string[] = []) {
 }
 
 afterEach(() => {
+  vi.mocked(simulate).mockClear();
+  vi.restoreAllMocks();
   for (const a of apps) a.destroy();
   apps = [];
   dismissSnackbar();
@@ -247,6 +255,102 @@ describe('Simulate run', () => {
     await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
     expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '결과' })).toBeNull();
+  }, 15000);
+});
+
+describe('Simulate run states', () => {
+  const STALE = '규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요';
+  const dropOf = () => vi.mocked(simulate).mock.calls.at(-1)![0].strategy.entry.decline.dropPct.value;
+
+  async function runWide() {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    return app;
+  }
+
+  it('넓은 화면 idle: 결과 칸에 안내 문구', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    expect(await screen.findByText('규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요')).toBeTruthy();
+  });
+
+  it('stale result shows the rules-changed banner and reruns with the current draft', async () => {
+    await runWide();
+    expect(screen.queryByText(STALE)).toBeNull();
+    const before = dropOf();
+    await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
+    await fireEvent.input(screen.getByLabelText('고점 대비 하락폭'), { target: { value: String(before + 7) } });
+    expect(await screen.findByText(STALE)).toBeTruthy();
+    vi.mocked(simulate).mockClear();
+    await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
+    await waitFor(() => expect(simulate).toHaveBeenCalled(), { timeout: 5000 });
+    expect(dropOf()).toBe(before + 7);
+    await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  }, 20000);
+
+  it('이름만 바꾸면 결과는 오래된 것이 아니다', async () => {
+    await runWide();
+    await fireEvent.input(screen.getByRole('textbox', { name: '전략 이름' }), { target: { value: '반등' } });
+    expect(screen.queryByText(STALE)).toBeNull();
+  }, 15000);
+
+  it('규칙을 원래대로 돌리면 배너가 사라진다', async () => {
+    await runWide();
+    const before = dropOf();
+    await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
+    const input = screen.getByLabelText('고점 대비 하락폭');
+    await fireEvent.input(input, { target: { value: String(before + 7) } });
+    expect(await screen.findByText(STALE)).toBeTruthy();
+    await fireEvent.input(input, { target: { value: String(before) } });
+    await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  }, 20000);
+
+  it('좁은 화면에는 오래된 결과 배너가 없다', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByText(STALE)).toBeNull();
+  }, 15000);
+
+  it('모든 종목을 받지 못하면 연결 문구와 다시 시도(현재 draft로)', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    const spy = vi.spyOn(app.provider, 'getCandles').mockImplementation(() => Promise.reject(new Error('x')));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByRole('button', { name: '진단 열기' }, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByText('기간 안에 받은 데이터가 없어요')).toBeNull();
+    const calls = spy.mock.calls.length;
+    await fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(calls), { timeout: 5000 });
+  }, 15000);
+
+  it('규칙 고치기(기간·자금) 뒤 결과로 갔다가 규칙을 다시 열면 구역이 강제로 열리지 않는다', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    // 전부 건너뜀(현금 부족) 결과 → 규칙 고치기는 기간·자금을 연다
+    vi.mocked(simulate).mockImplementationOnce(() =>
+      doneState((s) => noTrades(s, [{ date: '2024-07-02', symbol: '000660', reason: '현금 부족' }])).result,
+    );
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await fireEvent.click(await screen.findByRole('button', { name: '규칙 고치기' }, { timeout: 5000 }));
+    const periodHead = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '기간·자금')!;
+    expect(periodHead().getAttribute('aria-expanded')).toBe('true');
+    // 결과 → 규칙: 편집기가 다시 만들어져도 이전 요청을 다시 열지 않는다
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    await fireEvent.click(await screen.findByRole('button', { name: '규칙' }));
+    expect(periodHead().getAttribute('aria-expanded')).toBe('false');
   }, 15000);
 });
 

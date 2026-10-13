@@ -4,7 +4,7 @@
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
-  import type { Issue } from '../lib/sim/validate';
+  import { strategyIssues, type Issue } from '../lib/sim/validate';
   import type { App } from '../lib/state/app.svelte';
   import { runIssueAction } from '../lib/ui/compare/loadIssue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
@@ -14,6 +14,7 @@
   import { createRunController } from '../lib/ui/simulate/runController.svelte';
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
+  import { rulesChanged } from '../lib/ui/simulate/strategyActions.svelte';
 
   let { app, barEnd }: { app: App; barEnd: Snippet<[boolean]> } = $props();
 
@@ -34,7 +35,10 @@
   const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
   const compact = $derived(compactQuery?.current ?? false);
   let showResult = $state(false);
-  let lastDraft: Strategy | null = null;
+  // 편집기의 최신 작업본. 오래된 결과 비교와 `다시 실행`·`다시 시도`가 이걸 쓴다(편집기가 내려가도 남는다).
+  let draft = $state.raw<Strategy | null>(null);
+  const stale = $derived(wide && ctl.state.kind === 'done' && draft !== null && rulesChanged(ctl.state.meta.strategy, draft));
+  const canRerun = $derived(draft !== null && !strategyIssues(draft, app.watchlists).some((i) => i.blocking));
   // 결과의 `규칙 고치기`가 열어 달라는 편집 구역(번호가 바뀔 때마다 한 번 연다)
   let openRequest = $state<{ section: Issue['section']; seq: number } | null>(null);
   let openSeq = 0;
@@ -47,27 +51,30 @@
     untrack(() => {
       ctl.cancel();
       showResult = false;
-      lastDraft = null;
       openRequest = null;
     });
   });
   onDestroy(() => ctl.cancel());
 
-  function run(draft: Strategy) {
-    lastDraft = draft;
-    ctl.run(draft);
+  function run(next: Strategy) {
+    draft = next;
+    ctl.run(next);
     showResult = true;
   }
   function edit(section?: Issue['section']) {
     showResult = false;
-    if (typeof section === 'string') openRequest = { section, seq: ++openSeq };
+    // 구역 없이 돌아가면 이전 요청을 지운다 — 좁은 화면에서 편집기가 다시 만들어질 때 옛 요청을 다시 열지 않도록
+    openRequest = typeof section === 'string' ? { section, seq: ++openSeq } : null;
   }
   const showRun = () => (showResult = true);
   function cancel() {
     ctl.cancel();
     showResult = false;
   }
-  const retry = () => lastDraft && ctl.run(lastDraft);
+  // 다시 실행·다시 시도는 편집기의 현재 작업본으로 돌린다(막는 경고가 있으면 오래된 결과 배너에서는 버튼을 숨긴다)
+  const retry = () => {
+    if (draft && canRerun) run(draft);
+  };
 
   // 경로를 바로잡았다는 안내(없는 전략)는 여기서 한 번만 보여 준다.
   $effect(() => {
@@ -107,7 +114,7 @@
           <div class="sim" class:split={wide}>
             {#if wide || !showResult}
               <div class="pane">
-                <StrategyEditor {app} {strategy} onRun={run} {openRequest} />
+                <StrategyEditor {app} {strategy} onRun={run} ondraft={(d) => (draft = d)} {openRequest} />
               </div>
             {/if}
             {#if wide || showResult}
@@ -115,6 +122,8 @@
                 <RunPanel
                   state={ctl.state}
                   colorConvention={app.settings.colorConvention}
+                  {stale}
+                  {canRerun}
                   onEdit={edit}
                   onRetry={retry}
                   onCancel={cancel}

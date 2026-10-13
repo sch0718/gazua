@@ -23,6 +23,7 @@
     app,
     strategy,
     onRun,
+    ondraft,
     openRequest = null,
     loadItems = sharedUniverse,
   }: {
@@ -30,6 +31,8 @@
     strategy: Strategy;
     /** 막는 경고가 없을 때 저장 대기분을 저장한 뒤 작업본(사본)을 넘긴다 */
     onRun: (draft: Strategy) => void;
+    /** 작업본이 바뀔 때마다(처음 포함) 사본을 알린다. 결과가 오래됐는지 비교하는 데 쓴다 */
+    ondraft?: (draft: Strategy) => void;
     /** 결과 화면에서 `규칙 고치기`로 들어올 때 열 구역. seq가 바뀔 때마다 한 번 연다 */
     openRequest?: { section: Issue['section']; seq: number } | null;
     loadItems?: () => Promise<UniverseItem[]>;
@@ -76,6 +79,11 @@
     clearTimeout(timer);
     timer = setTimeout(flush, SAVE_MS);
   }
+
+  $effect(() => {
+    const snap = $state.snapshot(draft) as Strategy;
+    untrack(() => ondraft?.(snap));
+  });
 
   onDestroy(flush);
   onMount(() => {

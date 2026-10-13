@@ -16,3 +16,21 @@ export function duplicateStrategy(app: App, s: Strategy): string | null {
   app.setStrategies(next);
   return copy.id;
 }
+
+const RULE_SKIP = new Set(['id', 'name', 'updatedAt']);
+
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => k in b && same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+/** 두 전략의 규칙이 다른가. 식별·표시용 id·name·updatedAt은 뺀다. */
+export function rulesChanged(a: Strategy, b: Strategy): boolean {
+  const strip = (s: Strategy) => Object.fromEntries(Object.entries(s).filter(([k]) => !RULE_SKIP.has(k)));
+  return !same(strip(a), strip(b));
+}
