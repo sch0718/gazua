@@ -17,6 +17,7 @@
   let renameError = $state(false);
   let confirming = $state<Group | null>(null);
   let cancelBtn = $state<HTMLButtonElement>();
+  let listEl = $state<HTMLUListElement>();
   const errorId = `group-rename-error-${Math.random().toString(36).slice(2, 9)}`;
 
   // 시트는 닫혀도 이 컴포넌트는 남는다. 열고 닫을 때 진행 중이던 이름 바꾸기·삭제 확인을 버린다.
@@ -70,13 +71,31 @@
     cancelBtn?.focus();
   }
 
+  // 확인 상자가 사라지면 포커스가 body로 빠지므로 목록 안으로 되돌린다.
+  // index 자리 그룹의 삭제 버튼, 그 자리에 그룹이 없으면 시트의 닫기 버튼.
+  async function focusDeleteAt(index: number) {
+    await tick();
+    const target =
+      listEl?.querySelectorAll<HTMLElement>('[data-group-delete]')[index] ??
+      listEl?.closest('[role="dialog"]')?.querySelector<HTMLElement>('[data-sheet-close]');
+    target?.focus();
+  }
+
+  function cancelDelete() {
+    const g = confirming;
+    confirming = null;
+    if (g) void focusDeleteAt(groups.findIndex((x) => x.id === g.id));
+  }
+
   function confirmDelete() {
     const g = confirming;
     confirming = null;
     if (!g) return;
+    const index = groups.findIndex((x) => x.id === g.id);
     const wasActive = app.route.name === 'compare' && app.route.groupId === g.id;
-    if (!deleteGroupWithUndo(app, g.id)) return;
+    if (!deleteGroupWithUndo(app, g.id)) return void focusDeleteAt(index);
     if (wasActive) app.navigate({ name: 'compare', groupId: app.watchlists.groups[0].id });
+    void focusDeleteAt(index);
   }
 </script>
 
@@ -84,7 +103,7 @@
   {#if lastOne}
     <p class="sub" id="last-group-reason">그룹은 하나 이상 있어야 해요</p>
   {/if}
-  <ul>
+  <ul bind:this={listEl}>
     {#each groups as g, i (g.id)}
       <li class="grow">
         {#if editing === g.id}
@@ -119,6 +138,7 @@
           type="button"
           class="icon danger"
           aria-label="{g.name} 삭제"
+          data-group-delete
           aria-disabled={lastOne ? 'true' : undefined}
           aria-describedby={lastOne ? 'last-group-reason' : undefined}
           onclick={() => askDelete(g)}>✕</button
@@ -131,7 +151,7 @@
     <div class="confirm" role="alertdialog" aria-labelledby="group-delete-q">
       <p id="group-delete-q">'{confirming.name}' 그룹과 종목 {confirming.items.length}개를 삭제할까요?</p>
       <div class="btns">
-        <button type="button" class="btn ghost" bind:this={cancelBtn} onclick={() => (confirming = null)}>취소</button>
+        <button type="button" class="btn ghost" bind:this={cancelBtn} onclick={cancelDelete}>취소</button>
         <button type="button" class="btn danger" onclick={confirmDelete}>삭제</button>
       </div>
     </div>

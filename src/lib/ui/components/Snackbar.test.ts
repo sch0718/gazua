@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SnackbarHost from './SnackbarHost.svelte';
-import { dismissSnackbar, showSnackbar } from './snackbarStore.svelte';
+import { dismissSnackbar, holdSnackbar, releaseSnackbar, showSnackbar } from './snackbarStore.svelte';
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
@@ -76,5 +76,49 @@ describe('Snackbar', () => {
     flushSync();
     await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
     expect(screen.getByRole('status').textContent).toContain('되돌렸어요');
+  });
+
+  it('marks the action button with data-snackbar-action', () => {
+    render(SnackbarHost);
+    showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+    flushSync();
+    expect(screen.getByRole('button', { name: '되돌리기' }).hasAttribute('data-snackbar-action')).toBe(true);
+  });
+
+  it('does not close while focus is inside, then resumes the remaining time of a custom duration', async () => {
+    render(SnackbarHost);
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    showSnackbar('가져왔어요', { label: '되돌리기', run: () => {} }, 8000);
+    flushSync();
+    vi.advanceTimersByTime(3000);
+    const undo = screen.getByRole('button', { name: '되돌리기' });
+    undo.focus();
+    await fireEvent.focusIn(undo);
+    vi.advanceTimersByTime(60_000);
+    flushSync();
+    expect(screen.getByRole('status').textContent).toContain('가져왔어요');
+
+    outside.focus();
+    await fireEvent.focusOut(undo, { relatedTarget: outside });
+    vi.advanceTimersByTime(4999);
+    flushSync();
+    expect(screen.getByRole('status').textContent).toContain('가져왔어요');
+    vi.advanceTimersByTime(1);
+    flushSync();
+    expect(screen.getByRole('status').textContent).toBe('');
+    outside.remove();
+  });
+
+  it('hold and release do nothing without a snackbar, and a new snackbar is not held', () => {
+    render(SnackbarHost);
+    holdSnackbar();
+    releaseSnackbar();
+    showSnackbar('첫째');
+    holdSnackbar();
+    showSnackbar('둘째', undefined, 1000);
+    vi.advanceTimersByTime(1000);
+    flushSync();
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 });

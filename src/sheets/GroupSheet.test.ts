@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { App } from '../lib/state/app.svelte';
 import type { Group } from '../lib/state/schema';
@@ -110,5 +111,51 @@ describe('GroupSheet', () => {
     await fireEvent.click(del);
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(names(app)).toEqual(['반도체']);
+  });
+
+  describe('focus after the delete prompt', () => {
+    const THREE: Group[] = [...TWO, { id: 'g3', name: '해외', items: itemsOf(['133690']) }];
+    const confirmDeleteOf = async (name: string) => {
+      const del = screen.getByRole('button', { name: `${name} 삭제` });
+      del.focus();
+      await fireEvent.click(del);
+      await fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '삭제' }));
+      await tick();
+    };
+
+    it('moves to the delete button of the group now at the same position', async () => {
+      setup(THREE);
+      await confirmDeleteOf('반도체');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '배당 삭제' }));
+      expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+    });
+
+    it('moves to 닫기 when the deleted group was the last one in the list', async () => {
+      setup(THREE);
+      await confirmDeleteOf('해외');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '닫기' }));
+    });
+
+    it('cancel returns focus to the group delete button', async () => {
+      setup(THREE);
+      const del = screen.getByRole('button', { name: '배당 삭제' });
+      await fireEvent.click(del);
+      await fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '취소' }));
+      await tick();
+      expect(document.activeElement).toBe(del);
+    });
+
+    it('되돌리기 is reachable by Tab from the last control and restores the group', async () => {
+      const app = setup(THREE);
+      await confirmDeleteOf('해외');
+      const dialog = screen.getByRole('dialog');
+      const inside = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      inside.at(-1)!.focus();
+      await fireEvent.keyDown(dialog, { key: 'Tab' });
+      const undo = screen.getByRole('button', { name: '되돌리기' });
+      expect(document.activeElement).toBe(undo);
+      await fireEvent.click(undo);
+      expect(names(app)).toEqual(['반도체', '배당', '해외']);
+    });
   });
 });

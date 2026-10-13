@@ -288,6 +288,17 @@
     if (!wide) openSheet = 'detail';
   }
 
+  // 상세에서 지우거나 옮기면 그 행이 사라진다. 리더보드에서 몇 번째였는지 기억해 두었다가
+  // 같은 자리의 다음 행(없으면 `＋ 종목 추가`)으로 포커스를 옮긴다. 시트·오른쪽 패널 모두 같다.
+  let board = $state<ReturnType<typeof Leaderboard>>();
+  const boardOrder = $derived(sortRows(rows, frozenOrder).map((r) => r.symbol));
+  let selectedIndex = -1;
+  $effect(() => {
+    const i = selected ? boardOrder.indexOf(selected) : -1;
+    if (i >= 0) selectedIndex = i;
+  });
+  const detailReturnFocus = () => board?.rowButtonAt(selectedIndex);
+
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
   function whenClosed(run: () => void) {
@@ -443,6 +454,7 @@
 
 {#snippet side()}
   <Leaderboard
+    bind:this={board}
     {rows}
     {frozenOrder}
     {unit}
@@ -460,14 +472,26 @@
     {#if selected && items.some((i) => i.symbol === selected)}
       {@const s = selected}
       {@const series = ctl.entries[s]?.series ?? null}
-      <StockDetailSheet inline {app} groupId={group.id} symbol={s} meta={ctl.metas[s]} {series} {now} {sessions} {isOpenToday} onclose={() => (selected = null)} />
+      <StockDetailSheet
+        inline
+        {app}
+        groupId={group.id}
+        symbol={s}
+        meta={ctl.metas[s]}
+        {series}
+        {now}
+        {sessions}
+        {isOpenToday}
+        returnFocus={detailReturnFocus}
+        onclose={() => (selected = null)}
+      />
     {:else}
       <p class="pick-hint">리더보드에서 종목을 누르면 여기서 상세를 볼 수 있어요</p>
     {/if}
   {/if}
 {/snippet}
 
-<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} />
+<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} />
 
 <style>
   .compare {

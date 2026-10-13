@@ -42,6 +42,13 @@
   const ordered = $derived(sortRows(rows, frozenOrder));
 
   let listEl: HTMLUListElement;
+  let addBtn: HTMLButtonElement;
+
+  /** 지운 종목 자리로 포커스를 옮길 때: 지금 index번째 행의 버튼, 그 자리에 행이 없으면 `＋ 종목 추가`. */
+  export function rowButtonAt(index: number): HTMLElement {
+    return (index >= 0 ? listEl.querySelectorAll<HTMLElement>(':scope > li > .main-btn')[index] : undefined) ?? addBtn;
+  }
+
   let press: { symbol: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
   let dragging = $state<string | null>(null);
   let dropTarget = $state<string | null>(null);
@@ -152,7 +159,7 @@
 <section class="board" aria-label="리더보드">
   <div class="board-head">
     <span>{metricLabel} 순 · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span>
-    <button type="button" class="btn-add" onclick={onopenadd}>＋ 종목 추가</button>
+    <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
   <ul bind:this={listEl}>
     {#each ordered as r (r.symbol)}

@@ -24,6 +24,7 @@
     now,
     sessions,
     isOpenToday,
+    detailReturnFocus,
   }: {
     sheet: CompareSheet;
     app: App;
@@ -35,6 +36,8 @@
     now: number;
     sessions: DaySession[];
     isOpenToday: boolean;
+    /** 상세 시트에서 종목을 지우거나 옮긴 뒤 포커스할 곳(사라진 행 대신) */
+    detailReturnFocus?: () => HTMLElement | null | undefined;
   } = $props();
 
   const close = () => (sheet = null);
@@ -58,6 +61,7 @@
       {now}
       {sessions}
       {isOpenToday}
+      returnFocus={detailReturnFocus}
       onclose={close}
     />
   {/if}

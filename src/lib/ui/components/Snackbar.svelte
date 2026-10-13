@@ -3,13 +3,29 @@
     message,
     actionLabel,
     onaction,
-  }: { message: string; actionLabel?: string; onaction?: () => void } = $props();
+    onhold,
+    onrelease,
+  }: {
+    message: string;
+    actionLabel?: string;
+    onaction?: () => void;
+    /** 포커스가 스낵바 안으로 들어왔을 때(타이머 멈춤) */
+    onhold?: () => void;
+    /** 포커스가 스낵바 밖으로 나갔을 때(타이머 다시 흐름) */
+    onrelease?: () => void;
+  } = $props();
+
+  function onfocusout(e: FocusEvent) {
+    const next = e.relatedTarget as Node | null;
+    if (!next || !(e.currentTarget as HTMLElement).contains(next)) onrelease?.();
+  }
 </script>
 
-<div class="snack">
+<!-- 시트가 열려 있으면 Sheet가 data-snackbar-action을 Tab 순환의 끝에 넣는다. -->
+<div class="snack" onfocusin={() => onhold?.()} {onfocusout}>
   <span>{message}</span>
   {#if actionLabel}
-    <button type="button" onclick={() => onaction?.()}>{actionLabel}</button>
+    <button type="button" data-snackbar-action onclick={() => onaction?.()}>{actionLabel}</button>
   {/if}
 </div>
 

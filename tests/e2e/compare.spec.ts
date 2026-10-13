@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   enterDemo,
   expectNoHorizontalScroll,
@@ -96,6 +96,74 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await shot(page, testInfo, '5-settings');
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+type DeleteRecord = { before: string[]; after?: string[]; focused?: string };
+
+/** 지금 포커스가 target에 올 때까지 Tab을 누른다(키보드만으로 도달할 수 있는지 확인). */
+async function tabUntil(page: Page, target: Locator, max = 80): Promise<void> {
+  for (let i = 0; i < max; i++) {
+    if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target).toBeFocused();
+}
+
+test('delete in detail sheet keeps focus and reaches undo by Tab', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await expect(leaderboard(page)).not.toContainText('불러오는 중');
+  const rows = leaderboardRows(page);
+
+  // 키보드만: 두 번째 행 → Enter로 상세 → Tab으로 삭제 → Enter
+  await tabUntil(page, rows.nth(1).locator('.main-btn'));
+  await page.keyboard.press('Enter');
+  const detail = isWide(page)
+    ? page.getByRole('region', { name: '선택한 종목' })
+    : page.getByRole('dialog', { name: '종목 상세' });
+  await expect(detail).toBeVisible();
+  const del = detail.getByRole('button', { name: '삭제' });
+  await tabUntil(page, del);
+
+  // 장중 시세로 리더보드가 계속 다시 정렬되므로, 삭제 순간의 순서와 바로 뒤의 포커스를 페이지 안에서 기록한다.
+  await del.evaluate((btn) => {
+    const order = () => [...document.querySelectorAll('[aria-label="리더보드"] li[data-symbol]')].map((l) => l.getAttribute('data-symbol')!);
+    const w = window as unknown as { __del: DeleteRecord };
+    btn.addEventListener(
+      'click',
+      () => {
+        w.__del = { before: order() };
+        setTimeout(() => {
+          const a = document.activeElement as HTMLElement | null;
+          w.__del.after = order();
+          w.__del.focused = a?.closest('li[data-symbol]')?.getAttribute('data-symbol') ?? a?.textContent?.trim();
+        }, 0);
+      },
+      { capture: true, once: true },
+    );
+  });
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveCount(3);
+  await expect(detail).toBeHidden();
+
+  // 포커스는 body로 빠지지 않고 지운 행 자리의 다음 행(없으면 ＋ 종목 추가)에 있다
+  const rec = await page.waitForFunction(() => {
+    const r = (window as unknown as { __del?: DeleteRecord }).__del;
+    return r?.after ? r : null;
+  });
+  const { before, after, focused } = (await rec.jsonValue()) as Required<DeleteRecord>;
+  const deleted = before.find((s) => !after.includes(s))!;
+  const index = before.indexOf(deleted);
+  expect(focused).toBe(index < after.length ? after[index] : '＋ 종목 추가');
+
+  // Tab으로 되돌리기에 닿고 Enter로 복원한다
+  const undo = page.getByRole('button', { name: '되돌리기' });
+  await expect(undo).toBeVisible();
+  await tabUntil(page, undo);
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveCount(4);
+  await expect(leaderboard(page).locator(`li[data-symbol="${deleted}"]`)).toHaveCount(1);
 });
 
 test('다크 모드 비교 화면 스크린샷', async ({ page }, testInfo) => {

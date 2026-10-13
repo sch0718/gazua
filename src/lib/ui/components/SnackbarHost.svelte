@@ -1,6 +1,6 @@
 <script lang="ts">
   import Snackbar from './Snackbar.svelte';
-  import { currentSnackbar, runSnackbarAction } from './snackbarStore.svelte';
+  import { currentSnackbar, holdSnackbar, releaseSnackbar, runSnackbarAction } from './snackbarStore.svelte';
 
   const item = $derived(currentSnackbar());
 </script>
@@ -13,6 +13,8 @@
         message={item.message}
         actionLabel={item.action?.label}
         onaction={runSnackbarAction}
+        onhold={holdSnackbar}
+        onrelease={releaseSnackbar}
       />
     {/key}
   {/if}

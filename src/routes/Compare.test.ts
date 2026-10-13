@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toChartTime } from '../lib/chart/lineData';
 import { lwcCharts, lwcStubHooks, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
@@ -251,6 +251,41 @@ describe('Compare sheets', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930']);
+  });
+
+  describe('focus after deleting from the detail', () => {
+    const mainButtons = () => [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll<HTMLElement>('li .main-btn')];
+    const addButton = () => board().getByRole('button', { name: '＋ 종목 추가' });
+    const deleteAt = async (index: number, wide: boolean) => {
+      const btn = mainButtons()[index];
+      btn.focus();
+      await fireEvent.click(btn);
+      const detail = wide ? screen.getByRole('region', { name: '선택한 종목' }) : screen.getByRole('dialog', { name: '종목 상세' });
+      const del = within(detail).getByRole('button', { name: '삭제' });
+      del.focus();
+      await fireEvent.click(del);
+      await tick();
+    };
+    for (const wide of [false, true]) {
+      const label = wide ? 'inline (≥1024)' : 'sheet (<1024)';
+      it(`${label}: focus lands on the row now at the same position`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 3));
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(1, wide);
+        expect(mainButtons()).toHaveLength(2);
+        expect(document.activeElement).toBe(mainButtons()[1]);
+      });
+
+      it(`${label}: deleting the last row focuses ＋ 종목 추가`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 2));
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(1, wide);
+        expect(mainButtons()).toHaveLength(1);
+        expect(document.activeElement).toBe(addButton());
+      });
+    }
   });
 
   it('at ≥1024 the detail renders inline in the side panel, not as a sheet', async () => {
