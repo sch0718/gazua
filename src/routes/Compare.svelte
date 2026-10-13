@@ -27,7 +27,7 @@
   import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
-  import { buildRows, sortRows } from '../lib/ui/compare/rows';
+  import { buildRows, isSuspended, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
@@ -160,7 +160,9 @@
       const label = ctl.metas[i.symbol]?.name ?? i.symbol;
       // 일봉 차트의 거래정지 띠는 지표 값이 아니라 실제 봉이 있는 날로 판정한다.
       const bars = mode === 'daily' ? series.candles.map((c) => c.t) : undefined;
-      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden, bars }];
+      // 지금 정지인 종목은 마지막 봉 뒤에도 정지 띠를 낸다(행 배지와 같은 규칙).
+      const suspended = isSuspended(ctl.metas[i.symbol], effectiveVenueMode(venues, venueMode));
+      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden, bars, suspended }];
     }),
   );
   const chartSessions = $derived(tradingDate && mode === 'intraday' ? sessionsOn(tradingDate, today, sessions) : []);

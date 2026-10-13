@@ -21,6 +21,8 @@ export interface ChartSeriesInput {
    * (신규상장·발행주식수 없음·지수 실패로 지표가 null인 날을 거래정지로 보지 않게). 없으면 값이 있는 날로 대신한다.
    */
   bars?: number[];
+  /** 지금 거래정지(Compare가 행 배지와 같은 규칙으로 채운다). 일봉 차트에서 마지막 봉 뒤 열린 날에도 정지 띠를 낸다. */
+  suspended?: boolean;
 }
 
 export interface LineDataOptions {
@@ -182,9 +184,11 @@ export function fillMissingDays(points: Point[], dayTimes: number[]): Point[] {
  * 종목마다 자기 첫 봉~마지막 봉 사이의 날만 본다(상장 전·아직 봉이 없는 날은 거래정지가 아니다).
  * 지표 값이 null인 날(발행주식수 없음·지수 실패 등)은 봉이 있으면 거래정지가 아니다.
  * bars가 없으면 값이 있는 날을 봉으로 본다.
+ * suspended인 종목은 마지막 봉 뒤 열린 날(기간 끝까지)에도 띠를 낸다. 열린 날은 그룹의 다른 종목 봉에서 나오므로
+ * 한 종목뿐인 그룹은 그 종목의 봉 밖 날을 알 수 없어 띠가 없다.
  */
 export function haltDays(
-  series: { label: string; points: Point[]; bars?: number[] }[],
+  series: { label: string; points: Point[]; bars?: number[]; suspended?: boolean }[],
   dayTimes: number[],
 ): { t: number; labels: string[] }[] {
   const ranges = series.map((s) => {
@@ -195,9 +199,9 @@ export function haltDays(
   const result: { t: number; labels: string[] }[] = [];
   for (const t of [...dayTimes].sort((a, b) => a - b)) {
     const labels = series
-      .filter((_, i) => {
+      .filter((s, i) => {
         const r = ranges[i];
-        return t > r.first && t < r.last && !r.have.has(t);
+        return t > r.first && (t < r.last || s.suspended === true) && !r.have.has(t);
       })
       .map((s) => s.label);
     if (labels.length > 0) result.push({ t, labels });

@@ -8,6 +8,7 @@ import { ApiError } from '../../providers/errors';
 import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
 import type { Period, Settings } from '../../state/schema';
+import { kstDate } from '../../time/kst';
 import { dominantFault, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
 import { quoteVenue } from './venue';
 
@@ -136,6 +137,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
 
   let metas = $state.raw<Record<string, StockMeta>>({});
+  /** metas를 마지막으로 받은 KST 날짜. 날짜가 바뀌면 다시 받는다. */
+  let metaDay: string | null = null;
   let entries = $state.raw<Record<string, SeriesEntry>>({});
   let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
   /** 지수별 지금 entry를 만든 조회의 시작 시각. indexes와 함께 바뀐다. */
@@ -203,17 +206,24 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   doc?.addEventListener('visibilitychange', onVisibility);
 
   // ── 메타 ────────────────────────────────────────────────
-  /** 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다). 호출 자체가 실패하면 그 이유를 돌려준다. */
+  /**
+   * 메타는 메모리에만 두고 KST 날짜가 바뀌면 지금 종목 전체를 다시 받는다(거래정지·정리매매가 날마다 바뀌므로).
+   * 다시 받기가 실패하면 이전 메타를 그대로 둔다. 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다).
+   * 호출 자체가 실패하면 그 이유를 돌려준다.
+   */
   async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<LoadFault | undefined> {
-    const missing = symbols.filter((s) => !metas[s]);
-    if (missing.length === 0) return undefined;
+    const today = kstDate(deps.now());
+    const dayChanged = metaDay !== null && metaDay !== today;
+    const wanted = dayChanged ? [...new Set([...(query?.symbols ?? []), ...symbols])] : symbols.filter((s) => !metas[s]);
+    if (wanted.length === 0) return undefined;
     try {
-      const list = await provider.getStockMeta(missing);
+      const list = await provider.getStockMeta(wanted);
       if (query?.provider !== provider) return undefined;
       metas = { ...metas, ...Object.fromEntries(list.map((m) => [m.symbol, m])) };
+      metaDay = today;
       return undefined;
     } catch (e) {
-      // 메타를 못 받은 종목은 행에 오류로 보인다.
+      // 메타를 못 받은 종목은 행에 오류로 보인다. 이전 메타가 있는 종목은 그대로 쓴다.
       return faultOf(e, deps.now());
     }
   }
@@ -408,7 +418,10 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const prev = query;
       query = q;
       ensurePoller(q.provider);
-      if (prev?.provider !== q.provider) metas = {};
+      if (prev?.provider !== q.provider) {
+        metas = {};
+        metaDay = null;
+      }
       const keyChanged =
         !prev ||
         prev.provider !== q.provider ||

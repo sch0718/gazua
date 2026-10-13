@@ -56,6 +56,11 @@ function priceOf(s: RowSource, scrubT: number | null): number | null {
   return valueAt(closes, null);
 }
 
+/** 거래정지 표시 규칙: KRX 정지, 또는 NXT 모드에서 NXT 정지. badgesOf의 거래정지·NXT 거래정지 배지와 같은 규칙이며, 일봉 차트 정지 띠가 쓴다. */
+export function isSuspended(meta: StockMeta | undefined, venueMode: VenueMode): boolean {
+  return !!meta?.krxSuspended || (venueMode === 'NXT' && meta?.nxtSuspended === true);
+}
+
 function badgesOf(s: RowSource, venueMode: VenueMode): string[] {
   const out: string[] = [];
   const type = s.meta?.securityType;

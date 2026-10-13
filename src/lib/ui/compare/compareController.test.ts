@@ -190,6 +190,79 @@ describe('compareController', () => {
     expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
   });
 
+  describe('stock meta refresh on a new KST day', () => {
+    const NEXT_DAY = kstEpoch(addDays(DAY, 1), '00:05:00');
+
+    function metaProvider() {
+      const provider = createDemoProvider({ seed: 1, now: () => NOW });
+      const base = provider.getStockMeta.bind(provider);
+      const state = { halted: false, fail: false, calls: [] as string[][] };
+      provider.getStockMeta = async (symbols) => {
+        state.calls.push(symbols);
+        if (state.fail) throw new ApiError('proxy-unreachable');
+        return (await base(symbols)).map((m) => (m.symbol === '042700' ? { ...m, krxSuspended: state.halted } : m));
+      };
+      return { provider, state };
+    }
+
+    it('fetches every symbol again after midnight KST and reflects the changed krxSuspended', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query());
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(false);
+
+      // 같은 날 다시 받아도 메타는 다시 받지 않는다.
+      state.calls.length = 0;
+      const same = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await same;
+      expect(state.calls).toEqual([]);
+
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+
+    it('keeps the previous meta when the refresh fails, and retries on the next reload', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query());
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      const before = t.ctl.metas['042700'];
+
+      state.fail = true;
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(t.ctl.metas['042700']).toBe(before);
+      expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
+
+      state.fail = false;
+      state.calls.length = 0;
+      const again = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await again;
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+  });
+
   it('exposes the dominant error of the last load and whether every row failed', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query());

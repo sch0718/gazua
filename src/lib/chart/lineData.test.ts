@@ -306,6 +306,24 @@ describe('haltDays', () => {
     expect(haltDays([{ label: 'A', points: [{ t: days[0], v: 1 }], bars: [days[0]] }], days)).toEqual([]);
   });
 
+  it('suspended: bands the open days after the last bar through the period end', () => {
+    const result = haltDays(
+      [normal, { label: '정지', points: [{ t: days[0], v: 1 }], bars: [days[0], days[1]], suspended: true }],
+      days,
+    );
+    expect(result).toEqual([
+      { t: days[2], labels: ['정지'] },
+      { t: days[3], labels: ['정지'] },
+    ]);
+  });
+
+  it('suspended: still no band before the first bar, and suspended false keeps the old rule', () => {
+    expect(haltDays([normal, { label: 'A', points: nulls, bars: [days[2]], suspended: true }], days)).toEqual([
+      { t: days[3], labels: ['A'] },
+    ]);
+    expect(haltDays([{ label: 'A', points: [], bars: [days[0]], suspended: false }], days)).toEqual([]);
+  });
+
   it('without bars falls back to the days that have values', () => {
     const result = haltDays([{ label: 'A', points: [{ t: days[0], v: 1 }, { t: days[1], v: null }, { t: days[2], v: 1 }] }], days);
     expect(result).toEqual([{ t: days[1], labels: ['A'] }]);
