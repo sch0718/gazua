@@ -76,6 +76,8 @@ export function createRequestQueue(cfg: RequestQueueConfig): RequestQueue {
         entry.reject(e);
         return;
       }
+      // 429면 같은 그룹 전체를 쉰다. 다른 항목이 그 사이에 또 429를 맞지 않게
+      if (e instanceof ApiError && e.code === 'rate-limited') g.nextStart = Math.max(g.nextStart, now() + delay);
       await sleep(delay);
       // Re-enter the queue so retries are paced and prioritised like any other start.
       entry.attempt++;
@@ -90,8 +92,13 @@ export function createRequestQueue(cfg: RequestQueueConfig): RequestQueue {
     g.pumping = true;
     try {
       while (g.waiting.length > 0) {
-        const wait = g.nextStart - now();
-        if (wait > 0) await sleep(wait);
+        const target = g.nextStart;
+        const wait = target - now();
+        if (wait > 0) {
+          await sleep(wait);
+          // 자는 동안 429로 nextStart가 더 뒤로 밀렸으면 그 시각까지 다시 잔다
+          if (g.nextStart > target) continue;
+        }
         // Choose after waiting so a higher-priority arrival during the pause goes first.
         const entry = takeNext(g);
         g.nextStart = Math.max(now(), g.nextStart) + g.intervalMs;

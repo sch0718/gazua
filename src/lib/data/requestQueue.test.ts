@@ -127,6 +127,25 @@ describe('createRequestQueue', () => {
     expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(2000);
   });
 
+  it('pauses the whole group after a 429, and leaves other groups alone', async () => {
+    const c = fakeClock();
+    const q = createRequestQueue({ ratesPerSec: { kis: 100, toss: 100 }, now: c.now, sleep: c.sleep });
+    const starts: Record<string, number> = {};
+    let aRuns = 0;
+    const ps = [
+      q.run('kis', 'a', 0, async () => {
+        if (++aRuns === 1) throw err('rate-limited', { status: 429, retryAfterMs: 3000 });
+        return 'a';
+      }),
+      q.run('kis', 'b', 0, async () => void (starts.b = c.now())),
+      q.run('toss', 'c', 0, async () => void (starts.c = c.now())),
+    ];
+    await c.settle();
+    await Promise.all(ps);
+    expect(starts.b).toBeGreaterThanOrEqual(3000);
+    expect(starts.c).toBeLessThan(1000);
+  });
+
   it('waits 1000 ms on rate-limited without retryAfterMs', async () => {
     const c = fakeClock();
     const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });

@@ -160,14 +160,14 @@ interface MarketDataProvider {
 - 요청 형식: `GET|POST {프록시}/{provider}/{upstream path}`. 상위 호스트는 provider로 고정한다. 임의 URL 중계는 하지 않는다.
 - **경로 허용 목록**: 토큰 발급, 시세, 종목, 캘린더, 지수만 허용한다. 주문·계좌·자산 경로는 `403 proxy-path-blocked`로 거절한다.
 - CORS: 환경변수 `ALLOWED_ORIGINS`(예: `https://<id>.github.io`)에 있는 출처만 허용한다.
-- 무단 사용 방지: 선택 환경변수 `PROXY_TOKEN`. 앱은 `X-Proxy-Token` 헤더로 보낸다.
+- 무단 사용 방지: 선택 환경변수 `PROXY_TOKEN`. 앱은 `X-Proxy-Token` 헤더로 보낸다. 비교는 두 값의 SHA-256 해시를 XOR 누적으로 해서 길이·내용에 상관없이 같은 시간이 걸리게 한다(`crypto.subtle`, Workers·Node 22).
 - 요청·응답 본문이나 인증 헤더를 로그에 남기지 않는다. 상태 저장 없음.
-- 배포 가이드: Worker는 `wrangler deploy` 한 줄. 토스용은 `docker compose up` + `cloudflared tunnel`. 허용 IP 등록 방법과 집 공인 IP가 바뀔 때 대처법은 README에 둔다.
+- 배포 가이드: Worker는 `wrangler deploy` 한 줄. 토스용은 `docker compose up` + `cloudflared tunnel`(cloudflared 이미지는 릴리스 태그로 고정, 올리는 방법은 README). 허용 IP 등록 방법과 집 공인 IP가 바뀔 때 대처법은 README에 둔다.
 
 ### 3.4 요청 처리
 
 - 공급자별 **토큰 버킷**(그룹별 초당 한도의 80%)과 우선순위 큐. 우선순위: 화면에 보이는 종목 현재가 > 지금 그리는 차트의 봉 > 미리 받아 두기.
-- 429를 받으면 `Retry-After`만큼 쉬었다가 다시 보낸다. 5xx와 네트워크 오류는 지수 백오프로 최대 3회 재시도한다.
+- 429를 받으면 `Retry-After`만큼 **그 그룹 전체**가 쉬고(같은 그룹의 다른 요청도 그 시각 뒤에 시작, 다른 그룹은 그대로) 실패한 요청을 다시 보낸다. 5xx와 네트워크 오류는 지수 백오프로 최대 3회 재시도한다.
 - 같은 요청이 동시에 여러 번 나가면 하나로 합친다.
 
 ### 3.5 빌드·배포

@@ -13,15 +13,15 @@ const NOW = kstEpoch('2026-10-12', '10:00:00');
 const SECRETS = { kis: { appKey: 'kis-key-0000-1234', appSecret: 'kis-secret-5678' } };
 
 let apps: App[] = [];
-async function setup() {
+async function setup(confirmFn = vi.fn(() => true)) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW, settings: { provider: 'kis' } });
   apps.push(app);
   await app.setSecrets(SECRETS);
   const download = vi.fn();
   const estimate = vi.fn(async () => 1572864);
   render(SnackbarHost);
-  render(DataTools, { app, download, estimate, now: () => NOW });
-  return { app, download, estimate };
+  render(DataTools, { app, download, estimate, now: () => NOW, confirmFn });
+  return { app, download, estimate, confirmFn };
 }
 
 afterEach(() => {
@@ -44,6 +44,27 @@ describe('DataTools', () => {
     expect(screen.getByText('키가 포함된 파일은 안전하게 보관하세요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '내보내기' }));
     expect(download.mock.calls[1][1]).toContain(SECRETS.kis.appKey);
+  });
+
+  it('asks before exporting with keys: declining downloads nothing, accepting downloads with keys', async () => {
+    const confirmFn = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { download } = await setup(confirmFn);
+    await fireEvent.click(screen.getByRole('checkbox', { name: '키 포함' }));
+    await fireEvent.click(screen.getByRole('button', { name: '내보내기' }));
+    expect(confirmFn).toHaveBeenCalledWith(
+      '키가 들어 있는 파일을 내보낼까요? 이 파일을 가진 사람은 누구나 이 키로 증권사 API를 쓸 수 있어요.',
+    );
+    expect(download).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: '내보내기' }));
+    expect(confirmFn).toHaveBeenCalledTimes(2);
+    expect(download.mock.calls[0][1]).toContain(SECRETS.kis.appKey);
+  });
+
+  it('does not ask when exporting without keys', async () => {
+    const { download, confirmFn } = await setup();
+    await fireEvent.click(screen.getByRole('button', { name: '내보내기' }));
+    expect(confirmFn).not.toHaveBeenCalled();
+    expect(download).toHaveBeenCalledTimes(1);
   });
 
   it('imports a file into a new profile, and shows the reason for a broken file', async () => {
