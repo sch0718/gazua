@@ -54,6 +54,8 @@ const rowOf = (name: string) => board().getByText(name).closest('li')!;
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   resetLwcStub();
+  // 리더보드의 입력 방식(포인터/키보드)은 모듈 상태라, 앞 테스트의 포인터 입력이 남지 않게 키보드로 되돌린다.
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
 });
 afterEach(() => {
   lwcStubHooks.crosshairOnSetData = null;

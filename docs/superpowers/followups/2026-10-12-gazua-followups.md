@@ -85,7 +85,7 @@
 - 시트가 열린 중 다른 스낵바 동작 · 스펙 §7.3이 허용해요. → 남음: 허용 동작이에요.
 
 ### 2차 브랜치 리뷰에서 남김 (2026-10-13)
-- Safari에서 순서가 고정된 채 행을 누르면 `focusout`의 `relatedTarget`이 null이라 고정이 풀려 누르고 떼는 사이에 다시 정렬됨 · `Leaderboard.svelte` 93~96행 부근 · 누름이 목록 안에서 시작했으면 `leave()`를 `pointerup`까지 미루면 돼요. Safari 실기기에서 확인하며 고치려고 미뤘어요.
+- Safari에서 순서가 고정된 채 행을 누르면 `focusout`의 `relatedTarget`이 null이라 고정이 풀려 누르고 떼는 사이에 다시 정렬됨 · `Leaderboard.svelte`의 `onfocusout` · 누름이 목록 안에서 시작했으면 `leave()`를 `pointerup`까지 미루면 돼요. Safari 실기기에서 확인하며 고치려고 미뤘어요.
 - 편집기 DX: 테스트·설정 파일이 루트 `tsconfig.json`에서 빠져 편집기가 비엄격 프로젝트로 추론함 · `tsconfig.json`, `tsconfig.test.json` · 넓은 루트 + `tsconfig.app.json`으로 나누면 돼요. 동작에는 영향이 없어 미뤘어요.
-- 테스트 다듬기 · 컨트롤러 혼합 실패 테스트(3개 중 프록시 1 + 타임아웃 1 + 정상 1로), `loadIssue.test.ts`의 중복 타임아웃 단언, Toggle 테스트 정리를 `finally`로, StrategyList의 복제 뒤 다른 것 삭제 테스트, 두 번째 로드의 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트, `Leaderboard.test.ts:178`이 가드만 확인함 · 동작은 이미 다른 테스트가 덮고 있어 미뤘어요.
+- 테스트 다듬기 · 컨트롤러 혼합 실패 테스트(3개 중 프록시 1 + 타임아웃 1 + 정상 1로), `loadIssue.test.ts`의 중복 타임아웃 단언, Toggle 테스트 정리를 `finally`로, StrategyList의 복제 뒤 다른 것 삭제 테스트, 두 번째 로드의 손상 가드 테스트, 서로 다른 시각의 429 여러 번 테스트, `Leaderboard.test.ts`의 "이미 고정된 목록 안 포인터 누름" 테스트가 가드만 확인함 · 동작은 이미 다른 테스트가 덮고 있어 미뤘어요.
 - `write-failed` 저장소 안내는 기록만 되고 화면에 안 나옴 · `storage.ts` · 이번 브랜치 이전부터 있던 일이고 안내 문구와 위치를 먼저 정해야 해서 미뤘어요.
