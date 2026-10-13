@@ -6,7 +6,7 @@ import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../time/kst';
 import { createTokenManager } from './auth';
 import { ApiError, kisBodyCode } from './errors';
 import type { ProxyClient, ProxyResponse } from './http';
-import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
+import type { CandleQuery, IssuedAtStore, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
 
 /**
  * `stck_cntg_hour`가 봉의 끝 시각이면 true (09:01:00 → 09:00 봉).
@@ -28,7 +28,12 @@ export interface KisDeps {
   creds: { appKey: string; appSecret: string };
   tokenStore: TokenStore;
   now: () => number;
+  /** 마지막 발급 시각 저장소(새로고침 뒤에도 1분 제한 남은 초를 계산). */
+  issuedAt?: IssuedAtStore;
 }
+
+/** KIS 토큰 발급은 1분에 한 번. */
+const KIS_TOKEN_INTERVAL_MS = 60_000;
 
 const QUOTATIONS = '/uapi/domestic-stock/v1/quotations';
 const QUEUE_GROUP = 'kis';
@@ -213,15 +218,31 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
   const { client, queue, creds, now } = deps;
 
   async function issueToken(): Promise<TokenInfo> {
-    const res = await client.request('kis', 'POST', '/oauth2/tokenP', {
-      body: { grant_type: 'client_credentials', appkey: creds.appKey, appsecret: creds.appSecret },
-    });
+    let res: ProxyResponse;
+    try {
+      res = await client.request('kis', 'POST', '/oauth2/tokenP', {
+        body: { grant_type: 'client_credentials', appkey: creds.appKey, appsecret: creds.appSecret },
+      });
+    } catch (e) {
+      throw withThrottleWait(e);
+    }
     const token = parseKisToken(res.json);
     if (!token) throw upstream('KIS token response is malformed');
     return token;
   }
 
-  const tokens = createTokenManager(issueToken, deps.tokenStore, now);
+  /** 발급 제한(EGW00133)에 Retry-After가 없으면 마지막 발급 시각으로 남은 시간을 채운다. 시각을 모르면 그대로. */
+  function withThrottleWait(e: unknown): unknown {
+    if (!(e instanceof ApiError) || e.code !== 'token-throttled' || e.retryAfterMs !== undefined) return e;
+    const last = tokens.lastIssuedAt();
+    if (last === null) return e;
+    return new ApiError(e.code, e.message, {
+      ...(e.status !== undefined ? { status: e.status } : {}),
+      retryAfterMs: Math.max(0, last + KIS_TOKEN_INTERVAL_MS - now()),
+    });
+  }
+
+  const tokens = createTokenManager(issueToken, deps.tokenStore, now, deps.issuedAt);
   let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */

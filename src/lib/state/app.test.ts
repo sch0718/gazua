@@ -676,6 +676,7 @@ describe('createApp — profiles management, passphrase check, export/import', (
     seed(backing, 'p:p2:settings', { onboarded: true });
     seed(backing, 'p:p2:secrets', SECRETS);
     seed(backing, 'p:p2:token:kis', { accessToken: 'tok', expiresAt: NOW + 1e6 });
+    seed(backing, 'p:p2:tokenIssuedAt:kis', NOW);
     const app = make(backing);
     app.switchProfile('p2');
     app.deleteProfile('p2');
@@ -788,6 +789,9 @@ describe('createApp — tokenSourceFor (connection diagnosis shares the provider
     expect(tokenPosts(fetchImpl)).toBe(1);
     expect(backing.dump()).not.toContain(':token:');
     expect(backing.dump()).not.toContain('test-access-token');
+    // 발급 시각은 비밀이 아니라 잠금 모드에서도 저장한다(새로고침 뒤 KIS 1분 제한 남은 초).
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:tokenIssuedAt:kis')!)).toBe(NOW);
+    expect(app.tokenIssuedAt('kis').load()).toBe(NOW);
   });
 });
 

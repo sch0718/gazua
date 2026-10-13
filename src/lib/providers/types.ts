@@ -78,3 +78,9 @@ export interface TokenStore {
   load(): TokenInfo | null;
   save(t: TokenInfo): void;
 }
+
+/** 마지막 토큰 발급 성공 시각(epoch ms). 비밀이 아니라 잠금 모드에서도 저장한다(KIS 1분 제한 남은 초). */
+export interface IssuedAtStore {
+  load(): number | null;
+  save(t: number): void;
+}

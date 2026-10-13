@@ -6,7 +6,7 @@ import { runProviderContract } from './contract';
 import { ApiError } from './errors';
 import { createProxyClient, type ProxyClient, type ProxyResponse } from './http';
 import { KIS_MINUTE_TIME_IS_BAR_END, UnsupportedRangeError, createKisProvider } from './kis';
-import type { MarketDataProvider, TokenInfo, TokenStore } from './types';
+import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from './types';
 import chkHoliday from './fixtures/kis/chk-holiday.json';
 import daily005930 from './fixtures/kis/daily-005930.json';
 import indexDaily0001 from './fixtures/kis/index-daily-0001.json';
@@ -750,5 +750,66 @@ describe('kis provider: index candles', () => {
     expect(candles).toHaveLength(10);
     expect(candles[0]).toMatchObject({ t: kstEpoch('2026-10-12', '09:00:00'), o: 2650, c: 2650.5 });
     expect(candles.at(-1)!.t).toBe(kstEpoch('2026-10-12', '09:09:00'));
+  });
+});
+
+describe('KIS token throttle countdown', () => {
+  const T0 = kstEpoch('2026-10-12', '09:00:00');
+
+  function issuedAtStore(): IssuedAtStore {
+    let v: number | null = null;
+    return { load: () => v, save: (t) => (v = t) };
+  }
+
+  /** 새로고침 흉내: 토큰 저장소는 비고(잠금 모드는 메모리) 발급 시각 저장소만 같다. */
+  function make(issuedAt: IssuedAtStore | undefined, clock: { now: number }, throttle: () => ApiError | null) {
+    const client = fakeClient((c) => {
+      if (c.method !== 'POST') return undefined;
+      const e = throttle();
+      if (e) throw e;
+      return undefined;
+    });
+    return createKisProvider({
+      client,
+      queue: fastQueue(),
+      creds: { appKey: APP_KEY, appSecret: APP_SECRET },
+      tokenStore: memoryStore(),
+      now: () => clock.now,
+      ...(issuedAt ? { issuedAt } : {}),
+    });
+  }
+
+  it('throttled reissue after reload shows remaining seconds', async () => {
+    const issuedAt = issuedAtStore();
+    const clock = { now: T0 };
+    await make(issuedAt, clock, () => null).getQuotes(['005930'], 'KRX');
+    expect(issuedAt.load()).toBe(T0);
+
+    clock.now = T0 + 20_000;
+    const reloaded = make(issuedAt, clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
+    const err = await reloaded.getQuotes(['005930'], 'KRX').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('token-throttled');
+    expect(err.status).toBe(403);
+    expect(err.retryAfterMs).toBe(40_000);
+  });
+
+  it('prefers the Retry-After header, never goes below zero, and leaves it unknown without an issue time', async () => {
+    const issuedAt = issuedAtStore();
+    issuedAt.save(T0);
+    const clock = { now: T0 + 20_000 };
+    const withHeader = make(issuedAt, clock, () => new ApiError('token-throttled', undefined, { status: 403, retryAfterMs: 5_000 }));
+    expect((await withHeader.getQuotes(['005930'], 'KRX').catch((e) => e)).retryAfterMs).toBe(5_000);
+
+    clock.now = T0 + 90_000;
+    const late = make(issuedAt, clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
+    expect((await late.getQuotes(['005930'], 'KRX').catch((e) => e)).retryAfterMs).toBe(0);
+
+    const unknown = make(issuedAtStore(), clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
+    const err = await unknown.getQuotes(['005930'], 'KRX').catch((e) => e);
+    expect(err.code).toBe('token-throttled');
+    expect(err.retryAfterMs).toBeUndefined();
+    const noStore = make(undefined, clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
+    expect((await noStore.getQuotes(['005930'], 'KRX').catch((e) => e)).retryAfterMs).toBeUndefined();
   });
 });

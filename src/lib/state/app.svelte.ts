@@ -7,7 +7,7 @@ import {
   type SeriesSnapshots,
 } from '../data/candleService';
 import { createProvider } from '../providers/factory';
-import type { MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
+import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
 import { applyColorConvention, applyTheme } from '../ui/theme';
 import {
   RECENT_MAX,
@@ -18,6 +18,7 @@ import {
   memoryTokenStore,
   profileKeys,
   removeTokens,
+  storageIssuedAtStore,
   storageTokenStore,
 } from './profileStore';
 import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
@@ -95,6 +96,8 @@ export interface App {
    * 만들어졌을 때만 그 공급자의 토큰 관리자(캐시·진행 중 발급·잠금 모드 규칙 포함)를 돌려준다. 아니면 undefined.
    */
   tokenSourceFor(provider: 'kis' | 'toss', secrets: Secrets, proxyUrl: string): (() => Promise<TokenInfo>) | undefined;
+  /** 지금 프로필의 KIS 마지막 토큰 발급 시각 저장소(공급자와 연결 진단이 함께 쓴다). 잠금 모드에서도 저장한다. */
+  tokenIssuedAt(provider: 'kis'): IssuedAtStore;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
@@ -255,6 +258,7 @@ export function createApp(deps: AppDeps): App {
       now,
       fetchImpl,
       tokenStore: (p) => tokenStoreFor(id, p, generation),
+      issuedAtStore: (p) => storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(id, p)),
     });
   }
 
@@ -521,6 +525,7 @@ export function createApp(deps: AppDeps): App {
       remove(profileKeys.secrets(id));
       remove(profileKeys.recent(id));
       remove(profileKeys.strategies(id));
+      remove(profileKeys.tokenIssuedAt(id, 'kis'));
     },
 
     async verifyPassphrase(passphrase) {
@@ -648,6 +653,10 @@ export function createApp(deps: AppDeps): App {
       if (current.id !== p || !current.getAccessToken) return undefined;
       if (proxyUrl.trim() !== builtFrom.proxyUrl || !sameCredentials(p, s, builtFrom.secrets)) return undefined;
       return () => current.getAccessToken!();
+    },
+
+    tokenIssuedAt(p) {
+      return storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(activeId(), p));
     },
 
     lock() {

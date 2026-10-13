@@ -1,14 +1,14 @@
 // 연결 진단(스펙 7.4): ① 프록시 응답 → ② CORS 허용 → ③ 토큰 발급 → ④ 시세 조회(삼성전자).
 // ③ 토큰: 앱의 공급자가 같은 키·프록시로 만들어졌으면 그 토큰 관리자(tokenSource)를 함께 쓴다
 // (KIS 토큰은 1분에 한 번만 받을 수 있어, 앱이 막 받은 토큰과 겹쳐 발급하면 실패한다).
-// 그렇지 않으면 직접 발급하고, 그 토큰은 이 진단 안에서만 쓰고 버린다.
+// 그렇지 않으면 직접 발급하고, 그 토큰은 이 진단 안에서만 쓰고 버린다. KIS 직접 발급은 그 시각을 issuedAt에 남긴다.
 // 단계의 hint·error에는 키·토큰을 절대 넣지 않는다(고정 문구와 출처만).
 import type { Secrets } from '../state/secrets';
 import { ApiError, classify, kisBodyCode, type ErrorCode } from './errors';
 import { createProxyClient, isRedirect, type ProxyClient } from './http';
 import { parseKisToken } from './kis';
 import { parseTossToken } from './toss';
-import type { TokenInfo } from './types';
+import type { IssuedAtStore, TokenInfo } from './types';
 
 export type DiagLabel = '프록시 응답' | 'CORS 허용' | '토큰 발급' | '시세 조회 (삼성전자)';
 
@@ -39,6 +39,8 @@ export interface DiagnosticsArgs {
   now?: () => number;
   /** 있으면 ③에서 직접 발급하지 않고 이 토큰을 쓴다(앱 공급자의 getAccessToken). */
   tokenSource?: () => Promise<TokenInfo>;
+  /** ③에서 KIS 토큰을 직접 발급하면 그 시각을 기록할 저장소(앱 공급자와 같은 것). */
+  issuedAt?: IssuedAtStore;
 }
 
 const LABELS: Record<DiagStep['id'], DiagLabel> = {
@@ -185,6 +187,13 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
           body: { grant_type: 'client_credentials', appkey: kis.appKey, appsecret: kis.appSecret },
         });
         token = parseKisToken(res.json);
+        if (token) {
+          try {
+            args.issuedAt?.save(now());
+          } catch {
+            // 시각을 저장하지 못해도 진단은 이어간다.
+          }
+        }
       } else {
         const toss = secrets.toss;
         if (!toss || !filled(toss.clientId) || !filled(toss.clientSecret)) throw new StepFailure('invalid-credentials', '키를 입력해 주세요');

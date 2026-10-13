@@ -275,4 +275,27 @@ describe('runDiagnostics', () => {
       expect(all).not.toContain(secret);
     }
   });
+
+  it('a direct KIS issue in step ③ records its time in the issue-time store (shared source and Toss do not)', async () => {
+    const saved: number[] = [];
+    const issuedAt = { load: () => saved.at(-1) ?? null, save: (t: number) => void saved.push(t) };
+    const base = { proxyUrl: PROXY, fetchImpl: undefined as unknown as typeof fetch, origin: ORIGIN, onStep: () => {}, now: () => 7_000, issuedAt };
+
+    const direct = fakeFetch({ token: () => json(kisToken), price: () => json(kisPrice) });
+    await runDiagnostics({ ...base, provider: 'kis', secrets: KIS, fetchImpl: direct });
+    expect(saved).toEqual([7_000]);
+
+    const throttled = fakeFetch({ token: () => json({ error_code: 'EGW00133' }, 403) });
+    await runDiagnostics({ ...base, provider: 'kis', secrets: KIS, fetchImpl: throttled, now: () => 8_000 });
+    expect(saved).toEqual([7_000]);
+
+    const shared = fakeFetch({ price: () => json(kisPrice) });
+    await runDiagnostics({
+      ...base, provider: 'kis', secrets: KIS, fetchImpl: shared, now: () => 9_000,
+      tokenSource: async () => ({ accessToken: 'shared-token', expiresAt: 9e12 }),
+    });
+    const toss = fakeFetch({ token: () => json(tossToken), price: () => json(tossPrices) });
+    await runDiagnostics({ ...base, provider: 'toss', secrets: TOSS, fetchImpl: toss, now: () => 10_000 });
+    expect(saved).toEqual([7_000]);
+  });
 });

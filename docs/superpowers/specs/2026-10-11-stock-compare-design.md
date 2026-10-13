@@ -465,6 +465,7 @@ p:{id}:watchlists       { groups: [{ id, name, items: [{ symbol, colorSlot, hidd
 p:{id}:secrets          평문: { kis?: { appKey, appSecret }, toss?: { clientId, clientSecret }, proxyToken? }
                         잠금: { enc: base64, iv, salt, kdf: 'PBKDF2-SHA256', iter: 310000 }
 p:{id}:token            { provider, accessToken, expiresAt }   // 잠금 모드면 메모리에만
+p:{id}:tokenIssuedAt:kis  마지막 KIS 토큰 발급 시각(epoch ms)   // 비밀이 아니라 잠금 모드에서도 저장, 프로필 삭제 때 지움
 ```
 
 - 스키마를 바꿀 때는 `schemaVersion` 기반 마이그레이션 함수를 거친다.
@@ -490,7 +491,7 @@ p:{id}:token            { provider, accessToken, expiresAt }   // 잠금 모드�
 | CORS 거부 | TypeError + 진단 단계 ② 실패 | "프록시가 이 주소를 허용하지 않아요" | `ALLOWED_ORIGINS`에 넣을 값 복사 버튼 |
 | 허용 IP 아님 (토스) | 403 `ip-not-allowed`·`access_denied` | "토스에 프록시 IP가 등록되지 않았어요" | 등록 경로 안내 |
 | 키 오류 | 401 `invalid_client` | "키가 맞지 않아요" | 키 입력으로 이동 |
-| 토큰 만료 | 401 + 만료 시각 경과 | 표시 없이 재발급 1회 | KIS 1분 제한이면 남은 초 표시 |
+| 토큰 만료 | 401 + 만료 시각 경과 | 표시 없이 재발급 1회 | KIS 1분 제한(`EGW00133`)이면 남은 초 표시: `Retry-After`가 있으면 그 값, 없으면 마지막 발급 시각(`tokenIssuedAt`, 앱·진단 ③ 발급 모두 기록, 새로고침 뒤에도 유지) + 60초 − 지금. 시각을 모르면 초 없이 문구만 |
 | 호출 한도 | 429 | 툴바 "잠시 천천히 불러오는 중" | `Retry-After` 대기 후 재시도 |
 | 거래소 미지원 | `capabilities` | 세그먼트 비활성 + 이유 | — |
 | 종목 데이터 없음·거래정지 | 빈 응답·메타 플래그 | 그 종목 행에만 배지·메시지 | 나머지 종목 정상 |

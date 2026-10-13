@@ -1,5 +1,5 @@
 // 프로필별 저장 키와 읽기 도우미. 앱 상태(app.svelte.ts)가 이 함수들로 저장소를 읽고 쓴다.
-import type { TokenInfo, TokenStore } from '../providers/types';
+import type { IssuedAtStore, TokenInfo, TokenStore } from '../providers/types';
 import { DEFAULT_SETTINGS, type Settings, type Watchlists } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import { sanitizeSettings, sanitizeWatchlists } from './validate';
@@ -12,6 +12,8 @@ export const profileKeys = {
   watchlists: (id: string) => `p:${id}:watchlists`,
   secrets: (id: string) => `p:${id}:secrets`,
   token: (id: string, provider: 'kis' | 'toss') => `p:${id}:token:${provider}`,
+  /** 마지막 토큰 발급 시각(epoch ms). 비밀이 아니라 잠금 모드에서도 저장한다. */
+  tokenIssuedAt: (id: string, provider: 'kis') => `p:${id}:tokenIssuedAt:${provider}`,
   recent: (id: string) => `p:${id}:recent`,
   strategies: (id: string) => `p:${id}:strategies`,
 };
@@ -103,5 +105,16 @@ export function memoryTokenStore(
     save: (t) => {
       if (canSave()) map.set(key, t);
     },
+  };
+}
+
+/** 발급 시각 저장소. 비밀이 아니라 잠금 모드에서도 저장소에 쓴다. 숫자가 아니면 모르는 것으로 본다. */
+export function storageIssuedAtStore(st: SafeStorage, key: string): IssuedAtStore {
+  return {
+    load: () => {
+      const t = st.get<unknown>(key, null);
+      return typeof t === 'number' && Number.isFinite(t) ? t : null;
+    },
+    save: (t) => st.set(key, t),
   };
 }
