@@ -113,6 +113,17 @@ describe('tokens.css', () => {
     });
 
     it.each([
+      ['light', light],
+      ['dark (system)', darkAuto],
+      ['dark (data-theme)', darkSet],
+    ])('%s: 토글(비텍스트 3:1) — 켬 손잡이·트랙, 끔 손잡이·트랙', (_, b) => {
+      // 켬: 손잡이 --on-accent 대 트랙 --accent. 끔: 손잡이 #fff 대 트랙 --t3, 트랙 --t3 대 면
+      expect(ratio(token(b, 'on-accent'), token(b, 'accent')), 'on-accent on accent').toBeGreaterThanOrEqual(3);
+      expect(ratio('#ffffff', token(b, 't3')), 'thumb on off-track').toBeGreaterThanOrEqual(3);
+      for (const bg of SURFACES) expect(ratio(token(b, 't3'), token(b, bg)), `off-track on ${bg}`).toBeGreaterThanOrEqual(3);
+    });
+
+    it.each([
       ['light', light, 0.1],
       ['dark', darkSet, 0.14],
     ])('%s: accent text on its own tint (NXT badge) over every surface', (_, b, alpha) => {
