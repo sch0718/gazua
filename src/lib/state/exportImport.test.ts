@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
 import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
+import { loadStrategies } from '../sim/strategyStore';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
 import { lockSecrets, type Secrets } from './secrets';
@@ -302,6 +303,16 @@ describe('importData — repaired flag', () => {
     const { st } = source();
     const bad = { ...strat, entry: { ...strat.entry, filter: { aboveMa: { on: true, period: 2.5 } } } };
     expect(importData(st, file({ strategies: [bad] }))).toMatchObject({ ok: true, repaired: true });
+  });
+
+  it('마지막 익절 단계 sellPct가 100이 아니면 100으로 저장하고 repaired true, 이미 100이면 false', () => {
+    const { st } = source();
+    const withTp = (takeProfit: unknown) => ({ ...strat, exit: { ...strat.exit, takeProfit } });
+    const res = importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 50 }])] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadStrategies(st, res.profileId)[0].exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    expect(importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 100 }])] }))).toMatchObject({ ok: true, repaired: false });
   });
 
   it('빈 id 전략을 버리면 repaired true', () => {

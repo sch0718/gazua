@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { itemsOf } from '../../sheets/testApp';
-import { newStrategy } from './defaults';
+import { MAX_STRATEGIES, NAME_MAX, newStrategy } from './defaults';
 import { resolveSymbols, sanitizeStrategies, strategyIssues } from './validate';
 
 const now = Date.parse('2026-10-12T03:00:00Z'); // KST 12:00
@@ -270,5 +270,58 @@ describe('sanitizeStrategies: 날짜와 기본값 생성', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('sanitizeStrategies: 있는 값을 바꾸면 repaired', () => {
+  const s = newStrategy(now, 'g1');
+  const one = (mut: (x: any) => void) => {
+    const t = structuredClone(s) as any;
+    mut(t);
+    return sanitizeStrategies({ strategies: [t] });
+  };
+
+  it('마지막 익절 단계의 sellPct가 100이 아니면 100으로 맞추고 repaired', () => {
+    const r = one((x) => (x.exit.takeProfit = [{ pct: 15, sellPct: 50 }]));
+    expect(r.strategies[0].exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    expect(r.repaired).toBe(true);
+    const r2 = one((x) => (x.exit.takeProfit = [{ pct: 5, sellPct: 30 }, { pct: 10, sellPct: 40 }]));
+    expect(r2.strategies[0].exit.takeProfit).toEqual([{ pct: 5, sellPct: 30 }, { pct: 10, sellPct: 100 }]);
+    expect(r2.repaired).toBe(true);
+  });
+
+  it('마지막 단계가 이미 100이면 repaired 아님(앱이 저장한 모양)', () => {
+    expect(one((x) => (x.exit.takeProfit = [{ pct: 5, sellPct: 30 }, { pct: 10, sellPct: 100 }])).repaired).toBe(false);
+    expect(one(() => {}).repaired).toBe(false);
+  });
+
+  it('strategies가 배열이 아니거나 목록 자체가 객체가 아니면 repaired(없거나 null이면 아님)', () => {
+    expect(sanitizeStrategies({ strategies: 'x' })).toEqual({ strategies: [], repaired: true });
+    expect(sanitizeStrategies({ strategies: {} })).toEqual({ strategies: [], repaired: true });
+    expect(sanitizeStrategies([])).toEqual({ strategies: [], repaired: true });
+    expect(sanitizeStrategies('x')).toEqual({ strategies: [], repaired: true });
+    expect(sanitizeStrategies({})).toEqual({ strategies: [], repaired: false });
+    expect(sanitizeStrategies(undefined)).toEqual({ strategies: [], repaired: false });
+    expect(sanitizeStrategies(null)).toEqual({ strategies: [], repaired: false });
+  });
+
+  it('이미 세던 것들도 하나씩 따로 repaired: 이름 31자, 겹치는 id, 21개째, 익절 4단계, 종목 9개, 겹치거나 문자열 아닌 종목', () => {
+    const syms = (symbols: unknown[]) => one((x) => (x.universe = { kind: 'symbols', symbols }));
+    const nine = Array.from({ length: 9 }, (_, i) => `00000${i}`);
+    const longName = one((x) => (x.name = 'ㄱ'.repeat(NAME_MAX + 1)));
+    expect(longName.strategies[0].name).toHaveLength(NAME_MAX);
+    expect(longName.repaired).toBe(true);
+    expect(one((x) => (x.name = 'ㄱ'.repeat(NAME_MAX))).repaired).toBe(false);
+    expect(sanitizeStrategies({ strategies: [s, structuredClone(s)] })).toMatchObject({ repaired: true });
+    const many = Array.from({ length: MAX_STRATEGIES + 1 }, (_, i) => ({ ...structuredClone(s), id: `s${i}` }));
+    const capped = sanitizeStrategies({ strategies: many });
+    expect(capped.strategies).toHaveLength(MAX_STRATEGIES);
+    expect(capped.repaired).toBe(true);
+    expect(sanitizeStrategies({ strategies: many.slice(0, MAX_STRATEGIES) }).repaired).toBe(false);
+    expect(one((x) => (x.exit.takeProfit = [1, 2, 3, 4].map((n) => ({ pct: n * 5, sellPct: n === 3 || n === 4 ? 100 : 10 })))).repaired).toBe(true);
+    expect(syms(nine).repaired).toBe(true);
+    expect(syms(nine.slice(0, 8)).repaired).toBe(false);
+    expect(syms(['005930', '005930']).repaired).toBe(true);
+    expect(syms(['005930', 5]).repaired).toBe(true);
   });
 });
