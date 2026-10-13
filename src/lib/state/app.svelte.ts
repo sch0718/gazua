@@ -248,10 +248,17 @@ export function createApp(deps: AppDeps): App {
   /** 지금 세대 공급자의 토큰 저장소. 세대가 바뀌면(공급자 교체) 저장하지 않는다. */
   function tokenStoreFor(id: string, p: 'kis' | 'toss', generation: number): TokenStore {
     const current = () => generation === providerGeneration;
-    return lockMode()
-      ? memoryTokenStore(memoryTokens, `${id}:${p}`, current)
-      : // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
-        storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
+    if (lockMode()) return memoryTokenStore(memoryTokens, `${id}:${p}`, current);
+    // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
+    const store = storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
+    return {
+      load: store.load,
+      save: (t) => {
+        store.save(t);
+        // 저장이 실패하면 저장소 배너가 달라지므로 다시 계산하게 한다.
+        storageTick++;
+      },
+    };
   }
 
   /** 프로필이 아직 있을 때만 쓴다: 지운 프로필의 발급 시각 키를 늦게 끝난 발급이 되살리지 않게. */
@@ -260,7 +267,9 @@ export function createApp(deps: AppDeps): App {
     return {
       load: store.load,
       save: (t) => {
-        if (meta.profiles.some((x) => x.id === id)) store.save(t);
+        if (!meta.profiles.some((x) => x.id === id)) return;
+        store.save(t);
+        storageTick++;
       },
     };
   }

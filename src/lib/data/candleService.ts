@@ -262,6 +262,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
   const v = venuesFor(provider.capabilities, meta, args.venueMode);
   const sessions = sessionsForDay(ctx.day);
   const intervals = tradableIntervals(sessions, meta, v.mode);
+  const isD1 = period.unit === 'D';
 
   const dailyTtl = ctx.inSession ? DAILY_TTL_IN_SESSION_MS : DAILY_TTL_OUTSIDE_MS;
   const fetchDaily = (venue: Venue) =>
@@ -284,6 +285,16 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
     const baseHit = memo.get(`${pairKey}|base`, now);
     const seriesHit = memo.get(`${pairKey}|series`, now);
     if (baseHit && seriesHit) return { base: baseHit, series: seriesHit };
+    if (isD1) {
+      // 1일 차트는 시리즈 일봉이 곧 차트가 아니다(분봉이 차트). 기준 일봉만 받으면 계속하고,
+      // 시리즈 일봉은 비운 채 RVOL이 KRX 대체로 가게 한다. 실패한 쌍은 메모하지 않아 다음 로드에서 다시 받는다.
+      const [b, s] = await Promise.allSettled([fetchDaily(v.base), fetchDaily(v.series)]);
+      if (b.status === 'rejected') throw b.reason;
+      if (s.status === 'rejected') return { base: b.value, series: [] };
+      memo.set(`${pairKey}|base`, b.value, now, dailyTtl);
+      memo.set(`${pairKey}|series`, s.value, now, dailyTtl);
+      return { base: b.value, series: s.value };
+    }
     const [base, series] = await Promise.all([fetchDaily(v.base), fetchDaily(v.series)]);
     memo.set(`${pairKey}|base`, base, now, dailyTtl);
     memo.set(`${pairKey}|series`, series, now, dailyTtl);
@@ -313,7 +324,6 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
       () => provider.getCandles({ symbol: meta.symbol, venue, interval: '1m', from: tradingDate, to: tradingDate }),
     );
 
-  const isD1 = period.unit === 'D';
   const extraRvol = isD1 && v.rvol !== v.base && v.rvol !== v.series;
   const [{ base: baseDaily, series: seriesDaily }, minuteSets, extraDaily] = await Promise.all([
     dailyPair(),

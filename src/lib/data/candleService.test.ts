@@ -594,6 +594,55 @@ describe('RVOL denominator venue (same venue as the minutes, KRX fallback)', () 
     expect(new Set(s.segments.map((x) => x.venue))).toEqual(new Set(['UNIFIED']));
   });
 
+  describe('NXT daily failure', () => {
+    const nxtDown: DailyFn = (venue, d) => {
+      if (venue === 'NXT') throw new ApiError('upstream', 'NXT daily down');
+      return byVenue(venue, d);
+    };
+
+    it('1 day: a failing NXT daily falls back to the KRX average and the minutes still draw', async () => {
+      const clock = { now: THU_10 };
+      const f = fakeProvider({ now: () => clock.now, daily: nxtDown });
+      const s = await load(f, clock, 'NXT');
+      expect(s.candles.length).toBeGreaterThan(0);
+      expect(s.intervals.length).toBeGreaterThan(0);
+      expect(s.segments.length).toBeGreaterThan(0);
+      expect(new Set(s.segments.map((x) => x.venue))).toEqual(new Set(['NXT']));
+      expect(s.avgDailyVolume).toBe(1000);
+      expect(s.avgVolumeVenue).toBe('KRX');
+      expect(s.base).toBe(100);
+      expect(s.daily).toEqual([]);
+    });
+
+    it('1 day: the failed pair is not memoized, so the next load asks NXT daily again', async () => {
+      const clock = { now: THU_10 };
+      const f = fakeProvider({ now: () => clock.now, daily: nxtDown });
+      const d = deps(clock);
+      await load(f, clock, 'NXT', {}, D1, d);
+      expect(dailyVenues(f).sort()).toEqual(['KRX', 'NXT']);
+      await load(f, clock, 'NXT', {}, D1, d);
+      expect(dailyVenues(f).slice(2).sort()).toEqual(['KRX', 'NXT']);
+    });
+
+    it('1 day: a failing KRX (base) daily still rejects', async () => {
+      const clock = { now: THU_10 };
+      const daily: DailyFn = (venue, d) => {
+        if (venue === 'KRX') throw new ApiError('upstream', 'KRX daily down');
+        return byVenue(venue, d);
+      };
+      const f = fakeProvider({ now: () => clock.now, daily });
+      await expect(load(f, clock, 'NXT')).rejects.toMatchObject({ code: 'upstream' });
+    });
+
+    it('other periods: a failing NXT daily (the chart itself) still rejects', async () => {
+      for (const period of [W1, Y1]) {
+        const clock = { now: THU_10 };
+        const f = fakeProvider({ now: () => clock.now, daily: nxtDown });
+        await expect(load(f, clock, 'NXT', {}, period)).rejects.toMatchObject({ code: 'upstream' });
+      }
+    });
+  });
+
   it('keeps the adjustment factor on the denominator', async () => {
     // 지난 거래일: 일봉(수정주가) 종가 50·거래량 2000, 원래 가격 1분봉 종가 단일가 100 → factor 0.5
     const clock = { now: SUN };
