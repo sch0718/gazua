@@ -81,7 +81,11 @@
       return;
     }
     const name = app.meta.profiles.find((p) => p.id === res.profileId)?.name ?? '';
-    showSnackbar(`'${name}' 프로필을 만들었어요`, { label: '전환', run: () => app.switchProfile(res.profileId) });
+    const made = `'${name}' 프로필을 만들었어요`;
+    const action = { label: '전환', run: () => app.switchProfile(res.profileId) };
+    // 문장이 길어지면 읽을 시간이 더 필요해 8초 보인다
+    if (res.repaired) showSnackbar(`${made}. 일부 값이 맞지 않아 기본값으로 바꿨어요`, action, 8000);
+    else showSnackbar(made, action);
   }
 
   async function clearCache() {

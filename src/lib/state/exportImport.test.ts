@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
 import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
+import { loadStrategies } from '../sim/strategyStore';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
 import { lockSecrets, type Secrets } from './secrets';
@@ -279,5 +280,56 @@ describe('strategies in export files', () => {
     const parsed = JSON.parse(exportData(st, 'p1', false));
     parsed.strategies = 'x';
     expect(importData(st, JSON.stringify(parsed))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
+  });
+});
+
+describe('importData — repaired flag', () => {
+  const strat = { ...newStrategy(1_700_000_000_000, 'g1', '전략'), id: 's1' };
+  const file = (extra: Record<string, unknown>) =>
+    JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: {}, watchlists: LISTS, ...extra });
+
+  it('깨끗한 파일은 repaired false', () => {
+    const { st } = source();
+    expect(importData(st, exportData(st, 'p1', false))).toMatchObject({ ok: true, repaired: false });
+    expect(importData(st, file({ strategies: [strat] }))).toMatchObject({ ok: true, repaired: false });
+  });
+
+  it('선택 필드 strategies가 아예 없는 파일은 repaired false(없는 필드는 조용히 기본값)', () => {
+    const { st } = source();
+    expect(importData(st, file({}))).toMatchObject({ ok: true, repaired: false });
+  });
+
+  it('소수 이동평균 기간을 기본값으로 바꾸면 repaired true', () => {
+    const { st } = source();
+    const bad = { ...strat, entry: { ...strat.entry, filter: { aboveMa: { on: true, period: 2.5 } } } };
+    expect(importData(st, file({ strategies: [bad] }))).toMatchObject({ ok: true, repaired: true });
+  });
+
+  it('마지막 익절 단계 sellPct가 100이 아니면 100으로 저장하고 repaired true, 이미 100이면 false', () => {
+    const { st } = source();
+    const withTp = (takeProfit: unknown) => ({ ...strat, exit: { ...strat.exit, takeProfit } });
+    const res = importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 50 }])] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadStrategies(st, res.profileId)[0].exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    expect(importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 100 }])] }))).toMatchObject({ ok: true, repaired: false });
+  });
+
+  it('빈 id 전략을 버리면 repaired true', () => {
+    const { st } = source();
+    expect(importData(st, file({ strategies: [{ ...strat, id: '' }, { ...strat, id: 's2' }] }))).toMatchObject({ ok: true, repaired: true });
+  });
+
+  it('문자열이 아닌 최근 종목을 버리면 repaired true', () => {
+    const { st } = source();
+    const res = importData(st, file({ recent: [1, '005930'] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadRecent(st, res.profileId)).toEqual(['005930']);
+  });
+
+  it('맞지 않는 설정 필드를 기본값으로 바꾸면 repaired true', () => {
+    const { st } = source();
+    expect(importData(st, file({ settings: { provider: 'nope' } }))).toMatchObject({ ok: true, repaired: true });
   });
 });

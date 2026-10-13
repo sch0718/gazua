@@ -18,7 +18,7 @@ export type Issue = {
   blocking: boolean;
 };
 
-/** 항목 하나를 고친다. 맞지 않거나 빠진 필드는 기본값으로 바꾸고 repaired를 켠다. */
+/** 항목 하나를 고친다. 맞지 않는 필드는 기본값으로 바꾸고 repaired를 켠다(빠진 필드는 조용히 기본값). */
 function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Strategy; repaired: boolean } | null {
   if (typeof raw.id !== 'string' || raw.id.trim() === '' || typeof raw.name !== 'string') return null;
   const d = structuredClone(template);
@@ -113,7 +113,9 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
   if (Array.isArray(ex.takeProfit) && ex.takeProfit.length > 0 && ex.takeProfit.every(tpOk)) {
     if (ex.takeProfit.length > MAX_TAKE_STAGES) repaired = true;
     const stages = (ex.takeProfit as { pct: number; sellPct: number }[]).slice(0, MAX_TAKE_STAGES).map((t) => ({ pct: t.pct, sellPct: t.sellPct }));
-    stages[stages.length - 1].sellPct = 100; // 마지막 단계는 나머지 전부
+    const last = stages[stages.length - 1];
+    if (last.sellPct !== 100) repaired = true; // 앱은 늘 100으로 저장하니 100이 아니면 바깥에서 온 값을 바꾼 것
+    last.sellPct = 100; // 마지막 단계는 나머지 전부
     takeProfit = stages;
   } else if (ex.takeProfit !== undefined) repaired = true;
   const sl = rec(ex.stopLoss);
@@ -152,10 +154,12 @@ function sanitizeOne(raw: Row, now: number, template: Strategy): { strategy: Str
 
 /**
  * 저장소에서 읽은 `{ strategies: [...] }`를 고친다. 필수 필드(id·name)가 틀린 항목과 id가 겹치는 항목은 버리고, 20개까지만 남긴다.
- * repaired: 무언가를 버렸거나 틀린 값을 기본값으로 바꿨다(없는 필드는 조용히 기본값).
+ * repaired: 무언가를 버렸거나, 있는 값을 기본값으로 바꾸거나 잘라내거나 맞췄다(없는 필드는 조용히 기본값).
  */
 export function sanitizeStrategies(raw: unknown, now = Date.now()): { strategies: Strategy[]; repaired: boolean } {
-  if (!isRecord(raw) || !Array.isArray(raw.strategies)) return { strategies: [], repaired: false };
+  // 루트가 없거나 null이면 조용히 빈 목록, 있는데 모양이 틀리면 버린 것으로 센다
+  if (!isRecord(raw) || !Array.isArray(raw.strategies))
+    return { strategies: [], repaired: isRecord(raw) ? raw.strategies !== undefined : raw !== undefined && raw !== null };
   const strategies: Strategy[] = [];
   const ids = new Set<string>();
   let repaired = false;

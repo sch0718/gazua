@@ -37,7 +37,7 @@ export interface ExportFile {
   secrets?: Secrets | LockedSecrets;
 }
 
-export type ImportResult = { ok: true; profileId: string } | { ok: false; reason: string };
+export type ImportResult = { ok: true; profileId: string; repaired: boolean } | { ok: false; reason: string };
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -116,10 +116,13 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   const watchlists = validWatchlists(file.watchlists);
   if (!watchlists) return fail(IMPORT_BAD_FORMAT);
   if (file.recent !== undefined && !Array.isArray(file.recent)) return fail(IMPORT_BAD_FORMAT);
-  const recent = ((file.recent as unknown[] | undefined) ?? []).filter(isString).slice(0, RECENT_MAX);
+  const rawRecent = (file.recent as unknown[] | undefined) ?? [];
+  // 문자열이 아닌 항목을 버리면 고침으로 센다(개수 초과는 정상 내보내기에서 나올 수 없어 세지 않는다)
+  const recentRepaired = rawRecent.some((x) => !isString(x));
+  const recent = rawRecent.filter(isString).slice(0, RECENT_MAX);
 
   if (file.strategies !== undefined && !Array.isArray(file.strategies)) return fail(IMPORT_BAD_FORMAT);
-  const { strategies } = sanitizeStrategies(file, now());
+  const { strategies, repaired: strategiesRepaired } = sanitizeStrategies(file, now());
 
   let secrets: Secrets | LockedSecrets | null = null;
   if (file.secrets !== undefined) {
@@ -127,7 +130,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
     if (!secrets) return fail(IMPORT_BAD_FORMAT);
   }
   const locked = secrets !== null && isLocked(secrets);
-  const { settings } = sanitizeSettings(file.settings, locked);
+  const { settings, invalid } = sanitizeSettings(file.settings, locked);
 
   const rawName = isRecord(file.profile) && isString(file.profile.name) ? file.profile.name.trim() : '';
   const name = rawName ? [...rawName].slice(0, NAME_MAX).join('').trim() : DEFAULT_PROFILE_NAME;
@@ -140,5 +143,6 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   // 색인은 마지막에 쓴다(중간에 실패해도 반쯤 만든 프로필이 목록에 보이지 않게).
   const meta: Meta = loadMeta(st);
   st.set(META_KEY, { ...meta, profiles: [...meta.profiles, { id, name: `${name} (가져옴)`, createdAt: now() }] });
-  return { ok: true, profileId: id };
+  // 관심종목은 하나라도 틀리면 위에서 거절하므로 고침으로 세지 않는다
+  return { ok: true, profileId: id, repaired: invalid.length > 0 || strategiesRepaired || recentRepaired };
 }

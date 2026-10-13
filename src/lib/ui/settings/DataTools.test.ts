@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
@@ -55,6 +56,42 @@ describe('DataTools', () => {
     await fireEvent.change(input, { target: { files: [new File([good], 'y.json', { type: 'application/json' })] } });
     await waitFor(() => expect(app.meta.profiles.map((p) => p.name)).toContain('내 프로필 (가져옴)'));
     expect(await screen.findByText("'내 프로필 (가져옴)' 프로필을 만들었어요")).toBeTruthy();
+  });
+
+  it('shows an extra sentence only when the import repaired values', async () => {
+    const { app } = await setup();
+    const input = screen.getByLabelText('가져올 파일') as HTMLInputElement;
+    const repaired = JSON.parse(app.exportData(false));
+    repaired.settings.theme = '없는 테마';
+    await fireEvent.change(input, { target: { files: [new File([JSON.stringify(repaired)], 'r.json', { type: 'application/json' })] } });
+    expect(await screen.findByText(/일부 값이 맞지 않아 기본값으로 바꿨어요/)).toBeTruthy();
+    expect(screen.getByText(/'내 프로필 \(가져옴\)' 프로필을 만들었어요/)).toBeTruthy();
+
+    dismissSnackbar();
+    await fireEvent.change(input, { target: { files: [new File([app.exportData(false)], 'c.json', { type: 'application/json' })] } });
+    expect(await screen.findByText(/프로필을 만들었어요/)).toBeTruthy();
+    expect(screen.queryByText(/일부 값이 맞지 않아/)).toBeNull();
+  });
+
+  it('keeps the repaired snackbar for 8 seconds, longer than the 5 second default', async () => {
+    const { app } = await setup();
+    const repaired = JSON.parse(app.exportData(false));
+    repaired.settings.theme = '없는 테마';
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await fireEvent.change(screen.getByLabelText('가져올 파일'), {
+        target: { files: [new File([JSON.stringify(repaired)], 'r.json', { type: 'application/json' })] },
+      });
+      await waitFor(() => expect(screen.queryByText(/일부 값이 맞지 않아/)).toBeTruthy());
+      vi.advanceTimersByTime(7900);
+      await tick();
+      expect(screen.queryByText(/일부 값이 맞지 않아/)).toBeTruthy();
+      vi.advanceTimersByTime(200);
+      await tick();
+      await waitFor(() => expect(screen.queryByText(/일부 값이 맞지 않아/)).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refuses files over 1 MB without reading them', async () => {
