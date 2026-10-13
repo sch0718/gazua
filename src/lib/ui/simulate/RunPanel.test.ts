@@ -5,6 +5,7 @@ import { ResizeObserverStub } from '../../chart/lwcStub';
 import { ApiError } from '../../providers/errors';
 import { doneState } from './resultFixture';
 import RunPanel from './RunPanel.svelte';
+import runPanelSource from './RunPanel.svelte?raw';
 import type { RunState } from './runController.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
@@ -14,7 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const scope = { stocks: 4, benchmark: true };
 
-function setup(state: RunState, extra: { stale?: boolean; canRerun?: boolean } = {}) {
+function setup(state: RunState, extra: { stale?: boolean } = {}) {
   const props = {
     state,
     ...extra,
@@ -72,9 +73,18 @@ describe('RunPanel', () => {
     expect(p.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('모든 종목을 받지 못한 연결 문제: 연결 문구 + 진단 열기 + 다시 시도', async () => {
-    const p = setup({ kind: 'error', error: new Error('all failed') });
-    expect(screen.getByText('종목 정보를 받지 못했어요')).toBeTruthy();
+  it('모든 종목을 받지 못한 연결 문제: 던진 ApiError의 문구와 해결 행동', async () => {
+    const p = setup({ kind: 'error', error: new ApiError('invalid-credentials'), text: '종목 일봉을 받지 못했어요' });
+    expect(screen.getByText('키가 맞지 않아요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '키 다시 입력' }));
+    expect(p.onIssueAction).toHaveBeenCalledWith('credentials');
+    await fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    expect(p.onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('모든 종목을 받지 못함 + ApiError 아님: 종목 일봉 문구 + 진단 열기 + 다시 시도', async () => {
+    const p = setup({ kind: 'error', error: new Error('all failed'), text: '종목 일봉을 받지 못했어요' });
+    expect(screen.getByText('종목 일봉을 받지 못했어요')).toBeTruthy();
     expect(screen.queryByText('기간 안에 받은 데이터가 없어요')).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: '진단 열기' }));
     expect(p.onIssueAction).toHaveBeenCalledWith('diagnostics');
@@ -148,10 +158,11 @@ describe('RunPanel', () => {
     expect(screen.queryByText(/0\/0/)).toBeNull();
   });
 
-  it('진행 막대 트랙은 --line', () => {
-    setup({ kind: 'loading', progress: { done: 1, total: 7, waiting: false }, scope });
-    // 컴포넌트 스타일은 jsdom에서 계산되지 않으므로 클래스만 확인한다
-    expect(screen.getByRole('progressbar').classList.contains('bar')).toBe(true);
+  it('진행 막대 트랙 색은 --line(.bar 규칙의 background)', () => {
+    // jsdom은 컴포넌트 스타일을 계산하지 않으므로 소스의 .bar 규칙을 읽는다
+    const rule = /\.bar\s*\{([^}]*)\}/.exec(runPanelSource)?.[1] ?? '';
+    expect(rule).toMatch(/background:\s*var\(--line\)/);
+    expect(rule).not.toMatch(/--surface2/);
   });
 
   it('idle: 넓은 화면 안내 문구', () => {
@@ -160,27 +171,16 @@ describe('RunPanel', () => {
   });
 
   it('결과가 오래되면 배너 + 다시 실행, 본문은 흐리게', async () => {
-    const p = setup(doneState(), { stale: true, canRerun: true });
+    const p = setup(doneState(), { stale: true });
     expect(screen.getByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeTruthy();
     expect(document.querySelector('.dim')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
     expect(p.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('결과가 오래됐어도 규칙에 고칠 곳이 있으면 다시 실행은 없다', () => {
-    setup(doneState(), { stale: true, canRerun: false });
-    expect(screen.getByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '다시 실행' })).toBeNull();
-  });
-
   it('최신 결과에는 배너가 없다', () => {
     setup(doneState());
     expect(screen.queryByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeNull();
     expect(document.querySelector('.dim')).toBeNull();
-  });
-
-  it('작업본에 고칠 곳이 있으면 다시 시도·다시 실행 버튼이 꺼진다', () => {
-    setup({ kind: 'error', error: new Error('x') }, { canRerun: false });
-    expect((screen.getByRole('button', { name: '다시 시도' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

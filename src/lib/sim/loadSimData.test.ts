@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { createDemoProvider } from '../providers/demo';
+import { ApiError } from '../providers/errors';
 import type { CandleQuery, MarketDataProvider } from '../providers/types';
 import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { createSimMemo, loadSimData, type LoadProgress } from './loadSimData';
@@ -165,7 +166,7 @@ describe('loadSimData', () => {
       ok: false,
       noData: true,
       failed: [
-        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
+        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요', error: expect.any(Error) },
         { symbol: '000660', name: 'SK하이닉스', reason: '기간 안에 데이터가 없어요' },
       ],
     });
@@ -208,8 +209,16 @@ describe('loadSimData', () => {
     });
     const r = await run(sp.provider, strat(), ['000660', '005930']);
     if (!r.ok) throw new Error('expected ok');
-    expect(r.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }]);
+    expect(r.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요', error: expect.any(Error) }]);
     expect(r.input.stocks).toHaveLength(1);
+  });
+
+  it('받지 못한 종목은 던진 오류를 failed에 그대로 싣는다', async () => {
+    const boom = new ApiError('proxy-unreachable');
+    const sp = spied({ getCandles: async () => Promise.reject(boom) });
+    const r = await run(sp.provider, strat(), ['005930']);
+    if (!('failed' in r)) throw new Error('expected failed list');
+    expect(r.failed[0].error).toBe(boom);
   });
 
   it('지정 종목이 실패하면 benchmarkFailed', async () => {

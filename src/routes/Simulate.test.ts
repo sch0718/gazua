@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
+import { ApiError } from '../lib/providers/errors';
 import { newStrategy } from '../lib/sim/defaults';
 import { simulate } from '../lib/sim/simulate';
 import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
@@ -332,6 +333,43 @@ describe('Simulate run states', () => {
     const calls = spy.mock.calls.length;
     await fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
     await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(calls), { timeout: 5000 });
+  }, 15000);
+
+  it('모든 종목 일봉 요청이 ApiError로 실패하면 그 오류의 배너 문구와 해결 행동', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.spyOn(app.provider, 'getCandles').mockImplementation(() => Promise.reject(new ApiError('invalid-credentials')));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('키가 맞지 않아요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '키 다시 입력' })).toBeTruthy();
+    expect(screen.queryByText('종목 정보를 받지 못했어요')).toBeNull();
+  }, 15000);
+
+  it('작업본에 막는 경고가 있으면 다시 시도는 실행 대신 그 구역을 연다(버튼은 꺼지지 않는다)', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    const spy = vi.spyOn(app.provider, 'getCandles').mockImplementation(() => Promise.reject(new Error('x')));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await screen.findByRole('button', { name: '진단 열기' }, { timeout: 5000 });
+    // 규칙으로 가서 사는 신호를 모두 끈다(막는 경고)
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    const head = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
+    await fireEvent.click(head());
+    await fireEvent.click(screen.getByRole('switch', { name: '연속 상승 트리거 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }));
+    await fireEvent.click(head());
+    expect(head().getAttribute('aria-expanded')).toBe('false');
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    const retry = screen.getByRole('button', { name: '다시 시도' }) as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    const calls = spy.mock.calls.length;
+    await fireEvent.click(retry);
+    expect(head().getAttribute('aria-expanded')).toBe('true');
+    expect(spy.mock.calls.length).toBe(calls); // 다시 받지 않았다
   }, 15000);
 
   it('규칙 고치기(기간·자금) 뒤 결과로 갔다가 규칙을 다시 열면 구역이 강제로 열리지 않는다', async () => {

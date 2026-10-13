@@ -5,6 +5,8 @@ import { simulate } from '../../sim/simulate';
 import type { SimInput, SimResult, Strategy } from '../../sim/types';
 import { resolveSymbols } from '../../sim/validate';
 import type { App } from '../../state/app.svelte';
+import { ApiError } from '../../providers/errors';
+import { CANDLES_ERROR, dominantFault } from '../compare/loadIssue';
 
 export interface DoneMeta {
   venueLabel: string;
@@ -38,7 +40,8 @@ export type RunState =
   | { kind: 'partial'; failed: SimFailure[]; proceed: () => void; cancel: () => void }
   | DoneState
   | { kind: 'noData'; failed: SimFailure[] }
-  | { kind: 'error'; error: unknown } // 연결 오류(메타 실패, 또는 모든 종목이 `받지 못했어요`)
+  // 연결 오류(메타 실패, 또는 모든 종목이 `받지 못했어요`). text는 오류 코드를 모를 때의 문구(없으면 메타 문구)
+  | { kind: 'error'; error: unknown; text?: string }
   | { kind: 'crash' }; // 엔진 예외
 
 export interface RunController {
@@ -85,7 +88,10 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
   // 남은 종목이 없을 때: 실패가 전부 `받지 못했어요`면 데이터가 없는 게 아니라 연결 문제다.
   function noData(failed: SimFailure[]): RunState {
     if (failed.length > 0 && failed.every((f) => f.reason === '받지 못했어요')) {
-      return { kind: 'error', error: new Error('모든 종목의 일봉을 받지 못했어요') };
+      // 던진 오류 중 사용자가 먼저 고칠 수 있는 것(연결 → 키 …)을 대표로 쓴다
+      const api = failed.map((f) => f.error).filter((e): e is ApiError => e instanceof ApiError);
+      const best = dominantFault(api.map((e, i) => ({ code: e.code, at: i })));
+      return { kind: 'error', error: best ? api[best.at] : new Error(CANDLES_ERROR), text: CANDLES_ERROR };
     }
     return { kind: 'noData', failed };
   }

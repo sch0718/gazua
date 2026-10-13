@@ -14,7 +14,8 @@ export function createSimMemo(): SimMemo {
   return { get: (k) => m.get(k), set: (k, v) => void m.set(k, v), clear: () => m.clear() };
 }
 
-export type SimFailure = { symbol: string; name?: string; reason: string };
+/** `error`는 요청이 던진 원인(`받지 못했어요`일 때만). 연결 문제의 원인을 알리는 데 쓴다 */
+export type SimFailure = { symbol: string; name?: string; reason: string; error?: unknown };
 
 export type LoadProgress = { done: number; total: number; waiting: boolean };
 
@@ -196,7 +197,9 @@ export async function loadSimData(args: {
         }
       } catch (e) {
         if (e instanceof Cancelled) throw e;
-        failed.push(meta ? { symbol, name: meta.name, reason: '받지 못했어요' } : { symbol, reason: '받지 못했어요' });
+        failed.push(
+          meta ? { symbol, name: meta.name, reason: '받지 못했어요', error: e } : { symbol, reason: '받지 못했어요', error: e },
+        );
       }
       step();
     }

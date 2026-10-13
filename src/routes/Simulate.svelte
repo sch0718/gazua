@@ -38,7 +38,6 @@
   // 편집기의 최신 작업본. 오래된 결과 비교와 `다시 실행`·`다시 시도`가 이걸 쓴다(편집기가 내려가도 남는다).
   let draft = $state.raw<Strategy | null>(null);
   const stale = $derived(wide && ctl.state.kind === 'done' && draft !== null && rulesChanged(ctl.state.meta.strategy, draft));
-  const canRerun = $derived(draft !== null && !strategyIssues(draft, app.watchlists).some((i) => i.blocking));
   // 결과의 `규칙 고치기`가 열어 달라는 편집 구역(번호가 바뀔 때마다 한 번 연다)
   let openRequest = $state<{ section: Issue['section']; seq: number } | null>(null);
   let openSeq = 0;
@@ -71,10 +70,13 @@
     ctl.cancel();
     showResult = false;
   }
-  // 다시 실행·다시 시도는 편집기의 현재 작업본으로 돌린다(막는 경고가 있으면 오래된 결과 배너에서는 버튼을 숨긴다)
-  const retry = () => {
-    if (draft && canRerun) run(draft);
-  };
+  // 다시 실행·다시 시도는 편집기의 현재 작업본으로 돌린다. 막는 경고가 있으면 실행하지 않고 그 구역을 연다.
+  function retry() {
+    if (!draft) return;
+    const blocked = strategyIssues(draft, app.watchlists).find((i) => i.blocking);
+    if (blocked) edit(blocked.section);
+    else run(draft);
+  }
 
   // 경로를 바로잡았다는 안내(없는 전략)는 여기서 한 번만 보여 준다.
   $effect(() => {
@@ -123,7 +125,6 @@
                   state={ctl.state}
                   colorConvention={app.settings.colorConvention}
                   {stale}
-                  {canRerun}
                   onEdit={edit}
                   onRetry={retry}
                   onCancel={cancel}

@@ -13,7 +13,6 @@
     state: run,
     colorConvention,
     stale = false,
-    canRerun = true,
     onEdit,
     onRetry,
     onCancel,
@@ -24,8 +23,6 @@
     colorConvention: 'kr' | 'global';
     /** 결과를 낸 뒤 규칙이 바뀌었다(넓은 화면). 배너를 보이고 본문을 흐리게 한다 */
     stale?: boolean;
-    /** 지금 작업본으로 바로 다시 실행할 수 있다(막는 경고가 없다). 아니면 다시 실행 버튼을 숨기거나 끈다 */
-    canRerun?: boolean;
     /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
     onEdit: (section?: Issue['section']) => void;
     onRetry: () => void;
@@ -43,7 +40,7 @@
     <Banner
       tone="info"
       message="규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요"
-      actionLabel={canRerun ? '다시 실행' : undefined}
+      actionLabel="다시 실행"
       onaction={onRetry}
     />
   {/if}
@@ -85,9 +82,9 @@
         <button type="button" onclick={onCancel}>취소</button>
       </div>
     {:else if run.kind === 'error'}
-      {@const issue = connectionIssue(run.error, META_ERROR)}
+      {@const issue = connectionIssue(run.error, run.text ?? META_ERROR)}
       <Banner tone="error" message={issue.text} actionLabel={issue.action.label} onaction={() => onIssueAction(issue.action.target)} />
-      <div class="actions"><button type="button" disabled={!canRerun} onclick={onRetry}>다시 시도</button></div>
+      <div class="actions"><button type="button" onclick={onRetry}>다시 시도</button></div>
     {:else if run.kind === 'noData'}
       <p>기간 안에 받은 데이터가 없어요</p>
       {#if run.failed.length}
@@ -100,7 +97,7 @@
       <div class="actions"><button type="button" class="primary" onclick={() => onEdit()}>규칙 고치기</button></div>
     {:else}
       <p>계산 중 문제가 생겼어요</p>
-      <div class="actions"><button type="button" class="primary" disabled={!canRerun} onclick={onRetry}>다시 실행</button></div>
+      <div class="actions"><button type="button" class="primary" onclick={onRetry}>다시 실행</button></div>
     {/if}
   </section>
 {/if}
@@ -157,9 +154,6 @@
     background: var(--surface2);
     color: var(--t1);
     font-weight: 700;
-  }
-  .actions button:disabled {
-    opacity: 0.5;
   }
   .actions .primary {
     background: var(--accent);

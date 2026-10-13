@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../providers/errors';
 import { newStrategy } from '../../sim/defaults';
 import { simulate } from '../../sim/simulate';
 import type { Strategy } from '../../sim/types';
@@ -112,11 +113,11 @@ describe('runController', () => {
     await settled(ctl);
     const st = ctl.state;
     if (st.kind !== 'partial') throw new Error(st.kind);
-    expect(st.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }]);
+    expect(st.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요', error: expect.any(Error) }]);
     st.proceed();
     const done = ctl.state;
     if (done.kind !== 'done') throw new Error(done.kind);
-    expect(done.meta.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }]);
+    expect(done.meta.failed).toEqual([{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요', error: expect.any(Error) }]);
     expect(done.result.perSymbol.map((r) => r.symbol)).toEqual(['005930']);
     expect(Object.keys(done.meta.candles)).toEqual(['005930']);
   });
@@ -165,6 +166,21 @@ describe('runController', () => {
     expect(simulate).not.toHaveBeenCalled();
   });
 
+  it('모두 받지 못했어요: 던진 ApiError 중 먼저 고칠 것을 대표 오류로 싣는다', async () => {
+    const errs: Record<string, ApiError> = { '005930': new ApiError('upstream'), '000660': new ApiError('proxy-unreachable') };
+    const ctl = ctlFor(fakeApp(provider({ getCandles: async (q) => Promise.reject(errs[q.symbol]) })));
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error', error: errs['000660'] });
+  });
+
+  it('모두 받지 못했어요: ApiError가 아니면 일봉 문구용 text', async () => {
+    const ctl = ctlFor(fakeApp(provider({ getCandles: async () => Promise.reject(new Error('x')) })));
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error', text: '종목 일봉을 받지 못했어요' });
+  });
+
   it('남은 종목이 없어도 사유가 섞이면 noData + 실패 목록', async () => {
     const ctl = ctlFor(
       fakeApp(
@@ -178,7 +194,7 @@ describe('runController', () => {
     expect(ctl.state).toEqual({
       kind: 'noData',
       failed: [
-        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요' },
+        { symbol: '005930', name: '삼성전자', reason: '받지 못했어요', error: expect.any(Error) },
         { symbol: '000660', name: 'SK하이닉스', reason: '기간 안에 데이터가 없어요' },
       ],
     });
