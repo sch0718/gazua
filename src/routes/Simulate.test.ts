@@ -226,6 +226,21 @@ describe('Simulate list', () => {
       await waitFor(() => expect(document.activeElement).toBe(row('x"')));
     });
 
+    it('삭제한 행의 다음 행으로 간다: 앞서 복제해 늘어난 목록에서도 바뀐 순서를 따른다', async () => {
+      const app = setup(['가', '나', '다']);
+      const first = screen.getByRole('button', { name: '가 메뉴' });
+      first.focus();
+      await fireEvent.click(first);
+      await fireEvent.click(screen.getByRole('button', { name: '복제' }));
+      await waitFor(() => expect(app.strategies).toHaveLength(4));
+      const ids = app.strategies.map((x) => x.id);
+      const at = app.strategies.findIndex((x) => x.name === '나');
+      await del('나');
+      await waitFor(() => expect(app.strategies).toHaveLength(3));
+      // 복제본이 어디에 들어갔든 지운 '나' 바로 다음 행(없으면 이전 행)이어야 한다
+      await waitFor(() => expect(document.activeElement).toBe(row(ids[at + 1] ?? ids[at - 1])));
+    });
+
     it('복제 keeps the usual return to the menu button', async () => {
       setup(['가', '나']);
       const more = screen.getByRole('button', { name: '가 메뉴' });

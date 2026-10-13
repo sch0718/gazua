@@ -292,6 +292,21 @@ describe('createApp — banners', () => {
       expect(second.settings).toMatchObject({ theme: 'dark', venueMode: 'KRX', proxyUrl: '' });
     });
 
+    it('second load with another wrong field: proxy-cleared is gone, corrupt stays (only proxyUrl was written back)', () => {
+      vi.stubEnv('DEV', false);
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'http://localhost:8787', theme: 'neon' });
+      const first = make(backing).banners.map((x) => x.id);
+      expect(first).toContain('proxy-cleared:p:p1:settings');
+      expect(first).toContain('corrupt:p:p1:settings');
+      // 쓰기에서는 프록시 주소만 비고 잘못된 theme은 그대로 남는다
+      expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!)).toMatchObject({ proxyUrl: '', theme: 'neon' });
+      const second = make(backing).banners.map((x) => x.id);
+      expect(second.filter((id) => id.startsWith('proxy-cleared'))).toEqual([]);
+      expect(second).toContain('corrupt:p:p1:settings');
+    });
+
     it('a failed write-back keeps the app persistent and still shows the banner', () => {
       vi.stubEnv('DEV', false);
       const backing = memoryBacking();

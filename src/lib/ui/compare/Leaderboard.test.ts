@@ -202,6 +202,9 @@ describe('Leaderboard', () => {
     mainBtn('A').focus();
     expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'A']);
     await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    // 누르는 사이 포커스가 목록 밖으로 빠져도(Safari: 포커스를 안 줘서 relatedTarget 없음) 순서를 풀지 않는다
+    mainBtn('A').blur();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
     mainBtn('B').focus();
     expect(onfocuswithin).toHaveBeenCalledTimes(1);
   });
