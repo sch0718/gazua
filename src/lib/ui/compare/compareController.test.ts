@@ -348,7 +348,9 @@ describe('compareController', () => {
     t.ctl.setQuery(t.query({ symbols: ['005930', '000660'] }));
     await vi.advanceTimersByTimeAsync(0);
     t.pending.get('005930')!.resolve(snap('005930', { stale: true, computedAt: kstEpoch(DAY, '09:20:00') }));
-    t.pending.get('000660')!.resolve(snap('000660'));
+    // 000660: 새 결과. 마지막 봉(09:58)보다 새로운 같은 거래소(KRX) 시세면 가격에 쓴다.
+    const fresh = { t: NOW - 120_000, o: 110, h: 110, l: 110, c: 110, v: 1 };
+    t.pending.get('000660')!.resolve(snap('000660', { candles: [fresh], segments: [{ start: fresh.t, end: fresh.t + 60_000, venue: 'KRX' }] }));
     t.pending.clear();
     await vi.advanceTimersByTimeAsync(5000);
     // 두 종목 모두 시세를 받았다.
@@ -361,10 +363,11 @@ describe('compareController', () => {
         points: [{ t: NOW - 60_000, v: 10 }],
         quote: t.ctl.quotes[s],
       })),
-      { scrubT: null, venueMode: 'AUTO' },
+      { now: NOW, scrubT: null, venueMode: 'AUTO' },
     );
     expect(rows[0]).toMatchObject({ price: 110, value: 10, staleAt: kstEpoch(DAY, '09:20:00') });
     expect(rows[1].price).toBe(t.ctl.quotes['000660'].price);
+    expect(rows[1].price).not.toBe(110);
   });
 
   it('quotes use the KRX-first venue per stock', async () => {
@@ -600,6 +603,7 @@ describe('compareController', () => {
       expect(points.map((p) => p.v)).toEqual([8, null]);
       expect(points.some((p) => p.v !== null && Math.abs(p.v - 18) < 1e-9)).toBe(false);
       const [row] = buildRows([{ item: { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 0 }, series: t.ctl.entries['005930'].series, points }], {
+        now: NOW + 60_000,
         scrubT: null,
         venueMode: 'AUTO',
       });

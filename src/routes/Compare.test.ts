@@ -9,6 +9,7 @@ import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
 import { formatMetricValue } from '../lib/ui/compare/compareText';
+import { fmtWon } from '../lib/ui/format';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
@@ -408,6 +409,26 @@ describe('Compare sheets', () => {
       render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
       await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
       await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(PRICE, got.series!.base!))).toBeTruthy());
+    });
+
+    // 일봉 시리즈는 KRX(자동·통합 모드의 v.series). 다른 거래소 시세면 가격도 %도 캔들 종가 기준.
+    it.each([
+      // 이 날 시간표에서 자동 모드가 NXT 시세를 고르는 시각(KRX 시간외 종가 단일가, NXT 애프터마켓 접속매매)
+      { venueMode: 'AUTO' as const, period: { unit: 'W' as const, n: 1 }, now: kstEpoch(DAY, '15:45:00'), venue: 'NXT' },
+      { venueMode: 'UNIFIED' as const, period: { unit: 'M' as const, n: 1 }, now: NOW, venue: 'UNIFIED' },
+    ])('$venueMode daily with a $venue quote: price and value both come from the KRX candle close', async ({ venueMode, period, now, venue }) => {
+      const app = makeApp(['005930'], { venueMode, period });
+      const got = quoteAt(app);
+      const quotes = vi.mocked(app.provider.getQuotes);
+      render(Compare, { app, now, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      await vi.waitFor(() => expect(quotes).toHaveBeenCalledWith(['005930'], venue));
+      const s = got.series!;
+      const last = s.candles.at(-1)!;
+      expect(s.segments.at(-1)!.venue).toBe('KRX');
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(`${fmtWon(last.c)}원`)).toBeTruthy());
+      expect(within(rowOf('삼성전자')).getByText(pct(last.c, s.base!))).toBeTruthy();
+      expect(within(rowOf('삼성전자')).queryByText('100,000원')).toBeNull();
     });
 
     it('while scrubbing, the row shows the candle value at the scrub time, not the quote', async () => {

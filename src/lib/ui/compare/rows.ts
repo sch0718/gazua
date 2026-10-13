@@ -47,21 +47,40 @@ export function valueAt(points: Point[], t: number | null): number | null {
   return null;
 }
 
-function priceOf(s: RowSource, scrubT: number | null): number | null {
+/** 행 옵션. buildRows와 rowSeries가 같은 값을 받아 가격과 값이 같은 규칙을 따른다. */
+export interface RowOpts {
+  scrubT: number | null;
+  /** 1일 차트가 보여 주는 거래일. 다른 거래일의 시리즈는 이전 값으로 표시한다(일봉에서는 주지 않는다). */
+  chartDate?: string | null;
+  /** 현재 시각(시세가 오늘 것인지 판정) */
+  now: number;
+}
+
+function priceOf(s: RowSource, opts: RowOpts): number | null {
   const series = s.series;
   if (!series) return null;
   const closes = series.candles.map((c) => ({ t: c.t, v: c.c }));
-  if (scrubT !== null) return valueAt(closes, scrubT);
-  // 마지막 성공 결과(stale)에는 새 시세를 섞지 않는다.
-  if (!series.stale && s.quote) return s.quote.price;
+  if (opts.scrubT !== null) return valueAt(closes, opts.scrubT);
+  // 시세는 값 계산에 쓰였을 때만 보인다(가격과 %가 늘 같은 근거). 아니면 마지막 캔들 종가.
+  if (s.quote && rowSeries(series, s.quote, opts) !== series) return s.quote.price;
   return valueAt(closes, null);
+}
+
+/**
+ * 행 값·가격의 근거 시리즈: 스크럽 중이거나 차트와 다른 거래일의 결과면 원래 시리즈, 아니면 withQuote.
+ * 비교 화면은 이 결과로 행 지표 값을 계산하고, buildRows는 같은 판정으로 가격에 시세를 쓸지 정한다.
+ */
+export function rowSeries<S extends LoadedSeries & { stale?: boolean }>(series: S, quote: Quote | undefined, opts: RowOpts): S {
+  if (opts.scrubT !== null) return series;
+  if (opts.chartDate && series.tradingDate !== opts.chartDate) return series;
+  return withQuote(series, quote, opts.now);
 }
 
 /**
  * 행 값용: 행 가격과 같은 5초 시세를 시리즈 끝에 반영한 사본(스펙 4.4·7.2-6). 차트·데이터 표는 원래 캔들을 쓴다.
  * 1일(분봉)은 시세 시각에 합성 종가 봉(v:0)을 붙이고, 일봉은 오늘 봉의 종가만 바꾼다(거래량 유지).
  * 이전 결과(stale), 시리즈 마지막 구간과 다른 거래소의 시세, 마지막 봉보다 새롭지 않은 시세,
- * 오늘(1일은 시리즈 거래일)이 아닌 시세는 반영하지 않고 같은 객체를 돌려준다. 스크럽 중에는 호출하는 쪽이 부르지 않는다.
+ * 오늘(1일은 시리즈 거래일)이 아닌 시세는 반영하지 않고 같은 객체를 돌려준다. 스크럽·이전 거래일 판정은 rowSeries가 한다.
  */
 export function withQuote<S extends LoadedSeries & { stale?: boolean }>(series: S, quote: Quote | undefined, now: number): S {
   const last = series.candles.at(-1);
@@ -98,12 +117,7 @@ function badgesOf(s: RowSource, venueMode: VenueMode): string[] {
 
 export function buildRows(
   sources: RowSource[],
-  opts: {
-    scrubT: number | null;
-    venueMode: VenueMode;
-    /** 1일 차트가 보여 주는 거래일. 다른 거래일의 시리즈는 이전 값으로 표시한다(일봉에서는 주지 않는다). */
-    chartDate?: string | null;
-  },
+  opts: RowOpts & { venueMode: VenueMode },
 ): LeaderRow[] {
   return sources.map((s): LeaderRow => {
     const row: LeaderRow = {
@@ -112,7 +126,7 @@ export function buildRows(
       slot: s.item.colorSlot,
       badges: badgesOf(s, opts.venueMode),
       value: s.points ? valueAt(s.points, opts.scrubT) : null,
-      price: priceOf(s, opts.scrubT),
+      price: priceOf(s, opts),
       hidden: s.item.hidden,
     };
     // NXT가 정지된 종목은 NXT 배지를 보이지 않는다(거래할 수 있는 것처럼 보이지 않게).

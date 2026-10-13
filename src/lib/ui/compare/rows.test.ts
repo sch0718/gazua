@@ -5,10 +5,11 @@ import { metricPoints } from '../../data/seriesMetrics';
 import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { buildRows, sortRows, valueAt, withQuote, type RowSource } from './rows';
+import { buildRows, rowSeries, sortRows, valueAt, withQuote, type RowSource } from './rows';
 
 const at = (hhmm: string) => kstEpoch('2026-10-12', `${hhmm}:00`);
 const bar = (t: number, c: number): Candle => ({ t, o: c, h: c, l: c, c, v: 1 });
+const NOW_R = at('09:02');
 
 const item = (symbol: string, over: Partial<WatchItem> = {}): WatchItem => ({
   symbol,
@@ -37,7 +38,7 @@ const series = (symbol: string, over: Partial<LoadedSeries & { stale: boolean }>
   avgVolumeVenue: 'KRX',
   candles: [bar(at('09:00'), 101), bar(at('09:01'), 102)],
   daily: [],
-  segments: [],
+  segments: [{ start: at('09:00'), end: at('09:02'), venue: 'KRX' }],
   intervals: [],
   computedAt: at('17:20'),
   stale: false,
@@ -60,7 +61,7 @@ const src = (symbol: string, over: Partial<RowSource> = {}): RowSource => ({
 describe('buildRows — previous trading day on the intraday chart', () => {
   it('a series from another trading day than the chart is marked stale with that day; same-day rows are not', () => {
     const old = series('A', { tradingDate: '2026-10-08', stale: true, computedAt: at('07:50') });
-    const rows = buildRows([src('A', { series: old }), src('B')], { scrubT: null, venueMode: 'AUTO', chartDate: '2026-10-12' });
+    const rows = buildRows([src('A', { series: old }), src('B')], { now: NOW_R, scrubT: null, venueMode: 'AUTO', chartDate: '2026-10-12' });
     expect(rows[0].staleAt).toBe(at('07:50'));
     expect(rows[0].prevDay).toBe('2026-10-08');
     expect(rows[0].value).toBe(2);
@@ -70,7 +71,7 @@ describe('buildRows — previous trading day on the intraday chart', () => {
 
   it('without a chart date (daily mode) nothing is marked', () => {
     const old = series('A', { tradingDate: '2026-10-08' });
-    const rows = buildRows([src('A', { series: old })], { scrubT: null, venueMode: 'AUTO' });
+    const rows = buildRows([src('A', { series: old })], { now: NOW_R, scrubT: null, venueMode: 'AUTO' });
     expect(rows[0].prevDay).toBeUndefined();
   });
 });
@@ -92,8 +93,8 @@ describe('valueAt', () => {
 
 describe('buildRows', () => {
   it('value is the last metric value; price is the live quote for fresh rows', () => {
-    const [r] = buildRows([src('A', { quote: { symbol: 'A', venue: 'KRX', price: 105, ts: null } })], {
-      scrubT: null,
+    const [r] = buildRows([src('A', { quote: { symbol: 'A', venue: 'KRX', price: 105, ts: at('09:01') + 30_000 } })], {
+      now: NOW_R, scrubT: null,
       venueMode: 'AUTO',
     });
     expect(r).toMatchObject({ symbol: 'A', name: '종목A', value: 2, price: 105, nxt: true, hidden: false });
@@ -102,8 +103,8 @@ describe('buildRows', () => {
 
   it('stale rows ignore live quotes', () => {
     const stale = series('A', { stale: true });
-    const [r] = buildRows([src('A', { series: stale, quote: { symbol: 'A', venue: 'KRX', price: 999, ts: null } })], {
-      scrubT: null,
+    const [r] = buildRows([src('A', { series: stale, quote: { symbol: 'A', venue: 'KRX', price: 999, ts: at('09:01') + 30_000 } })], {
+      now: NOW_R, scrubT: null,
       venueMode: 'AUTO',
     });
     // snapshot의 마지막 가격·지표 값 그대로, 새 시세로 다시 계산하지 않는다.
@@ -113,8 +114,8 @@ describe('buildRows', () => {
   });
 
   it('while scrubbing, value and price are those at the scrub time', () => {
-    const [r] = buildRows([src('A', { quote: { symbol: 'A', venue: 'KRX', price: 105, ts: null } })], {
-      scrubT: at('09:00'),
+    const [r] = buildRows([src('A', { quote: { symbol: 'A', venue: 'KRX', price: 105, ts: at('09:01') + 30_000 } })], {
+      now: NOW_R, scrubT: at('09:00'),
       venueMode: 'AUTO',
     });
     expect(r.value).toBe(1);
@@ -123,17 +124,17 @@ describe('buildRows', () => {
 
   it('KRX 대체 badge in NXT mode when the series has fallback intervals', () => {
     const fallback = series('A', { intervals: [{ start: at('09:00'), end: at('15:20'), venue: 'KRX', kind: 'continuous', fallback: true }] });
-    const nxt = buildRows([src('A', { series: fallback, meta: meta('A', { nxtSupported: false }) })], { scrubT: null, venueMode: 'NXT' });
+    const nxt = buildRows([src('A', { series: fallback, meta: meta('A', { nxtSupported: false }) })], { now: NOW_R, scrubT: null, venueMode: 'NXT' });
     expect(nxt[0].badges).toContain('KRX 대체');
     expect(nxt[0].nxt).toBe(false);
-    const auto = buildRows([src('A', { series: fallback })], { scrubT: null, venueMode: 'AUTO' });
+    const auto = buildRows([src('A', { series: fallback })], { now: NOW_R, scrubT: null, venueMode: 'AUTO' });
     expect(auto[0].badges).not.toContain('KRX 대체');
   });
 
   it('ETF/ETN and 거래정지 badges', () => {
     const rows = buildRows(
       [src('A', { meta: meta('A', { securityType: 'ETF' }) }), src('B', { meta: meta('B', { krxSuspended: true }) })],
-      { scrubT: null, venueMode: 'AUTO' },
+      { now: NOW_R, scrubT: null, venueMode: 'AUTO' },
     );
     expect(rows[0].badges).toEqual(['ETF']);
     expect(rows[1].badges).toEqual(['거래정지']);
@@ -141,15 +142,15 @@ describe('buildRows', () => {
 
   it('NXT mode badges NXT 거래정지 (detail-sheet wording); a suspended NXT is not shown as an available NXT', () => {
     const suspended = meta('A', { nxtSupported: true, nxtSuspended: true });
-    const [nxtMode] = buildRows([src('A', { meta: suspended })], { scrubT: null, venueMode: 'NXT' });
+    const [nxtMode] = buildRows([src('A', { meta: suspended })], { now: NOW_R, scrubT: null, venueMode: 'NXT' });
     expect(nxtMode.badges).toEqual(['NXT 거래정지']);
     expect(nxtMode.nxt).toBe(false);
-    const [krxMode] = buildRows([src('A', { meta: suspended })], { scrubT: null, venueMode: 'KRX' });
+    const [krxMode] = buildRows([src('A', { meta: suspended })], { now: NOW_R, scrubT: null, venueMode: 'KRX' });
     expect(krxMode.badges).toEqual([]);
     expect(krxMode.nxt).toBe(false);
-    const [both] = buildRows([src('A', { meta: { ...suspended, krxSuspended: true } })], { scrubT: null, venueMode: 'NXT' });
+    const [both] = buildRows([src('A', { meta: { ...suspended, krxSuspended: true } })], { now: NOW_R, scrubT: null, venueMode: 'NXT' });
     expect(both.badges).toEqual(['거래정지']);
-    const [ok] = buildRows([src('A', { meta: meta('A', { nxtSuspended: false }) })], { scrubT: null, venueMode: 'NXT' });
+    const [ok] = buildRows([src('A', { meta: meta('A', { nxtSuspended: false }) })], { now: NOW_R, scrubT: null, venueMode: 'NXT' });
     expect(ok.badges).toEqual([]);
     expect(ok.nxt).toBe(true);
   });
@@ -157,14 +158,14 @@ describe('buildRows', () => {
   it('error rows carry the error; rows still loading are marked loading', () => {
     const rows = buildRows(
       [src('A', { series: null, points: null, error: '불러오지 못했어요' }), src('B', { series: null, points: null, meta: undefined })],
-      { scrubT: null, venueMode: 'AUTO' },
+      { now: NOW_R, scrubT: null, venueMode: 'AUTO' },
     );
     expect(rows[0]).toMatchObject({ value: null, price: null, error: '불러오지 못했어요' });
     expect(rows[1]).toMatchObject({ name: 'B', value: null, loading: true });
   });
 
   it('keeps slot and hidden from the watch item', () => {
-    const [r] = buildRows([src('A', { item: item('A', { colorSlot: 5, hidden: true }) })], { scrubT: null, venueMode: 'AUTO' });
+    const [r] = buildRows([src('A', { item: item('A', { colorSlot: 5, hidden: true }) })], { now: NOW_R, scrubT: null, venueMode: 'AUTO' });
     expect(r.slot).toBe(5);
     expect(r.hidden).toBe(true);
   });
@@ -200,7 +201,7 @@ describe('withQuote — the row value uses the same 5-second quote as the row pr
     const q = quote();
     const quoted = withQuote(s, q, NOW);
     const rowPoints = metricPoints(quoted, 'change', { period: D1 });
-    const [r] = buildRows([src('A', { series: s, quote: q, points: rowPoints })], { scrubT: null, venueMode: 'AUTO' });
+    const [r] = buildRows([src('A', { series: s, quote: q, points: rowPoints })], { now: NOW_R, scrubT: null, venueMode: 'AUTO' });
     expect(r.value).toBeCloseTo(12, 10);
     expect(r.price).toBe(112);
     // 1일: 시세 시각에 합성 종가 봉(거래량 0)을 붙인다. 원래 시리즈와 나머지 필드는 그대로.
@@ -281,5 +282,60 @@ describe('withQuote — the row value uses the same 5-second quote as the row pr
     const after = valueAt(metricPoints(withQuote(s, quote(), NOW), 'excess', opts), null);
     expect(before).toBeCloseTo(9, 10);
     expect(after).toBe(before);
+  });
+});
+
+describe('buildRows — the price shows the quote only when the value uses it', () => {
+  const day = (date: string, c: number): Candle => ({ t: kstEpoch(date, '00:00:00'), o: c, h: c, l: c, c, v: 10 });
+  const prior = day('2026-10-09', 105);
+  const today = day('2026-10-12', 110);
+  // 일봉 기간: 시리즈 구간은 v.series(AUTO·통합 모드에서는 KRX)
+  const daily = series('A', { candles: [prior, today], daily: [prior, today], segments: [{ start: prior.t, end: today.t + 86_400_000, venue: 'KRX' }] });
+  const candlePoints = metricPoints(daily, 'change', { period: { unit: 'W', n: 1 } });
+  const at1545 = at('15:45');
+
+  it('AUTO daily at 15:45 with an NXT after-market quote: price is the KRX candle close, the same basis as the value', () => {
+    const q: Quote = { symbol: 'A', venue: 'NXT', price: 999, ts: at1545 };
+    const [r] = buildRows([src('A', { series: daily, quote: q, points: candlePoints })], { now: at1545, scrubT: null, venueMode: 'AUTO' });
+    expect(r.price).toBe(110);
+    expect(r.value).toBeCloseTo(10, 10);
+  });
+
+  it('UNIFIED daily: a UNIFIED quote does not match the KRX candles, so the price is the candle close', () => {
+    const q: Quote = { symbol: 'A', venue: 'UNIFIED', price: 999, ts: at('10:00') };
+    const [r] = buildRows([src('A', { series: daily, quote: q, points: candlePoints })], { now: at('10:00'), scrubT: null, venueMode: 'UNIFIED' });
+    expect(r.price).toBe(110);
+  });
+
+  it('1 day, same venue: the quote is used for both the price and the value', () => {
+    const s = series('A', { candles: [bar(at('09:00'), 105), bar(at('09:01'), 110)] });
+    const q: Quote = { symbol: 'A', venue: 'KRX', price: 112, ts: at('09:01') + 30_000 };
+    const opts = { now: NOW_R, scrubT: null, venueMode: 'AUTO' as const, chartDate: '2026-10-12' };
+    const points = metricPoints(rowSeries(s, q, opts), 'change', { period: { unit: 'D', n: 1 } });
+    const [r] = buildRows([src('A', { series: s, quote: q, points })], opts);
+    expect(r.price).toBe(112);
+    expect(r.value).toBeCloseTo(12, 10);
+  });
+
+  it('a quote and last bar from yesterday are not applied today: price is the candle close', () => {
+    const close = kstEpoch('2026-10-09', '15:30:00');
+    const s = series('A', {
+      tradingDate: '2026-10-09',
+      candles: [bar(close - 60_000, 105), bar(close, 110)],
+      segments: [{ start: close - 60_000, end: close + 60_000, venue: 'KRX' }],
+    });
+    const q: Quote = { symbol: 'A', venue: 'KRX', price: 112, ts: close + 30_000 };
+    const now = kstEpoch('2026-10-10', '09:00:00');
+    expect(withQuote(s, q, now)).toBe(s);
+    const [r] = buildRows([src('A', { series: s, quote: q })], { now, scrubT: null, venueMode: 'AUTO' });
+    expect(r.price).toBe(110);
+  });
+
+  it('rowSeries: no quote while scrubbing or for a row from another trading day than the chart', () => {
+    const s = series('A');
+    const q: Quote = { symbol: 'A', venue: 'KRX', price: 112, ts: at('09:01') + 30_000 };
+    expect(rowSeries(s, q, { now: NOW_R, scrubT: null, chartDate: '2026-10-12' }).candles).toHaveLength(3);
+    expect(rowSeries(s, q, { now: NOW_R, scrubT: at('09:00'), chartDate: '2026-10-12' })).toBe(s);
+    expect(rowSeries(s, q, { now: NOW_R, scrubT: null, chartDate: '2026-10-13' })).toBe(s);
   });
 });

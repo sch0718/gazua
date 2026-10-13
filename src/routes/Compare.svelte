@@ -27,7 +27,7 @@
   import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
-  import { buildRows, isSuspended, sortRows, withQuote } from '../lib/ui/compare/rows';
+  import { buildRows, isSuspended, rowSeries, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
@@ -203,15 +203,20 @@
   let scrubT = $state<number | null>(null);
   let frozenOrder = $state.raw<string[] | null>(null);
 
-  // 행 값은 행 가격과 같은 5초 시세로 계산한다(스펙 4.4). 차트·데이터 표는 원래 캔들 그대로.
-  // 스크럽 중이거나 이전 거래일 행이면 섞지 않는다. 1초 시계는 구독하지 않고 시세가 바뀔 때 다시 계산한다.
+  // 행 값과 가격은 같은 5초 시세로 계산한다(스펙 4.4·7.2-6). 차트·데이터 표는 원래 캔들 그대로.
+  // 1초 시계는 구독하지 않는다. withQuote는 now의 날짜만 보므로 날짜나 시세가 바뀔 때만 시각을 새로 읽는다.
+  const rowNow = $derived.by(() => {
+    void today;
+    void ctl.quotes;
+    return untrack(() => now);
+  });
+  const rowOpts = $derived({ scrubT, chartDate: mode === 'intraday' ? tradingDate : null, now: rowNow });
   const rowPointsBySymbol = $derived.by(() => {
     const out: Record<string, Point[] | null> = {};
     for (const i of items) {
       const series = ctl.entries[i.symbol]?.series;
-      const points = pointsBySymbol[i.symbol];
-      const quoted = series && scrubT === null && onChartDay(series) ? withQuote(series, ctl.quotes[i.symbol], untrack(() => now)) : series;
-      out[i.symbol] = quoted && quoted !== series ? pointsOf(i.symbol, quoted) : points;
+      const quoted = series ? rowSeries(series, ctl.quotes[i.symbol], rowOpts) : null;
+      out[i.symbol] = quoted && quoted !== series ? pointsOf(i.symbol, quoted) : pointsBySymbol[i.symbol];
     }
     return out;
   });
@@ -229,7 +234,7 @@
           quote: ctl.quotes[item.symbol],
         };
       }),
-      { scrubT, venueMode: effectiveVenueMode(venues, venueMode), chartDate: mode === 'intraday' ? tradingDate : null },
+      { ...rowOpts, venueMode: effectiveVenueMode(venues, venueMode) },
     ),
   );
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
