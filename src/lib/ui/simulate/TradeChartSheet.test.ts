@@ -50,6 +50,30 @@ describe('TradeChartSheet', () => {
     expect((series().markers as { text: string }[]).map((m) => m.text)).toEqual(['매수', '추가', '익절·손절']);
   });
 
+  it('마커 합치기 경계: 정확히 3봉 뒤 추가는 합치고(매수·추가), 4봉 뒤는 따로', async () => {
+    const three = [buy(30), add(33)];
+    const { unmount } = open(three[0], three);
+    await vi.waitFor(() => expect(series()?.markers).toHaveLength(1));
+    expect((series().markers as { text: string }[]).map((m) => m.text)).toEqual(['매수·추가']);
+    unmount();
+    resetLwcStub();
+    const four = [buy(30), add(34)];
+    open(four[0], four);
+    await vi.waitFor(() => expect(series()?.markers).toHaveLength(2));
+    expect((series().markers as { text: string }[]).map((m) => m.text)).toEqual(['매수', '추가']);
+  });
+
+  it('매수 마커와 고른 기준선은 같은 강조색(--accent 폴백 하나)', async () => {
+    // jsdom에는 CSS 변수가 없어 폴백 값이 쓰인다: 실제 라이트 --accent
+    const trades = [buy(30), sell(50)];
+    open(trades[0], trades);
+    await vi.waitFor(() => expect(series()?.priceLines).toHaveLength(3));
+    const marker = (series().markers as { color: string }[])[0];
+    const b = series().priceLines.find((p) => p.title === 'B')!;
+    expect(marker.color).toBe('#5b47e0');
+    expect(b.color).toBe('#5b47e0');
+  });
+
   it('가격 축 위·아래 여백: 마커·로고와 겹치지 않게', async () => {
     const trades = [buy(30), sell(50)];
     open(trades[0], trades);

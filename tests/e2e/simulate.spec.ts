@@ -1,5 +1,42 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { enterDemo, expectNoHorizontalScroll, isWide, loadExampleGroup, openApp, shot } from './helpers';
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * 총수익률 값(실제 값과 긴 값 복제본)이 한 줄이고 반 카드 안쪽 폭 안에 든다.
+ * fallback(컨테이너 쿼리 없음)이면 글자 크기가 --fs-title(17px) 이상인지도 본다.
+ */
+async function expectMainValueFits(mainValue: Locator, path: 'cqi' | 'fallback'): Promise<void> {
+  for (const text of [null, '▲ +99.9%', '▼ −99.9%', '▲ +125.3%', '▲ +1234.5%']) {
+    const m = await mainValue.evaluate((orig, t) => {
+      const el = t === null ? orig : (orig.cloneNode(true) as HTMLElement);
+      if (t !== null) {
+        el.textContent = t;
+        el.style.setProperty('--chars', String(t.length));
+        orig.after(el);
+      }
+      // 카드 몫 = (카드 목록 폭 − 칸 사이) ÷ 2 − 카드 안쪽 여백. 넘친 값이 칸을 넓혀도 이 몫과 비교한다
+      const list = orig.closest('.cards')!;
+      const card = getComputedStyle(orig.parentElement!);
+      const share = (list.clientWidth - parseFloat(getComputedStyle(list).columnGap)) / 2;
+      const inner = share - parseFloat(card.paddingLeft) - parseFloat(card.paddingRight);
+      const fontSize = parseFloat(getComputedStyle(el).fontSize);
+      // 글자 자체의 폭(소수점까지). scrollWidth는 정수로 올림돼 몫(143.5px)과 비교가 어긋난다
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const width = range.getBoundingClientRect().width;
+      const out = { text: el.textContent, width, inner, fontSize, container: card.containerType, oneLine: el.getBoundingClientRect().height < fontSize * 2 };
+      if (t !== null) el.remove();
+      return out;
+    }, text);
+    const at = `[${path}] 총수익률 '${m.text}'`;
+    expect(m.container, `${at} container-type`).toBe(path === 'cqi' ? 'inline-size' : 'normal');
+    expect(m.oneLine, `${at} 줄바꿈`).toBe(true);
+    expect(m.width, `${at} ${m.width}px > 카드 ${m.inner}px (글자 ${m.fontSize}px)`).toBeLessThanOrEqual(m.inner);
+    if (path === 'fallback') expect(m.fontSize, `${at} 글자 ${m.fontSize}px < --fs-title`).toBeGreaterThanOrEqual(17);
+  }
+}
 
 test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트 → 규칙으로 돌아가기', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
@@ -29,45 +66,26 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
 
   // 총수익률 값은 한 줄이고 반 카드 밖으로 넘치지 않는다(375px에서 반 카드 안쪽 약 143px).
   // 긴 값은 실제 값 옆에 복제본(글자 수 --chars를 함께 바꿈)을 붙여 잰다.
+  // 컨테이너 쿼리를 끈 상태(카드의 container-type 제거)에서는 폴백 계산을 쓴다: 그때도 넘치지 않고 글자는 --fs-title 이상
   const mainValue = result.locator('.cards .value.main');
-  for (const text of [null, '▲ +99.9%', '▼ −99.9%', '▲ +125.3%', '▲ +1234.5%']) {
-    const m = await mainValue.evaluate((orig, t) => {
-      const el = t === null ? orig : (orig.cloneNode(true) as HTMLElement);
-      if (t !== null) {
-        el.textContent = t;
-        el.style.setProperty('--chars', String(t.length));
-        orig.after(el);
-      }
-      // 카드 몫 = (카드 목록 폭 − 칸 사이) ÷ 2 − 카드 안쪽 여백. 넘친 값이 칸을 넓혀도 이 몫과 비교한다
-      const list = orig.closest('.cards')!;
-      const card = getComputedStyle(orig.parentElement!);
-      const share = (list.clientWidth - parseFloat(getComputedStyle(list).columnGap)) / 2;
-      const inner = share - parseFloat(card.paddingLeft) - parseFloat(card.paddingRight);
-      const fontSize = parseFloat(getComputedStyle(el).fontSize);
-      // 글자 자체의 폭(소수점까지). scrollWidth는 정수로 올림돼 몫(143.5px)과 비교가 어긋난다
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const width = range.getBoundingClientRect().width;
-      const out = { text: el.textContent, width, inner, oneLine: el.getBoundingClientRect().height < fontSize * 2 };
-      if (t !== null) el.remove();
-      return out;
-    }, text);
-    expect(m.oneLine, `총수익률 '${m.text}' 줄바꿈`).toBe(true);
-    expect(m.width, `총수익률 '${m.text}' ${m.width}px > 카드 ${m.inner}px`).toBeLessThanOrEqual(m.inner);
-  }
+  await expectMainValueFits(mainValue, 'cqi');
+  const noContainer = await page.addStyleTag({ content: '.cards li { container-type: normal !important; }' });
+  await expectMainValueFits(mainValue, 'fallback');
+  await noContainer.evaluate((el) => el.remove());
+  await expectMainValueFits(mainValue, 'cqi');
 
   // 거래 내역 첫 행 → 거래 차트 시트
   await result.getByRole('radio', { name: '거래 내역' }).click();
   const firstTrade = result.getByRole('group', { name: '거래 내역' }).getByRole('button').first();
   await expect(firstTrade).toBeVisible();
-  // 행 버튼의 접근 가능한 이름은 `종목명 · 값 · MM.DD · 사유`
-  const rowName = /button "(.+)"/.exec(await firstTrade.ariaSnapshot())![1];
-  const stockName = rowName.split(' · ')[0];
+  // 행 안의 종목명(.nm)을 읽고, 행 버튼의 접근 가능한 이름이 `종목명 · 값 · MM.DD · 사유`로 시작하는지 본다
+  const stockName = (await firstTrade.locator('.nm').textContent())!.trim();
+  expect(stockName).not.toBe('');
+  await expect(firstTrade).toHaveAccessibleName(new RegExp('^' + escapeRe(stockName) + ' · '));
   await firstTrade.click();
 
   // 시트 제목은 `종목명 · YY.MM.DD 매수`
-  const escaped = stockName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const sheet = page.getByRole('dialog', { name: new RegExp(`^${escaped} · \\d{2}\\.\\d{2}\\.\\d{2} 매수$`) });
+  const sheet = page.getByRole('dialog', { name: new RegExp(`^${escapeRe(stockName)} · \\d{2}\\.\\d{2}\\.\\d{2} 매수$`) });
   await expect(sheet).toBeVisible();
   // 차트는 캔버스라 글자 요약으로 확인한다: `매수 MM.DD N원 → …`
   await expect(sheet).toContainText(/매수 .*원/);
@@ -216,4 +234,52 @@ test('편집: 처음 자금 칸에 키보드로 들어와 바로 치면 값이 �
   expect(clip, `처음 자금 칸이 ${clip}px 잘림`).toBeLessThanOrEqual(0);
   await expect(page.getByText('= 10조 원')).toBeVisible();
   await expectNoHorizontalScroll(page);
+});
+
+test('편집: 폭 320px에서도 처음 자금 칸(최댓값)이 줄 안에 맞고 가로로 넘치지 않는다', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) }).click();
+
+  const cap = page.getByRole('textbox', { name: '처음 자금' });
+  await cap.focus();
+  await expect(cap).toHaveValue('10000000');
+  await cap.fill('10000000000000');
+  await cap.blur();
+  await expect(cap).toHaveValue('10,000,000,000,000');
+  await expectNoHorizontalScroll(page);
+
+  // 숫자 칸 박스의 오른쪽 끝이 구역 안쪽(본문 여백 안) 오른쪽 끝을 넘지 않는다
+  const m = await cap.evaluate((el) => {
+    const body = el.closest('section.sec')!.querySelector('.body')!;
+    const innerRight = body.getBoundingClientRect().right - parseFloat(getComputedStyle(body).paddingRight);
+    const box = el.closest('label')!.getBoundingClientRect();
+    const field = el.closest('.field')!.getBoundingClientRect();
+    return { over: box.right - innerRight, boxWidth: box.width, fieldWidth: field.width, sec: el.closest('section.sec')!.scrollWidth - el.closest('section.sec')!.clientWidth };
+  });
+  expect(m.over, `박스가 줄 밖으로 ${m.over}px`).toBeLessThanOrEqual(0);
+  expect(m.sec, `구역 카드 넘침 ${m.sec}px`).toBeLessThanOrEqual(0);
+  expect(m.boxWidth).toBeLessThanOrEqual(m.fieldWidth);
+  await shot(page, testInfo, 'sim-5-capital-320');
+});
+
+test('앱 바: 폰 폭에서 시뮬레이션 화면에는 상태 칩이 없고 비교 화면에는 있다', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  const chip = page.getByRole('banner').getByRole('button', { name: /· 오늘 세션 시간표 보기$/ });
+  await expect(chip).toHaveCount(1);
+
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+  const phone = page.viewportSize()!.width < 600;
+  await expect(chip).toHaveCount(phone ? 0 : 1);
+
+  // 비교로 돌아오면 다시 있다
+  await page.getByRole('button', { name: '비교로 돌아가기' }).click();
+  await expect(chip).toHaveCount(1);
 });

@@ -1,18 +1,17 @@
 <script lang="ts">
-  // 자산 곡선 선 견본: 범례와 비교 기준 행이 같이 쓴다. 점선이면 점선으로 그린다.
+  // 자산 곡선 선 견본: 범례와 비교 기준 행이 같이 쓴다. 점선이면 점선으로, 높이는 선 굵기(1·1.5·2px)대로 그린다.
   import type { EquityLine } from './EquityChart.svelte';
 
   let { line }: { line: EquityLine } = $props();
 </script>
 
-<i class="swatch" class:dashed={line.dashed} style:--c="var({line.color[0]})" aria-hidden="true"></i>
+<i class="swatch" class:dashed={line.dashed} style:--c="var({line.color[0]})" style:height="{line.width}px" aria-hidden="true"></i>
 
 <style>
   .swatch {
     flex: none;
     display: inline-block;
     width: 16px;
-    height: 2px;
     background: var(--c);
     vertical-align: middle;
   }

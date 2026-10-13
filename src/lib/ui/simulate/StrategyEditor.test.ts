@@ -468,13 +468,15 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeNull();
   });
 
-  it('muted는 투명도로 흐리지 않는다: 박스 배경·테두리만 낮추고 글자는 --t3(AA)', () => {
+  it('muted는 투명도로 흐리지 않는다: 박스 배경을 빼고 테두리는 --t3 1px 점선(3:1 이상), 글자는 --t3(AA)', () => {
     // jsdom은 컴포넌트 스타일을 계산하지 않으므로 소스의 규칙을 읽는다. 실제 대비는 e2e a11y가 잰다.
     const rules = (src: string) => [...src.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*\.muted[^{}]*)\{([^}]*)\}/g)].map((m) => [m[1].trim(), m[2]] as const);
     for (const [sel, body] of [...rules(numberFieldSource), ...rules(entrySource)]) expect(body, sel).not.toMatch(/opacity/);
     const box = rules(numberFieldSource).find(([sel]) => /^\.muted \.box$/.test(sel))?.[1] ?? '';
     expect(box).toMatch(/background:\s*transparent/);
-    expect(box).toMatch(/border-color:\s*var\(--line\)/);
+    // 켜진 칸(배경 있음·테두리 없음)과 모양으로도 구분: 점선
+    expect(box).toMatch(/border:\s*1px dashed var\(--t3\)/);
+    expect(box).not.toMatch(/var\(--line\)/);
     const text = rules(numberFieldSource).find(([sel]) => sel.includes('.muted input') && sel.includes('.muted .suffix'))?.[1] ?? '';
     expect(text).toMatch(/color:\s*var\(--t3\)/);
     const seg = rules(entrySource).find(([sel]) => sel.includes('.seg'))?.[1] ?? '';

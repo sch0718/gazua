@@ -52,6 +52,12 @@ describe('EquityChart', () => {
     expect(swatches.map((s) => s.classList.contains('dashed'))).toEqual([false, false, true, true]);
   });
 
+  it('범례 견본 높이는 선 굵기와 같다(2 · 1 · 2 · 1.5px)', () => {
+    render(EquityChart, props());
+    const swatches = [...document.querySelectorAll<HTMLElement>('.legend .swatch')];
+    expect(swatches.map((s) => s.style.height)).toEqual(['2px', '1px', '2px', '1.5px']);
+  });
+
   it('지수가 없으면 3개', async () => {
     const s = doneState();
     const equity = s.result.equity.map((e) => ({ ...e, index: null }));

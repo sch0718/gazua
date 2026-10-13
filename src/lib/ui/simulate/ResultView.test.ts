@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
 import { doneState, noTrades } from './resultFixture';
 import ResultView from './ResultView.svelte';
+import resultViewSource from './ResultView.svelte?raw';
 import type { DoneState } from './runController.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
@@ -130,6 +131,19 @@ describe('ResultView', () => {
     // 나머지 카드는 글자 수를 달지 않는다
     const others = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem').slice(1);
     expect(others.every((li) => li.querySelector<HTMLElement>('.value')!.style.getPropertyValue('--chars') === '')).toBe(true);
+  });
+
+  it('총수익률 글자 축소: 어림 경로는 --gutter로 계산하고 --fs-title 아래로 줄이지 않으며, 숫자를 자르지 않는다', () => {
+    // jsdom은 컴포넌트 스타일을 계산하지 않으므로 소스를 읽는다. 실제 폭은 e2e가 cqi·어림 두 경로로 잰다
+    const css = resultViewSource.slice(resultViewSource.indexOf('<style>')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const base = /\.value\.main\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(base).toMatch(/--card-inner:\s*calc\(50vw - var\(--gutter\) - 28px\)/);
+    expect(base).toMatch(/font-size:\s*max\(var\(--fs-title\),/);
+    expect(base).toMatch(/max-width:\s*100%/);
+    expect(css).not.toMatch(/50vw - 44px/);
+    expect(css).not.toMatch(/text-overflow|overflow-wrap:\s*anywhere/);
+    // 카드 폭(cqi)은 카드가 컨테이너일 때만
+    expect(css).toMatch(/@container \(min-width: 0px\)\s*\{\s*\.value\.main\s*\{[^}]*100cqi/);
   });
 
   it('총수익률이 반올림해서 0.0%면 화살표도 색도 없다', () => {

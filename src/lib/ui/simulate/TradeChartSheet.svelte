@@ -43,14 +43,19 @@
   /** 같은 방향 마커가 이 봉 수 안이면 하나로 합친다(라벨 겹침 방지) */
   const MERGE_BARS = 3;
   const LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
+  // 토큰을 못 읽을 때의 폴백은 라이트 토큰 값(tokens.css)과 같게, 토큰마다 하나
+  const ACCENT: [string, string] = ['--accent', '#5b47e0'];
+  const T2: [string, string] = ['--t2', '#5b6069'];
+  const UP: [string, string] = ['--up', '#d4202f'];
+  const DOWN: [string, string] = ['--down', '#1d5fd6'];
   // 마커·가격선 색 토큰: 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
   const MARKER_COLOR: Record<Trade['kind'], [string, string]> = {
-    buy: ['--accent', '#2a78d6'],
-    add: ['--accent', '#2a78d6'],
-    take: ['--up', '#e5484d'],
-    gapTake: ['--up', '#e5484d'],
-    stop: ['--down', '#3b82f6'],
-    gapStop: ['--down', '#3b82f6'],
+    buy: ACCENT,
+    add: ACCENT,
+    take: UP,
+    gapTake: UP,
+    stop: DOWN,
+    gapStop: DOWN,
   };
 
   const position = $derived(trade ? positionOf(trades, trade) : null);
@@ -129,7 +134,7 @@
     });
     const observer = new ResizeObserver(() => c.resize(node.clientWidth, node.clientHeight));
     observer.observe(node);
-    const line = c.addSeries(LineSeries, { color: v(['--t2', '#4b5059']), lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+    const line = c.addSeries(LineSeries, { color: v(T2), lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
     line.setData(bars.map((k) => ({ time: kstDate(k.t) as Time, value: k.c })));
 
     // 마커는 시간 순이어야 한다
@@ -144,7 +149,7 @@
         position: g.buying ? 'belowBar' : 'aboveBar',
         shape: g.buying ? 'arrowUp' : 'arrowDown',
         // 익절·손절처럼 색이 섞이면 중립색
-        color: colors.length === 1 ? colors[0] : v(['--t2', '#5b6069']),
+        color: colors.length === 1 ? colors[0] : v(T2),
         text: [...new Set(g.kinds.map((k) => LABEL[k]))].join('·'),
       };
     });
@@ -153,7 +158,7 @@
     if (pattern) {
       // 고른 돌파 기준선만 강조색. L은 참고용이라 성긴 점선, 값은 요약 글에 있으니 축 라벨은 뺀다
       const gray = v(['--t3', '#676d77']);
-      const accent = v(['--accent', '#5b47e0']);
+      const accent = v(ACCENT);
       for (const [title, price] of [['A', pattern.a], ['B', pattern.b]] as const) {
         line.createPriceLine({ price, title, color: title === level ? accent : gray, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
       }

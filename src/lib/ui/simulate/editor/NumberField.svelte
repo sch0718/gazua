@@ -168,10 +168,11 @@
     border-color: var(--err);
   }
   /* 꺼진 조건: 계속 고칠 수 있으므로 투명도로 흐리지 않는다(글자 대비 AA).
-     박스 배경을 빼고 테두리만 --line, 글자는 --t3(--surface 위 라이트 5.21:1 · 다크 5.19:1) */
+     박스 배경을 빼고 테두리는 --t3 1px 점선(켜진 칸과 모양으로도 구분, 경계 3:1 이상), 글자도 --t3
+     (--surface 위 라이트 5.21:1 · 다크 5.19:1) */
   .muted .box {
     background: transparent;
-    border-color: var(--line);
+    border: 1px dashed var(--t3);
   }
   .muted .box:focus-within {
     border-color: var(--accent);
@@ -197,6 +198,11 @@
   }
   .won input {
     width: 18ch;
+  }
+  /* 아주 좁은 폭에서도 박스가 줄 밖으로 나가지 않게(128px 하한을 풀고 칸 폭까지만) */
+  .won .box {
+    min-width: 0;
+    max-width: 100%;
   }
   .suffix {
     font-size: var(--fs-sub);

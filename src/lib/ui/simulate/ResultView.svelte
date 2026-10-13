@@ -240,12 +240,21 @@
   }
   /* 총수익률은 한 줄, 기본은 headline. `▲ +125.3%`처럼 길면 반 카드 안쪽 폭(375px에서 143.5px)에 맞춰 줄인다.
      글자당 0.66em으로 넉넉히 잡는다(실측 약 0.64em). 넓은 카드에서는 그대로 headline.
-     컨테이너 단위(cqi)를 모르는 브라우저는 폰 폭의 카드 안쪽(50vw − 44px)으로 계산한다 */
+     카드가 컨테이너일 때(@container)만 카드 폭(cqi)을 쓰고, 아니면 화면 폭으로 카드 안쪽을 어림한다:
+     한 칸 화면 (100vw − 2×gutter − 칸 사이 8px) ÷ 2 − 카드 여백 24px, PC 좌우 화면(≥1024)은 레일 240px·칸 사이 16px을 빼고 반의 반.
+     어림 경로는 --fs-title 아래로 줄이지 않는다. 숫자는 자르지 않는다(말줄임·강제 줄바꿈 없음) */
   .value.main {
+    --card-inner: calc(50vw - var(--gutter) - 28px);
     white-space: nowrap;
-    font-size: min(var(--fs-headline), calc((50vw - 44px) / (var(--chars) * 0.66)));
+    max-width: 100%;
+    font-size: max(var(--fs-title), min(var(--fs-headline), calc(var(--card-inner) / (var(--chars) * 0.66))));
   }
-  @supports (width: 1cqi) {
+  @media (min-width: 1024px) {
+    .value.main {
+      --card-inner: calc((min(100vw, 1600px) - 256px) / 4 - var(--gutter) - 28px);
+    }
+  }
+  @container (min-width: 0px) {
     .value.main {
       font-size: min(var(--fs-headline), calc(100cqi / (var(--chars) * 0.66)));
     }
