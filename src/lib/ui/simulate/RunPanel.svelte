@@ -1,7 +1,7 @@
 <script lang="ts">
   // 결과 자리(스펙 7.5): 안내(idle) · 받는 중 · 일부 실패 · 연결 오류 · 데이터 없음 · 엔진 예외 · 결과(규칙이 바뀌면 배너).
   import type { ErrorActionTarget } from '../../providers/errors';
-  import type { Trade } from '../../sim/types';
+  import type { SimFailure, SimFailureReason } from '../../sim/loadSimData';
   import type { Issue } from '../../sim/validate';
   import { connectionIssue, META_ERROR } from '../compare/loadIssue';
   import Banner from '../components/Banner.svelte';
@@ -17,7 +17,6 @@
     onEdit,
     onRetry,
     onCancel,
-    onTrade,
     onIssueAction,
   }: {
     state: RunState;
@@ -30,12 +29,23 @@
     onEdit: (section?: Issue['section']) => void;
     onRetry: () => void;
     onCancel: () => void;
-    onTrade: (t: Trade) => void;
     onIssueAction: (target: ErrorActionTarget) => void;
   } = $props();
 
-  const names = (list: { symbol: string; name?: string }[]) => list.map((f) => f.name ?? f.symbol).join(', ');
-  const NO_DATA = '기간 안에 데이터가 없어요';
+  const names = (list: SimFailure[]) => list.map((f) => f.name ?? f.symbol).join(', ');
+  // 일부 실패: 사유별 한 줄(일봉 · 종목 정보 · 기간 안 데이터 없음). 질문은 마지막 줄에만
+  const PARTIAL_LINE: [SimFailureReason, (names: string) => string][] = [
+    ['받지 못했어요', (n) => `${n} 일봉을 받지 못했어요`],
+    ['종목 정보를 받지 못했어요', (n) => `${n} 종목 정보를 받지 못했어요`],
+    ['기간 안에 데이터가 없어요', (n) => `${n}은(는) 이 기간에 데이터가 없어요`],
+  ];
+  function partialLines(failed: SimFailure[]): string[] {
+    const lines = PARTIAL_LINE.flatMap(([reason, line]) => {
+      const list = failed.filter((f) => f.reason === reason);
+      return list.length ? [line(names(list))] : [];
+    });
+    return lines.map((l, i) => (i === lines.length - 1 ? `${l}. 빼고 계속할까요?` : l));
+  }
 </script>
 
 {#if run.kind === 'done'}
@@ -48,7 +58,7 @@
     />
   {/if}
   <div class:dim={stale}>
-    <ResultView state={run} {colorConvention} {theme} {onEdit} {onTrade} />
+    <ResultView state={run} {colorConvention} {theme} {onEdit} />
   </div>
 {:else if run.kind === 'idle'}
   <p class="hint">규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요</p>
@@ -72,14 +82,9 @@
       <p class="sub">종목 {sc.stocks}개 · 지수{sc.benchmark ? ' · 비교 기준' : ''}</p>
       <div class="actions"><button type="button" onclick={onCancel}>취소</button></div>
     {:else if run.kind === 'partial'}
-      {@const noData = run.failed.filter((f) => f.reason === NO_DATA)}
-      {@const noFetch = run.failed.filter((f) => f.reason !== NO_DATA)}
-      {#if noFetch.length}
-        <p>{names(noFetch)} 일봉을 받지 못했어요{noData.length ? '' : '. 빼고 계속할까요?'}</p>
-      {/if}
-      {#if noData.length}
-        <p>{names(noData)}은(는) 이 기간에 데이터가 없어요. 빼고 계속할까요?</p>
-      {/if}
+      {#each partialLines(run.failed) as line (line)}
+        <p>{line}</p>
+      {/each}
       <div class="actions">
         <button type="button" class="primary" onclick={run.proceed}>빼고 계속</button>
         <button type="button" onclick={onCancel}>취소</button>

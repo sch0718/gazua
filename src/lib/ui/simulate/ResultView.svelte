@@ -20,7 +20,6 @@
     colorConvention,
     theme,
     onEdit,
-    onTrade,
   }: {
     state: DoneState;
     colorConvention: 'kr' | 'global';
@@ -28,7 +27,6 @@
     theme?: string;
     /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
     onEdit: (section?: Issue['section']) => void;
-    onTrade: (t: Trade) => void;
   } = $props();
 
   const result = $derived(done.result);
@@ -39,12 +37,9 @@
   // 거래 차트 시트에서 강조할 돌파 기준선(돌파 트리거를 쓸 때만)
   const breakout = $derived(meta.strategy.entry.triggers.breakout);
 
-  // 누른 거래: 시트를 열고 바깥(onTrade)에도 알린다
+  // 누른 거래: 그 포지션의 거래 차트 시트를 연다
   let picked = $state<Trade | null>(null);
-  const pick = (t: Trade) => {
-    picked = t;
-    onTrade(t);
-  };
+  const pick = (t: Trade) => (picked = t);
 
   let tab = $state<'trades' | 'symbols' | 'skipped'>('trades');
 

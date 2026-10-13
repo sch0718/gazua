@@ -23,7 +23,6 @@ function setup(state: RunState, extra: { stale?: boolean } = {}) {
     onEdit: vi.fn(),
     onRetry: vi.fn(),
     onCancel: vi.fn(),
-    onTrade: vi.fn(),
     onIssueAction: vi.fn(),
   };
   render(RunPanel, props);
@@ -55,9 +54,10 @@ describe('RunPanel', () => {
         { symbol: '035720', reason: '종목 정보를 받지 못했어요' },
       ],
       proceed,
-      cancel: vi.fn(),
     });
-    expect(screen.getByText('SK하이닉스, 035720 일봉을 받지 못했어요. 빼고 계속할까요?')).toBeTruthy();
+    // 종목 정보를 못 받은 종목은 따로(코드만 있으면 코드로)
+    expect(screen.getByText('SK하이닉스 일봉을 받지 못했어요')).toBeTruthy();
+    expect(screen.getByText('035720 종목 정보를 받지 못했어요. 빼고 계속할까요?')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '빼고 계속' }));
     expect(proceed).toHaveBeenCalledTimes(1);
     await fireEvent.click(screen.getByRole('button', { name: '취소' }));
@@ -110,8 +110,14 @@ describe('RunPanel', () => {
   });
 
   it('일부 실패 문구: 받지 못한 종목만', () => {
-    setup({ kind: 'partial', failed: [{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }], proceed: vi.fn(), cancel: vi.fn() });
+    setup({ kind: 'partial', failed: [{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }], proceed: vi.fn() });
     expect(screen.getByText('SK하이닉스 일봉을 받지 못했어요. 빼고 계속할까요?')).toBeTruthy();
+  });
+
+  it('일부 실패 문구: 종목 정보를 받지 못한 종목만', () => {
+    setup({ kind: 'partial', failed: [{ symbol: '035720', reason: '종목 정보를 받지 못했어요' }], proceed: vi.fn() });
+    expect(screen.getByText('035720 종목 정보를 받지 못했어요. 빼고 계속할까요?')).toBeTruthy();
+    expect(screen.queryByText(/일봉을 받지 못했어요/)).toBeNull();
   });
 
   it('일부 실패 문구: 기간 안 데이터 없음만', () => {
@@ -122,7 +128,6 @@ describe('RunPanel', () => {
         { symbol: '005930', name: '삼성전자', reason: '기간 안에 데이터가 없어요' },
       ],
       proceed: vi.fn(),
-      cancel: vi.fn(),
     });
     expect(screen.getByText('카카오, 삼성전자은(는) 이 기간에 데이터가 없어요. 빼고 계속할까요?')).toBeTruthy();
     expect(screen.queryByText(/일봉을 받지 못했어요/)).toBeNull();
@@ -136,7 +141,6 @@ describe('RunPanel', () => {
         { symbol: '035720', name: '카카오', reason: '기간 안에 데이터가 없어요' },
       ],
       proceed: vi.fn(),
-      cancel: vi.fn(),
     });
     expect(screen.getByText('SK하이닉스 일봉을 받지 못했어요')).toBeTruthy();
     expect(screen.getByText('카카오은(는) 이 기간에 데이터가 없어요. 빼고 계속할까요?')).toBeTruthy();

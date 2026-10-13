@@ -16,9 +16,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 function setup(state: DoneState = doneState(), theme = 'system') {
   const onEdit = vi.fn();
-  const onTrade = vi.fn();
-  const r = render(ResultView, { state, colorConvention: 'kr', theme, onEdit, onTrade });
-  return { onEdit, onTrade, ...r };
+  const r = render(ResultView, { state, colorConvention: 'kr', theme, onEdit });
+  return { onEdit, ...r };
 }
 
 const tab = (name: string | RegExp) => screen.getByRole('radio', { name });
@@ -192,8 +191,8 @@ describe('ResultView', () => {
     expect(within(screen.getByRole('list', { name: '비교 기준' })).getAllByRole('listitem')).toHaveLength(3);
   });
 
-  it('세그먼트와 거래 내역: 매도 행은 ▲▼ + 색, 행을 누르면 onTrade', async () => {
-    const { onTrade } = setup();
+  it('세그먼트와 거래 내역: 매도 행은 ▲▼ + 색, 매수 행을 누르면 그 포지션의 시트', async () => {
+    setup();
     expect(tab('거래 내역')).toBeTruthy();
     expect(tab('종목별')).toBeTruthy();
     expect(tab('건너뛴 신호 3')).toBeTruthy();
@@ -201,7 +200,7 @@ describe('ResultView', () => {
     expect(within(trades).getByText('▼ −5.6%').className).toContain('down');
     expect(within(trades).getByText('▲ +15.0%').className).toContain('up');
     await fireEvent.click(screen.getByRole('button', { name: /^SK하이닉스 · .* · 03\.14 · / }));
-    expect(onTrade).toHaveBeenCalledWith(expect.objectContaining({ date: '2024-03-14', symbol: '000660' }));
+    expect(screen.getByRole('dialog', { name: 'SK하이닉스 · 24.03.14 매수' })).toBeTruthy();
   });
 
   it('거래 행을 누르면 그 종목의 거래 차트 시트가 열린다', async () => {

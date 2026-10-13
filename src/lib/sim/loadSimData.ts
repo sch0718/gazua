@@ -14,8 +14,11 @@ export function createSimMemo(): SimMemo {
   return { get: (k) => m.get(k), set: (k, v) => void m.set(k, v), clear: () => m.clear() };
 }
 
+/** 종목 하나가 빠진 이유: 일봉 요청 실패 · 메타에 없음 · 기간 안 봉 없음 */
+export type SimFailureReason = '받지 못했어요' | '종목 정보를 받지 못했어요' | '기간 안에 데이터가 없어요';
+
 /** `error`는 요청이 던진 원인(`받지 못했어요`일 때만). 연결 문제의 원인을 알리는 데 쓴다 */
-export type SimFailure = { symbol: string; name?: string; reason: string; error?: unknown };
+export type SimFailure = { symbol: string; name?: string; reason: SimFailureReason; error?: unknown };
 
 export type LoadProgress = { done: number; total: number; waiting: boolean };
 

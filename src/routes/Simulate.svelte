@@ -130,7 +130,6 @@
                   onEdit={edit}
                   onRetry={retry}
                   onCancel={cancel}
-                  onTrade={() => {}} /* 거래 차트 시트는 ResultView가 연다 */
                   onIssueAction={(target) => runIssueAction(app, target)}
                 />
               </div>

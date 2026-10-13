@@ -122,17 +122,6 @@ describe('runController', () => {
     expect(Object.keys(done.meta.candles)).toEqual(['005930']);
   });
 
-  it('partial에서 cancel()하면 idle', async () => {
-    const base = provider();
-    const p = provider({ getCandles: async (q) => (q.symbol === '000660' ? Promise.reject(new Error('x')) : base.getCandles(q)) });
-    const ctl = ctlFor(fakeApp(p));
-    ctl.run(strat());
-    await settled(ctl);
-    if (ctl.state.kind !== 'partial') throw new Error(ctl.state.kind);
-    ctl.state.cancel();
-    expect(ctl.state.kind).toBe('idle');
-  });
-
   it('메타 실패 → error', async () => {
     const boom = new Error('proxy');
     const ctl = ctlFor(fakeApp(provider({ getStockMeta: async () => Promise.reject(boom) })));
@@ -179,6 +168,41 @@ describe('runController', () => {
     ctl.run(strat());
     await settled(ctl);
     expect(ctl.state).toMatchObject({ kind: 'error', text: '종목 일봉을 받지 못했어요' });
+  });
+
+  it('종목 정보를 받지 못한 종목 + 받지 못한 종목만 남으면 연결 문제 error(데이터 없음이 아니다)', async () => {
+    const base = provider();
+    const ctl = ctlFor(
+      fakeApp(
+        provider({
+          getStockMeta: async (s) => (await base.getStockMeta(s)).filter((m) => m.symbol !== '000660'),
+          getCandles: async () => Promise.reject(new ApiError('proxy-unreachable')),
+        }),
+      ),
+    );
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error', text: '종목 일봉을 받지 못했어요' });
+    expect((ctl.state as { error: unknown }).error).toBeInstanceOf(ApiError);
+  });
+
+  it('모든 종목의 종목 정보를 받지 못하면 종목 정보 문구로 연결 문제 error', async () => {
+    const ctl = ctlFor(fakeApp(provider({ getStockMeta: async () => [] })));
+    ctl.run(strat());
+    await settled(ctl);
+    expect(ctl.state).toMatchObject({ kind: 'error', text: '종목 정보를 받지 못했어요' });
+  });
+
+  it('partial 상태에는 cancel이 없다(취소는 컨트롤러의 cancel)', async () => {
+    const base = provider();
+    const p = provider({ getCandles: async (q) => (q.symbol === '000660' ? Promise.reject(new Error('x')) : base.getCandles(q)) });
+    const ctl = ctlFor(fakeApp(p));
+    ctl.run(strat());
+    await settled(ctl);
+    if (ctl.state.kind !== 'partial') throw new Error(ctl.state.kind);
+    expect('cancel' in ctl.state).toBe(false);
+    ctl.cancel();
+    expect(ctl.state.kind).toBe('idle');
   });
 
   it('남은 종목이 없어도 사유가 섞이면 noData + 실패 목록', async () => {

@@ -170,11 +170,7 @@ export function skipCounts(skipped: Skip[]): { reason: Skip['reason']; n: number
 
 /** 건너뛴 이유 중 가장 많은 것(같으면 먼저 나온 것). */
 export function dominantSkipReason(skipped: Skip[]): Skip['reason'] | null {
-  const count = new Map<Skip['reason'], number>();
-  for (const k of skipped) count.set(k.reason, (count.get(k.reason) ?? 0) + 1);
-  let best: Skip['reason'] | null = null;
-  for (const [r, n] of count) if (best === null || n > count.get(best)!) best = r;
-  return best;
+  return skipCounts(skipped)[0]?.reason ?? null;
 }
 
 export const LIMITATIONS = [
