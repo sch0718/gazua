@@ -202,7 +202,7 @@ describe('createRequestQueue', () => {
     for (const at of starts.slice(2)) expect(at).toBeGreaterThanOrEqual(t + Math.max(first, second));
   });
 
-  // 두 429가 다른 시각에 온다: 첫 번째(t)는 5000ms, 500ms 뒤의 두 번째는 1000ms. 정지는 t+5000 전에 풀리지 않는다.
+  // 두 429가 다른 시각에 온다: 첫 번째(t)는 5000ms, 약 510ms 뒤(초당 100건 간격)의 두 번째는 1000ms. 정지는 t+5000 전에 풀리지 않는다.
   it('successive 429s at different times: a shorter later pause does not release the group early', async () => {
     const c = fakeClock();
     const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });
