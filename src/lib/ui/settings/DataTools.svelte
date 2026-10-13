@@ -81,7 +81,8 @@
       return;
     }
     const name = app.meta.profiles.find((p) => p.id === res.profileId)?.name ?? '';
-    showSnackbar(`'${name}' 프로필을 만들었어요`, { label: '전환', run: () => app.switchProfile(res.profileId) });
+    const made = `'${name}' 프로필을 만들었어요`;
+    showSnackbar(res.repaired ? `${made}. 일부 값이 맞지 않아 기본값으로 바꿨어요` : made, { label: '전환', run: () => app.switchProfile(res.profileId) });
   }
 
   async function clearCache() {
