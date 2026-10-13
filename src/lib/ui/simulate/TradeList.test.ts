@@ -40,15 +40,15 @@ describe('TradeList', () => {
       t[3].reason = '1단계 익절 80%';
       t[1].pnlPct = -5;
     });
-    const gain = screen.getByRole('button', { name: '삼성전자 · ▲ +10.0% · 06.03 · 1단계 익절(80% 매도)' });
+    const gain = screen.getByRole('button', { name: '삼성전자 · ▲ +10.0% · 06.03 · 1단계 익절(80% 매도) · 평단 대비' });
     expect(gain.querySelector('.val')?.className).toContain('up');
-    const loss = screen.getByRole('button', { name: 'SK하이닉스 · ▼ −5.0% · 04.02 · 손절' });
+    const loss = screen.getByRole('button', { name: 'SK하이닉스 · ▼ −5.0% · 04.02 · 손절 · 평단 대비' });
     expect(loss.querySelector('.val')?.className).toContain('down');
   });
 
   it('손익이 반올림해서 0.0%면 화살표도 색도 없다', () => {
     setup((t) => (t[1].pnlPct = 0.04));
-    const row = screen.getByRole('button', { name: 'SK하이닉스 · 0.0% · 04.02 · 손절' });
+    const row = screen.getByRole('button', { name: 'SK하이닉스 · 0.0% · 04.02 · 손절 · 평단 대비' });
     expect(row.querySelector('.val')?.className).not.toMatch(/\b(up|down)\b/);
     expect(row.textContent).not.toMatch(/[▲▼]/);
   });
@@ -60,14 +60,38 @@ describe('TradeList', () => {
     const y2024 = within(group).getByRole('list', { name: '2024년' });
     expect(within(y2024).getAllByRole('listitem').map((li) => text(li.querySelector('.sub')))).toEqual([
       '03.14 · B 돌파 매수',
-      '04.02 · 손절',
+      '04.02 · 손절 · 평단 대비',
       '05.02 · 3일 연속 상승 매수',
-      '06.03 · 1단계 익절(100% 매도)',
+      '06.03 · 1단계 익절(100% 매도) · 평단 대비',
     ]);
     const y2025 = within(group).getByRole('list', { name: '2025년' });
     expect(within(y2025).getAllByRole('listitem').map((li) => text(li.querySelector('.sub')))).toEqual(['01.15 · B 돌파 매수']);
     // 연도 제목은 목록 항목이 아니다
     expect(within(group).getAllByRole('listitem')).toHaveLength(5);
+  });
+
+  it('매도 행 2줄과 접근 이름에만 `평단 대비`가 사유 뒤에 붙는다(매수·추가 행에는 없다)', () => {
+    setup((t) => t.splice(1, 0, { date: '2024-03-20', symbol: '000660', kind: 'add', price: 130_000, qty: 3, fee: 1, tax: 0, reason: '추가 매수' }));
+    const sell = screen.getByRole('button', { name: /04\.02/ });
+    expect(text(sell.querySelector('.sub'))).toBe('04.02 · 손절 · 평단 대비');
+    expect(sell.getAttribute('aria-label')).toMatch(/ · 04\.02 · 손절 · 평단 대비$/);
+    for (const name of [/03\.14/, /03\.20/]) {
+      const buy = screen.getByRole('button', { name });
+      expect(text(buy.querySelector('.sub'))).not.toContain('평단 대비');
+      expect(buy.getAttribute('aria-label')).not.toContain('평단 대비');
+    }
+  });
+
+  it('안내 한 줄은 매도 행이 하나라도 있을 때만 보이고, 매수만 있으면 없다', () => {
+    const NOTE = '매도 줄 %는 평균 단가 대비예요(수수료·세금 제외). 포지션 결과는 행을 눌러 확인해 주세요';
+    const { unmount } = render(TradeList, { trades: structuredClone(doneState().result.trades), names, onTrade: vi.fn() });
+    const note = screen.getByText(NOTE);
+    expect(note.tagName).toBe('P');
+    unmount();
+    const buys = structuredClone(doneState().result.trades).filter((t) => t.kind === 'buy' || t.kind === 'add');
+    render(TradeList, { trades: buys, names, onTrade: vi.fn() });
+    expect(screen.queryByText(NOTE)).toBeNull();
+    expect(screen.queryByText(/평단 대비/)).toBeNull();
   });
 
   it('행을 누르면 onTrade(trade)', async () => {

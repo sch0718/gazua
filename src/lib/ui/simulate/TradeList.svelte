@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 거래 내역(스펙 7.4-5): 리더보드 행 구조. 1줄 종목명 + 오른쪽 값, 2줄 날짜 · 사유, 행 끝 ›. 해마다 연도 제목(h2)과 그해 목록.
+  // 거래 내역(스펙 7.4-5): 리더보드 행 구조. 1줄 종목명 + 오른쪽 값, 2줄 날짜 · 사유(매도 줄은 끝에 `평단 대비`), 행 끝 ›. 해마다 연도 제목(h2)과 그해 목록.
   // 상승·하락 색 관례는 CSS 변수(--up/--down)가 맡으므로 관례 값은 받지 않는다.
   import type { Trade } from '../../sim/types';
   import { fmtWon } from '../format';
@@ -21,10 +21,12 @@
           ? null
           : { text: trendReturn(t.pnlPct), cls: returnClass(t.pnlPct) };
       const name = names[t.symbol] ?? t.symbol;
-      const sub = `${shortDate(t.date)} · ${why(t)}`;
+      // 매도 줄 %는 평균 단가 대비 가격 변화(비용 제외)라 시트의 포지션 결과와 부호가 다를 수 있다
+      const sub = `${shortDate(t.date)} · ${why(t)}${isBuy(t) ? '' : ' · 평단 대비'}`;
       return { t, name, value, sub, label: [name, value?.text, sub].filter(Boolean).join(' · ') };
     }),
   );
+  const hasSell = $derived(trades.some((t) => !isBuy(t)));
   // 해마다 제목 하나 + 그해 거래 목록(제목이 목록 항목 수에 섞이지 않게)
   const years = $derived.by(() => {
     const out: { year: string; rows: typeof rows }[] = [];
@@ -37,6 +39,9 @@
   });
 </script>
 
+{#if hasSell}
+  <p class="note">매도 줄 %는 평균 단가 대비예요(수수료·세금 제외). 포지션 결과는 행을 눌러 확인해 주세요</p>
+{/if}
 <div class="rows" role="group" aria-label="거래 내역">
   {#each years as y, yi (yi)}
     <h2 id="tl-{uid}-y{yi}">{y.year}년</h2>
@@ -56,6 +61,12 @@
 </div>
 
 <style>
+  .note {
+    margin: 0;
+    padding: 4px 4px 0;
+    font-size: var(--fs-sub);
+    color: var(--t3);
+  }
   ul {
     list-style: none;
     margin: 0;
