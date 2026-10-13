@@ -1,7 +1,7 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { createPatternTracker, type PatternTracker } from './pattern';
-import { openPosition, type Position } from './position';
+import { costOf, maxShares, openPosition, type Position } from './position';
 import { sellTaxPct, settlementDate } from './tax';
 import { holdCurve, indexCurve, singleCurve } from './benchmarks';
 import { nearMiss, retPct, summarize } from './summary';
@@ -33,9 +33,9 @@ export interface WalkCtx {
 /** 1회 금액으로 살 수량과 총비용(수수료 포함)·수수료. 못 사면 건너뜀 사유.
  *  비용은 여기서 한 번만 계산하고 수수료는 비용에서 뺀다(수량 × 가격 + 수수료 = 비용) */
 function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number; fee: number } | Skip['reason'] {
-  const qty = Math.floor(amount / (price * (1 + feePct / 100)));
+  const qty = maxShares(amount, price, feePct);
   if (qty === 0) return '1주가 1회 금액보다 비쌈';
-  const cost = qty * price * (1 + feePct / 100);
+  const cost = costOf(qty, price, feePct);
   if (cash < cost) return '현금 부족';
   return { qty, cost, fee: cost - qty * price };
 }

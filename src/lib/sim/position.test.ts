@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openPosition } from './position';
+import { maxShares, openPosition } from './position';
 import type { Strategy } from './types';
 
 type Exit = Strategy['exit'];
@@ -121,5 +121,16 @@ describe('position', () => {
     p.sell(2, 2);
     p.sell(1, 1);
     expect(p.stagesDone).toBe(2);
+  });
+});
+
+describe('maxShares', () => {
+  it('경계: 560,084원 / 80,000원 / 0.015% → 7주 (나눗셈은 6.999…)', () => {
+    expect(maxShares(560_084, 80_000, 0.015)).toBe(7);
+  });
+  it('1원 모자라면 6주, 수수료 0이면 floor', () => {
+    expect(maxShares(560_083, 80_000, 0.015)).toBe(6);
+    expect(maxShares(1000, 300, 0)).toBe(3);
+    expect(maxShares(100, 300, 0.015)).toBe(0);
   });
 });

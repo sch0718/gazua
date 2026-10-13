@@ -438,4 +438,19 @@ describe('simulate', () => {
     expect(r.perSymbol[0].pnl).toBeCloseTo(last.strategy - 10_000_000, 6);
     expect(r.nearMiss).toBeNull();
   });
+
+  it('경계: 7주 총비용이 자금과 정확히 같으면 7주를 산다(부동소수점 나눗셈이 6.999…여도)', () => {
+    const s = strat((x) => {
+      x.capital = { initial: 560_084, perBuyPct: 100 };
+      x.costs.feePct = 0.015;
+      x.exit.takeProfit = [{ pct: 500, sellPct: 100 }];
+      x.exit.stopLoss = { pct: 50, basis: 'avgAlways' };
+    });
+    const base = BASE.map((c) => c * 1000);
+    const inp = input(s, [candles(base, [[80_000, 80_000, 80_000, 80_000], [100_000, 100_000, 100_000, 100_000]])]);
+    const r = simulate(inp);
+    expect(r.trades[0]).toMatchObject({ kind: 'buy', price: 80_000, qty: 7 });
+    expect(r.equity[r.equity.length - 1].strategy).toBeCloseTo(700_000, 6);
+    expect(r.summary.totalReturnPct).toBeCloseTo((700_000 / 560_084 - 1) * 100, 6);
+  });
 });

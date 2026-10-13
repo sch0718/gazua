@@ -54,6 +54,15 @@ describe('holdCurve', () => {
   });
 });
 
+describe('holdCurve 경계', () => {
+  it('7주 총비용이 자금과 정확히 같으면 7주(부동소수점 6.999…에 속지 않음)', () => {
+    const a = stock('A', DAYS.map((d) => bar(d, 80_000, 100_000, 80_000, 100_000)));
+    const c = holdCurve(DAYS, [a], 560_084, 0.015);
+    expect(c[3]).toBeCloseTo(700_000, 6);
+    expect(singleCurve(DAYS, a.candles, 560_084, 0.015)[3]).toBeCloseTo(700_000, 6);
+  });
+});
+
 describe('indexCurve', () => {
   it('시가 대비 종가 비례', () => {
     const k = [bar(DAYS[0], 2500, 2500, 2500, 2600), bar(DAYS[1], 1, 1, 1, 2650), bar(DAYS[2], 1, 1, 1, 2700), bar(DAYS[3], 1, 1, 1, 2750)];

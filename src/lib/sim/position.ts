@@ -16,6 +16,15 @@ export interface Position {
   takeLevels(): { stage: number; price: number; qty: number }[];
 }
 
+/** q주의 총비용(수수료 포함). 매수 현금 차감과 같은 식 */
+export const costOf = (q: number, price: number, feePct: number): number => q * price * (1 + feePct / 100);
+
+/** amount 안에서 살 수 있는 최대 주수. 나눗셈이 경계에서 6.999…로 어긋나도 총비용이 amount 이하면 1주 더 산다 */
+export function maxShares(amount: number, price: number, feePct: number): number {
+  const q = Math.floor(amount / (price * (1 + feePct / 100)));
+  return costOf(q + 1, price, feePct) <= amount ? q + 1 : q;
+}
+
 export function openPosition(
   price: number,
   qty: number,

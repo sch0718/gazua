@@ -1,5 +1,6 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
+import { costOf, maxShares } from './position';
 import type { SimInput } from './types';
 
 /** days 안의 날짜별 봉 */
@@ -25,8 +26,8 @@ function buyAndHold(days: string[], candles: Candle[], slice: number, feePct: nu
     if (b) {
       if (!bought) {
         bought = true;
-        qty = Math.floor(slice / (b.o * (1 + feePct / 100)));
-        cash = slice - qty * b.o * (1 + feePct / 100);
+        qty = maxShares(slice, b.o, feePct);
+        cash = slice - costOf(qty, b.o, feePct);
       }
       lastClose = b.c;
     }
