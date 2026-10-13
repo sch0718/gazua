@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { kstEpoch } from '../../time/kst';
 import Leaderboard from './Leaderboard.svelte';
 import type { LeaderRow } from './rows';
@@ -45,6 +45,11 @@ function setup(rows: LeaderRow[], over: Record<string, unknown> = {}) {
 const order = () => screen.getAllByRole('listitem').map((li) => li.dataset.symbol);
 const rowOf = (symbol: string) => screen.getAllByRole('listitem').find((li) => li.dataset.symbol === symbol)!;
 const mainBtn = (symbol: string) => rowOf(symbol).querySelector<HTMLButtonElement>('button.main-btn')!;
+
+// 포인터/키보드 구분은 모듈 전체가 나눠 쓴다. 테스트마다 키 입력으로 처음 상태(키보드)로 되돌린다.
+beforeEach(() => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
+});
 
 describe('Leaderboard', () => {
   it('sorts by value, highest first; rows without a value go last', () => {
@@ -173,6 +178,22 @@ describe('Leaderboard', () => {
     mainBtn('B').focus();
     expect(onfocuswithin).toHaveBeenCalledTimes(1);
     expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'C', 'A']);
+  });
+
+  it('a pointer press before the board mounts still counts: the focus it causes does not hold the order (mouse undo remount)', async () => {
+    const onfocuswithin = vi.fn();
+    const undo = document.createElement('button');
+    document.body.append(undo);
+    await fireEvent.pointerDown(undo, { pointerId: 1 });
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    expect(onfocuswithin).not.toHaveBeenCalled();
+    // 그 뒤 키 입력이 오면 다시 키보드로 본다.
+    mainBtn('A').blur();
+    await fireEvent.keyDown(document.body, { key: 'Tab' });
+    mainBtn('B').focus();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+    undo.remove();
   });
 
   it('a pointer press inside an already held list does not release it (the click must land on the row it pressed)', async () => {

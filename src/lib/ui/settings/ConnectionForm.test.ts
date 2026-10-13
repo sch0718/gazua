@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
 import ConnectionForm, { KEY_LOCKED_ELSEWHERE, KEYS_NOT_REMOVED_SAVE } from './ConnectionForm.svelte';
 import { createApp } from '../../state/app.svelte';
 import { DEFAULT_SETTINGS } from '../../state/schema';
@@ -71,6 +71,40 @@ describe('ConnectionForm', () => {
     await fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await waitFor(() => expect(app.secrets?.proxyToken).toBe('proxy-token-5555'));
     expect(app.settings.proxyUrl).toBe('https://p.example.net');
+  });
+
+  describe('cleared proxy address banner', () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const startCleared = (proxyUrl: string) => {
+      vi.stubEnv('DEV', false);
+      const backing = memoryBacking();
+      seed(backing, 'meta', { schemaVersion: 1, activeProfileId: 'p1', profiles: [{ id: 'p1', name: '내 프로필', createdAt: 1 }] });
+      seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, provider: 'kis', proxyUrl });
+      seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g1', name: '내 관심', items: [] }] });
+      const app = createApp({ storage: createSafeStorage(backing), now: () => NOW, cache: memoryCache() });
+      apps.push(app);
+      render(ConnectionForm, { app });
+      return app;
+    };
+    const hasBanner = (app: App) => app.banners.some((b) => b.id.startsWith('proxy-cleared'));
+
+    it('saving with the address field left blank clears the banner', async () => {
+      const app = startCleared('http://localhost:8787');
+      expect(app.settings.proxyUrl).toBe('');
+      expect(hasBanner(app)).toBe(true);
+      await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+      await waitFor(() => expect(hasBanner(app)).toBe(false));
+      expect(app.settings.proxyUrl).toBe('');
+    });
+
+    it('saving an unchanged address does not rebuild the provider', async () => {
+      const app = startCleared('https://p.example.net');
+      const before = app.provider;
+      await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+      await waitFor(() => expect(currentSnackbar()?.message).toBe('저장했어요'));
+      expect(app.settings.proxyUrl).toBe('https://p.example.net');
+      expect(app.provider).toBe(before);
+    });
   });
 
   it('refuses to save keys in plaintext when another tab has locked them, and says to reload', async () => {

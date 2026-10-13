@@ -125,7 +125,8 @@
         if (lockPass === '') return fail('pass', '키가 잠겨 있어요. 암호를 입력해 주세요');
         if (!(await app.verifyPassphrase(lockPass))) return fail('pass', '암호가 맞지 않아요');
       }
-      if (showProxy && url !== app.settings.proxyUrl) app.updateSettings({ proxyUrl: url });
+      // 값이 그대로면 updateSettings는 공급자를 다시 만들지 않는다. 빈 주소를 저장해도 지웠다는 안내는 거둔다.
+      if (showProxy) app.updateSettings({ proxyUrl: url });
       if (dirtySecrets) await app.setSecrets(next, lockPass);
       proxyUrl = url;
       proxyToken = '';

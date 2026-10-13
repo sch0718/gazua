@@ -1,3 +1,13 @@
+<script module lang="ts">
+  // 마지막 입력이 포인터인지 키보드인지. 보드가 다시 마운트돼도(빈 상태에서 마우스로 되돌리기) 이어지도록
+  // 모듈에 두고 한 번만 등록한다. 리스너가 둘뿐이라 떼지 않는다(인스턴스 수를 세는 쪽이 더 복잡하고 틈이 생긴다).
+  let pointerFocus = false;
+  if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', () => (pointerFocus = true), true);
+    document.addEventListener('keydown', () => (pointerFocus = false), true);
+  }
+</script>
+
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import Badge from '../components/Badge.svelte';
@@ -70,17 +80,6 @@
   // 마우스·터치로 누른 뒤의 포커스는 고정하지 않는다(마지막 입력이 포인터인지 키보드인지로 가린다).
   // 이미 고정 중이면 포인터로 눌러도 풀지 않는다(누르고 떼는 사이에 행이 옮겨지면 클릭이 빗나간다).
   let focusInside = false;
-  let pointerFocus = false;
-  $effect(() => {
-    const onpointer = () => (pointerFocus = true);
-    const onkey = () => (pointerFocus = false);
-    document.addEventListener('pointerdown', onpointer, true);
-    document.addEventListener('keydown', onkey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onpointer, true);
-      document.removeEventListener('keydown', onkey, true);
-    };
-  });
   function onfocusin() {
     if (focusInside || pointerFocus) return;
     focusInside = true;
