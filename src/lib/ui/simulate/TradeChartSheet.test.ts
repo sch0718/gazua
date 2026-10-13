@@ -147,16 +147,16 @@ describe('TradeChartSheet', () => {
     const d = (i: number) => new Date(Date.UTC(2024, 11, 1 + i)).toISOString().slice(0, 10);
     const trades = [buy(0, { date: d(20), pattern: undefined }), sell(0, 'stop', { date: d(40) })];
     open(trades[0], trades, c);
-    expect(summaryText()).toBe('매수 12.21 132,400원 → 손절 25.01.10 125,780원 · ▼ −5.0%');
+    expect(summaryText()).toBe('매수 12.21 132,400원 → 손절 25.01.10 125,780원 · ▼ −5.0% (비용 포함)');
   });
 
   it('제목은 종목명 · 매수일, 요약은 MM.DD 단계(줄바꿈 없는 묶음) + 끝에 결과', async () => {
     const trades = [buy(30), sell(50)];
     open(trades[1], trades);
     expect(screen.getByRole('dialog', { name: 'SK하이닉스 · 24.01.31 매수' })).toBeTruthy();
-    expect(summaryText()).toBe('매수 01.31 132,400원 → 손절 02.20 125,780원 · ▼ −5.0%');
+    expect(summaryText()).toBe('매수 01.31 132,400원 → 손절 02.20 125,780원 · ▼ −5.0% (비용 포함)');
     const steps = [...document.querySelectorAll('.summary .step')].map((e) => e.textContent?.trim());
-    expect(steps).toEqual(['매수 01.31 132,400원', '손절 02.20 125,780원', '▼ −5.0%']);
+    expect(steps).toEqual(['매수 01.31 132,400원', '손절 02.20 125,780원', '▼ −5.0% (비용 포함)']);
     expect(document.querySelector('.summary .step:last-child')?.className).toContain('down');
     expect(document.querySelector('.plot')?.getAttribute('aria-hidden')).toBe('true');
     expect(screen.queryByRole('img')).toBeNull();
@@ -171,11 +171,24 @@ describe('TradeChartSheet', () => {
       sell(50, 'take', { price: 108, qty: 100 }),
     ];
     const { unmount } = open(trades[0], trades);
-    expect(summaryText()).toMatch(/ · ▲ \+15\.0%$/);
+    expect(summaryText()).toMatch(/ · ▲ \+15\.0% \(비용 포함\)$/);
     unmount();
     const holding = [buy(30)];
     open(holding[0], holding);
     expect(summaryText()).toBe('매수 01.31 132,400원 · 보유 중');
+  });
+
+  it('비용을 빼면 손실인 익절은 시트에서도 ▼, 상승색이 아니고 (비용 포함)을 붙인다', async () => {
+    // 100주 @1,000 매수(수수료 1,000), @1,010 매도(수수료 1,010·세금 202) → −1,212원
+    const trades = [
+      buy(30, { price: 1000, qty: 100, fee: 1000, pattern: undefined }),
+      sell(50, 'take', { price: 1010, qty: 100, fee: 1010, tax: 202, stage: 1, reason: '익절', pnlPct: 1 }),
+    ];
+    open(trades[0], trades);
+    expect(summaryText()).toBe('매수 01.31 1,000원 → 익절 02.20 1,010원 · ▼ −1.2% (비용 포함)');
+    const last = document.querySelector('.summary .step:last-child')!;
+    expect(last.className).toContain('down');
+    expect(last.className).not.toContain('up');
   });
 
   it('요약에 매수 줄 A·B·L 가격, pattern이 없으면 그 줄은 없다', async () => {

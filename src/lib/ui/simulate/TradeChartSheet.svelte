@@ -89,7 +89,7 @@
   const outcome = $derived.by(() => {
     if (!position) return null;
     const r = positionReturnPct(position);
-    return r === null ? { text: '보유 중', cls: '' } : { text: trendReturn(r), cls: returnClass(r) };
+    return r === null ? { text: '보유 중', cls: '' } : { text: `${trendReturn(r)} (비용 포함)`, cls: returnClass(r) };
   });
   // 제목: `DB하이텍 · 25.03.24 매수`(포지션의 첫 매수일)
   const title = $derived(position ? `${name} · ${position.trades[0].date.slice(2).replaceAll('-', '.')} 매수` : name);
