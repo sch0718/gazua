@@ -206,6 +206,62 @@ describe('Leaderboard', () => {
     expect(onfocuswithin).toHaveBeenCalledTimes(1);
   });
 
+  // Safari는 버튼을 눌러도 포커스를 주지 않아 pointerdown 직후 focusout(relatedTarget 없음)이 온다.
+  it('a press that starts inside a held list keeps the order until release (Safari: focusout without a related target)', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'A']);
+    await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('A').blur();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+    await fireEvent.pointerUp(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(onfocuswithin).toHaveBeenCalledTimes(2);
+    expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a press that is cancelled inside a held list also releases afterwards', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('A').blur();
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+    await fireEvent.pointerCancel(mainBtn('B'), { pointerId: 1 });
+    expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+  });
+
+  it('a press released while focus is still inside the list changes nothing (Chromium focuses the row)', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('B').focus();
+    await fireEvent.pointerUp(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+  });
+
+  it('a press that started outside the list releases immediately', async () => {
+    const onfocuswithin = vi.fn();
+    setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    await fireEvent.pointerDown(document.body, { pointerId: 1 });
+    mainBtn('A').blur();
+    expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+    await fireEvent.pointerUp(document.body, { pointerId: 1 });
+    expect(onfocuswithin).toHaveBeenCalledTimes(2);
+  });
+
+  it('a re-sort while a press inside the held list is down does not release it', async () => {
+    const onfocuswithin = vi.fn();
+    const props = setup([row('A', 1), row('B', 3)], { onfocuswithin });
+    mainBtn('A').focus();
+    await fireEvent.pointerDown(mainBtn('B'), { clientX: 10, clientY: 10, pointerId: 1 });
+    mainBtn('A').blur();
+    await props.rerender({ rows: [row('A', 2), row('B', 3)] });
+    expect(onfocuswithin).toHaveBeenCalledTimes(1);
+  });
+
   it('onfocuswithin: the focused row disappearing (no focusout) or the board unmounting also reports null', async () => {
     const onfocuswithin = vi.fn();
     const props = setup([row('A', 1), row('B', 3)], { onfocuswithin });

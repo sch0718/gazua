@@ -99,9 +99,28 @@
   }
   function onfocusout(e: FocusEvent) {
     const next = e.relatedTarget as Node | null;
-    if (focusInside && (!next || !listEl.contains(next))) leave();
+    // 목록 안에서 시작한 누름 중에는 풀지 않는다. Safari는 클릭이 포커스를 주지 않아 누르자마자 포커스가 빠진다.
+    if (focusInside && !pressInside && (!next || !listEl.contains(next))) leave();
+  }
+
+  // 고정 중인 목록 안에서 시작한 누름. 떼거나(pointerup) 취소될(pointercancel) 때까지 순서를 그대로 둔다.
+  let pressInside = false;
+  function endPressInside() {
+    document.removeEventListener('pointerup', endPressInside, true);
+    document.removeEventListener('pointercancel', endPressInside, true);
+    pressInside = false;
+    // 포커스가 목록 안에 남아 있으면(Chromium) 그대로 둔다. 밖이면 이제 푼다.
+    if (focusInside && !listEl?.contains(document.activeElement)) leave();
+  }
+  function onlistpointerdown() {
+    if (pressInside) return;
+    pressInside = true;
+    document.addEventListener('pointerup', endPressInside, true);
+    document.addEventListener('pointercancel', endPressInside, true);
   }
   onDestroy(() => {
+    document.removeEventListener('pointerup', endPressInside, true);
+    document.removeEventListener('pointercancel', endPressInside, true);
     if (focusInside) leave();
   });
 
@@ -120,7 +139,7 @@
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (el?.isConnected && lost) el.focus({ preventScroll: true });
     // 포커스가 있던 행이 사라지면 focusout이 오지 않을 수 있다. 목록에 포커스가 없으면 고정을 푼다.
-    if (focusInside && !listEl?.contains(document.activeElement)) leave();
+    if (focusInside && !pressInside && !listEl?.contains(document.activeElement)) leave();
   });
 
   let press: { symbol: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -236,7 +255,7 @@
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown}>
+  <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown} onpointerdown={onlistpointerdown}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
       {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}
