@@ -85,6 +85,29 @@ describe('simulateCore', () => {
     expect(kinds(core.trades)).toEqual(['buy@87x11494', 'gapTake@101x5747', 'gapTake@101x5747']);
   });
 
+  it('gap take: 시가 == 익절가면 take, 시가 > 익절가일 때만 gapTake', () => {
+    // 매수 87 → 익절가 87 × 1.15 = 100.05
+    const eq = one(strat(), [[87, 88, 86, 87], [100.05, 101, 99, 100]]);
+    expect(kinds(eq.trades)).toEqual(['buy@87x11494', 'take@100.05x11494']);
+    const gap = one(strat(), [[87, 88, 86, 87], [100.06, 101, 99, 100]]);
+    expect(kinds(gap.trades)).toEqual(['buy@87x11494', 'gapTake@100.06x11494']);
+  });
+
+  it('시가 매수: 현금이 정확히 비용이면 사고 현금 0, 수수료 = 비용 − 수량 × 가격', () => {
+    // 101주 × 87원 × 1.00015. 따로 계산한 수수료는 1e-12만큼 어긋난다
+    const initial = 101 * 87 * (1 + 0.015 / 100);
+    const s = strat((x) => {
+      x.costs.feePct = 0.015;
+      x.capital = { initial, perBuyPct: 100 };
+    });
+    const core = one(s, [[87, 88, 86, 87]]);
+    const [buy] = core.trades;
+    expect(buy).toMatchObject({ kind: 'buy', price: 87, qty: 101 });
+    expect(core.equity[9].cash).toBe(0);
+    expect(buy.price * buy.qty + buy.fee).toBe(initial);
+    expect(core.roundTrips[0].cost).toBe(initial);
+  });
+
   it('단일 100% 익절의 reason은 익절', () => {
     const core = one(strat(), [[87, 88, 86, 87], [90, 101, 90, 100]]);
     expect(core.trades[1]).toMatchObject({ kind: 'take', stage: 1, reason: '익절' });

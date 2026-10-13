@@ -30,13 +30,14 @@ export interface WalkCtx {
   skip(reason: Skip['reason'], addPrice: number): void;
 }
 
-/** 1회 금액으로 살 수량과 총비용(수수료 포함). 못 사면 건너뜀 사유. 비용은 여기서 한 번만 계산한다 */
-function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number } | Skip['reason'] {
+/** 1회 금액으로 살 수량과 총비용(수수료 포함)·수수료. 못 사면 건너뜀 사유.
+ *  비용은 여기서 한 번만 계산하고 수수료는 비용에서 뺀다(수량 × 가격 + 수수료 = 비용) */
+function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number; fee: number } | Skip['reason'] {
   const qty = Math.floor(amount / (price * (1 + feePct / 100)));
   if (qty === 0) return '1주가 1회 금액보다 비쌈';
   const cost = qty * price * (1 + feePct / 100);
   if (cash < cost) return '현금 부족';
-  return { qty, cost };
+  return { qty, cost, fee: cost - qty * price };
 }
 
 /** 시가 → 저가 → 고가 → 종가를 가격 커서 하나로 지나가며 손절·추가 매수·익절을 체결한다(스펙 5.2). */
@@ -63,10 +64,9 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
       ctx.skip(sized, level);
       return;
     }
-    const fee = (sized.qty * price * feePct) / 100;
     pos.buy(price, sized.qty);
     ctx.wallet.cash -= sized.cost;
-    ctx.trade({ date, symbol, kind: 'add', price, qty: sized.qty, fee, tax: 0, reason: '추가 매수' });
+    ctx.trade({ date, symbol, kind: 'add', price, qty: sized.qty, fee: sized.fee, tax: 0, reason: '추가 매수' });
   };
 
   let cur = bar.o;
@@ -88,7 +88,7 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
       }
       const passed = takes.find((t) => t.price <= cur);
       if (passed) {
-        sell(passed.qty, cur, 'gapTake', passed.stage);
+        sell(passed.qty, cur, passed.price < cur ? 'gapTake' : 'take', passed.stage);
         continue;
       }
 
@@ -185,12 +185,11 @@ export function simulateCore(input: SimInput): CoreResult {
         skipped.push({ date, symbol: st.stock.symbol, reason: sized });
         continue;
       }
-      const fee = (sized.qty * price * feePct) / 100;
       st.pos = openPosition(price, sized.qty, s.scaleIn, s.exit);
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
       wallet.cash -= sized.cost;
-      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee, tax: 0, reason, pattern: snapshot });
+      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee: sized.fee, tax: 0, reason, pattern: snapshot });
     }
 
     // 2. 장중 경로, 3. 종가
