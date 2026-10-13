@@ -9,7 +9,7 @@ import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types
 import type { AppData } from '../../state/app.svelte';
 import type { Period, Settings } from '../../state/schema';
 import { kstDate } from '../../time/kst';
-import { dominantFault, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
+import { dominantFault, issueFaults, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
 import { quoteVenue } from './venue';
 
 export type SnapshotSeries = LoadedSeries & { stale: boolean; staleError?: ApiError };
@@ -408,7 +408,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const all = entries;
       const symbols = query?.symbols ?? [];
       const current = symbols.flatMap((s) => (all[s] ? [all[s]] : []));
-      const worst = dominantFault(current.flatMap((e) => (e.fault ? [e.fault] : [])));
+      // 먼저 거르고(연결 오류는 과반일 때만) 그다음 대표를 고른다: 거른 뒤라야 억제된 proxy 오류가 키 오류를 가리지 않는다.
+      const worst = dominantFault(issueFaults(current.flatMap((e) => (e.fault ? [e.fault] : [])), symbols.length));
       if (!worst) return null;
       const allFailed = current.length === symbols.length && current.every((e) => e.series === null || e.series.stale);
       return { ...worst, allFailed, lastOkAt };

@@ -10,6 +10,7 @@ import {
 import { sessionsForDay } from '../../market/sessions';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
+import { issueView } from './loadIssue';
 import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
@@ -319,6 +320,28 @@ describe('compareController', () => {
     t.resolveAll();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.issue).toBeNull();
+  });
+
+  it('one failing row of several raises no connection banner; every row failing does', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('000660')!.resolve(snap('000660'));
+    t.pending.get('042700')!.resolve(snap('042700'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toBeNull();
+    expect(issueView(t.ctl.issue, NOW)).toBeNull();
+
+    t.setNow(NOW + RELOAD_IN_SESSION_MS);
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('000660')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('042700')!.resolve(snap('042700'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(issueView(t.ctl.issue, NOW)).toMatchObject({ kind: 'banner' });
   });
 
   it('a stale row (last good result kept) still reports why the reload failed', async () => {

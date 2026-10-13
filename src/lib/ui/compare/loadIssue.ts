@@ -56,9 +56,20 @@ export function dominantFault(faults: LoadFault[]): LoadFault | null {
   return best;
 }
 
-/** 어느 종목에서 나도 화면 전체의 문제인 코드(연결·키·권한). */
+/** 한 행의 일시적 실패일 수 있어 과반 행이 같은 코드로 실패할 때만 화면 문제로 보는 연결 코드. */
+export const CONNECTION_CODES: ErrorCode[] = ['proxy-unreachable', 'timeout'];
+
+/** 연결 코드 오류는 그 코드로 실패한 행이 total의 과반(> total / 2)일 때만 남긴다. 그 밖의 코드는 그대로. */
+export function issueFaults(faults: LoadFault[], total: number): LoadFault[] {
+  const count = new Map<ErrorCode, number>();
+  for (const f of faults) count.set(f.code, (count.get(f.code) ?? 0) + 1);
+  return faults.filter((f) => !CONNECTION_CODES.includes(f.code) || (count.get(f.code) ?? 0) > total / 2);
+}
+
+/** 화면 전체의 문제인 코드(연결·키·권한). 연결 코드는 issueFaults를 거쳐 과반일 때만 여기까지 온다. */
 const BANNER_CODES: ErrorCode[] = [
   'proxy-unreachable',
+  'timeout',
   'proxy-redirect',
   'cors-blocked',
   'origin-not-allowed',
@@ -83,8 +94,6 @@ export function issueView(issue: LoadIssue | null, now: number): IssueView | nul
       const left = issue.retryAfterMs === undefined ? 0 : Math.ceil((issue.at + issue.retryAfterMs - now) / 1000);
       return { kind: 'banner', tone: 'warn', text: left > 0 ? `${d.title} · ${left}초 남았어요` : d.title };
     }
-    case 'timeout':
-      return issue.allFailed ? { kind: 'banner', tone: 'error', text: d.title, ...(d.action ? { action: d.action } : {}) } : null;
   }
   if (!BANNER_CODES.includes(issue.code)) return null;
   return { kind: 'banner', tone: 'error', text: d.title, ...(d.action ? { action: d.action } : {}) };
