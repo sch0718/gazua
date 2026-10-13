@@ -84,6 +84,7 @@ export async function loadSimData(args: {
     if (isCancelled()) throw new Cancelled();
     let waiting = false;
     const timer = setTimeout(() => {
+      if (isCancelled()) return; // 취소한 뒤에는 대기 중이라고 알리지 않는다
       waiting = true;
       report(true);
     }, WAITING_MS);

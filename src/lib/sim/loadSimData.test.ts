@@ -391,6 +391,35 @@ describe('loadSimData', () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('3초 전에 취소하면 타이머가 지나도 waiting 보고가 오지 않는다', async () => {
+      vi.useFakeTimers();
+      const base = demo();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let cancelled = false;
+      const sp = spied({
+        getCandles: async (q) => {
+          await gate;
+          return base.getCandles(q);
+        },
+      });
+      const ps: LoadProgress[] = [];
+      const p = run(sp.provider, strat(), ['005930', '000660'], {
+        isCancelled: () => cancelled,
+        onProgress: (x: LoadProgress) => ps.push(x),
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(ps.some((x) => x.waiting)).toBe(false);
+      cancelled = true;
+      const seen = ps.length;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(ps.slice(seen).filter((x) => x.waiting)).toEqual([]);
+      release();
+      expect(await p).toEqual({ ok: false, cancelled: true });
+      expect(ps.slice(seen).filter((x) => x.waiting)).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
     it('waiting 중', async () => {
       vi.useFakeTimers();
       const base = demo();
