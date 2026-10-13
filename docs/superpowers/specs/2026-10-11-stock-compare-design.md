@@ -175,6 +175,7 @@ interface MarketDataProvider {
 - `pnpm build` → `dist/`를 GitHub Actions(`actions/deploy-pages`)로 Pages에 배포한다. 해시 라우팅(`#/`)을 써서 Pages의 404 문제를 피한다.
 - 폰트(Pretendard)와 차트 라이브러리는 번들에 넣는다. **런타임에 외부 스크립트를 불러오지 않는다** — 키가 저장된 페이지이므로 공급망 공격면을 줄이기 위함.
 - PWA 매니페스트 + 서비스 워커(앱 셸만 캐시)로 홈 화면에 추가할 수 있게 한다.
+- `prebuild`가 KIS 종목 마스터를 받아 `public/universe.json`을 만든다. 배포(`deploy.yml`)는 매번 새로 받는다. CI(`ci.yml`의 ci·e2e 잡)는 ISO 주 단위 캐시(`universe-<YYYY-Www>`, restore-keys `universe-`)를 쓰고, 정확히 적중하면 `UNIVERSE_REUSE=true`로 넘겨 `build-universe.mjs`가 받지 않고 `[universe] 캐시된 파일을 그대로 써요`만 찍고 끝난다(일부 키만 맞으면 새로 받는다).
 
 ---
 
@@ -513,6 +514,7 @@ p:{id}:tokenIssuedAt:kis  마지막 KIS 토큰 발급 시각(epoch ms)   // 비�
 - **공급자 계약 테스트**: 실제 응답을 녹화한 픽스처(키·계좌 정보 제거)로 KIS·토스·데모가 같은 테스트를 통과
 - **프록시**: 허용 경로·차단 경로(주문), CORS 출처 검사, `PROXY_TOKEN`
 - **E2E (Playwright, 데모 공급자)**: 375×812 / 820×1180 가로·세로 / 1440×900. 종목 추가 → 기간·지표·거래소 전환 → 삭제·되돌리기. axe 접근성 검사 포함
+- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<Playwright 버전>`)를 캐시하고 적중하면 `install-deps`만 돌린다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다.
 - **실제 연결 점검표**: 실제 키로 장중·애프터·휴장일에 수동 확인(README에 체크리스트)
 
 ---
