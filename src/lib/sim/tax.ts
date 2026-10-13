@@ -20,16 +20,22 @@ export function sellTaxPct(date: string, market: TaxMarket, isEtf: boolean): num
   return market === 'KOSPI' ? row[1] : row[2];
 }
 
-// KRX가 해마다 쉬는 날(연말 휴장일·신정). 그 밖의 공휴일은 모른다.
-const KRX_FIXED_CLOSURES = new Set(['12-31', '01-01']);
-
-/** 근사용 거래일: 토·일과 12-31·01-01이 아닌 날 */
-function approxTradingDay(d: string): boolean {
-  const w = kstWeekday(d);
-  return w !== 0 && w !== 6 && !KRX_FIXED_CLOSURES.has(d.slice(5));
+// KRX는 해마다 신정(01-01)과 연말 휴장일(12월의 마지막 평일)에 쉰다. 그 밖의 공휴일은 모른다.
+/** 해당 연도의 연말 휴장일: 12-31이 평일이면 12-31, 토·일이면 직전 금요일 */
+function yearEndClosure(year: string): string {
+  const last = `${year}-12-31`;
+  const w = kstWeekday(last);
+  return w === 0 ? addDays(last, -2) : w === 6 ? addDays(last, -1) : last;
 }
 
-/** 근사 거래일 n일 뒤(토·일·12-31·01-01만 건너뜀, 다른 공휴일은 모름) */
+/** 근사용 거래일: 토·일, 신정, 연말 휴장일이 아닌 날 */
+function approxTradingDay(d: string): boolean {
+  const w = kstWeekday(d);
+  if (w === 0 || w === 6 || d.slice(5) === '01-01') return false;
+  return d !== yearEndClosure(d.slice(0, 4));
+}
+
+/** 근사 거래일 n일 뒤(토·일·연말 휴장일·신정만 건너뜀, 다른 공휴일은 모름) */
 function addWeekdays(date: string, n: number): string {
   let d = date;
   for (let left = n; left > 0; ) {
@@ -39,7 +45,7 @@ function addWeekdays(date: string, n: number): string {
   return d;
 }
 
-/** 체결일 다음 2번째 거래일(T+2 결제일). 축 끝을 넘으면 남은 만큼을 근사 거래일(평일, 12-31·01-01 제외)로 더한다. */
+/** 체결일 다음 2번째 거래일(T+2 결제일). 축 끝을 넘으면 남은 만큼을 근사 거래일(평일, 연말 휴장일·신정 제외)로 더한다. */
 export function settlementDate(tradeDate: string, days: string[]): string {
   // tradeDate 이상인 첫 거래일 위치 (이분 탐색)
   let lo = 0;
