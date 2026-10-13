@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Badge from './Badge.svelte';
 import Banner from './Banner.svelte';
 import Chip from './Chip.svelte';
@@ -69,14 +69,19 @@ describe('Toggle', () => {
 
   // 컴포넌트의 <style>만 문서에 넣어 계산된 스타일로 확인한다(Svelte 스코프 클래스는 없다).
   // jsdom은 var()를 풀지 않으므로 토큰 이름이 그대로 나온다.
+  const styles: HTMLStyleElement[] = [];
+  afterEach(() => {
+    for (const s of styles.splice(0)) s.remove();
+  });
   function draw(checked: boolean) {
     const style = document.createElement('style');
+    styles.push(style);
     style.textContent = /<style>([\s\S]*)<\/style>/.exec(toggleSource)![1];
     document.head.append(style);
     const { container } = render(Toggle, { checked, label: '토글', onchange: vi.fn() });
     const track = container.querySelector('.track')!;
     const thumb = container.querySelector('.thumb')!;
-    return { track, thumb, bg: (el: Element) => getComputedStyle(el).background, undo: () => style.remove() };
+    return { track, thumb, bg: (el: Element) => getComputedStyle(el).background };
   }
 
   it('off: the track is --t3 and the thumb is white (non-text 3:1)', () => {
@@ -84,7 +89,6 @@ describe('Toggle', () => {
     expect(v.track.classList.contains('on')).toBe(false);
     expect(v.bg(v.track)).toBe('var(--t3)');
     expect(v.bg(v.thumb)).toBe('rgb(255, 255, 255)');
-    v.undo();
   });
 
   it('on: the track is --accent and the thumb is --on-accent', () => {
@@ -92,6 +96,5 @@ describe('Toggle', () => {
     expect(v.track.classList.contains('on')).toBe(true);
     expect(v.bg(v.track)).toBe('var(--accent)');
     expect(v.bg(v.thumb)).toBe('var(--on-accent)');
-    v.undo();
   });
 });

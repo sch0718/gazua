@@ -143,7 +143,6 @@ describe('issueView', () => {
   it('timeout that passed the majority filter is a banner', () => {
     // 과반 판단은 issueFaults가 이미 했다: 여기 남은 timeout은 배너 대상이다.
     expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
-    expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
   });
 
   it('row-level codes (upstream, path-blocked, token-expired) stay in their rows', () => {

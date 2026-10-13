@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "types": ["node"]
-  },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "vitest.config.ts", "pwa.config.ts", "pwa.config.test.ts", "csp.config.ts", "csp.config.test.ts"],
-  "exclude": []
-}

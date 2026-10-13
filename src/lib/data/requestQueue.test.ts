@@ -202,6 +202,34 @@ describe('createRequestQueue', () => {
     for (const at of starts.slice(2)) expect(at).toBeGreaterThanOrEqual(t + Math.max(first, second));
   });
 
+  // 두 429가 다른 시각에 온다: 첫 번째(t)는 5000ms, 약 510ms 뒤(초당 100건 간격)의 두 번째는 1000ms. 정지는 t+5000 전에 풀리지 않는다.
+  it('successive 429s at different times: a shorter later pause does not release the group early', async () => {
+    const c = fakeClock();
+    const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });
+    const starts: number[] = [];
+    const runs = { a: 0, b: 0 };
+    let t = -1;
+    const flight = (id: 'a' | 'b', respondAfter: number, retryAfterMs: number) =>
+      q.run('kis', id, 0, async () => {
+        starts.push(c.now());
+        if (++runs[id] > 1) return id;
+        await c.sleep(respondAfter);
+        if (id === 'a') t = c.now();
+        throw err('rate-limited', { status: 429, retryAfterMs });
+      });
+    const pa = flight('a', 100, 5000);
+    const pb = flight('b', 600, 1000);
+    // 두 번째 429(약 t+510, 100/s 간격)가 처리된 뒤에 들어온 요청
+    let cStart = -1;
+    const pc = c.sleep(700).then(() => q.run('kis', 'c', 0, async () => void (cStart = c.now())));
+    await c.settle();
+    await Promise.all([pa, pb, pc]);
+    expect(t).toBe(100);
+    expect(cStart).toBeGreaterThanOrEqual(t + 5000);
+    // 처음 두 번의 시작 뒤 모든 시작(재시도 포함)
+    for (const at of starts.slice(2)) expect(at).toBeGreaterThanOrEqual(t + 5000);
+  });
+
   it('waits 1000 ms on rate-limited without retryAfterMs', async () => {
     const c = fakeClock();
     const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });

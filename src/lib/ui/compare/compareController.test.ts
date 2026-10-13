@@ -360,13 +360,14 @@ describe('compareController', () => {
     expect(t.ctl.entries['042700'].error).toBeFalsy();
   });
 
-  it('mixed proxy and timeout failures count together and show the more frequent banner', async () => {
+  it('mixed proxy and timeout failures count together; a tie goes to proxy-unreachable', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query());
     await vi.advanceTimersByTimeAsync(0);
+    // 각 코드는 1행(과반 아님)이지만 합치면 2/3이라 배너가 나오고, 동률이면 proxy-unreachable
     t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
-    t.pending.get('000660')!.reject(new ApiError('proxy-unreachable'));
-    t.pending.get('042700')!.reject(new ApiError('timeout'));
+    t.pending.get('000660')!.reject(new ApiError('timeout'));
+    t.pending.get('042700')!.resolve(snap('042700'));
     t.pending.clear();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.issue).toMatchObject({ code: 'proxy-unreachable' });
