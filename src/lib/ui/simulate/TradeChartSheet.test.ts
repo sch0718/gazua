@@ -107,6 +107,25 @@ describe('TradeChartSheet', () => {
     expect((series().data as { time: string }[]).at(-1)?.time).toBe(day(119));
   });
 
+  it('첫 x 라벨이 왼쪽 끝에서 잘리지 않게 앞쪽에 빈 봉 몇 개만큼 여백을 둔다', async () => {
+    const trades = [buy(30), sell(50)];
+    open(trades[0], trades);
+    await vi.waitFor(() => expect(series()?.data.length).toBe(66));
+    const r = lwcCharts[0].visibleRange;
+    if (r === null || r === 'fit') throw new Error(String(r));
+    expect(r.from).toBeLessThanOrEqual(-3);
+    expect(r.to).toBeGreaterThanOrEqual(65);
+  });
+
+  it('요약: 첫 매수와 해가 다른 단계는 YY.MM.DD', async () => {
+    // 2024-12-01부터 60봉
+    const c: Candle[] = Array.from({ length: 60 }, (_, i) => ({ t: Date.UTC(2024, 11, 1 + i), o: 100, h: 110, l: 90, c: 100, v: 1 }));
+    const d = (i: number) => new Date(Date.UTC(2024, 11, 1 + i)).toISOString().slice(0, 10);
+    const trades = [buy(0, { date: d(20), pattern: undefined }), sell(0, 'stop', { date: d(40) })];
+    open(trades[0], trades, c);
+    expect(summaryText()).toBe('매수 12.21 132,400원 → 손절 25.01.10 125,780원 · ▼ −5.0%');
+  });
+
   it('제목은 종목명 · 매수일, 요약은 MM.DD 단계(줄바꿈 없는 묶음) + 끝에 결과', async () => {
     const trades = [buy(30), sell(50)];
     open(trades[1], trades);

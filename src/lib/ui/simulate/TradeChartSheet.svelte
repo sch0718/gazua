@@ -38,6 +38,8 @@
   } = $props();
 
   const MARGIN_BARS = 20;
+  /** 첫 x 라벨(`'25년` 등)이 왼쪽 끝에서 잘리지 않게 앞에 비워 둘 봉 수: 표시 봉의 7%(최소 3). 폭과 무관하게 라벨 반 폭(약 16px) 이상 */
+  const leftPadBars = (n: number) => Math.max(3, Math.ceil(n * 0.07));
   /** 같은 방향 마커가 이 봉 수 안이면 하나로 합친다(라벨 겹침 방지) */
   const MERGE_BARS = 3;
   const LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
@@ -71,7 +73,13 @@
     return { from, to };
   });
 
-  const steps = $derived(position?.trades.map((t) => `${LABEL[t.kind]} ${shortDate(t.date)} ${fmtWon(t.price)}원`) ?? []);
+  // 첫 매수와 해가 다른 단계는 `25.01.10`처럼 연도를 붙인다(해를 넘기면 MM.DD만으로는 거꾸로 읽힌다)
+  const steps = $derived.by(() => {
+    if (!position) return [];
+    const year = position.trades[0].date.slice(0, 4);
+    const when = (d: string) => (d.slice(0, 4) === year ? shortDate(d) : d.slice(2).replaceAll('-', '.'));
+    return position.trades.map((t) => `${LABEL[t.kind]} ${when(t.date)} ${fmtWon(t.price)}원`);
+  });
   const outcome = $derived.by(() => {
     if (!position) return null;
     const r = positionReturnPct(position);
@@ -151,7 +159,7 @@
       }
       line.createPriceLine({ price: pattern.l, title: 'L', color: gray, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false });
     }
-    c.timeScale().fitContent();
+    c.timeScale().setVisibleLogicalRange({ from: -leftPadBars(bars.length), to: bars.length - 1 + 0.5 });
     return () => {
       observer.disconnect();
       c.remove();

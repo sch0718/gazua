@@ -14,7 +14,7 @@
     onchange: (value: string) => void;
     label?: string;
     wide?: boolean;
-    /** 표면(--surface) 카드 안에 놓을 때: 트랙 --bg, 선택 --surface2(다크에서 선택 항목이 꺼져 보이지 않게) */
+    /** 표면(--surface) 카드 안에 놓을 때: 트랙·선택 색을 테마별 토큰으로(라이트는 기본 모양, 다크는 트랙 --bg·선택 --surface2) */
     onSurface?: boolean;
   } = $props();
 
@@ -92,10 +92,10 @@
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
   }
   .seg.on-surface {
-    background: var(--bg);
+    background: var(--seg-card-track);
   }
   .on-surface button.on {
-    background: var(--surface2);
+    background: var(--seg-card-on);
   }
   button[aria-disabled='true'] {
     color: var(--t3);

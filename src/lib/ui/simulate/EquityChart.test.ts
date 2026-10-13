@@ -21,7 +21,7 @@ describe('EquityChart', () => {
     theme,
   });
 
-  it('선 4개: 전략 accent 굵기 2 실선, 보유 회색 1 실선, 지정 종목 s1 2 점선, 지수 t2 1.5 점선', async () => {
+  it('선 4개: 전략 accent 굵기 2 실선, 보유 회색 1 실선, 지정 종목 --line-bench 2 점선, 지수 t2 1.5 점선', async () => {
     render(EquityChart, props());
     await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(4));
     const [strategy, hold, bench, index] = lwcCharts[0].series;
@@ -29,13 +29,19 @@ describe('EquityChart', () => {
     expect([strategy, hold, bench, index].map((s) => [s.options.color, s.options.lineWidth, s.options.lineStyle])).toEqual([
       ['#5b47e0', 2, 0],
       ['#676d77', 1, 0],
-      ['#eb6834', 2, 2],
+      ['#d95926', 2, 2],
       ['#5b6069', 1.5, 2],
     ]);
     // 수익률(%)로 그린다
     expect(strategy.data.at(-1)).toEqual({ time: '2026-10-08', value: expect.closeTo(32.4, 5) });
     // 맨 위 y 라벨이 잘리지 않게 위 여백
     expect(lwcCharts[0].options.rightPriceScale).toMatchObject({ scaleMargins: { top: 0.1 } });
+  });
+
+  it('지정 종목 선은 --line-bench 토큰(--s1은 비교 화면 슬롯이라 그대로 둔다), 견본도 같은 토큰', () => {
+    render(EquityChart, props());
+    const swatches = [...document.querySelectorAll<HTMLElement>('.legend .swatch')];
+    expect(swatches[2].style.getPropertyValue('--c')).toBe('var(--line-bench)');
   });
 
   it('범례: 같은 종목 사서 보유, 견본은 실선/점선을 구분한다', () => {

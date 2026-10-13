@@ -60,7 +60,7 @@ describe('Segmented', () => {
     expect(screen.getByRole('radio', { name: /자동/ }).getAttribute('tabindex')).toBe('-1');
   });
 
-  it('onSurface: 카드 위 변형은 켤 때만 붙는다(트랙 --bg, 선택 --surface2)', () => {
+  it('onSurface: 카드 위 변형은 켤 때만 붙는다(트랙·선택 색은 테마별 토큰)', () => {
     const { container, unmount } = render(Segmented, { options, value: 'krx', onchange: vi.fn() });
     expect(container.querySelector('.seg')!.classList.contains('on-surface')).toBe(false);
     unmount();
@@ -68,8 +68,8 @@ describe('Segmented', () => {
     expect(r.container.querySelector('.seg')!.classList.contains('on-surface')).toBe(true);
     // jsdom은 컴포넌트 스타일을 계산하지 않으므로 소스의 규칙을 읽는다
     const track = /\.seg\.on-surface\s*\{([^}]*)\}/.exec(segmentedSource)?.[1] ?? '';
-    expect(track).toMatch(/background:\s*var\(--bg\)/);
+    expect(track).toMatch(/background:\s*var\(--seg-card-track\)/);
     const sel = /\.on-surface button\.on\s*\{([^}]*)\}/.exec(segmentedSource)?.[1] ?? '';
-    expect(sel).toMatch(/background:\s*var\(--surface2\)/);
+    expect(sel).toMatch(/background:\s*var\(--seg-card-on\)/);
   });
 });

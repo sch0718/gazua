@@ -34,6 +34,11 @@
   --s6: #008300;
   --s7: #2a78d6;
   --s8: #e34948;
+  /* 자산 곡선의 비교 종목 선. --s1(#eb6834)은 --bg 위 2.99:1이라 3:1(그래픽)에 모자라 더 진하게: --bg 위 3.62:1 */
+  --line-bench: #d95926;
+  /* 카드(--surface) 안 세그먼트: 라이트는 기본 모양(트랙 --surface2, 선택 --surface; 선택·트랙 1.13:1) */
+  --seg-card-track: var(--surface2);
+  --seg-card-on: var(--surface);
 
   /* 테마와 무관한 토큰 */
   --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
@@ -91,6 +96,10 @@
     --s6: #008300;
     --s7: #3987e5;
     --s8: #e66767;
+  --line-bench: #d95926; /* --bg 위 4.94:1 */
+  /* 다크는 기본 모양이면 선택(--surface)이 트랙보다 어두워 꺼져 보인다: 트랙 --bg, 선택 --surface2(1.19:1) */
+  --seg-card-track: var(--bg);
+  --seg-card-on: var(--surface2);
   }
 }
 
@@ -125,6 +134,10 @@
   --s6: #008300;
   --s7: #3987e5;
   --s8: #e66767;
+  --line-bench: #d95926; /* --bg 위 4.94:1 */
+  /* 다크는 기본 모양이면 선택(--surface)이 트랙보다 어두워 꺼져 보인다: 트랙 --bg, 선택 --surface2(1.19:1) */
+  --seg-card-track: var(--bg);
+  --seg-card-on: var(--surface2);
 }
 
 /* 글로벌 색 관례: 초록▲ / 빨강▼. 클래스 이름(up/down)은 그대로 두고 색만 바꾼다.

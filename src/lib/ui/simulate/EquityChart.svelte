@@ -9,11 +9,12 @@
   }
 
   // 색(스펙 7.4-3): 전략 = 강조색 굵게(파랑 슬롯 7은 하락색으로 읽혀서), 보유 = 회색 실선,
-  // 지정 종목 = 슬롯 1 굵은 점선, 지수 = 진한 회색 점선. 얇은 점선은 밝은 배경에서 3:1이 안 나와 굵기를 올렸다.
+  // 지정 종목 = --line-bench 굵은 점선(슬롯 1 --s1은 라이트 --bg 위 2.99:1이라 따로 둔 진한 주황), 지수 = 진한 회색 점선.
+  // 얇은 점선은 밝은 배경에서 3:1이 안 나와 굵기를 올렸다.
   export const EQUITY_LINES: EquityLine[] = [
     { key: 'strategy', color: ['--accent', '#5b47e0'], width: 2, dashed: false },
     { key: 'hold', color: ['--t3', '#676d77'], width: 1, dashed: false },
-    { key: 'benchmark', color: ['--s1', '#eb6834'], width: 2, dashed: true },
+    { key: 'benchmark', color: ['--line-bench', '#d95926'], width: 2, dashed: true },
     { key: 'index', color: ['--t2', '#5b6069'], width: 1.5, dashed: true },
   ];
 </script>
