@@ -11,6 +11,8 @@ import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.sv
 import StrategyEditor from './StrategyEditor.svelte';
 import editorSectionSource from './editor/EditorSection.svelte?raw';
 import periodSource from './editor/PeriodSection.svelte?raw';
+import numberFieldSource from './editor/NumberField.svelte?raw';
+import entrySource from './editor/EntrySection.svelte?raw';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const UNIVERSE: UniverseItem[] = [
@@ -375,6 +377,19 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
     await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 트리거 사용' }));
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeNull();
+  });
+
+  it('muted는 투명도로 흐리지 않는다: 박스 배경·테두리만 낮추고 글자는 --t3(AA)', () => {
+    // jsdom은 컴포넌트 스타일을 계산하지 않으므로 소스의 규칙을 읽는다. 실제 대비는 e2e a11y가 잰다.
+    const rules = (src: string) => [...src.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*\.muted[^{}]*)\{([^}]*)\}/g)].map((m) => [m[1].trim(), m[2]] as const);
+    for (const [sel, body] of [...rules(numberFieldSource), ...rules(entrySource)]) expect(body, sel).not.toMatch(/opacity/);
+    const box = rules(numberFieldSource).find(([sel]) => /^\.muted \.box$/.test(sel))?.[1] ?? '';
+    expect(box).toMatch(/background:\s*transparent/);
+    expect(box).toMatch(/border-color:\s*var\(--line\)/);
+    const text = rules(numberFieldSource).find(([sel]) => sel.includes('.muted input') && sel.includes('.muted .suffix'))?.[1] ?? '';
+    expect(text).toMatch(/color:\s*var\(--t3\)/);
+    const seg = rules(entrySource).find(([sel]) => sel.includes('.seg'))?.[1] ?? '';
+    expect(seg).toMatch(/color:\s*var\(--t3\)/);
   });
 
   it('숫자 칸의 박스는 입력과 연결된 label(for)이고 입력은 num', async () => {

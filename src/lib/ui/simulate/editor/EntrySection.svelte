@@ -115,8 +115,12 @@
 </div>
 
 <style>
-  .muted {
-    opacity: 0.5;
+  /* 전 고점 돌파를 끄면 A/B는 글자만 --t3로(투명도는 대비를 깨므로 쓰지 않는다; --bg 위 4.86:1 · 선택 --surface2 위 4.61:1, 다크 5.60 · 4.71) */
+  .muted :global(.seg button[role='radio']) {
+    color: var(--t3);
+  }
+  .muted :global(.seg button[role='radio'].on) {
+    box-shadow: none;
   }
   /* 오른쪽은 토글 폭(52) + 간격(12)만큼 비워 위아래 숫자 칸과 줄을 맞춘다 */
   .indent {

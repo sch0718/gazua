@@ -149,9 +149,17 @@
   .box.bad {
     border-color: var(--err);
   }
-  /* 꺼진 조건: Toggle:disabled·Segmented aria-disabled와 같은 흐림. 입력은 막지 않는다 */
+  /* 꺼진 조건: 계속 고칠 수 있으므로 투명도로 흐리지 않는다(글자 대비 AA).
+     박스 배경을 빼고 테두리만 --line, 글자는 --t3(--surface 위 라이트 5.21:1 · 다크 5.19:1) */
   .muted .box {
-    opacity: 0.5;
+    background: transparent;
+    border-color: var(--line);
+  }
+  .muted .box:focus-within {
+    border-color: var(--accent);
+  }
+  .muted .box.bad {
+    border-color: var(--err);
   }
   input {
     width: 7ch;
@@ -172,6 +180,10 @@
     font-size: var(--fs-sub);
     color: var(--t2);
     white-space: nowrap;
+  }
+  .muted input,
+  .muted .suffix {
+    color: var(--t3);
   }
   .err,
   .money {
