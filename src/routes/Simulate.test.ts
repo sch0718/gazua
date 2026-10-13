@@ -13,7 +13,10 @@ import Simulate from './Simulate.svelte';
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
-const barEnd = createRawSnippet(() => ({ render: () => '<span></span>' }));
+// 실제 barEnd처럼 compact(폰 폭)이면 상태 칩을 그리지 않는다.
+const barEnd = createRawSnippet((compact: () => boolean) => ({
+  render: () => (compact() ? '<span></span>' : '<span data-testid="chip">상태 칩</span>'),
+}));
 
 let apps: App[] = [];
 function setup(names: string[] = []) {
@@ -36,11 +39,17 @@ afterEach(() => {
   lwcCharts.length = 0;
 });
 
-function stubWidth(wide: boolean) {
+function stubWidth(wide: boolean, phone = false) {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   vi.stubGlobal(
     'matchMedia',
-    (q: string) => ({ matches: wide && q === '(min-width: 1024px)', media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList,
+    (q: string) =>
+      ({
+        matches: (wide && q === '(min-width: 1024px)') || (phone && q === '(max-width: 599px)'),
+        media: q,
+        addEventListener() {},
+        removeEventListener() {},
+      }) as unknown as MediaQueryList,
   );
 }
 
@@ -186,4 +195,56 @@ describe('Simulate run', () => {
     expect(screen.queryByText('배당 제외 · 가격 수익률만이에요')).toBeNull();
     expect(screen.queryByRole('button', { name: '규칙' })).toBeNull();
   }, 15000);
+
+  it('폰 폭 편집 화면: 실행 → 결과 → 규칙 → 바의 결과 버튼으로 결과에 돌아온다', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    expect(screen.queryByRole('button', { name: '결과' })).toBeNull();
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    expect(screen.getByRole('textbox', { name: '전략 이름' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '규칙' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    expect(screen.getByText('배당 제외 · 가격 수익률만이에요')).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: '전략 이름' })).toBeNull();
+    expect(screen.getByRole('button', { name: '규칙' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '결과' })).toBeNull();
+  }, 15000);
+
+  it('편집 화면 제목은 항상 시뮬레이션이다(이름은 이름 칸에)', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await screen.findByRole('textbox', { name: '전략 이름' });
+    const bar = document.querySelector('header.bar') as HTMLElement;
+    expect(within(bar).getByText('시뮬레이션')).toBeTruthy();
+    expect(within(bar).queryByText('눌림목')).toBeNull();
+  });
+
+  it('PC 폭에는 결과 버튼이 없다', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '결과' })).toBeNull();
+  }, 15000);
+});
+
+describe('Simulate app bar', () => {
+  it('폰 폭에서는 상태 칩이 없고 넓은 화면에서는 있다', () => {
+    stubWidth(false, true);
+    setup();
+    expect(screen.queryByTestId('chip')).toBeNull();
+  });
+
+  it('폰이 아니면 상태 칩이 있다', () => {
+    stubWidth(false, false);
+    setup();
+    expect(screen.getByTestId('chip')).toBeTruthy();
+  });
 });

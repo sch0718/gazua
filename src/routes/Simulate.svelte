@@ -1,6 +1,6 @@
 <script lang="ts">
   // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
-  // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`으로 돌아감), PC(≥1024)는 좌우로 둘 다 보인다.
+  // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`↔`결과`로 오감), PC(≥1024)는 좌우로 둘 다 보인다.
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
@@ -14,7 +14,7 @@
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
 
-  let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
+  let { app, barEnd }: { app: App; barEnd: Snippet<[boolean]> } = $props();
 
   const strategy = $derived(app.strategies.find((s) => s.id === app.route.strategyId) ?? null);
 
@@ -29,6 +29,9 @@
   });
   const wideQuery = typeof matchMedia === 'function' ? new MediaQuery('min-width: 1024px') : null;
   const wide = $derived(wideQuery?.current ?? false);
+  // 폰 폭(<600)에서는 앱 바에 상태 칩을 그리지 않는다(제목·`규칙`/`결과`·아이콘 2개가 들어가야 한다).
+  const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
+  const compact = $derived(compactQuery?.current ?? false);
   let showResult = $state(false);
   let lastDraft: Strategy | null = null;
 
@@ -51,6 +54,7 @@
     showResult = true;
   }
   const edit = () => (showResult = false);
+  const showRun = () => (showResult = true);
   function cancel() {
     ctl.cancel();
     showResult = false;
@@ -74,16 +78,17 @@
   {#snippet bar()}
     {#if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
-      <span class="title">{strategy.name}</span>
+      <span class="title">시뮬레이션</span>
       {#if showResult && !wide}
         <button type="button" class="rules" onclick={edit}>규칙</button>
+      {:else if !showResult && !wide && (ctl.state.kind === 'done' || ctl.state.kind === 'loading')}
+        <button type="button" class="rules" onclick={showRun}>결과</button>
       {/if}
     {:else}
       <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
       <span class="title">시뮬레이션</span>
     {/if}
-    <span class="spacer"></span>
-    {@render barEnd()}
+    {@render barEnd(compact)}
   {/snippet}
 
   {#snippet main()}
@@ -138,9 +143,8 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .spacer {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .rules {
     flex: none;

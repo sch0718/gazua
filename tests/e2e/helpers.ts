@@ -40,15 +40,14 @@ export async function openAddSheet(page: Page): Promise<Locator> {
   return sheet;
 }
 
-/** 가로 스크롤이 없다: 문서 폭이 뷰포트 폭을 넘지 않는다. */
+/**
+ * 가로 스크롤이 없다: 문서 폭이 설정한 뷰포트 폭을 넘지 않는다.
+ * isMobile에서는 넘친 문서에 맞춰 innerWidth도 커지므로 innerWidth가 아니라 설정값과 비교한다.
+ */
 export async function expectNoHorizontalScroll(page: Page): Promise<void> {
-  const overflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  expect(overflow.scrollWidth, `scrollWidth ${overflow.scrollWidth} > innerWidth ${overflow.innerWidth}`).toBeLessThanOrEqual(
-    overflow.innerWidth,
-  );
+  const viewportWidth = page.viewportSize()!.width;
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(scrollWidth, `scrollWidth ${scrollWidth} > viewport ${viewportWidth}`).toBeLessThanOrEqual(viewportWidth);
 }
 
 /** 시각 확인용 전체 페이지 스크린샷: test-results/screens/<project>-<step>.png */

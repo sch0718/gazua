@@ -100,9 +100,19 @@
   {/if}
 </div>
 
-{#snippet barEnd()}
-  <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
-  <button type="button" class="icon-btn" aria-label="시뮬레이션" onclick={() => app.navigate({ name: 'simulate' })}>
+<!-- compact(시뮬레이션의 폰 폭)이면 상태 칩을 뺀다. 다른 화면은 인자 없이 부른다. -->
+{#snippet barEnd(compact: boolean = false)}
+  {#if !compact}
+    <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
+  {/if}
+  <button
+    type="button"
+    class="icon-btn"
+    class:on={route.name === 'simulate'}
+    aria-label="시뮬레이션"
+    aria-current={route.name === 'simulate' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'simulate' })}
+  >
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M3 3v18h18" />
       <path d="M7 15l4-5 3 3 5-6" />
@@ -142,7 +152,11 @@
     color: var(--t2);
     flex: none;
   }
-  .icon-btn:hover {
+  .icon-btn:hover,
+  .icon-btn.on {
     background: var(--surface2);
+  }
+  .icon-btn.on {
+    color: var(--t1);
   }
 </style>
