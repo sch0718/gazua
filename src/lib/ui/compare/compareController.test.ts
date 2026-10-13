@@ -10,6 +10,7 @@ import {
 import { sessionsForDay } from '../../market/sessions';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
+import { issueView } from './loadIssue';
 import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
@@ -57,6 +58,7 @@ const snap = (symbol: string, over: Partial<SnapshotSeries> = {}): SnapshotSerie
   base: 100,
   baseDate: '2026-10-08',
   avgDailyVolume: null,
+  avgVolumeVenue: 'KRX',
   candles: [{ t: NOW - 60_000, o: 110, h: 110, l: 110, c: 110, v: 1 }],
   // 1일 차트의 기준일(직전 거래일 10/8) 종가 = base
   daily: [{ t: kstEpoch('2026-10-08', '00:00:00'), o: 100, h: 100, l: 100, c: 100, v: 1 }],
@@ -190,6 +192,108 @@ describe('compareController', () => {
     expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
   });
 
+  describe('stock meta refresh on a new KST day', () => {
+    const NEXT_DAY = kstEpoch(addDays(DAY, 1), '00:05:00');
+
+    function metaProvider() {
+      const provider = createDemoProvider({ seed: 1, now: () => NOW });
+      const base = provider.getStockMeta.bind(provider);
+      const state = { halted: false, fail: false, calls: [] as string[][] };
+      provider.getStockMeta = async (symbols) => {
+        state.calls.push(symbols);
+        if (state.fail) throw new ApiError('proxy-unreachable');
+        return (await base(symbols)).map((m) => (m.symbol === '042700' ? { ...m, krxSuspended: state.halted } : m));
+      };
+      return { provider, state };
+    }
+
+    it('fetches every symbol again after midnight KST and reflects the changed krxSuspended', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query());
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(false);
+
+      // 같은 날 다시 받아도 메타는 다시 받지 않는다.
+      state.calls.length = 0;
+      const same = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await same;
+      expect(state.calls).toEqual([]);
+
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+
+    it('refreshes a symbol from another group when it comes back after midnight', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query({ symbols: ['042700'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      // 다른 그룹으로 옮겼다가 자정을 넘긴 뒤 새로 받는다.
+      t.ctl.setQuery(t.query({ symbols: ['005930'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(false);
+
+      state.calls.length = 0;
+      t.ctl.setQuery(t.query({ symbols: ['005930', '042700'] }));
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(state.calls).toEqual([['042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+
+    it('keeps the previous meta when the refresh fails, and retries on the next reload', async () => {
+      const { provider, state } = metaProvider();
+      const t = track(setup({ provider }));
+      t.ctl.setQuery(t.query());
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await vi.advanceTimersByTimeAsync(0);
+      const before = t.ctl.metas['042700'];
+
+      state.fail = true;
+      state.halted = true;
+      t.setNow(NEXT_DAY);
+      const done = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await done;
+      expect(t.ctl.metas['042700']).toBe(before);
+      expect(t.ctl.entries['042700'].series?.symbol).toBe('042700');
+
+      state.fail = false;
+      state.calls.length = 0;
+      const again = t.ctl.refresh();
+      await vi.advanceTimersByTimeAsync(0);
+      t.resolveAll();
+      await again;
+      expect(state.calls).toEqual([['005930', '000660', '042700']]);
+      expect(t.ctl.metas['042700'].krxSuspended).toBe(true);
+    });
+  });
+
   it('exposes the dominant error of the last load and whether every row failed', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query());
@@ -216,6 +320,28 @@ describe('compareController', () => {
     t.resolveAll();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.ctl.issue).toBeNull();
+  });
+
+  it('one failing row of several raises no connection banner; every row failing does', async () => {
+    const t = track(setup());
+    t.ctl.setQuery(t.query());
+    await vi.advanceTimersByTimeAsync(0);
+    t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('000660')!.resolve(snap('000660'));
+    t.pending.get('042700')!.resolve(snap('042700'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.ctl.issue).toBeNull();
+    expect(issueView(t.ctl.issue, NOW)).toBeNull();
+
+    t.setNow(NOW + RELOAD_IN_SESSION_MS);
+    await vi.advanceTimersByTimeAsync(RELOAD_IN_SESSION_MS);
+    t.pending.get('005930')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('000660')!.reject(new ApiError('proxy-unreachable'));
+    t.pending.get('042700')!.resolve(snap('042700'));
+    t.pending.clear();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(issueView(t.ctl.issue, NOW)).toMatchObject({ kind: 'banner' });
   });
 
   it('a stale row (last good result kept) still reports why the reload failed', async () => {
@@ -245,7 +371,9 @@ describe('compareController', () => {
     t.ctl.setQuery(t.query({ symbols: ['005930', '000660'] }));
     await vi.advanceTimersByTimeAsync(0);
     t.pending.get('005930')!.resolve(snap('005930', { stale: true, computedAt: kstEpoch(DAY, '09:20:00') }));
-    t.pending.get('000660')!.resolve(snap('000660'));
+    // 000660: 새 결과. 마지막 봉(09:58)보다 새로운 같은 거래소(KRX) 시세면 가격에 쓴다.
+    const fresh = { t: NOW - 120_000, o: 110, h: 110, l: 110, c: 110, v: 1 };
+    t.pending.get('000660')!.resolve(snap('000660', { candles: [fresh], segments: [{ start: fresh.t, end: fresh.t + 60_000, venue: 'KRX' }] }));
     t.pending.clear();
     await vi.advanceTimersByTimeAsync(5000);
     // 두 종목 모두 시세를 받았다.
@@ -258,10 +386,11 @@ describe('compareController', () => {
         points: [{ t: NOW - 60_000, v: 10 }],
         quote: t.ctl.quotes[s],
       })),
-      { scrubT: null, venueMode: 'AUTO' },
+      { now: NOW, scrubT: null, venueMode: 'AUTO' },
     );
     expect(rows[0]).toMatchObject({ price: 110, value: 10, staleAt: kstEpoch(DAY, '09:20:00') });
     expect(rows[1].price).toBe(t.ctl.quotes['000660'].price);
+    expect(rows[1].price).not.toBe(110);
   });
 
   it('quotes use the KRX-first venue per stock', async () => {
@@ -389,6 +518,7 @@ describe('compareController', () => {
       base,
       baseDate: '2026-10-08',
       avgDailyVolume: null,
+      avgVolumeVenue: 'KRX',
       candles: [bar(NOW - 60_000, c)],
       daily: [bar(kstEpoch('2026-10-08', '00:00:00'), base)],
       segments: [],
@@ -412,6 +542,7 @@ describe('compareController', () => {
         base,
         baseDate: addDays(from, -1),
         avgDailyVolume: null,
+        avgVolumeVenue: 'KRX',
         candles: closes(tradingDate).filter((c) => c.t >= day(from)),
         daily: closes(tradingDate),
         segments: [],
@@ -495,6 +626,7 @@ describe('compareController', () => {
       expect(points.map((p) => p.v)).toEqual([8, null]);
       expect(points.some((p) => p.v !== null && Math.abs(p.v - 18) < 1e-9)).toBe(false);
       const [row] = buildRows([{ item: { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 0 }, series: t.ctl.entries['005930'].series, points }], {
+        now: NOW + 60_000,
         scrubT: null,
         venueMode: 'AUTO',
       });

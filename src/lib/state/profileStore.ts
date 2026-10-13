@@ -1,9 +1,10 @@
 // 프로필별 저장 키와 읽기 도우미. 앱 상태(app.svelte.ts)가 이 함수들로 저장소를 읽고 쓴다.
-import type { TokenInfo, TokenStore } from '../providers/types';
+import type { IssuedAtStore, TokenInfo, TokenStore } from '../providers/types';
 import { DEFAULT_SETTINGS, type Settings, type Watchlists } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import { sanitizeSettings, sanitizeWatchlists } from './validate';
 import type { SafeStorage } from './storage';
+import { localHttpOrigin } from '../ui/settings/connection';
 
 export const DEFAULT_GROUP_NAME = '내 관심';
 
@@ -12,6 +13,8 @@ export const profileKeys = {
   watchlists: (id: string) => `p:${id}:watchlists`,
   secrets: (id: string) => `p:${id}:secrets`,
   token: (id: string, provider: 'kis' | 'toss') => `p:${id}:token:${provider}`,
+  /** 마지막 토큰 발급 시각(epoch ms). 비밀이 아니라 잠금 모드에서도 저장한다. */
+  tokenIssuedAt: (id: string, provider: 'kis') => `p:${id}:tokenIssuedAt:${provider}`,
   recent: (id: string) => `p:${id}:recent`,
   strategies: (id: string) => `p:${id}:strategies`,
 };
@@ -35,19 +38,20 @@ export function loadSettings(st: SafeStorage, id: string): Settings {
   }
   const keyLock = typeof raw.keyLock === 'boolean' ? raw.keyLock : DEFAULT_SETTINGS.keyLock;
   const { settings, invalid } = sanitizeSettings(raw, keyLock);
-  if (invalid.length > 0) st.reportCorrupt(key);
+  if (invalid.includes('proxyUrl')) st.reportProxyCleared(key, localHttpOrigin(raw.proxyUrl) ?? undefined);
+  if (invalid.some((f) => f !== 'proxyUrl')) st.reportCorrupt(key);
   return settings;
 }
 
 /**
- * 맞는 그룹·종목만 남긴다(틀린 것이 있으면 저장소 배너). 없거나 모양부터 깨졌으면 빈 그룹 '내 관심' 하나를
- * 만들어 저장한다(그룹 id가 재시작해도 같도록).
+ * 맞는 그룹·종목만 남긴다(틀린 것이 있으면 저장소 배너). 없거나 모양부터 깨졌거나 남은 그룹이 없으면
+ * 빈 그룹 '내 관심' 하나를 만들어 저장한다(그룹 id가 재시작해도 같도록).
  */
 export function loadWatchlists(st: SafeStorage, id: string): Watchlists {
   const key = profileKeys.watchlists(id);
   const raw = st.get<unknown>(key, null);
   const checked = sanitizeWatchlists(raw);
-  if (checked) {
+  if (checked && checked.watchlists.groups.length > 0) {
     if (checked.repaired) st.reportCorrupt(key);
     return checked.watchlists;
   }
@@ -103,5 +107,16 @@ export function memoryTokenStore(
     save: (t) => {
       if (canSave()) map.set(key, t);
     },
+  };
+}
+
+/** 발급 시각 저장소. 비밀이 아니라 잠금 모드에서도 저장소에 쓴다. 숫자가 아니면 모르는 것으로 본다. */
+export function storageIssuedAtStore(st: SafeStorage, key: string): IssuedAtStore {
+  return {
+    load: () => {
+      const t = st.get<unknown>(key, null);
+      return typeof t === 'number' && Number.isFinite(t) ? t : null;
+    },
+    save: (t) => st.set(key, t),
   };
 }

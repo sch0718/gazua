@@ -28,6 +28,17 @@ describe('createSafeStorage', () => {
     expect(st.issues).toEqual([]);
   });
 
+  it('reportProxyCleared records the detail once per key', () => {
+    const st = createSafeStorage(makeBacking());
+    st.reportProxyCleared('k', 'http://localhost:8787');
+    st.reportProxyCleared('k', 'http://localhost:8787');
+    st.reportProxyCleared('j');
+    expect(st.issues).toEqual([
+      { key: 'k', kind: 'proxy-cleared', detail: 'http://localhost:8787' },
+      { key: 'j', kind: 'proxy-cleared' },
+    ]);
+  });
+
   it('returns the fallback for missing keys', () => {
     const st = createSafeStorage(makeBacking());
     expect(st.get('nope', 42)).toBe(42);

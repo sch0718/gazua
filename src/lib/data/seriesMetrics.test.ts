@@ -16,6 +16,7 @@ function series(over: Partial<LoadedSeries> = {}): LoadedSeries {
     base: 100,
     baseDate: '2026-10-08',
     avgDailyVolume: 1000,
+    avgVolumeVenue: 'KRX',
     candles: [bar(at('09:00'), 110, 100), bar(at('09:01'), 105, 300), bar(at('09:02'), 120, 100)],
     daily: [],
     segments: [],

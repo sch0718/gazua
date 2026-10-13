@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { createQuotePoller } from '../lib/data/quotePoller';
   import type { DaySession } from '../lib/market/sessions';
   import { sessionLabelAt, type Venue } from '../lib/market/tradable';
@@ -25,6 +25,8 @@
     isOpenToday,
     open = false,
     inline = false,
+    returnFocus,
+    restoredFocus,
     onclose,
   }: {
     app: App;
@@ -37,6 +39,10 @@
     isOpenToday: boolean;
     open?: boolean;
     inline?: boolean;
+    /** 지우거나 옮겨 이 종목의 행이 사라진 뒤 포커스할 곳. 시트는 Sheet가, inline은 여기서 옮긴다. */
+    returnFocus?: () => HTMLElement | null | undefined;
+    /** 되돌리기 뒤 포커스할 곳(되돌린 행) */
+    restoredFocus?: (symbol: string) => HTMLElement | null | undefined;
     /** 시트를 닫거나(모바일) 선택을 푼다(PC). 삭제·이동 뒤에도 부른다. */
     onclose: () => void;
   } = $props();
@@ -115,12 +121,21 @@
     picking = false;
   });
 
+  function left() {
+    const focus = returnFocus;
+    onclose();
+    // inline은 닫으면 패널째 사라져 포커스가 body로 빠진다. 렌더가 끝난 뒤 옮긴다.
+    if (inline && focus) void tick().then(() => focus()?.focus());
+  }
+
   function remove() {
-    if (removeWithUndo(app, groupId, symbol, name)) onclose();
+    const sym = symbol;
+    const focus = restoredFocus;
+    if (removeWithUndo(app, groupId, sym, name, focus && (() => focus(sym)))) left();
   }
 
   function moveTo(target: string) {
-    if (moveToGroup(app, groupId, target, symbol, now) === 'moved') onclose();
+    if (moveToGroup(app, groupId, target, symbol, now) === 'moved') left();
   }
 </script>
 
@@ -211,7 +226,7 @@
     {@render body()}
   </section>
 {:else}
-  <Sheet {open} title="종목 상세" {onclose}>
+  <Sheet {open} title="종목 상세" {onclose} {returnFocus}>
     <div class="detail">{@render body()}</div>
   </Sheet>
 {/if}

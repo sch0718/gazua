@@ -41,6 +41,8 @@
         },
         // 앱 공급자가 같은 키·프록시로 만들어졌으면 그 토큰을 함께 쓴다(KIS 토큰은 1분에 한 번만 발급된다).
         tokenSource: app.tokenSourceFor(p, secretsAtStart ?? {}, urlAtStart),
+        // 직접 발급하면 그 시각을 남겨 앱의 1분 제한 남은 초 계산에 쓴다.
+        ...(p === 'kis' ? { issuedAt: app.tokenIssuedAt('kis') } : {}),
       });
       if (id !== runId) return;
       steps = result;

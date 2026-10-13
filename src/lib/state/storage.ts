@@ -1,4 +1,4 @@
-export type StorageIssue = { key: string; kind: 'corrupt' | 'write-failed' };
+export type StorageIssue = { key: string; kind: 'corrupt' | 'write-failed' | 'proxy-cleared'; detail?: string };
 
 export interface SafeStorage {
   get<T>(key: string, fallback: T): T;
@@ -19,6 +19,8 @@ export interface SafeStorage {
   readonly issues: StorageIssue[];
   /** 읽은 JSON의 모양·값이 틀려 기본값으로 바꿨을 때(저장소 배너로 알린다). */
   reportCorrupt(key: string): void;
+  /** 저장된 프록시 주소를 지웠을 때. detail은 보여 줘도 되는 origin(없으면 이유를 말하지 않는다). */
+  reportProxyCleared(key: string, detail?: string): void;
 }
 
 /** 저장소 키 앞에 붙는 접두어(storage 이벤트의 key와 비교할 때 쓴다). */
@@ -43,8 +45,10 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
   const issues: StorageIssue[] = [];
   let persistent = backing !== null;
 
-  const report = (key: string, kind: StorageIssue['kind']) => {
-    if (!issues.some((i) => i.key === key && i.kind === kind)) issues.push({ key, kind });
+  const report = (key: string, kind: StorageIssue['kind'], detail?: string) => {
+    if (!issues.some((i) => i.key === key && i.kind === kind)) {
+      issues.push(detail === undefined ? { key, kind } : { key, kind, detail });
+    }
   };
 
   return {
@@ -122,6 +126,9 @@ export function createSafeStorage(backing: Storage | null = defaultBacking()): S
     issues,
     reportCorrupt(key) {
       report(key, 'corrupt');
+    },
+    reportProxyCleared(key, detail) {
+      report(key, 'proxy-cleared', detail);
     },
   };
 }

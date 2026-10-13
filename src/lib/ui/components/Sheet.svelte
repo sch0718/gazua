@@ -6,7 +6,15 @@
     title,
     onclose,
     children,
-  }: { open: boolean; title: string; onclose: () => void; children: Snippet } = $props();
+    returnFocus,
+  }: {
+    open: boolean;
+    title: string;
+    onclose: () => void;
+    children: Snippet;
+    /** 닫을 때 열기 전 요소가 문서에서 사라졌으면(예: 지운 행) 대신 포커스할 요소. */
+    returnFocus?: () => HTMLElement | null | undefined;
+  } = $props();
 
   const titleId = `sheet-title-${Math.random().toString(36).slice(2, 9)}`;
   const SWIPE_CLOSE_PX = 80;
@@ -40,6 +48,11 @@
     return dialogEl ? [...dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !isHidden(el)) : [];
   }
 
+  /** 시트 밖(SnackbarHost)에 떠 있는 스낵바 동작 버튼. 시트가 열려 있는 동안 Tab 순환의 끝에 넣는다. */
+  function snackbarAction(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('[data-snackbar-action]');
+  }
+
   // 열릴 때: 이전 포커스를 기억하고 첫 요소(data-autofocus 우선)로 이동. 닫힐 때: 복원.
   // 스크롤도 함께 잠근다.
   $effect(() => {
@@ -53,7 +66,8 @@
       first?.focus();
       return () => {
         document.body.style.overflow = overflow;
-        previous?.focus?.();
+        if (previous && !previous.isConnected && returnFocus) returnFocus()?.focus();
+        else previous?.focus?.();
       };
     });
   });
@@ -66,16 +80,20 @@
       return;
     }
     if (e.key !== 'Tab' || !dialogEl) return;
-    const items = focusables();
-    if (items.length === 0) {
+    const inside = focusables();
+    if (inside.length === 0) {
       e.preventDefault();
       dialogEl.focus();
       return;
     }
+    // 스낵바 동작(되돌리기 등)이 있으면 시트의 마지막 컨트롤 다음에 둔다. DOM에서는 떨어져 있어 직접 옮긴다.
+    const snack = snackbarAction();
+    const items = snack ? [...inside, snack] : inside;
     const first = items[0];
     const last = items[items.length - 1];
     const active = document.activeElement;
-    if (!dialogEl.contains(active)) {
+    const i = items.indexOf(active as HTMLElement);
+    if (!dialogEl.contains(active) && active !== snack) {
       e.preventDefault();
       first.focus();
     } else if (e.shiftKey && (active === first || active === dialogEl)) {
@@ -84,6 +102,9 @@
     } else if (!e.shiftKey && active === last) {
       e.preventDefault();
       first.focus();
+    } else if (snack && (active === snack || (!e.shiftKey && i === inside.length - 1))) {
+      e.preventDefault();
+      items[i + (e.shiftKey ? -1 : 1)].focus();
     }
   }
 
@@ -137,7 +158,7 @@
       </div>
       <header>
         <h3 id={titleId}>{title}</h3>
-        <button type="button" class="close" aria-label="닫기" onclick={onclose}>✕</button>
+        <button type="button" class="close" aria-label="닫기" data-sheet-close onclick={onclose}>✕</button>
       </header>
       <div class="body">{@render children()}</div>
     </div>

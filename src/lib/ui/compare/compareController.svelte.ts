@@ -8,7 +8,8 @@ import { ApiError } from '../../providers/errors';
 import type { MarketDataProvider, Quote, StockMeta } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
 import type { Period, Settings } from '../../state/schema';
-import { dominantFault, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
+import { kstDate } from '../../time/kst';
+import { dominantFault, issueFaults, META_ERROR, type LoadFault, type LoadIssue } from './loadIssue';
 import { quoteVenue } from './venue';
 
 export type SnapshotSeries = LoadedSeries & { stale: boolean; staleError?: ApiError };
@@ -136,6 +137,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
 
   let metas = $state.raw<Record<string, StockMeta>>({});
+  /** 종목별로 메타를 받은 KST 날짜. 오늘이 아니면 다시 받는다(다른 그룹에 있던 종목도 돌아올 때 새로 받는다). */
+  const metaDays = new Map<string, string>();
   let entries = $state.raw<Record<string, SeriesEntry>>({});
   let indexes = $state.raw<Partial<Record<IndexName, IndexEntry>>>({});
   /** 지수별 지금 entry를 만든 조회의 시작 시각. indexes와 함께 바뀐다. */
@@ -203,17 +206,25 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
   doc?.addEventListener('visibilitychange', onVisibility);
 
   // ── 메타 ────────────────────────────────────────────────
-  /** 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다). 호출 자체가 실패하면 그 이유를 돌려준다. */
+  /**
+   * 메타는 메모리에만 두고 KST 날짜가 바뀌면 지금 종목 전체를 다시 받는다(거래정지·정리매매가 날마다 바뀌므로).
+   * 다시 받기가 실패하면 이전 메타를 그대로 둔다. 공급자가 돌려주지 않은 종목은 메타 없이 남는다(행 오류, 다음 갱신에 다시 받는다).
+   * 호출 자체가 실패하면 그 이유를 돌려준다.
+   */
   async function ensureMetas(provider: MarketDataProvider, symbols: string[]): Promise<LoadFault | undefined> {
-    const missing = symbols.filter((s) => !metas[s]);
-    if (missing.length === 0) return undefined;
+    const today = kstDate(deps.now());
+    // 요청한 종목 중 받은 날이 오늘이 아닌 것 + 지금 그룹에서 메타는 있지만 어제 값인 것.
+    const candidates = [...new Set([...symbols, ...(query?.symbols ?? [])])];
+    const wanted = candidates.filter((s) => metaDays.get(s) !== today && (symbols.includes(s) || !!metas[s]));
+    if (wanted.length === 0) return undefined;
     try {
-      const list = await provider.getStockMeta(missing);
+      const list = await provider.getStockMeta(wanted);
       if (query?.provider !== provider) return undefined;
       metas = { ...metas, ...Object.fromEntries(list.map((m) => [m.symbol, m])) };
+      for (const m of list) metaDays.set(m.symbol, today);
       return undefined;
     } catch (e) {
-      // 메타를 못 받은 종목은 행에 오류로 보인다.
+      // 메타를 못 받은 종목은 행에 오류로 보인다. 이전 메타가 있는 종목은 그대로 쓴다.
       return faultOf(e, deps.now());
     }
   }
@@ -397,7 +408,8 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const all = entries;
       const symbols = query?.symbols ?? [];
       const current = symbols.flatMap((s) => (all[s] ? [all[s]] : []));
-      const worst = dominantFault(current.flatMap((e) => (e.fault ? [e.fault] : [])));
+      // 먼저 거르고(연결 오류는 과반일 때만) 그다음 대표를 고른다: 거른 뒤라야 억제된 proxy 오류가 키 오류를 가리지 않는다.
+      const worst = dominantFault(issueFaults(current.flatMap((e) => (e.fault ? [e.fault] : [])), symbols.length));
       if (!worst) return null;
       const allFailed = current.length === symbols.length && current.every((e) => e.series === null || e.series.stale);
       return { ...worst, allFailed, lastOkAt };
@@ -408,7 +420,10 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       const prev = query;
       query = q;
       ensurePoller(q.provider);
-      if (prev?.provider !== q.provider) metas = {};
+      if (prev?.provider !== q.provider) {
+        metas = {};
+        metaDays.clear();
+      }
       const keyChanged =
         !prev ||
         prev.provider !== q.provider ||

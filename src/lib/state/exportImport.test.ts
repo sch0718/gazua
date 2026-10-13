@@ -275,6 +275,13 @@ describe('strategies in export files', () => {
     expect(saved[0].entry.filter.aboveMa).toEqual({ on: true, period: 60 });
   });
 
+  it('그룹이 0개인 파일은 형식 오류', () => {
+    const { st } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    parsed.watchlists = { groups: [] };
+    expect(importData(st, JSON.stringify(parsed))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
+  });
+
   it('strategies가 배열이 아니면 형식 오류', () => {
     const { st } = source();
     const parsed = JSON.parse(exportData(st, 'p1', false));

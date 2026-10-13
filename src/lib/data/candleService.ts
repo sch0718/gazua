@@ -68,6 +68,8 @@ export interface LoadedSeries {
   baseDate: string | null;
   /** RVOL용 직전 20거래일 평균 거래량. 1일 차트는 환산 후 값 */
   avgDailyVolume: number | null;
+  /** avgDailyVolume을 낸 일봉의 거래소. 분봉 거래소의 일봉이 20개 미만이거나 받지 못하면 기준(KRX) */
+  avgVolumeVenue: Venue;
   candles: Candle[];
   /** 시리즈 거래소의 lookbackFrom..오늘 일봉 전체 */
   daily: Candle[];
@@ -199,12 +201,14 @@ export function adjustmentFactor(args: {
 
 interface Venues {
   mode: VenueMode;
-  /** 기준 종가·RVOL 일봉 */
+  /** 기준 종가 일봉(RVOL 대체 분모) */
   base: Venue;
   /** 일봉 시리즈 */
   series: Venue;
   /** 1일 차트에서 받을 1분봉 */
   minutes: Venue[];
+  /** RVOL 분모 일봉: 분봉 거래소가 하나면 그것, 아니면(자동 이어 붙이기) base */
+  rvol: Venue;
 }
 
 function venuesFor(caps: ProviderCapabilities, meta: StockMeta, requested: VenueMode): Venues {
@@ -221,7 +225,7 @@ function venuesFor(caps: ProviderCapabilities, meta: StockMeta, requested: Venue
       : mode === 'NXT'
         ? [nxtOwn ? 'NXT' : 'KRX']
         : [mode];
-  return { mode, base, series: nxtOwn ? 'NXT' : base, minutes };
+  return { mode, base, series: nxtOwn ? 'NXT' : base, minutes, rvol: minutes.length === 1 ? minutes[0] : base };
 }
 
 async function cachedFetch(
@@ -258,6 +262,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
   const v = venuesFor(provider.capabilities, meta, args.venueMode);
   const sessions = sessionsForDay(ctx.day);
   const intervals = tradableIntervals(sessions, meta, v.mode);
+  const isD1 = period.unit === 'D';
 
   const dailyTtl = ctx.inSession ? DAILY_TTL_IN_SESSION_MS : DAILY_TTL_OUTSIDE_MS;
   const fetchDaily = (venue: Venue) =>
@@ -280,10 +285,36 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
     const baseHit = memo.get(`${pairKey}|base`, now);
     const seriesHit = memo.get(`${pairKey}|series`, now);
     if (baseHit && seriesHit) return { base: baseHit, series: seriesHit };
+    if (isD1) {
+      // 1일 차트는 시리즈 일봉이 곧 차트가 아니다(분봉이 차트). 기준 일봉만 받으면 계속하고,
+      // 시리즈 일봉은 비운 채 RVOL이 KRX 대체로 가게 한다. 실패한 쌍은 메모하지 않아 다음 로드에서 다시 받는다.
+      const [b, s] = await Promise.allSettled([fetchDaily(v.base), fetchDaily(v.series)]);
+      if (b.status === 'rejected') throw b.reason;
+      if (s.status === 'rejected') return { base: b.value, series: [] };
+      memo.set(`${pairKey}|base`, b.value, now, dailyTtl);
+      memo.set(`${pairKey}|series`, s.value, now, dailyTtl);
+      return { base: b.value, series: s.value };
+    }
     const [base, series] = await Promise.all([fetchDaily(v.base), fetchDaily(v.series)]);
     memo.set(`${pairKey}|base`, base, now, dailyTtl);
     memo.set(`${pairKey}|series`, series, now, dailyTtl);
     return { base, series };
+  };
+  /**
+   * RVOL 분모 일봉이 기준·시리즈 일봉과 다른 거래소(통합)면 1일 차트에서만 한 번 더 받는다. 같은 메모 키 규칙.
+   * 실패하면 조용히 빈 배열(기준 일봉으로 대체)이다. NX/UN 일봉 지원은 실연결 점검 ②로 확정한다.
+   */
+  const rvolDaily = async (): Promise<Candle[]> => {
+    const key = `${provider.id}|${meta.symbol}|${v.rvol}|${plan.lookbackFrom}|${ctx.today}`;
+    const hit = memo.get(key, now);
+    if (hit) return hit;
+    try {
+      const bars = await fetchDaily(v.rvol);
+      memo.set(key, bars, now, dailyTtl);
+      return bars;
+    } catch {
+      return [];
+    }
   };
   const minutes = (venue: Venue): Promise<Candle[]> =>
     cachedFetch(
@@ -293,14 +324,23 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
       () => provider.getCandles({ symbol: meta.symbol, venue, interval: '1m', from: tradingDate, to: tradingDate }),
     );
 
-  const isD1 = period.unit === 'D';
-  const [{ base: baseDaily, series: seriesDaily }, minuteSets] = await Promise.all([
+  const extraRvol = isD1 && v.rvol !== v.base && v.rvol !== v.series;
+  const [{ base: baseDaily, series: seriesDaily }, minuteSets, extraDaily] = await Promise.all([
     dailyPair(),
     isD1 ? Promise.all(v.minutes.map(async (venue) => ({ venue, bars: await minutes(venue) }))) : [],
+    extraRvol ? rvolDaily() : null,
   ]);
 
   let base = closeBefore(baseDaily, plan.from);
-  let avgDailyVolume = avgVolumeBefore(baseDaily, isD1 ? tradingDate : plan.from);
+  // RVOL 분모: 분자(분봉)와 같은 거래소의 일평균. 20개가 안 되면 기준(KRX) 일평균으로 대체한다.
+  const volumeBefore = isD1 ? tradingDate : plan.from;
+  const sameVenueDaily = v.rvol === v.base ? baseDaily : v.rvol === v.series ? seriesDaily : extraDaily;
+  let avgDailyVolume = sameVenueDaily ? avgVolumeBefore(sameVenueDaily, volumeBefore) : null;
+  let avgVolumeVenue: Venue = v.rvol;
+  if (avgDailyVolume === null && v.rvol !== v.base) {
+    avgDailyVolume = avgVolumeBefore(baseDaily, volumeBefore);
+    avgVolumeVenue = v.base;
+  }
   const result = {
     symbol: meta.symbol,
     tradingDate,
@@ -313,7 +353,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
 
   if (!isD1) {
     const candles = inRange(result.daily, plan);
-    return { ...result, base, avgDailyVolume, candles, segments: segmentsOf(candles.map((c) => ({ t: c.t, venue: v.series })), DAY_MS) };
+    return { ...result, base, avgDailyVolume, avgVolumeVenue, candles, segments: segmentsOf(candles.map((c) => ({ t: c.t, venue: v.series })), DAY_MS) };
   }
 
   // 1일 차트: AUTO면 각 봉 시각을 담은 거래 가능 구간(tradableIntervals AUTO)의 거래소 봉만 남긴다.
@@ -341,6 +381,7 @@ export async function loadSeries(args: LoadSeriesArgs): Promise<LoadedSeries> {
     ...result,
     base,
     avgDailyVolume,
+    avgVolumeVenue,
     candles: tagged.map((x) => x.c),
     segments: segmentsOf(tagged.map((x) => ({ t: x.c.t, venue: x.venue })), MINUTE_MS),
   };
@@ -385,6 +426,7 @@ export async function loadIndexSeries(args: {
     base: closeBefore(daily, plan.from),
     baseDate: dateBefore(daily, plan.from),
     avgDailyVolume: null,
+    avgVolumeVenue: 'KRX',
     candles,
     daily,
     segments: segmentsOf(candles.map((c) => ({ t: c.t, venue: 'KRX' as const })), isD1 ? MINUTE_MS : DAY_MS),

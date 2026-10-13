@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
 import { ApiError } from '../../providers/errors';
-import { connectionIssue, dominantFault, issueView, type LoadIssue } from './loadIssue';
+import { connectionIssue, dominantFault, issueFaults, issueView, type LoadFault, type LoadIssue } from './loadIssue';
 
 const NOW = kstEpoch('2026-10-12', '17:25:00');
 const issue = (over: Partial<LoadIssue>): LoadIssue => ({
@@ -19,6 +19,37 @@ describe('dominantFault', () => {
     expect(dominantFault([f('upstream'), f('proxy-unreachable'), f('offline')])?.code).toBe('offline');
     expect(dominantFault([f('timeout'), f('rate-limited')])?.code).toBe('rate-limited');
     expect(dominantFault([])).toBeNull();
+  });
+});
+
+describe('issueFaults', () => {
+  const fault = (code: LoadFault['code']): LoadFault => ({ code, at: NOW });
+  const many = (code: LoadFault['code'], n: number) => Array.from({ length: n }, () => fault(code));
+
+  it('one flaky row does not raise the proxy banner but credentials still do', () => {
+    const faults = issueFaults([fault('proxy-unreachable'), fault('invalid-credentials')], 8);
+    expect(faults.map((x) => x.code)).toEqual(['invalid-credentials']);
+    expect(dominantFault(faults)?.code).toBe('invalid-credentials');
+  });
+
+  it('keeps connection codes only when strictly more than half of the rows failed with that code', () => {
+    expect(issueFaults(many('proxy-unreachable', 4), 8)).toEqual([]);
+    expect(issueFaults(many('proxy-unreachable', 5), 8)).toHaveLength(5);
+    expect(issueFaults(many('timeout', 4), 8)).toEqual([]);
+    expect(issueFaults(many('timeout', 5), 8)).toHaveLength(5);
+    expect(issueFaults(many('proxy-unreachable', 1), 1)).toHaveLength(1);
+    expect(issueFaults(many('proxy-unreachable', 2), 2)).toHaveLength(2);
+    expect(issueFaults(many('timeout', 1), 2)).toEqual([]);
+  });
+
+  it('counts each connection code separately', () => {
+    const faults = [...many('proxy-unreachable', 3), ...many('timeout', 3)];
+    expect(issueFaults(faults, 8)).toEqual([]);
+  });
+
+  it('never filters non-connection codes', () => {
+    const faults = [fault('upstream'), fault('rate-limited'), fault('offline')];
+    expect(issueFaults(faults, 8)).toEqual(faults);
   });
 });
 
@@ -82,8 +113,9 @@ describe('issueView', () => {
     });
   });
 
-  it('timeout is a banner only when every row failed', () => {
-    expect(issueView(issue({ code: 'timeout', allFailed: false }), NOW)).toBeNull();
+  it('timeout that passed the majority filter is a banner', () => {
+    // 과반 판단은 issueFaults가 이미 했다: 여기 남은 timeout은 배너 대상이다.
+    expect(issueView(issue({ code: 'timeout', allFailed: false }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
     expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
   });
 

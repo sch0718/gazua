@@ -15,19 +15,51 @@
     onadd: () => void;
     onmanage: () => void;
   } = $props();
+
+  // roving tabindex: 선택된 탭(없으면 첫 탭)만 탭 정지점. 화살표는 포커스만 옮기고 Enter·Space(click)가 선택한다(수동 활성화).
+  let tabs = $state<HTMLButtonElement[]>([]);
+  let focusIdx = $state<number | null>(null);
+
+  // 그룹이 바뀌면 포커스 위치를 선택된 탭으로 되돌린다.
+  $effect(() => {
+    currentId;
+    focusIdx = null;
+  });
+
+  const tabStop = $derived.by(() => {
+    if (focusIdx !== null && focusIdx < groups.length) return focusIdx;
+    const sel = groups.findIndex((g) => g.id === currentId);
+    return sel >= 0 ? sel : 0;
+  });
+
+  function onkeydown(e: KeyboardEvent, index: number) {
+    const n = groups.length;
+    let next: number;
+    if (e.key === 'ArrowRight') next = (index + 1) % n;
+    else if (e.key === 'ArrowLeft') next = (index - 1 + n) % n;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = n - 1;
+    else return;
+    e.preventDefault();
+    focusIdx = next;
+    tabs[next]?.focus();
+  }
 </script>
 
 <div class="tabs">
   <!-- tablist의 자식은 tab뿐이어야 하므로(aria-required-children) 새 그룹·그룹 관리 버튼은 바깥에 둔다. -->
   <div class="list" role="tablist" aria-label="관심 그룹">
-    {#each groups as g (g.id)}
+    {#each groups as g, i (g.id)}
       <button
         type="button"
         role="tab"
         class="tab"
         class:on={g.id === currentId}
         aria-selected={g.id === currentId}
+        tabindex={i === tabStop ? 0 : -1}
+        bind:this={tabs[i]}
         onclick={() => onselect(g.id)}
+        onkeydown={(e) => onkeydown(e, i)}
       >
         {g.name}
       </button>

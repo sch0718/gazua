@@ -455,7 +455,7 @@
     } else {
       bandsInput = {
         mode: 'daily',
-        halts: haltDays(visible.map((s) => ({ label: s.label, points: s.points, bars: s.bars })), dayTimes),
+        halts: haltDays(visible.map((s) => ({ label: s.label, points: s.points, bars: s.bars, suspended: s.suspended })), dayTimes),
         dayBand: dailyBand(c),
       };
     }

@@ -11,12 +11,14 @@
     download = saveFile,
     estimate,
     now = () => Date.now(),
+    confirmFn = (m: string) => window.confirm(m),
   }: {
     app: App;
     download?: (filename: string, text: string) => void;
     /** 기본값: navigator.storage.estimate()의 usage, 없으면 봉 캐시 추정치. */
     estimate?: () => Promise<number>;
     now?: () => number;
+    confirmFn?: (message: string) => boolean;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 8);
@@ -55,6 +57,13 @@
   onMount(refreshUsage);
 
   function exportNow() {
+    // 키가 든 파일은 가진 사람 누구나 쓸 수 있어서 한 번 더 확인한다
+    if (
+      includeSecrets &&
+      !confirmFn('키가 들어 있는 파일을 내보낼까요? 이 파일을 가진 사람은 누구나 이 키로 증권사 API를 쓸 수 있어요.')
+    ) {
+      return;
+    }
     const profile = app.meta.profiles.find((p) => p.id === app.meta.activeProfileId);
     download(exportFileName(profile?.name ?? '', now()), app.exportData(includeSecrets));
   }

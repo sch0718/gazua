@@ -71,7 +71,7 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
   await expectMainValueFits(mainValue, 'cqi');
   const noContainer = await page.addStyleTag({ content: '.cards li { container-type: normal !important; }' });
   await expectMainValueFits(mainValue, 'fallback');
-  await noContainer.evaluate((el) => el.remove());
+  await noContainer.evaluate((el) => (el as Element).remove());
   await expectMainValueFits(mainValue, 'cqi');
 
   // 거래 내역 첫 행 → 거래 차트 시트

@@ -2,7 +2,7 @@
   import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { ChartSeriesInput } from '../lib/chart/lineData';
-  import { indexAvailabilityFor } from '../lib/data/candleService';
+  import { indexAvailabilityFor, type LoadedSeries } from '../lib/data/candleService';
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { Point } from '../lib/data/metrics';
   import { baseDateFor, indexBaseFor, metricPoints } from '../lib/data/seriesMetrics';
@@ -24,10 +24,10 @@
   import { issueView, runIssueAction } from '../lib/ui/compare/loadIssue';
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
+  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
-  import { buildRows, sortRows } from '../lib/ui/compare/rows';
+  import { buildRows, isSuspended, rowSeries, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
@@ -138,17 +138,22 @@
         return !!series && !!pair?.series && indexBaseFor(series, pair.series) === null;
       }),
   );
+  // 1일 RVOL 분모가 분봉과 다른 거래소(KRX)의 일평균인 종목이 있으면 알린다.
+  const rvolNote = $derived(rvolBaseNote({ metric, period, series: loaded.filter(onChartDay) }));
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
 
   // 차트 입력은 불러온 상태에서만 만든다(시계·현재가와 무관하게 참조가 유지되도록).
+  const pointsOf = (symbol: string, series: LoadedSeries) => {
+    // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
+    const pair = metric === 'excess' ? ctl.excessIndex(symbol, indexOf(symbol)) : null;
+    return metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period });
+  };
   const pointsBySymbol = $derived.by(() => {
     const out: Record<string, Point[] | null> = {};
     for (const i of items) {
       const series = ctl.entries[i.symbol]?.series;
-      // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
-      const pair = metric === 'excess' ? ctl.excessIndex(i.symbol, indexOf(i.symbol)) : null;
-      out[i.symbol] = series ? metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period }) : null;
+      out[i.symbol] = series ? pointsOf(i.symbol, series) : null;
     }
     return out;
   });
@@ -160,7 +165,9 @@
       const label = ctl.metas[i.symbol]?.name ?? i.symbol;
       // 일봉 차트의 거래정지 띠는 지표 값이 아니라 실제 봉이 있는 날로 판정한다.
       const bars = mode === 'daily' ? series.candles.map((c) => c.t) : undefined;
-      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden, bars }];
+      // 지금 정지인 종목은 마지막 봉 뒤에도 정지 띠를 낸다(행 배지와 같은 규칙).
+      const suspended = isSuspended(ctl.metas[i.symbol], effectiveVenueMode(venues, venueMode));
+      return [{ id: i.symbol, slot: i.colorSlot, label, points, intervals: series.intervals, hidden: i.hidden, bars, suspended }];
     }),
   );
   const chartSessions = $derived(tradingDate && mode === 'intraday' ? sessionsOn(tradingDate, today, sessions) : []);
@@ -196,6 +203,24 @@
   let scrubT = $state<number | null>(null);
   let frozenOrder = $state.raw<string[] | null>(null);
 
+  // 행 값과 가격은 같은 5초 시세로 계산한다(스펙 4.4·7.2-6). 차트·데이터 표는 원래 캔들 그대로.
+  // 1초 시계는 구독하지 않는다. withQuote는 now의 날짜만 보므로 날짜나 시세가 바뀔 때만 시각을 새로 읽는다.
+  const rowNow = $derived.by(() => {
+    void today;
+    void ctl.quotes;
+    return untrack(() => now);
+  });
+  const rowOpts = $derived({ scrubT, chartDate: mode === 'intraday' ? tradingDate : null, now: rowNow });
+  const rowPointsBySymbol = $derived.by(() => {
+    const out: Record<string, Point[] | null> = {};
+    for (const i of items) {
+      const series = ctl.entries[i.symbol]?.series;
+      const quoted = series ? rowSeries(series, ctl.quotes[i.symbol], rowOpts) : null;
+      out[i.symbol] = quoted && quoted !== series ? pointsOf(i.symbol, quoted) : pointsBySymbol[i.symbol];
+    }
+    return out;
+  });
+
   const rows = $derived(
     buildRows(
       items.map((item) => {
@@ -205,11 +230,11 @@
           meta: ctl.metas[item.symbol],
           series: e?.series ?? null,
           error: e?.error ?? null,
-          points: pointsBySymbol[item.symbol],
+          points: rowPointsBySymbol[item.symbol],
           quote: ctl.quotes[item.symbol],
         };
       }),
-      { scrubT, venueMode: effectiveVenueMode(venues, venueMode), chartDate: mode === 'intraday' ? tradingDate : null },
+      { ...rowOpts, venueMode: effectiveVenueMode(venues, venueMode) },
     ),
   );
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
@@ -262,6 +287,25 @@
     selected = symbol;
     if (!wide) openSheet = 'detail';
   }
+
+  // 상세에서 지우거나 옮기면 그 행이 사라진다. 리더보드에서 몇 번째였는지 기억해 두었다가
+  // 같은 자리의 다음 행(없으면 `＋ 종목 추가`)으로 포커스를 옮긴다. 시트·오른쪽 패널 모두 같다.
+  let board = $state<ReturnType<typeof Leaderboard>>();
+  const boardOrder = $derived(sortRows(rows, frozenOrder).map((r) => r.symbol));
+  let selectedIndex = -1;
+  $effect(() => {
+    const i = selected ? boardOrder.indexOf(selected) : -1;
+    if (i >= 0) selectedIndex = i;
+  });
+  // 마지막 종목이었으면 리더보드가 통째로 사라지므로 빈 상태의 `＋ 종목 추가`로.
+  const emptyAddButton = () => document.querySelector<HTMLElement>('[data-empty-add]');
+  const detailReturnFocus = () => {
+    const el = board?.rowButtonAt(selectedIndex);
+    return el?.isConnected ? el : emptyAddButton();
+  };
+  // 되돌리면 그 행으로. 0개에서 되돌리면 리더보드가 다시 그려진 뒤의 새 인스턴스에서 찾는다.
+  // 다른 시트가 열려 있으면 그 행은 aria-modal 뒤에 있으니 포커스를 옮기지 않는다.
+  const detailRestoredFocus = (symbol: string) => (openSheet === null ? board?.rowButtonFor(symbol) : null);
 
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
@@ -379,6 +423,9 @@
         {#if indexBaseMissing}
           <p class="fallback" role="status">{INDEX_BASE_MISSING_NOTE}</p>
         {/if}
+        {#if rvolNote}
+          <p class="fallback" role="status">{rvolNote}</p>
+        {/if}
         <div class="chart-slot">
           <ChartPanel
             series={chartSeries}
@@ -415,6 +462,7 @@
 
 {#snippet side()}
   <Leaderboard
+    bind:this={board}
     {rows}
     {frozenOrder}
     {unit}
@@ -432,14 +480,27 @@
     {#if selected && items.some((i) => i.symbol === selected)}
       {@const s = selected}
       {@const series = ctl.entries[s]?.series ?? null}
-      <StockDetailSheet inline {app} groupId={group.id} symbol={s} meta={ctl.metas[s]} {series} {now} {sessions} {isOpenToday} onclose={() => (selected = null)} />
+      <StockDetailSheet
+        inline
+        {app}
+        groupId={group.id}
+        symbol={s}
+        meta={ctl.metas[s]}
+        {series}
+        {now}
+        {sessions}
+        {isOpenToday}
+        returnFocus={detailReturnFocus}
+        restoredFocus={detailRestoredFocus}
+        onclose={() => (selected = null)}
+      />
     {:else}
       <p class="pick-hint">리더보드에서 종목을 누르면 여기서 상세를 볼 수 있어요</p>
     {/if}
   {/if}
 {/snippet}
 
-<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} />
+<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} {detailRestoredFocus} />
 
 <style>
   .compare {

@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
-import { loadIndexSeries } from '../lib/data/candleService';
+import { toChartTime } from '../lib/chart/lineData';
+import { lwcCharts, lwcStubHooks, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { loadIndexSeries, type LoadedSeries } from '../lib/data/candleService';
 import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
 import { createApp, type App } from '../lib/state/app.svelte';
+import { formatMetricValue } from '../lib/ui/compare/compareText';
+import { fmtWon } from '../lib/ui/format';
+import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
@@ -51,6 +55,7 @@ beforeEach(() => {
   resetLwcStub();
 });
 afterEach(() => {
+  lwcStubHooks.crosshairOnSetData = null;
   for (const a of apps) a.destroy();
   apps = [];
   vi.unstubAllGlobals();
@@ -160,6 +165,21 @@ describe('Compare (demo provider)', () => {
     expect(screen.getByText(`1주 · 등락률 · 기준 ${m}/${d} 종가`)).toBeTruthy();
   });
 
+  it('RVOL on 1 day in AUTO says the denominator is the KRX average; KRX mode and other metrics do not', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { metric: 'rvol', venueMode: 'AUTO' });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    // 자동 모드는 NXT 프리마켓 분봉이 섞이고 분모는 KRX 평균
+    const note = await screen.findByText('KRX 20일 평균 거래량 대비예요');
+    expect(note.getAttribute('role')).toBe('status');
+    app.updateSettings({ metric: 'change' });
+    await vi.waitFor(() => expect(screen.queryByText('KRX 20일 평균 거래량 대비예요')).toBeNull());
+    app.updateSettings({ metric: 'rvol', venueMode: 'KRX' });
+    await vi.waitFor(() => expect(screen.getByText('오늘 · 상대 거래량 · 기준 전일 종가')).toBeTruthy(), { timeout: 3000 });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(screen.queryByText('KRX 20일 평균 거래량 대비예요')).toBeNull();
+  });
+
   it('an unavailable metric falls back to 등락률 and says why under the headline', async () => {
     const app = makeApp(EXAMPLE.slice(0, 2), { metric: 'excess' });
     // 지수 봉을 주지 않는 공급자(토스 지수 미지원과 같은 경우)
@@ -232,6 +252,114 @@ describe('Compare sheets', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930']);
+  });
+
+  describe('focus after deleting from the detail', () => {
+    const mainButtons = () => [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll<HTMLElement>('li .main-btn')];
+    const addButton = () => board().getByRole('button', { name: '＋ 종목 추가' });
+    const deleteAt = async (index: number, wide: boolean) => {
+      const btn = mainButtons()[index];
+      btn.focus();
+      await fireEvent.click(btn);
+      const detail = wide ? screen.getByRole('region', { name: '선택한 종목' }) : screen.getByRole('dialog', { name: '종목 상세' });
+      const del = within(detail).getByRole('button', { name: '삭제' });
+      del.focus();
+      await fireEvent.click(del);
+      await tick();
+    };
+    const emptyAdd = () => screen.getByText('비교할 종목을 추가해 보세요').parentElement!.querySelector<HTMLElement>('button')!;
+    for (const wide of [false, true]) {
+      const label = wide ? 'inline (≥1024)' : 'sheet (<1024)';
+      it(`${label}: deleting the only stock focuses the empty state's ＋ 종목 추가, and 되돌리기 focuses the restored row`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 1));
+        render(SnackbarHost);
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(0, wide);
+        expect(screen.queryByRole('region', { name: '리더보드' })).toBeNull();
+        expect(document.activeElement).toBe(emptyAdd());
+
+        await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+        await tick();
+        await tick();
+        expect(mainButtons()).toHaveLength(1);
+        expect(document.activeElement).toBe(mainButtons()[0]);
+      });
+
+      it(`${label}: moving the only stock to another group focuses the empty state's ＋ 종목 추가`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 1));
+        app.setWatchlists({ ...app.watchlists, groups: [...app.watchlists.groups, { id: 'g2', name: '배당', items: [] }] });
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        const btn = mainButtons()[0];
+        btn.focus();
+        await fireEvent.click(btn);
+        const detail = wide ? screen.getByRole('region', { name: '선택한 종목' }) : screen.getByRole('dialog', { name: '종목 상세' });
+        await fireEvent.click(within(detail).getByRole('button', { name: '그룹 이동' }));
+        const target = within(detail).getByRole('button', { name: /^배당 / });
+        target.focus();
+        await fireEvent.click(target);
+        await tick();
+        expect(app.watchlists.groups[1].items.map((i) => i.symbol)).toEqual([EXAMPLE[0]]);
+        expect(document.activeElement).toBe(emptyAdd());
+      });
+
+      it(`${label}: 되돌리기 focuses the restored row`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 3));
+        render(SnackbarHost);
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        const symbol = mainButtons()[1].closest('li')!.dataset.symbol;
+        await deleteAt(1, wide);
+        await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+        await tick();
+        expect(document.activeElement?.closest('li')?.dataset.symbol).toBe(symbol);
+        expect(document.activeElement?.classList.contains('main-btn')).toBe(true);
+      });
+
+      it(`${label}: focus lands on the row now at the same position`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 3));
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(1, wide);
+        expect(mainButtons()).toHaveLength(2);
+        expect(document.activeElement).toBe(mainButtons()[1]);
+      });
+
+      it(`${label}: deleting the last row focuses ＋ 종목 추가`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 2));
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        await deleteAt(1, wide);
+        expect(mainButtons()).toHaveLength(1);
+        expect(document.activeElement).toBe(addButton());
+      });
+    }
+  });
+
+  it('≥1024: 되돌리기 with another sheet open does not move focus to a leaderboard row behind it', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 3));
+    render(SnackbarHost);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    const rowButtons = () => [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll<HTMLElement>('li .main-btn')];
+    const btn = rowButtons()[1];
+    btn.focus();
+    await fireEvent.click(btn);
+    const del = within(screen.getByRole('region', { name: '선택한 종목' })).getByRole('button', { name: '삭제' });
+    del.focus();
+    await fireEvent.click(del);
+    await tick();
+    // 패널에서 지운 뒤 다른 시트를 열고, 그 안에서 되돌리기를 누른다
+    await fireEvent.click(board().getByRole('button', { name: '＋ 종목 추가' }));
+    const dialog = screen.getByRole('dialog', { name: '종목 추가' });
+    await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+    await tick();
+    await tick();
+    expect(rowButtons()).toHaveLength(3);
+    expect(document.activeElement?.classList.contains('main-btn')).toBe(false);
+    expect(rowButtons()).not.toContain(document.activeElement);
+    expect(dialog.isConnected).toBe(true);
   });
 
   it('at ≥1024 the detail renders inline in the side panel, not as a sheet', async () => {
@@ -347,6 +475,84 @@ describe('Compare sheets', () => {
       await key('m', search);
       expect(app.settings.period).toEqual({ unit: 'D', n: 1 });
       expect(screen.queryByRole('dialog', { name: '비교 지표' })).toBeNull();
+    });
+  });
+
+  describe('row value and the 5-second quote (spec §4.4)', () => {
+    const PRICE = 100_000;
+    /** 불러온 시리즈를 엿보고, 현재가는 지금 시각의 PRICE로 고정한다. */
+    function quoteAt(app: App) {
+      const got: { series?: LoadedSeries } = {};
+      const snaps = app.data.snapshots;
+      const real = snaps.load.bind(snaps);
+      vi.spyOn(snaps, 'load').mockImplementation(async (args) => {
+        const r = await real(args);
+        got.series = r;
+        return r;
+      });
+      vi.spyOn(app.provider, 'getQuotes').mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: PRICE, ts: NOW })));
+      return got;
+    }
+    const pct = (price: number, base: number) => formatMetricValue(((price - base) * 100) / base, '%');
+    const chartValues = () =>
+      lwcCharts.at(-1)!.series.flatMap((s) => s.data as { time: number; value?: number }[]).filter((d) => typeof d.value === 'number');
+
+    it('1 day: the row value follows the quote the row shows; the chart keeps the candles', async () => {
+      const app = makeApp(['005930']);
+      const got = quoteAt(app);
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      const base = got.series!.base!;
+      const row = rowOf('삼성전자');
+      await vi.waitFor(() => expect(within(row).getByText('100,000원')).toBeTruthy());
+      expect(within(row).getByText(pct(PRICE, base))).toBeTruthy();
+      // 차트는 시세 시각의 점 없이 마지막 1분봉까지
+      const last = got.series!.candles.at(-1)!;
+      const times = chartValues().map((d) => d.time);
+      expect(Math.max(...times)).toBe(toChartTime(last.t));
+    });
+
+    it('daily: today’s close is the quote in the row', async () => {
+      const app = makeApp(['005930'], { period: { unit: 'M', n: 1 } });
+      const got = quoteAt(app);
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(PRICE, got.series!.base!))).toBeTruthy());
+    });
+
+    // 일봉 시리즈는 KRX(자동·통합 모드의 v.series). 다른 거래소 시세면 가격도 %도 캔들 종가 기준.
+    it.each([
+      // 이 날 시간표에서 자동 모드가 NXT 시세를 고르는 시각(KRX 시간외 종가 단일가, NXT 애프터마켓 접속매매)
+      { venueMode: 'AUTO' as const, period: { unit: 'W' as const, n: 1 }, now: kstEpoch(DAY, '15:45:00'), venue: 'NXT' },
+      { venueMode: 'UNIFIED' as const, period: { unit: 'M' as const, n: 1 }, now: NOW, venue: 'UNIFIED' },
+    ])('$venueMode daily with a $venue quote: price and value both come from the KRX candle close', async ({ venueMode, period, now, venue }) => {
+      const app = makeApp(['005930'], { venueMode, period });
+      const got = quoteAt(app);
+      const quotes = vi.mocked(app.provider.getQuotes);
+      render(Compare, { app, now, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      await vi.waitFor(() => expect(quotes).toHaveBeenCalledWith(['005930'], venue));
+      const s = got.series!;
+      const last = s.candles.at(-1)!;
+      expect(s.segments.at(-1)!.venue).toBe('KRX');
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(`${fmtWon(last.c)}원`)).toBeTruthy());
+      expect(within(rowOf('삼성전자')).getByText(pct(last.c, s.base!))).toBeTruthy();
+      expect(within(rowOf('삼성전자')).queryByText('100,000원')).toBeNull();
+    });
+
+    it('while scrubbing, the row shows the candle value at the scrub time, not the quote', async () => {
+      const app = makeApp(['005930'], { period: { unit: 'M', n: 1 } });
+      const got = quoteAt(app);
+      const todayBar = kstEpoch(DAY, '00:00:00');
+      lwcStubHooks.crosshairOnSetData = { time: toChartTime(todayBar) };
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      const s = got.series!;
+      const today = s.candles.at(-1)!;
+      expect(today.t).toBe(todayBar);
+      expect(today.c).not.toBe(PRICE);
+      await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(today.c, s.base!))).toBeTruthy());
+      expect(within(rowOf('삼성전자')).queryByText(pct(PRICE, s.base!))).toBeNull();
     });
   });
 

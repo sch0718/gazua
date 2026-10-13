@@ -200,6 +200,76 @@ describe('createApp — banners', () => {
     expect(app.banners.map((b) => b.id)).toContain('corrupt:p:p1:watchlists');
   });
 
+  describe('cleared proxy address', () => {
+    afterEach(() => vi.unstubAllEnvs());
+    const start = (settings: Record<string, unknown>) => {
+      vi.stubEnv('DEV', false);
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', ...settings });
+      return make(backing);
+    };
+
+    it('a stored localhost proxy names the origin and offers 연결 설정', () => {
+      const app = start({ proxyUrl: 'http://localhost:8787' });
+      expect(app.settings.proxyUrl).toBe('');
+      const b = app.banners.find((x) => x.id === 'proxy-cleared:p:p1:settings');
+      expect(b?.text).toBe('저장된 프록시 주소(http://localhost:8787)는 개발 서버에서만 쓸 수 있어서 지웠어요');
+      expect(b?.action?.label).toBe('연결 설정');
+      expect(app.banners.some((x) => x.id.startsWith('corrupt'))).toBe(false);
+      b!.action!.run();
+      expect(app.route).toMatchObject({ name: 'settings', section: 'connection' });
+    });
+
+    it('shows only the origin: no userinfo, path or query', () => {
+      const app = start({ proxyUrl: 'http://user:pw@localhost:8787/x?k=v' });
+      const text = app.banners.find((x) => x.id.startsWith('proxy-cleared'))!.text;
+      expect(text).toBe('저장된 프록시 주소(http://localhost:8787)는 개발 서버에서만 쓸 수 있어서 지웠어요');
+      expect(text).not.toMatch(/user|pw|k=v|\/x/);
+    });
+
+    it('a value that is not a local http address gets the generic text without any of the value', () => {
+      const app = start({ proxyUrl: 'ftp://secret-host.example/key' });
+      const text = app.banners.find((x) => x.id.startsWith('proxy-cleared'))!.text;
+      expect(text).toBe('저장된 프록시 주소가 올바르지 않아 지웠어요');
+    });
+
+    it('other wrong fields still show the corrupt banner next to it', () => {
+      const app = start({ proxyUrl: 'http://localhost:8787', theme: 'neon' });
+      const ids = app.banners.map((x) => x.id);
+      expect(ids).toContain('proxy-cleared:p:p1:settings');
+      expect(ids).toContain('corrupt:p:p1:settings');
+    });
+
+    it('a valid https proxy shows nothing', () => {
+      const app = start({ proxyUrl: 'https://proxy.example.com' });
+      expect(app.settings.proxyUrl).toBe('https://proxy.example.com');
+      expect(app.banners.filter((x) => x.id.startsWith('proxy-cleared'))).toEqual([]);
+    });
+  });
+
+  it('every stored group broken: one 내 관심 group is saved with the corrupt banner', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true });
+    seed(backing, 'p:p1:watchlists', { groups: [{ id: 'g2', name: 7, items: [] }, null] });
+    const app = make(backing);
+    expect(app.watchlists.groups).toHaveLength(1);
+    expect(app.watchlists.groups[0]).toMatchObject({ name: '내 관심', items: [] });
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:watchlists')!).groups).toHaveLength(1);
+    expect(app.banners.map((b) => b.id)).toContain('corrupt:p:p1:watchlists');
+  });
+
+  it('stored {groups: []} falls back to the default group', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true });
+    seed(backing, 'p:p1:watchlists', { groups: [] });
+    const app = make(backing);
+    expect(app.watchlists.groups.map((g) => g.name)).toEqual(['내 관심']);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:watchlists')!).groups).toHaveLength(1);
+  });
+
   it('demo provider while onboarded shows the demo banner whose action opens settings', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
@@ -676,6 +746,7 @@ describe('createApp — profiles management, passphrase check, export/import', (
     seed(backing, 'p:p2:settings', { onboarded: true });
     seed(backing, 'p:p2:secrets', SECRETS);
     seed(backing, 'p:p2:token:kis', { accessToken: 'tok', expiresAt: NOW + 1e6 });
+    seed(backing, 'p:p2:tokenIssuedAt:kis', NOW);
     const app = make(backing);
     app.switchProfile('p2');
     app.deleteProfile('p2');
@@ -684,6 +755,48 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(backing.dump()).not.toContain('p:p2:');
     expect(() => app.deleteProfile('p1')).toThrow();
     expect(app.meta.profiles).toHaveLength(1);
+  });
+
+  it('deleteProfile: a KIS token issued after the delete does not write p:<id>:tokenIssuedAt back', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p2:secrets', SECRETS);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/oauth2/tokenP')) await gate;
+      return new Response(JSON.stringify(url.includes('/oauth2/tokenP') ? tokenFixture : price005930), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const app = make(backing, { fetchImpl });
+    app.switchProfile('p2');
+    const inFlight = app.provider.getQuotes(['005930'], 'KRX').catch(() => undefined);
+    // 토큰 발급이 진행 중일 때 그 프로필을 지운다.
+    app.deleteProfile('p2');
+    release();
+    await inFlight;
+    await Promise.resolve();
+    expect(backing.dump()).not.toContain('p:p2:');
+  });
+
+  it('deleteProfile: tokenIssuedAt(...).save for a deleted profile is a no-op', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const app = make(backing);
+    app.switchProfile('p2');
+    const store = app.tokenIssuedAt('kis');
+    store.save(NOW);
+    expect(backing.dump()).toContain('p:p2:tokenIssuedAt:kis');
+    app.deleteProfile('p2');
+    store.save(NOW);
+    expect(backing.dump()).not.toContain('p:p2:');
   });
 
   it('setStrategies persists, switchProfile swaps the list, deleteProfile removes the key', () => {
@@ -788,6 +901,9 @@ describe('createApp — tokenSourceFor (connection diagnosis shares the provider
     expect(tokenPosts(fetchImpl)).toBe(1);
     expect(backing.dump()).not.toContain(':token:');
     expect(backing.dump()).not.toContain('test-access-token');
+    // 발급 시각은 비밀이 아니라 잠금 모드에서도 저장한다(새로고침 뒤 KIS 1분 제한 남은 초).
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:tokenIssuedAt:kis')!)).toBe(NOW);
+    expect(app.tokenIssuedAt('kis').load()).toBe(NOW);
   });
 });
 

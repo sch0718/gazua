@@ -1,5 +1,6 @@
 // 비교 화면 문구(스펙 7.2, 4.4). 모든 시각은 KST.
-import type { Period } from '../../state/schema';
+import type { LoadedSeries } from '../../data/candleService';
+import type { MetricId, Period } from '../../state/schema';
 import { kstDate, kstMinuteOfDay, kstWeekday } from '../../time/kst';
 import { fmtPct, fmtTrillion } from '../format';
 
@@ -119,6 +120,23 @@ export function indexStaleNote(computedAt: number, now: number): string {
   const date = kstDate(computedAt);
   const day = date === kstDate(now) ? '' : `${monthDay(date)} `;
   return `지수는 ${day}${kstHHMM(computedAt)} 기준이에요`;
+}
+
+/** 1일 RVOL 분모가 분봉과 다른 거래소(KRX)의 일평균일 때 헤드라인 아래 안내. */
+export const RVOL_KRX_BASE_NOTE = 'KRX 20일 평균 거래량 대비예요';
+
+/**
+ * 1일 RVOL에서 분모를 낸 거래소(avgVolumeVenue)와 다른 거래소의 분봉이 섞인 종목이 있으면 안내 문구.
+ * 자동 모드(NXT 프리·애프터 + KRX)나 같은 거래소 일봉이 모자라 KRX로 대체했을 때다.
+ */
+export function rvolBaseNote(a: {
+  metric: MetricId;
+  period: Period;
+  series: Pick<LoadedSeries, 'avgVolumeVenue' | 'avgDailyVolume' | 'segments'>[];
+}): string | null {
+  if (a.metric !== 'rvol' || a.period.unit !== 'D') return null;
+  const mixed = a.series.some((s) => s.avgDailyVolume !== null && s.segments.some((seg) => seg.venue !== s.avgVolumeVenue));
+  return mixed ? RVOL_KRX_BASE_NOTE : null;
 }
 
 /** 리더보드 지표 값. %는 ▲▼ 기호와 함께. */

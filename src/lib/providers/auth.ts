@@ -1,4 +1,4 @@
-import type { TokenInfo, TokenStore } from './types';
+import type { IssuedAtStore, TokenInfo, TokenStore } from './types';
 
 /** 만료까지 이 시간(ms)보다 적게 남으면 새로 발급한다. */
 const REFRESH_MARGIN_MS = 60_000;
@@ -8,13 +8,17 @@ const REFRESH_MARGIN_MS = 60_000;
  * - 동시에 get()을 불러도 발급(issue)은 한 번만 일어난다.
  * - 발급이 실패하면 진행 중 표시를 지워 다음 get()이 다시 시도한다.
  * - invalidate() 이후의 get()은 저장소 값도 쓰지 않고 새로 발급한다.
+ * - 발급에 성공하면 그 시각을 issuedAt에 기록한다(무효화된 발급도 증권사는 센다).
  */
 export function createTokenManager(
   issue: () => Promise<TokenInfo>,
   store: TokenStore,
   now: () => number,
-): { get(): Promise<string>; info(): Promise<TokenInfo>; invalidate(): void } {
+  issuedAt?: IssuedAtStore,
+): { get(): Promise<string>; info(): Promise<TokenInfo>; invalidate(): void; lastIssuedAt(): number | null } {
   let current: TokenInfo | null = null;
+  // 저장소에 쓰지 못해도 이 탭에서는 기억한다.
+  let issuedHere: number | null = null;
   let loaded = false;
   let inflight: Promise<TokenInfo> | null = null;
   // invalidate()마다 올려서, 그 전에 시작한 발급 결과가 상태를 덮어쓰지 못하게 한다.
@@ -26,6 +30,12 @@ export function createTokenManager(
     const mine = generation;
     const p = issue().then(
       (token) => {
+        issuedHere = now();
+        try {
+          issuedAt?.save(issuedHere);
+        } catch {
+          // 시각을 저장하지 못해도 토큰은 쓴다.
+        }
         if (mine === generation) {
           current = token;
           try {
@@ -66,6 +76,17 @@ export function createTokenManager(
       current = null;
       loaded = true;
       inflight = null;
+    },
+    /** 이 탭 또는 저장소(새로고침 전·진단의 발급)에 남은 가장 늦은 발급 시각. 모르면 null. */
+    lastIssuedAt() {
+      let stored: number | null = null;
+      try {
+        stored = issuedAt?.load() ?? null;
+      } catch {
+        stored = null;
+      }
+      if (stored === null) return issuedHere;
+      return issuedHere === null ? stored : Math.max(stored, issuedHere);
     },
   };
 }

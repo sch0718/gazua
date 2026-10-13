@@ -1,5 +1,6 @@
 // KIS 공개 종목 마스터(코스피·코스닥)를 받아 public/universe.json을 만든다.
 // 실패하면 기존 파일을 유지하고 경고만 남긴다(기존 파일이 없을 때만 exit 1).
+// UNIVERSE_REUSE=true이고 파일이 이미 있으면(CI의 주간 캐시 적중) 받지 않고 바로 끝낸다.
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +37,10 @@ async function main() {
 }
 
 try {
+  if (process.env.UNIVERSE_REUSE === 'true' && existsSync(OUTPUT)) {
+    console.log('[universe] 캐시된 파일을 그대로 써요');
+    process.exit(0);
+  }
   await main();
 } catch (err) {
   const reason = err instanceof Error ? err.message : String(err);

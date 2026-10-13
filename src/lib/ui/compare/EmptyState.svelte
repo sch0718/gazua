@@ -7,7 +7,7 @@
   <b>비교할 종목을 추가해 보세요</b>
   <p>한 차트에 최대 8종목까지 나란히 비교할 수 있어요.</p>
   <div class="row">
-    <button type="button" class="btn" onclick={onadd}>＋ 종목 추가</button>
+    <button type="button" class="btn" data-empty-add onclick={onadd}>＋ 종목 추가</button>
     <button type="button" class="btn ghost" onclick={onexample}>예시 그룹 불러오기</button>
   </div>
 </div>

@@ -42,6 +42,15 @@ corepack pnpm --filter proxy build
 3. `cd proxy && docker compose up -d --build`
 4. `https://<터널 호스트명>/health`가 200을 주는지 확인해요.
 
+### cloudflared 버전 올리기
+
+`docker-compose.yml`의 `cloudflare/cloudflared` 이미지는 `latest`가 아니라 릴리스 태그(현재 `2026.10.0`)로 고정돼 있어요. 터널이 예고 없이 바뀌지 않게 하려는 거예요.
+
+1. https://github.com/cloudflare/cloudflared/releases 에서 새 릴리스 태그를 확인해요.
+2. `docker-compose.yml`의 `image:` 태그를 그 값으로 바꿔요.
+3. `cd proxy && docker compose pull cloudflared && docker compose up -d`
+4. `https://<터널 호스트명>/health`가 200을 주는지 확인해요.
+
 ### 토스 허용 IP 등록
 
 1. 집 공인 IP 확인: `curl -s https://api.ipify.org`

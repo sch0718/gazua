@@ -7,7 +7,7 @@ import {
   type SeriesSnapshots,
 } from '../data/candleService';
 import { createProvider } from '../providers/factory';
-import type { MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
+import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
 import { applyColorConvention, applyTheme } from '../ui/theme';
 import {
   RECENT_MAX,
@@ -18,6 +18,7 @@ import {
   memoryTokenStore,
   profileKeys,
   removeTokens,
+  storageIssuedAtStore,
   storageTokenStore,
 } from './profileStore';
 import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
@@ -95,6 +96,8 @@ export interface App {
    * 만들어졌을 때만 그 공급자의 토큰 관리자(캐시·진행 중 발급·잠금 모드 규칙 포함)를 돌려준다. 아니면 undefined.
    */
   tokenSourceFor(provider: 'kis' | 'toss', secrets: Secrets, proxyUrl: string): (() => Promise<TokenInfo>) | undefined;
+  /** 지금 프로필의 KIS 마지막 토큰 발급 시각 저장소(공급자와 연결 진단이 함께 쓴다). 잠금 모드에서도 저장한다. */
+  tokenIssuedAt(provider: 'kis'): IssuedAtStore;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
@@ -152,6 +155,10 @@ export class StoredKeysNotRemovedError extends Error {
 
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
 export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요';
+export const PROXY_CLEARED_BANNER = (origin?: string) =>
+  origin
+    ? `저장된 프록시 주소(${origin})는 개발 서버에서만 쓸 수 있어서 지웠어요`
+    : '저장된 프록시 주소가 올바르지 않아 지웠어요';
 export const DEMO_BANNER = '데모 데이터를 보고 있어요';
 const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -241,10 +248,30 @@ export function createApp(deps: AppDeps): App {
   /** 지금 세대 공급자의 토큰 저장소. 세대가 바뀌면(공급자 교체) 저장하지 않는다. */
   function tokenStoreFor(id: string, p: 'kis' | 'toss', generation: number): TokenStore {
     const current = () => generation === providerGeneration;
-    return lockMode()
-      ? memoryTokenStore(memoryTokens, `${id}:${p}`, current)
-      : // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
-        storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
+    if (lockMode()) return memoryTokenStore(memoryTokens, `${id}:${p}`, current);
+    // 만들 때 평문 모드였어도, 저장 시점에 잠금 모드면 쓰지 않는다.
+    const store = storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
+    return {
+      load: store.load,
+      save: (t) => {
+        store.save(t);
+        // 저장이 실패하면 저장소 배너가 달라지므로 다시 계산하게 한다.
+        storageTick++;
+      },
+    };
+  }
+
+  /** 프로필이 아직 있을 때만 쓴다: 지운 프로필의 발급 시각 키를 늦게 끝난 발급이 되살리지 않게. */
+  function issuedAtStoreFor(id: string, p: 'kis'): IssuedAtStore {
+    const store = storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(id, p));
+    return {
+      load: store.load,
+      save: (t) => {
+        if (!meta.profiles.some((x) => x.id === id)) return;
+        store.save(t);
+        storageTick++;
+      },
+    };
   }
 
   function buildProvider(): MarketDataProvider {
@@ -255,6 +282,7 @@ export function createApp(deps: AppDeps): App {
       now,
       fetchImpl,
       tokenStore: (p) => tokenStoreFor(id, p, generation),
+      issuedAtStore: (p) => issuedAtStoreFor(id, p),
     });
   }
 
@@ -439,6 +467,13 @@ export function createApp(deps: AppDeps): App {
       if (!storage.persistent) out.push({ id: 'storage', text: STORAGE_BANNER });
       for (const issue of storage.issues) {
         if (issue.kind === 'corrupt') out.push({ id: `corrupt:${issue.key}`, text: CORRUPT_BANNER });
+        else if (issue.kind === 'proxy-cleared') {
+          out.push({
+            id: `proxy-cleared:${issue.key}`,
+            text: PROXY_CLEARED_BANNER(issue.detail),
+            action: { label: '연결 설정', run: () => navigate({ name: 'settings', section: 'connection' }) },
+          });
+        }
       }
       if (provider.id === 'demo' && settings.onboarded && !gate()) {
         out.push({
@@ -521,6 +556,7 @@ export function createApp(deps: AppDeps): App {
       remove(profileKeys.secrets(id));
       remove(profileKeys.recent(id));
       remove(profileKeys.strategies(id));
+      remove(profileKeys.tokenIssuedAt(id, 'kis'));
     },
 
     async verifyPassphrase(passphrase) {
@@ -648,6 +684,10 @@ export function createApp(deps: AppDeps): App {
       if (current.id !== p || !current.getAccessToken) return undefined;
       if (proxyUrl.trim() !== builtFrom.proxyUrl || !sameCredentials(p, s, builtFrom.secrets)) return undefined;
       return () => current.getAccessToken!();
+    },
+
+    tokenIssuedAt(p) {
+      return issuedAtStoreFor(activeId(), p);
     },
 
     lock() {

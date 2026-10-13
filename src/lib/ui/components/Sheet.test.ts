@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Sheet from './Sheet.svelte';
 import SheetSegmentedFixture from './SheetSegmentedFixture.svelte';
+import SnackbarHost from './SnackbarHost.svelte';
+import { dismissSnackbar, showSnackbar } from './snackbarStore.svelte';
+
+afterEach(() => dismissSnackbar());
 
 const body = createRawSnippet(() => ({
   render: () => `<div><button id="first">첫째</button><button id="second">둘째</button></div>`,
@@ -139,5 +143,69 @@ describe('Sheet', () => {
     unmount();
     expect(document.body.style.overflow).toBe('auto');
     document.body.style.overflow = '';
+  });
+
+  it('with a snackbar action shown, Tab from the last control reaches it and the next Tab wraps to the first', async () => {
+    render(SnackbarHost);
+    setup();
+    showSnackbar('삭제했어요', { label: '되돌리기', run: () => {} });
+    await tick();
+    const dialog = screen.getByRole('dialog');
+    const inside = [...dialog.querySelectorAll<HTMLElement>('button')];
+    const undo = screen.getByRole('button', { name: '되돌리기' });
+    expect(undo.hasAttribute('data-snackbar-action')).toBe(true);
+
+    inside.at(-1)!.focus();
+    await fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(undo);
+    await fireEvent.keyDown(undo, { key: 'Tab' });
+    expect(document.activeElement).toBe(inside[0]);
+
+    // 거꾸로: 첫 컨트롤 → 되돌리기 → 시트의 마지막 컨트롤
+    await fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(undo);
+    await fireEvent.keyDown(undo, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(inside.at(-1));
+  });
+
+  it('without a snackbar action the loop stays inside the sheet', async () => {
+    render(SnackbarHost);
+    setup();
+    showSnackbar('저장했어요');
+    await tick();
+    const dialog = screen.getByRole('dialog');
+    const inside = [...dialog.querySelectorAll<HTMLElement>('button')];
+    inside.at(-1)!.focus();
+    await fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(inside[0]);
+  });
+
+  it('when the previously focused element is gone, closing focuses returnFocus()', async () => {
+    const opener = document.createElement('button');
+    const fallback = document.createElement('button');
+    document.body.append(opener, fallback);
+    opener.focus();
+    const returnFocus = vi.fn(() => fallback);
+    const { rerender } = setup({ returnFocus });
+    await tick();
+    opener.remove();
+    await rerender({ open: false });
+    expect(document.activeElement).toBe(fallback);
+    fallback.remove();
+  });
+
+  it('prefers the previous element over returnFocus while it is still in the document', async () => {
+    const opener = document.createElement('button');
+    const fallback = document.createElement('button');
+    document.body.append(opener, fallback);
+    opener.focus();
+    const returnFocus = vi.fn(() => fallback);
+    const { rerender } = setup({ returnFocus });
+    await tick();
+    await rerender({ open: false });
+    expect(document.activeElement).toBe(opener);
+    expect(returnFocus).not.toHaveBeenCalled();
+    opener.remove();
+    fallback.remove();
   });
 });

@@ -33,6 +33,20 @@ function errorResponse(status: number, code: string, origin: string | null): Res
   return new Response(JSON.stringify({ error: { code } }), { status, headers });
 }
 
+/** 토큰 비교: 길이가 달라도 같은 시간이 걸리도록 SHA-256 해시 둘을 XOR 누적으로 비교한다. */
+export async function tokenMatches(given: string | null, expected: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(given ?? '')),
+    crypto.subtle.digest('SHA-256', enc.encode(expected)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = given === null ? 1 : 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
 export interface HandleOptions {
   /** 상류 응답을 기다리는 최대 시간. 넘으면 504 upstream-timeout. 없으면 기다린다(Worker는 플랫폼 제한을 따른다). */
   upstreamTimeoutMs?: number;
@@ -64,7 +78,7 @@ export async function handle(
     return new Response(null, { status: 204, headers });
   }
 
-  if (env.PROXY_TOKEN && req.headers.get('x-proxy-token') !== env.PROXY_TOKEN) {
+  if (env.PROXY_TOKEN && !(await tokenMatches(req.headers.get('x-proxy-token'), env.PROXY_TOKEN))) {
     return errorResponse(401, 'proxy-token-invalid', origin);
   }
 

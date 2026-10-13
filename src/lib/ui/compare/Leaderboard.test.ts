@@ -34,8 +34,8 @@ function setup(rows: LeaderRow[], over: Record<string, unknown> = {}) {
     onopenadd: vi.fn(),
     ...over,
   };
-  render(Leaderboard, props);
-  return props;
+  const view = render(Leaderboard, props);
+  return Object.assign(props, { rerender: (next: Record<string, unknown>) => view.rerender({ ...props, ...next }) });
 }
 
 const order = () => screen.getAllByRole('listitem').map((li) => li.dataset.symbol);
@@ -114,6 +114,20 @@ describe('Leaderboard', () => {
   it('header while scrubbing shows the scrub time value', () => {
     setup([row('A', 1)], { count: 1, scrubLabel: '14:32' });
     expect(screen.getByText('등락률 순 · 1/8 · 14:32 값')).toBeTruthy();
+  });
+
+  it('a re-sort that moves the focused row keeps focus on it', async () => {
+    // 되돌린 행은 값이 없어 맨 뒤에 붙었다가 값이 들어오면 위로 옮겨진다. 옮겨도 포커스를 잃지 않는다.
+    const props = setup([row('A', 3), row('B', 1), row('C', null)]);
+    mainBtn('C').focus();
+    await props.rerender({ rows: [row('A', 3), row('B', 1), row('C', 2)] });
+    expect(order()).toEqual(['A', 'C', 'B']);
+    expect(document.activeElement).toBe(mainBtn('C'));
+    // 다른 행이 옮겨져도 마찬가지
+    mainBtn('A').focus();
+    await props.rerender({ rows: [row('A', 0), row('B', 1), row('C', 2)] });
+    expect(order()).toEqual(['C', 'B', 'A']);
+    expect(document.activeElement).toBe(mainBtn('A'));
   });
 
   it('tapping a row selects it', async () => {

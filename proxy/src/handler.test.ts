@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handle, UPSTREAM, type ProxyEnv } from './handler.js';
+import { handle, tokenMatches, UPSTREAM, type ProxyEnv } from './handler.js';
 
 const ORIGIN = 'https://sch0718.github.io';
 const env: ProxyEnv = { ALLOWED_ORIGINS: ` ${ORIGIN} , http://localhost:5173` };
@@ -90,6 +90,16 @@ describe('proxy token', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  it('401s for a wrong token of the same length, a different length, and an empty header', async () => {
+    const f = fakeFetch();
+    for (const given of ['t', 'ss', '']) {
+      const res = await handle(req('/toss/api/v1/prices', { headers: { 'x-proxy-token': given } }), withToken, f);
+      expect(res.status).toBe(401);
+      expect(await code(res)).toBe('proxy-token-invalid');
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('accepts the right token and does not forward it', async () => {
     const f = fakeFetch();
     const res = await handle(req('/toss/api/v1/prices', { headers: { 'x-proxy-token': 's' } }), withToken, f);
@@ -101,6 +111,16 @@ describe('proxy token', () => {
   it('checks the token before the path allowlist', async () => {
     const res = await handle(req('/toss/api/v1/orders', { method: 'POST' }), withToken, fakeFetch());
     expect(res.status).toBe(401);
+  });
+});
+
+describe('tokenMatches', () => {
+  it('compares by SHA-256 digest: equal strings match, others do not, null never matches', async () => {
+    expect(await tokenMatches('secret', 'secret')).toBe(true);
+    expect(await tokenMatches('secreT', 'secret')).toBe(false);
+    expect(await tokenMatches('secret!', 'secret')).toBe(false);
+    expect(await tokenMatches('', 'secret')).toBe(false);
+    expect(await tokenMatches(null, 'secret')).toBe(false);
   });
 });
 

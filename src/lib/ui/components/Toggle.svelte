@@ -43,7 +43,7 @@
     width: 44px;
     height: 26px;
     border-radius: 999px;
-    background: var(--line);
+    background: var(--t3); /* 끔 트랙: 면 위 3:1 이상, 흰 손잡이 대비도 3:1 이상 */
     padding: 3px;
     display: block;
     transition: background var(--dur-base) var(--ease);
@@ -61,6 +61,7 @@
     transition: transform var(--dur-base) var(--ease);
   }
   .on .thumb {
+    background: var(--on-accent); /* 켬 트랙(--accent) 위 3:1 이상 */
     transform: translateX(18px);
   }
 </style>

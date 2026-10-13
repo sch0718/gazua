@@ -30,6 +30,9 @@ importers:
       '@testing-library/svelte':
         specifier: ^5.4.2
         version: 5.4.2(svelte@5.57.2)(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(vitest@3.2.7(@types/node@22.20.5)(jsdom@29.1.1)(terser@5.51.2))
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5

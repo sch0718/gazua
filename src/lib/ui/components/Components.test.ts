@@ -6,6 +6,7 @@ import Badge from './Badge.svelte';
 import Banner from './Banner.svelte';
 import Chip from './Chip.svelte';
 import Toggle from './Toggle.svelte';
+import toggleSource from './Toggle.svelte?raw';
 
 const text = (t: string) => createRawSnippet(() => ({ render: () => `<span>${t}</span>` }));
 
@@ -64,5 +65,11 @@ describe('Toggle', () => {
     expect(sw.getAttribute('aria-checked')).toBe('false');
     await fireEvent.click(sw);
     expect(onchange).toHaveBeenCalledExactlyOnceWith(true);
+  });
+
+  it('draws the on-thumb in --on-accent and the off-track in --t3 (non-text 3:1)', () => {
+    const css = toggleSource;
+    expect(css).toMatch(/\.track \{[^}]*background: var\(--t3\)/);
+    expect(css).toMatch(/\.on \.thumb \{[^}]*background: var\(--on-accent\)/);
   });
 });

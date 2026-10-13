@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
-import { INDEX_BASE_MISSING_NOTE, formatMetricValue, freshnessText, headlineLabel, indexStaleNote, prevDayBadge, staleBadge } from './compareText';
+import { INDEX_BASE_MISSING_NOTE, RVOL_KRX_BASE_NOTE, formatMetricValue, freshnessText, headlineLabel, indexStaleNote, prevDayBadge, rvolBaseNote, staleBadge } from './compareText';
 
 const TODAY = '2026-10-12';
 const at = (d: string, hhmm: string, ss = '00') => kstEpoch(d, `${hhmm}:${ss}`);
@@ -116,5 +116,34 @@ describe('indexStaleNote', () => {
 describe('INDEX_BASE_MISSING_NOTE', () => {
   it('says why excess is empty when the index has no close on the base date', () => {
     expect(INDEX_BASE_MISSING_NOTE).toBe('지수 기준일 값이 없어 초과수익을 계산할 수 없어요');
+  });
+});
+
+describe('rvolBaseNote', () => {
+  const D1 = { unit: 'D', n: 1 } as const;
+  const seg = (venue: 'KRX' | 'NXT' | 'UNIFIED') => ({ start: 0, end: 1, venue });
+  const krxAvgAuto = { avgVolumeVenue: 'KRX' as const, avgDailyVolume: 1000, segments: [seg('NXT'), seg('KRX')] };
+
+  it('the text', () => {
+    expect(RVOL_KRX_BASE_NOTE).toBe('KRX 20일 평균 거래량 대비예요');
+  });
+
+  it('RVOL on 1 day with a denominator venue other than the minute venue (AUTO, or a fallback) shows the note', () => {
+    expect(rvolBaseNote({ metric: 'rvol', period: D1, series: [krxAvgAuto] })).toBe(RVOL_KRX_BASE_NOTE);
+    const fallback = { avgVolumeVenue: 'KRX' as const, avgDailyVolume: 1000, segments: [seg('UNIFIED')] };
+    expect(rvolBaseNote({ metric: 'rvol', period: D1, series: [fallback] })).toBe(RVOL_KRX_BASE_NOTE);
+  });
+
+  it('no note for other metrics, daily periods, same-venue denominators or no denominator', () => {
+    expect(rvolBaseNote({ metric: 'change', period: D1, series: [krxAvgAuto] })).toBeNull();
+    expect(rvolBaseNote({ metric: 'rvol', period: { unit: 'W', n: 1 }, series: [krxAvgAuto] })).toBeNull();
+    const same = [
+      { avgVolumeVenue: 'NXT' as const, avgDailyVolume: 200, segments: [seg('NXT')] },
+      { avgVolumeVenue: 'UNIFIED' as const, avgDailyVolume: 1200, segments: [seg('UNIFIED')] },
+      { avgVolumeVenue: 'KRX' as const, avgDailyVolume: 1000, segments: [seg('KRX')] },
+    ];
+    expect(rvolBaseNote({ metric: 'rvol', period: D1, series: same })).toBeNull();
+    expect(rvolBaseNote({ metric: 'rvol', period: D1, series: [{ ...krxAvgAuto, avgDailyVolume: null }] })).toBeNull();
+    expect(rvolBaseNote({ metric: 'rvol', period: D1, series: [] })).toBeNull();
   });
 });

@@ -1,10 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createTokenManager } from './auth';
-import type { TokenInfo, TokenStore } from './types';
+import type { IssuedAtStore, TokenInfo, TokenStore } from './types';
 
 function memoryStore(initial: TokenInfo | null = null): TokenStore & { saved: TokenInfo[] } {
   let value = initial;
   const saved: TokenInfo[] = [];
+  return {
+    saved,
+    load: () => value,
+    save: (t) => {
+      value = t;
+      saved.push(t);
+    },
+  };
+}
+
+function issuedAtStore(initial: number | null = null): IssuedAtStore & { saved: number[] } {
+  let value = initial;
+  const saved: number[] = [];
   return {
     saved,
     load: () => value,
@@ -152,5 +165,62 @@ describe('createTokenManager', () => {
     now = 50_000; // 50_000ms left (< 60s)
     expect(await mgr.get()).toBe('tok2');
     expect(issue).toHaveBeenCalledTimes(2);
+  });
+
+  it('records the issue time and a new manager (reload) reads it from the same store', async () => {
+    let now = 1_000;
+    const issued = issuedAtStore();
+    const issue = async () => ({ accessToken: 'a', expiresAt: now + 86_400_000 });
+    const mgr = createTokenManager(issue, memoryStore(), () => now, issued);
+    expect(mgr.lastIssuedAt()).toBeNull();
+    await mgr.get();
+    expect(issued.saved).toEqual([1_000]);
+    expect(mgr.lastIssuedAt()).toBe(1_000);
+    now = 21_000;
+    const reloaded = createTokenManager(issue, memoryStore(), () => now, issued);
+    expect(reloaded.lastIssuedAt()).toBe(1_000);
+  });
+
+  it('does not record a time when the issue fails, and still records a stale issue (KIS counted it)', async () => {
+    const issued = issuedAtStore();
+    const failing = createTokenManager(
+      async () => {
+        throw new Error('x');
+      },
+      memoryStore(),
+      () => 5,
+      issued,
+    );
+    await expect(failing.get()).rejects.toThrow('x');
+    expect(issued.saved).toEqual([]);
+
+    let release!: (t: TokenInfo) => void;
+    const first = new Promise<TokenInfo>((r) => (release = r));
+    const issue = vi
+      .fn<() => Promise<TokenInfo>>()
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce({ accessToken: 'fresh', expiresAt: 10_000_000 });
+    let now = 100;
+    const mgr = createTokenManager(issue, memoryStore(), () => now, issued);
+    const stale = mgr.get();
+    mgr.invalidate();
+    await mgr.get();
+    now = 200;
+    release({ accessToken: 'stale', expiresAt: 10_000_000 });
+    await stale;
+    expect(issued.saved).toEqual([100, 200]);
+    expect(mgr.lastIssuedAt()).toBe(200);
+  });
+
+  it('keeps the issue time in memory when the store cannot save it', async () => {
+    const issued: IssuedAtStore = {
+      load: () => null,
+      save: () => {
+        throw new Error('quota');
+      },
+    };
+    const mgr = createTokenManager(async () => ({ accessToken: 'a', expiresAt: 10_000_000 }), memoryStore(), () => 42, issued);
+    expect(await mgr.get()).toBe('a');
+    expect(mgr.lastIssuedAt()).toBe(42);
   });
 });
