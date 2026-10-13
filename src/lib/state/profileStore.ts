@@ -26,7 +26,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 /**
  * 저장된 설정을 가져오기와 같은 규칙으로 검증한다. 빠진 필드는 기본값(오래된 형식, 알리지 않음),
- * 틀린 값·객체가 아닌 값은 기본값으로 바꾸고 저장소 배너로 알린다. 저장된 값은 덮어쓰지 않는다.
+ * 틀린 값·객체가 아닌 값은 기본값으로 바꾸고 저장소 배너로 알린다. 저장된 값은 덮어쓰지 않는다
+ * (틀린 프록시 주소만 비워 되쓴다).
  */
 export function loadSettings(st: SafeStorage, id: string): Settings {
   const key = profileKeys.settings(id);
@@ -38,7 +39,13 @@ export function loadSettings(st: SafeStorage, id: string): Settings {
   }
   const keyLock = typeof raw.keyLock === 'boolean' ? raw.keyLock : DEFAULT_SETTINGS.keyLock;
   const { settings, invalid } = sanitizeSettings(raw, keyLock);
-  if (invalid.includes('proxyUrl')) st.reportProxyCleared(key, localHttpOrigin(raw.proxyUrl) ?? undefined);
+  if (invalid.includes('proxyUrl')) {
+    // "개발 서버에서만"은 빌드에서 http 로컬 주소를 지울 때의 사유다. 개발 서버에서 지워졌다면 주소 모양이 틀린 것이다.
+    const origin = import.meta.env.DEV ? null : localHttpOrigin(raw.proxyUrl);
+    st.reportProxyCleared(key, origin ?? undefined);
+    // 다음 로드에서 안내가 되풀이되지 않게 프록시 주소만 비워 되쓴다(다른 값은 그대로). 실패해도 메모리 전용으로 넘어가지 않는다.
+    st.trySet(key, { ...raw, proxyUrl: '' });
+  }
   if (invalid.some((f) => f !== 'proxyUrl')) st.reportCorrupt(key);
   return settings;
 }

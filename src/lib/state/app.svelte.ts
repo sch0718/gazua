@@ -496,6 +496,11 @@ export function createApp(deps: AppDeps): App {
       const prev = settings;
       settings = { ...settings, ...p };
       write(profileKeys.settings(activeId()), settings);
+      // 프록시 주소를 저장하면 지웠다는 안내는 할 일을 마쳤다(다른 손상 안내는 그대로).
+      if ('proxyUrl' in p) {
+        storage.clearProxyCleared(profileKeys.settings(activeId()));
+        storageTick++;
+      }
       if (p.keyLock === true) forgetTokens(activeId());
       if (
         prev.provider !== settings.provider ||

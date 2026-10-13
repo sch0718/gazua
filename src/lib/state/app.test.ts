@@ -241,6 +241,89 @@ describe('createApp — banners', () => {
       expect(ids).toContain('corrupt:p:p1:settings');
     });
 
+    it('DEV: an address cleared for its query or userinfo is "not valid", not "dev server only"', () => {
+      vi.stubEnv('DEV', true);
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'http://localhost:8787/?k=v' });
+      seed(backing, 'p:p2:settings', { onboarded: true });
+      const app = make(backing);
+      expect(app.settings.proxyUrl).toBe('');
+      expect(app.banners.find((x) => x.id.startsWith('proxy-cleared'))!.text).toBe(
+        '저장된 프록시 주소가 올바르지 않아 지웠어요',
+      );
+    });
+
+    it('DEV: a plain local http address is kept and shows nothing', () => {
+      vi.stubEnv('DEV', true);
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'http://localhost:8787' });
+      const app = make(backing);
+      expect(app.settings.proxyUrl).toBe('http://localhost:8787');
+      expect(app.banners.filter((x) => x.id.startsWith('proxy-cleared'))).toEqual([]);
+    });
+
+    it('writes the cleaned settings back: the first load has the banner, the second does not', () => {
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', {
+        onboarded: true,
+        provider: 'kis',
+        proxyUrl: 'http://localhost:8787',
+        theme: 'dark',
+        venueMode: 'KRX',
+        extra: 'kept',
+      });
+      vi.stubEnv('DEV', false);
+      const first = make(backing);
+      expect(first.banners.some((x) => x.id.startsWith('proxy-cleared'))).toBe(true);
+      // 저장소에서 프록시 주소만 비고 나머지 값은 그대로다.
+      expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!)).toEqual({
+        onboarded: true,
+        provider: 'kis',
+        proxyUrl: '',
+        theme: 'dark',
+        venueMode: 'KRX',
+        extra: 'kept',
+      });
+      const second = make(backing);
+      expect(second.banners.filter((x) => x.id.startsWith('proxy-cleared'))).toEqual([]);
+      expect(second.settings).toMatchObject({ theme: 'dark', venueMode: 'KRX', proxyUrl: '' });
+    });
+
+    it('a failed write-back keeps the app persistent and still shows the banner', () => {
+      vi.stubEnv('DEV', false);
+      const backing = memoryBacking();
+      seed(backing, 'meta', META_ONE);
+      seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'http://localhost:8787' });
+      const setItem = backing.setItem.bind(backing);
+      backing.setItem = (k: string, v: string) => {
+        if (k === 'gazua:v1:p:p1:settings') throw new DOMException('quota', 'QuotaExceededError');
+        setItem(k, v);
+      };
+      const storage = createSafeStorage(backing);
+      const app = createApp({ storage, now });
+      apps.push(app);
+      expect(storage.persistent).toBe(true);
+      const ids = app.banners.map((x) => x.id);
+      expect(ids).toContain('proxy-cleared:p:p1:settings');
+      expect(ids).not.toContain('storage');
+      // 저장소에는 낡은 값이 남아 있다(다음 로드에 다시 알린다).
+      expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).proxyUrl).toBe('http://localhost:8787');
+    });
+
+    it('saving a proxy address clears the banner for this session; other wrong fields keep theirs', () => {
+      const app = start({ proxyUrl: 'http://localhost:8787', theme: 'neon' });
+      expect(app.banners.map((x) => x.id)).toContain('proxy-cleared:p:p1:settings');
+      app.updateSettings({ metric: 'drawdown' });
+      expect(app.banners.map((x) => x.id)).toContain('proxy-cleared:p:p1:settings');
+      app.updateSettings({ proxyUrl: 'https://proxy.example.com' });
+      const ids = app.banners.map((x) => x.id);
+      expect(ids).not.toContain('proxy-cleared:p:p1:settings');
+      expect(ids).toContain('corrupt:p:p1:settings');
+    });
+
     it('a valid https proxy shows nothing', () => {
       const app = start({ proxyUrl: 'https://proxy.example.com' });
       expect(app.settings.proxyUrl).toBe('https://proxy.example.com');
@@ -268,6 +351,7 @@ describe('createApp — banners', () => {
     const app = make(backing);
     expect(app.watchlists.groups.map((g) => g.name)).toEqual(['내 관심']);
     expect(JSON.parse(backing.getItem('gazua:v1:p:p1:watchlists')!).groups).toHaveLength(1);
+    expect(app.banners.map((b) => b.id)).toContain('corrupt:p:p1:watchlists');
   });
 
   it('demo provider while onboarded shows the demo banner whose action opens settings', () => {
@@ -782,6 +866,25 @@ describe('createApp — profiles management, passphrase check, export/import', (
     await inFlight;
     await Promise.resolve();
     expect(backing.dump()).not.toContain('p:p2:');
+  });
+
+  it('switchProfile: tokenIssuedAt uses the new profile key, so the wait follows the profile', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    seed(backing, 'p:p1:tokenIssuedAt:kis', 111);
+    seed(backing, 'p:p2:tokenIssuedAt:kis', 222);
+    const app = make(backing);
+    expect(app.tokenIssuedAt('kis').load()).toBe(111);
+    app.switchProfile('p2');
+    const store = app.tokenIssuedAt('kis');
+    expect(store.load()).toBe(222);
+    store.save(NOW);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p2:tokenIssuedAt:kis')!)).toBe(NOW);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:tokenIssuedAt:kis')!)).toBe(111);
+    app.switchProfile('p1');
+    expect(app.tokenIssuedAt('kis').load()).toBe(111);
   });
 
   it('deleteProfile: tokenIssuedAt(...).save for a deleted profile is a no-op', () => {
