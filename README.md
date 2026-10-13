@@ -79,6 +79,7 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
 - 화면 목업: [docs/design/2026-10-11-mockups.html](docs/design/2026-10-11-mockups.html)
 - 구현 계획: [docs/superpowers/plans/2026-10-11-gazua.md](docs/superpowers/plans/2026-10-11-gazua.md)
 - 시뮬레이션 구현 계획: [docs/superpowers/plans/2026-10-12-backtest-simulation.md](docs/superpowers/plans/2026-10-12-backtest-simulation.md)
+- 시뮬레이션 화면 리뷰와 처리 결과: [docs/design/2026-10-13-simulation-ui-review.md](docs/design/2026-10-13-simulation-ui-review.md)
 - 실연결 점검 목록: [docs/live-check.md](docs/live-check.md)
 - 프록시: [proxy/README.md](proxy/README.md)
 - 초기 PoC: [poc/gazua-poc.html](poc/gazua-poc.html)
