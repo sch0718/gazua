@@ -25,7 +25,7 @@ export function doneState(patch: (s: DoneState) => void = () => {}): DoneState {
       mddPct: -12.3,
       winRatePct: 58.5,
       wins: 24,
-      losses: 17,
+      losses: 16,
       avgWinPct: 8.1,
       avgLossPct: -4.2,
       roundTrips: 41,

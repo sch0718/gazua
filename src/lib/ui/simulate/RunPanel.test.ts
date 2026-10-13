@@ -1,17 +1,25 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { configure, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ResizeObserverStub } from '../../chart/lwcStub';
 import { ApiError } from '../../providers/errors';
 import { doneState } from './resultFixture';
 import RunPanel from './RunPanel.svelte';
 import runPanelSource from './RunPanel.svelte?raw';
+import resultViewSource from './ResultView.svelte?raw';
 import type { RunState } from './runController.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
 
-beforeEach(() => vi.stubGlobal('ResizeObserver', ResizeObserverStub));
-afterEach(() => vi.unstubAllGlobals());
+// 늘 있는 라이브 영역(sr-only)은 보이는 문구와 같은 글을 담으므로 글 찾기에서 뺀다
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  configure({ defaultIgnore: 'script, style, [data-live]' });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  configure({ defaultIgnore: 'script, style' });
+});
 
 const scope = { stocks: 4, benchmark: true };
 
@@ -25,9 +33,13 @@ function setup(state: RunState, extra: { stale?: boolean } = {}) {
     onCancel: vi.fn(),
     onIssueAction: vi.fn(),
   };
-  render(RunPanel, props);
-  return props;
+  const view = render(RunPanel, props);
+  return { ...props, view, rerender: (next: Partial<typeof props>) => view.rerender({ ...props, ...next }) };
 }
+
+const live = () => document.querySelector('[data-live]') as HTMLElement;
+const root = () => document.querySelector('.run-panel') as HTMLElement;
+const loading = (done: number, waiting = false): RunState => ({ kind: 'loading', progress: { done, total: 10, waiting }, scope });
 
 describe('RunPanel', () => {
   it('받는 중: 진행 막대 + 문구 + 취소', async () => {
@@ -183,17 +195,115 @@ describe('RunPanel', () => {
     expect(screen.getByText('규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요')).toBeTruthy();
   });
 
-  it('결과가 오래되면 배너 + 다시 실행, 본문은 흐리게', async () => {
+  it('결과가 오래되면 배너 + 다시 실행, 결과에 `이전 결과` 표시와 왼쪽 강조선(투명도 없음)', async () => {
     const p = setup(doneState(), { stale: true });
     expect(screen.getByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeTruthy();
-    expect(document.querySelector('.dim')).toBeTruthy();
+    const result = screen.getByRole('region', { name: '시뮬레이션 결과' });
+    expect(result.classList.contains('stale')).toBe(true);
+    expect(within(result).getByText('이전 결과')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
     expect(p.onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('최신 결과에는 배너가 없다', () => {
+  it('오래된 결과도 흐리게(opacity) 하지 않는다: 글자 대비와 거래 차트 시트를 지킨다', () => {
+    const css = (src: string) => src.slice(src.indexOf('<style>'));
+    expect(css(runPanelSource)).not.toMatch(/opacity/);
+    expect(css(resultViewSource)).not.toMatch(/opacity/);
+    const stale = /\.result\.stale\s*\{([^}]*)\}/.exec(resultViewSource)?.[1] ?? '';
+    expect(stale).toMatch(/border-left:[^;]*var\(--accent\)/);
+  });
+
+  it('최신 결과에는 배너도 이전 결과 표시도 없다', () => {
     setup(doneState());
     expect(screen.queryByText('규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요')).toBeNull();
-    expect(document.querySelector('.dim')).toBeNull();
+    expect(screen.queryByText('이전 결과')).toBeNull();
+    expect(screen.getByRole('region', { name: '시뮬레이션 결과' }).classList.contains('stale')).toBe(false);
+  });
+
+  describe('알림(라이브 영역 하나)', () => {
+    it('받는 중: 시작·대기만 알리고, n/m이 늘 때는 알림 글이 그대로', async () => {
+      const p = setup(loading(3));
+      expect(live().getAttribute('role')).toBe('status');
+      expect(live().textContent).toBe('일봉 받는 중');
+      // 보이는 진행 문구는 라이브 영역이 아니다
+      expect(screen.getByText('일봉 받는 중 3/10').getAttribute('role')).toBeNull();
+      await p.rerender({ state: loading(4) });
+      expect(live().textContent).toBe('일봉 받는 중');
+      await p.rerender({ state: loading(4, true) });
+      expect(live().textContent).toBe('일봉 받는 중 · 잠시 대기 중');
+    });
+
+    it('결과가 나오면 결과가 나왔어요', async () => {
+      const p = setup(loading(9));
+      const el = live();
+      await p.rerender({ state: doneState() });
+      expect(live()).toBe(el); // 같은 영역(늘 있다)
+      expect(el.textContent).toBe('결과가 나왔어요');
+    });
+
+    it('일부 실패는 질문 글, 데이터 없음·엔진 예외는 그 문구', async () => {
+      const p = setup(loading(9));
+      await p.rerender({ state: { kind: 'partial', failed: [{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }], proceed: vi.fn() } });
+      expect(live().textContent).toBe('SK하이닉스 일봉을 받지 못했어요. 빼고 계속할까요?');
+      await p.rerender({ state: { kind: 'noData', failed: [] } });
+      expect(live().textContent).toBe('기간 안에 받은 데이터가 없어요');
+      await p.rerender({ state: { kind: 'crash' } });
+      expect(live().textContent).toBe('계산 중 문제가 생겼어요');
+    });
+
+    it('연결 오류는 Banner(alert) 하나만 알린다', async () => {
+      const p = setup(loading(1));
+      await p.rerender({ state: { kind: 'error', error: new ApiError('proxy-unreachable') } });
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+      expect(live().textContent).toBe('');
+    });
+  });
+
+  describe('포커스: 누른 버튼이 사라지면 결과 자리로', () => {
+    it('엔진 예외의 다시 실행 → 받는 중', async () => {
+      const p = setup({ kind: 'crash' });
+      screen.getByRole('button', { name: '다시 실행' }).focus();
+      await p.rerender({ state: loading(0) });
+      expect(document.activeElement).toBe(root());
+    });
+
+    it('연결 오류의 다시 시도 → 받는 중', async () => {
+      const p = setup({ kind: 'error', error: new ApiError('proxy-unreachable') });
+      screen.getByRole('button', { name: '다시 시도' }).focus();
+      await p.rerender({ state: loading(0) });
+      expect(document.activeElement).toBe(root());
+    });
+
+    it('빼고 계속 → 결과', async () => {
+      const p = setup({ kind: 'partial', failed: [{ symbol: '000660', name: 'SK하이닉스', reason: '받지 못했어요' }], proceed: vi.fn() });
+      screen.getByRole('button', { name: '빼고 계속' }).focus();
+      await p.rerender({ state: doneState() });
+      expect(document.activeElement).toBe(root());
+    });
+
+    it('오래된 결과 배너의 다시 실행 → 받는 중', async () => {
+      const p = setup(doneState(), { stale: true });
+      screen.getByRole('button', { name: '다시 실행' }).focus();
+      await p.rerender({ state: loading(0), stale: false });
+      expect(document.activeElement).toBe(root());
+    });
+
+    it('포커스가 패널 밖(편집기의 실행 버튼 등)에 있으면 가져오지 않는다', async () => {
+      const outside = document.createElement('button');
+      document.body.append(outside);
+      try {
+        const p = setup(loading(9));
+        outside.focus();
+        await p.rerender({ state: doneState() });
+        expect(document.activeElement).toBe(outside);
+      } finally {
+        outside.remove();
+      }
+    });
+
+    it('처음 그릴 때는 포커스를 옮기지 않는다', () => {
+      setup({ kind: 'idle' });
+      expect(document.activeElement).toBe(document.body);
+    });
   });
 });

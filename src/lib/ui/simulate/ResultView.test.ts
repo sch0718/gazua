@@ -95,10 +95,11 @@ describe('ResultView', () => {
     expect(items[1].textContent).toContain('−12.3%');
     expect(items[2].textContent).toContain('승률');
     expect(items[2].textContent).toContain('58.5%');
-    expect(items[2].textContent).toContain('24승 17패');
+    expect(items[2].textContent).toContain('24승 16패');
     expect(items[3].textContent).toContain('거래 횟수');
-    expect(items[3].textContent).toContain('41번');
-    expect(items[3].textContent).toContain('끝난 41번 · 아직 보유 1종목 · 평균 19일');
+    // 값은 보유 중 포함(41), 끝난 거래는 41 − 보유 1 = 40(= 24승 + 16패)
+    expect(items[3].querySelector('.value')?.textContent).toBe('41번');
+    expect(items[3].textContent).toContain('끝난 40번 · 아직 보유 1종목 · 평균 19일');
   });
 
   it('요약 카드: 토큰 클래스 — 총수익률만 headline 크기, 나머지는 title 크기', () => {

@@ -314,6 +314,72 @@ describe('Simulate run', () => {
     expect(within(bar).queryByText('눌림목')).toBeNull();
   });
 
+  it('폰 폭: 규칙↔결과는 같은 버튼이라 눌러도 포커스가 그 버튼에 남는다', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 });
+    const btn = screen.getByRole('button', { name: '규칙' });
+    btn.focus();
+    await fireEvent.click(btn);
+    expect(screen.getByRole('button', { name: '결과' })).toBe(btn);
+    expect(document.activeElement).toBe(btn);
+    await fireEvent.click(btn);
+    expect(screen.getByRole('button', { name: '규칙' })).toBe(btn);
+    expect(document.activeElement).toBe(btn);
+  }, 15000);
+
+  it('폰 폭: 실행하면 편집기가 내려가고 포커스는 (받는 중인) 결과 자리로', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = app.provider.getCandles.bind(app.provider);
+    vi.spyOn(app.provider, 'getCandles').mockImplementation(async (q) => (await gate, real(q)));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    const run = await screen.findByRole('button', { name: '시뮬레이션 실행' });
+    run.focus();
+    await fireEvent.click(run);
+    await screen.findByRole('button', { name: '취소' });
+    await waitFor(() => expect(document.activeElement?.classList.contains('run-panel')).toBe(true));
+    release();
+  }, 15000);
+
+  it('폰 폭: 받는 중에 취소하면 편집기의 실행 버튼으로 포커스', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = app.provider.getCandles.bind(app.provider);
+    vi.spyOn(app.provider, 'getCandles').mockImplementation(async (q) => (await gate, real(q)));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    const cancel = await screen.findByRole('button', { name: '취소' });
+    cancel.focus();
+    await fireEvent.click(cancel);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '시뮬레이션 실행' })));
+    release();
+  }, 15000);
+
+  it('PC 폭: 결과의 규칙 고치기는 옆 편집기의 그 구역을 열고 그 머리로 포커스', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.mocked(simulate).mockImplementationOnce(() =>
+      doneState((s) => noTrades(s, [{ date: '2024-07-02', symbol: '000660', reason: '현금 부족' }])).result,
+    );
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await fireEvent.click(await screen.findByRole('button', { name: '규칙 고치기' }, { timeout: 5000 }));
+    const head = screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '기간·자금')!;
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(head));
+  }, 15000);
+
   it('PC 폭에는 결과 버튼이 없다', async () => {
     stubWidth(true);
     const app = setup(['눌림목']);
@@ -377,7 +443,7 @@ describe('Simulate run states', () => {
     await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
   }, 20000);
 
-  it('좁은 화면에는 오래된 결과 배너가 없다', async () => {
+  it('좁은 화면: 규칙에서 바꾸고 결과로 돌아오면 배너, 다시 실행은 새 작업본으로', async () => {
     stubWidth(false, true);
     const app = setup(['눌림목']);
     shortPeriod(app);
@@ -385,7 +451,19 @@ describe('Simulate run states', () => {
     await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
     expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.queryByText(STALE)).toBeNull();
-  }, 15000);
+    const before = dropOf();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
+    await fireEvent.input(screen.getByRole('textbox', { name: '고점 대비 하락폭' }), { target: { value: String(before + 7) } });
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    expect(screen.getByText(STALE)).toBeTruthy();
+    expect(screen.getByText('이전 결과')).toBeTruthy();
+    vi.mocked(simulate).mockClear();
+    await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
+    await waitFor(() => expect(simulate).toHaveBeenCalled(), { timeout: 5000 });
+    expect(dropOf()).toBe(before + 7);
+    await waitFor(() => expect(screen.queryByText(STALE)).toBeNull());
+  }, 20000);
 
   it('모든 종목을 받지 못하면 연결 문구와 다시 시도(현재 draft로)', async () => {
     stubWidth(false, true);

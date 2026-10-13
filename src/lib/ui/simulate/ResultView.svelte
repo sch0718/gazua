@@ -19,12 +19,15 @@
     state: done,
     colorConvention,
     theme,
+    stale = false,
     onEdit,
   }: {
     state: DoneState;
     colorConvention: 'kr' | 'global';
     /** 앱 테마(app.settings.theme). 바뀌면 자산 곡선 색을 다시 읽는다 */
     theme?: string;
+    /** 규칙이 바뀌어 지난 실행의 결과다: `이전 결과` 표시와 왼쪽 강조선(흐리게 하지 않는다) */
+    stale?: boolean;
     /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
     onEdit: (section?: Issue['section']) => void;
   } = $props();
@@ -53,9 +56,9 @@
       label: '거래 횟수',
       value: `${sum.roundTrips}번`,
       cls: '',
-      // 거래 횟수는 끝난 거래만 센다(보유 중인 종목은 따로)
+      // 값은 보유 중 포함 거래 수, 부가 줄의 끝난 거래 = roundTrips − openPositions(= 승 + 패)
       sub: [
-        `끝난 ${sum.roundTrips}번`,
+        `끝난 ${sum.roundTrips - sum.openPositions}번`,
         sum.openPositions ? `아직 보유 ${sum.openPositions}종목` : '',
         sum.avgHoldDays === null ? '' : `평균 ${Math.round(sum.avgHoldDays)}일`,
       ]
@@ -89,8 +92,9 @@
   });
 </script>
 
-<section class="result" aria-label="시뮬레이션 결과">
+<section class="result" class:stale aria-label="시뮬레이션 결과">
   <p class="head">
+    {#if stale}<Badge tone="nxt">이전 결과</Badge>{/if}
     <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt, meta.strategy.period.from)}</span>
     {#if meta.demo}<Badge>데모 데이터</Badge>{/if}
   </p>
@@ -192,6 +196,14 @@
     gap: 16px;
     padding: 16px var(--gutter);
     font-size: var(--fs-body);
+  }
+  /* 지난 실행의 결과: 투명도 대신 왼쪽 강조선(글자 대비·거래 차트 시트는 그대로) */
+  .result.stale {
+    border-left: 3px solid var(--accent);
+  }
+  .head :global(.badge:first-child) {
+    margin-left: 0;
+    margin-right: 6px;
   }
   .head {
     margin: 0;

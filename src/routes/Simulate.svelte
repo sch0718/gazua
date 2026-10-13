@@ -1,6 +1,7 @@
 <script lang="ts">
   // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
   // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`↔`결과`로 오감), PC(≥1024)는 좌우로 둘 다 보인다.
+  // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼(좁은 화면).
   import { onDestroy, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
@@ -37,7 +38,10 @@
   let showResult = $state(false);
   // 편집기의 최신 작업본. 오래된 결과 비교와 `다시 실행`·`다시 시도`가 이걸 쓴다(편집기가 내려가도 남는다).
   let draft = $state.raw<Strategy | null>(null);
-  const stale = $derived(wide && ctl.state.kind === 'done' && draft !== null && rulesChanged(ctl.state.meta.strategy, draft));
+  // 좁은 화면도 `규칙`에서 고친 뒤 `결과`로 돌아오면 오래된 결과다
+  const stale = $derived(ctl.state.kind === 'done' && draft !== null && rulesChanged(ctl.state.meta.strategy, draft));
+  let panel = $state<RunPanel>();
+  let editor = $state<StrategyEditor>();
   // 결과의 `규칙 고치기`가 열어 달라는 편집 구역(번호가 바뀔 때마다 한 번 연다)
   let openRequest = $state<{ section: Issue['section']; seq: number } | null>(null);
   let openSeq = 0;
@@ -58,7 +62,10 @@
   function run(next: Strategy) {
     draft = next;
     ctl.run(next);
+    // 좁은 화면에서 편집기(누른 실행 버튼)가 내려가면 결과 자리로 포커스
+    const leavingEditor = !wide && !showResult;
     showResult = true;
+    if (leavingEditor) void tick().then(() => panel?.focus());
   }
   function edit(section?: Issue['section']) {
     showResult = false;
@@ -68,6 +75,7 @@
   const showRun = () => (showResult = true);
   function cancel() {
     ctl.cancel();
+    if (!wide && showResult) void tick().then(() => editor?.focusRun());
     showResult = false;
   }
   // 다시 실행·다시 시도는 편집기의 현재 작업본으로 돌린다. 막는 경고가 있으면 실행하지 않고 그 구역을 연다.
@@ -97,10 +105,9 @@
     {#if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
       <span class="title">시뮬레이션</span>
-      {#if showResult && !wide}
-        <button type="button" class="rules" onclick={() => edit()}>규칙</button>
-      {:else if !showResult && !wide && ctl.state.kind !== 'idle'}
-        <button type="button" class="rules" onclick={showRun}>결과</button>
+      <!-- `규칙`↔`결과`는 같은 버튼(이름·동작만 바뀐다): 눌러도 포커스가 남는다 -->
+      {#if !wide && (showResult || ctl.state.kind !== 'idle')}
+        <button type="button" class="rules" onclick={() => (showResult ? edit() : showRun())}>{showResult ? '규칙' : '결과'}</button>
       {/if}
     {:else}
       <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
@@ -117,12 +124,13 @@
           <div class="sim" class:split={wide}>
             {#if wide || !showResult}
               <div class="pane">
-                <StrategyEditor {app} {strategy} onRun={run} ondraft={(d) => (draft = d)} {openRequest} />
+                <StrategyEditor bind:this={editor} {app} {strategy} onRun={run} ondraft={(d) => (draft = d)} {openRequest} />
               </div>
             {/if}
             {#if wide || showResult}
               <div class="pane">
                 <RunPanel
+                  bind:this={panel}
                   state={ctl.state}
                   colorConvention={app.settings.colorConvention}
                   theme={app.settings.theme}

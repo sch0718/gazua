@@ -22,12 +22,17 @@
   } = $props();
 
   const bodyId = `sec-${Math.random().toString(36).slice(2, 9)}`;
+  let head: HTMLButtonElement;
+  /** 머리 버튼으로 포커스(결과의 `규칙 고치기`가 이 구역을 열 때) */
+  export function focusHead() {
+    head?.focus();
+  }
   const blocked = $derived(issues.some((x) => x.issue.blocking));
 </script>
 
 <section class="sec" class:open>
   <!-- 접혀 있으면 본문이 없으므로 aria-controls를 두지 않는다 -->
-  <button type="button" class="head" aria-expanded={open} aria-controls={open ? bodyId : undefined} onclick={ontoggle}>
+  <button type="button" class="head" bind:this={head} aria-expanded={open} aria-controls={open ? bodyId : undefined} onclick={ontoggle}>
     <span class="txt">
       <b>{title}</b>
       <span class="sum num">{summary}</span>

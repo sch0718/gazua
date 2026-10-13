@@ -57,6 +57,8 @@
   const profile = untrack(() => app.meta.activeProfileId);
   let draft = $state<Strategy>(untrack(() => $state.snapshot(strategy) as Strategy));
   let nameText = $state(untrack(() => strategy.name));
+  // 이름 칸 오류: 비우면 보이고, 저장된 이름은 그대로 둔다(맞는 이름을 적을 때까지)
+  let nameError = $state('');
   let openKeys = $state<Partial<Record<Key, boolean>>>({});
   let universe = $state.raw<UniverseItem[] | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -117,14 +119,23 @@
     return key === 'period' ? `${sum('period')} · ${sum('capital')}` : sum(key);
   }
 
-  // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다
+  // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다. 연 구역의 머리로 포커스
   let handledSeq = -1;
+  const heads: Partial<Record<Key, EditorSection>> = {};
   $effect(() => {
     const req = openRequest;
     if (!req || req.seq === handledSeq) return;
     handledSeq = req.seq;
-    openKeys[keyOf(req.section)] = true;
+    const key = keyOf(req.section);
+    openKeys[key] = true;
+    void tick().then(() => heads[key]?.focusHead());
   });
+
+  let runButton: HTMLButtonElement;
+  /** 맨 아래 실행 버튼으로 포커스(좁은 화면에서 받는 중에 취소했을 때) */
+  export function focusRun() {
+    runButton?.focus();
+  }
 
   const toggle = (key: Key) => (openKeys[key] = !openKeys[key]);
 
@@ -148,18 +159,34 @@
 
   function rename() {
     const name = nameText.trim().slice(0, NAME_MAX);
+    nameError = name ? '' : '이름을 적어 주세요';
     if (name) update((x) => (x.name = name));
   }
 </script>
 
 <div class="editor">
   <div class="top">
-    <input class="name" aria-label="전략 이름" maxlength={NAME_MAX} bind:value={nameText} oninput={rename} onblur={() => (nameText = draft.name)} />
+    <div class="name-field">
+      <input
+        class="name"
+        aria-label="전략 이름"
+        maxlength={NAME_MAX}
+        bind:value={nameText}
+        oninput={rename}
+        onblur={() => {
+          if (!nameError) nameText = draft.name;
+        }}
+        aria-invalid={nameError ? 'true' : undefined}
+        aria-describedby={nameError ? `ed-${uid}-name-err` : undefined}
+      />
+      {#if nameError}<p class="name-err" id="ed-{uid}-name-err" role="alert">{nameError}</p>{/if}
+    </div>
     <button type="button" class="dup" disabled={app.strategies.length >= MAX_STRATEGIES} onclick={duplicate}>복제</button>
   </div>
 
   {#each SECTIONS as { key, title } (key)}
     <EditorSection
+      bind:this={heads[key]}
       {title}
       summary={summary(key)}
       open={!!openKeys[key]}
@@ -185,7 +212,7 @@
   {/each}
 
   <div class="runbar">
-    <button type="button" class="run" onclick={run}>시뮬레이션 실행</button>
+    <button type="button" class="run" bind:this={runButton} onclick={run}>시뮬레이션 실행</button>
   </div>
 </div>
 
@@ -200,10 +227,22 @@
   .top {
     display: flex;
     gap: 8px;
-    align-items: center;
+    align-items: flex-start;
+  }
+  .name-field {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .name-err {
+    margin: 0;
+    font-size: var(--fs-sub);
+    color: var(--err);
   }
   .name {
-    flex: 1;
+    width: 100%;
     min-width: 0;
     min-height: var(--touch);
     padding: 0 12px;

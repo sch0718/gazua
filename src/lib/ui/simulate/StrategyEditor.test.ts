@@ -72,6 +72,13 @@ describe('StrategyEditor 구역', () => {
     expect(header('기간·자금').getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('openRequest로 연 구역의 머리로 포커스를 옮긴다', async () => {
+    const { view } = setup();
+    await view.rerender({ openRequest: { section: 'entry', seq: 1 } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.activeElement).toBe(header('매수'));
+  });
+
   it('seven collapsed sections in spec order with one-line summaries', async () => {
     setup();
     const heads = screen.getAllByRole('button').filter((b) => b.hasAttribute('aria-expanded'));
@@ -328,6 +335,25 @@ describe('머리줄', () => {
     expect(copy.id).not.toBe('s1');
     expect(location.hash).toBe(`#/simulate/${copy.id}`);
     expect(app.route).toEqual({ name: 'simulate', strategyId: copy.id });
+  });
+
+  it('이름을 비우면 칸 아래 오류를 보이고(조용히 되돌리지 않는다) 저장된 이름은 그대로', async () => {
+    const { app } = setup();
+    const name = screen.getByRole('textbox', { name: '전략 이름' }) as HTMLInputElement;
+    await fireEvent.input(name, { target: { value: '  ' } });
+    const err = screen.getByRole('alert');
+    expect(err.textContent).toBe('이름을 적어 주세요');
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(name.getAttribute('aria-describedby')).toBe(err.id);
+    await fireEvent.blur(name);
+    expect(screen.getByText('이름을 적어 주세요')).toBeTruthy();
+    await settle();
+    expect(saved(app).name).toBe('눌림목');
+    await fireEvent.input(name, { target: { value: '반등' } });
+    expect(screen.queryByText('이름을 적어 주세요')).toBeNull();
+    expect(name.getAttribute('aria-invalid')).toBeNull();
+    await settle();
+    expect(saved(app).name).toBe('반등');
   });
 
   it('이름을 고치면 저장되고, 비우면 저장하지 않는다', async () => {
