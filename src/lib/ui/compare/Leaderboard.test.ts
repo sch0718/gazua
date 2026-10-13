@@ -263,6 +263,25 @@ describe('Leaderboard', () => {
       expect(onfocuswithin).toHaveBeenLastCalledWith(null);
     });
 
+    it('a new press inside the list within the release window keeps the hold and continues the press', async () => {
+      const onfocuswithin = vi.fn();
+      await press(onfocuswithin);
+      // 클릭 없이 뗀 뒤(Safari), 유예 안에 목록 안을 다시 누른다
+      await fireEvent.pointerUp(document.body, { pointerId: 1 });
+      vi.advanceTimersByTime(100);
+      await fireEvent.pointerDown(mainBtn('A'), { clientX: 10, clientY: 10, pointerId: 2 });
+      expect(onfocuswithin).toHaveBeenCalledTimes(1);
+      // 두 번째 누름이 진행 중이므로 첫 누름의 유예 타이머가 풀지 않는다
+      vi.advanceTimersByTime(300);
+      expect(onfocuswithin).toHaveBeenCalledTimes(1);
+      await fireEvent.pointerUp(mainBtn('A'), { pointerId: 2 });
+      await fireEvent.click(mainBtn('A'));
+      expect(onfocuswithin).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(0);
+      expect(onfocuswithin).toHaveBeenCalledTimes(2);
+      expect(onfocuswithin).toHaveBeenLastCalledWith(null);
+    });
+
     it('a key press ends the press: focus moving out afterwards releases normally', async () => {
       const onfocuswithin = vi.fn();
       await press(onfocuswithin);

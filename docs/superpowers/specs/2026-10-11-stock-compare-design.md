@@ -338,7 +338,7 @@ tradableIntervals(day: TradingDay, meta: StockMeta, venueMode, sessionsConfig) �
    - 탭 → 종목 상세 시트. 색 점 탭 → 차트에서 숨기기·보이기(행은 흐리게)
    - 길게 누르기 → 드래그로 순서 변경
    - 스크럽 중에는 그 시각 값으로 바뀌고 정렬은 고정(값이 튀며 행이 움직이지 않게)
-   - 키보드 포커스가 리더보드 목록 안에 있는 동안에도 정렬을 고정한다(포커스가 들어올 때의 순서). 마우스·터치로 눌러 생긴 포커스(행·색 점 클릭, 마우스로 시트를 닫아 행으로 돌아온 포커스 등)는 고정하지 않는다. 다만 그렇게 포커스한 요소에서 이어 키보드를 누르면(예: 색 점을 누른 뒤 같은 버튼에서 Space) 그 키를 누른 시점의 순서로 고정을 시작한다. 이미 고정 중에 목록 안을 눌러도 풀지 않는다. 고정된 목록 안에서 시작한 누름은 클릭이 끝날 때까지 순서를 그대로 둔다(클릭이 포커스를 주지 않는 브라우저. 떼는 순간 풀면 옮겨진 행이 클릭을 받지 못한다. 클릭이 없으면 0.3초 뒤, 취소·새 누름·키 입력은 바로 푼다). 값은 계속 바뀌고, 포커스가 목록을 벗어나면(시트로 옮기거나 다른 곳을 눌러도) 바로 다시 정렬한다. 고정 중에 새로 생긴 종목은 끝에 붙이고 사라진 종목은 뺀다. 스크럽 고정이 있으면 그것을 먼저 쓴다. `Alt+↑↓`로 직접 옮기면 새 순서로 다시 고정한다
+   - 키보드 포커스가 리더보드 목록 안에 있는 동안에도 정렬을 고정한다(포커스가 들어올 때의 순서). 마우스·터치로 눌러 생긴 포커스(행·색 점 클릭, 마우스로 시트를 닫아 행으로 돌아온 포커스 등)는 고정하지 않는다. 다만 그렇게 포커스한 요소에서 이어 키보드를 누르면(예: 색 점을 누른 뒤 같은 버튼에서 Space) 그 키를 누른 시점의 순서로 고정을 시작한다. 이미 고정 중에 목록 안을 눌러도 풀지 않는다. 고정된 목록 안에서 시작한 누름은 클릭이 끝날 때까지 순서를 그대로 둔다(클릭이 포커스를 주지 않는 브라우저. 떼는 순간 풀면 옮겨진 행이 클릭을 받지 못한다. 클릭이 없으면 0.3초 뒤, 취소·목록 밖의 새 누름·키 입력은 바로 푼다. 뗀 뒤 0.3초 안에 목록 안을 다시 누르면 같은 누름의 이어짐으로 보고 풀지 않는다). 값은 계속 바뀌고, 포커스가 목록을 벗어나면(시트로 옮기거나 다른 곳을 눌러도) 바로 다시 정렬한다. 고정 중에 새로 생긴 종목은 끝에 붙이고 사라진 종목은 뺀다. 스크럽 고정이 있으면 그것을 먼저 쓴다. `Alt+↑↓`로 직접 옮기면 새 순서로 다시 고정한다
 7. **리더보드 머리줄** `등락률 순 · 4/8` + `＋ 종목 추가` 버튼 → 종목 추가 시트 (플로팅 버튼은 리더보드 값을 가려서 쓰지 않음)
 
 빈 상태: "비교할 종목을 추가해 보세요" + `＋ 종목 추가` + `예시 그룹 불러오기(반도체 대형주 4종)`.
@@ -522,7 +522,7 @@ p:{id}:tokenIssuedAt:kis  마지막 KIS 토큰 발급 시각(epoch ms)   // 비�
 - **공급자 계약 테스트**: 실제 응답을 녹화한 픽스처(키·계좌 정보 제거)로 KIS·토스·데모가 같은 테스트를 통과
 - **프록시**: 허용 경로·차단 경로(주문), CORS 출처 검사, `PROXY_TOKEN`
 - **E2E (Playwright, 데모 공급자)**: 375×812 / 820×1180 가로·세로 / 1440×900. 종목 추가 → 기간·지표·거래소 전환 → 삭제·되돌리기. axe 접근성 검사 포함
-- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<pnpm-lock.yaml 해시>`)를 캐시하고 적중하면 `install-deps`만 돌린다. 브라우저 버전은 락파일의 Playwright 버전이 정하므로 락파일이 바뀌면 키도 바뀐다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다. `tsconfig.json`은 편집기와 Svelte 언어 서버가 기본으로 여는 넓은 설정이다(앱 코드·테스트·루트 설정 파일 포함, `types: ["node"]`, strict). `tsconfig.app.json`은 앱 전용이다(`src`만, `types: []`, 테스트 파일과 vitest에 의존하는 보조 파일(`contract.ts`·`lwcStub.ts`) 제외 — Node 전역 `process`·`Buffer`가 앱 코드에 보이지 않는다). `pnpm check`는 `tsconfig.app.json`, `tsconfig.json` 순으로 svelte-check를 두 번 돌린다. `tsconfig.e2e.json`은 `tsconfig.app.json`을 확장한다.
+- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<pnpm-lock.yaml 해시>`)를 캐시하고 적중하면 `install-deps`만 돌린다. 브라우저 버전은 락파일의 Playwright 버전이 정하므로 락파일이 바뀌면 키도 바뀐다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다. `tsconfig.json`은 편집기와 Svelte 언어 서버가 기본으로 여는 넓은 설정이다(앱 코드·테스트·루트 설정 파일·`tests/e2e`·`playwright.config.ts` 포함, `types: ["node"]`, strict). `tsconfig.app.json`은 앱 전용이다(`src`만, `types: []`, 테스트 파일과 vitest에 의존하는 보조 파일(`contract.ts`·`lwcStub.ts`) 제외 — Node 전역 `process`·`Buffer`가 앱 코드에 보이지 않는다). `pnpm check`는 `tsconfig.app.json`, `tsconfig.json` 순으로 svelte-check를 두 번 돌린다. `tsconfig.e2e.json`은 `tsconfig.app.json`을 확장한다.
 - **실제 연결 점검표**: 실제 키로 장중·애프터·휴장일에 수동 확인(README에 체크리스트)
 
 ---

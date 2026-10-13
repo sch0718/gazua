@@ -219,7 +219,7 @@ describe('createRequestQueue', () => {
       });
     const pa = flight('a', 100, 5000);
     const pb = flight('b', 600, 1000);
-    // 두 번째 429(t+500)가 처리된 뒤에 들어온 요청
+    // 두 번째 429(약 t+510, 100/s 간격)가 처리된 뒤에 들어온 요청
     let cStart = -1;
     const pc = c.sleep(700).then(() => q.run('kis', 'c', 0, async () => void (cStart = c.now())));
     await c.settle();

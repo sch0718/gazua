@@ -104,7 +104,7 @@
   }
 
   // 고정 중인 목록 안에서 시작한 누름. 클릭까지 끝난 뒤에 푼다(떼는 순간 풀면 행이 옮겨져 그 행이 click을 못 받는다, WebKit).
-  // 뗀 뒤에는 click이 오면 바로, 안 오면 RELEASE_FALLBACK_MS 뒤에, 새 누름·키 입력이 먼저 오면 그 즉시 푼다. 취소(pointercancel)는 바로 푼다.
+  // 뗀 뒤에는 click이 오면 바로, 안 오면 RELEASE_FALLBACK_MS 뒤에, 목록 밖의 새 누름·키 입력이 먼저 오면 그 즉시 푼다. 취소(pointercancel)는 바로 푼다.
   const RELEASE_FALLBACK_MS = 300;
   const DOC_EVENTS = ['pointerup', 'pointercancel', 'click', 'pointerdown', 'keydown'] as const;
   let pressInside = false;
@@ -136,7 +136,14 @@
         }
         break;
       case 'pointerdown':
-        if (pressReleased) finishPress();
+        if (!pressReleased) break;
+        if (listEl?.contains(e.target as Node)) {
+          // 목록 안의 새 누름은 같은 누름의 이어짐이다. 유예 타이머만 끄고 계속 지켜본다.
+          clearTimeout(releaseTimer);
+          pressReleased = false;
+        } else {
+          finishPress();
+        }
         break;
       case 'keydown':
         // 키로 포커스를 옮기면 focusout이 오므로 누름 표시만 끄고, 포커스가 이미 body였던 경우는 직후에 확인한다.

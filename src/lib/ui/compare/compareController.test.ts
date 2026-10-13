@@ -360,7 +360,7 @@ describe('compareController', () => {
     expect(t.ctl.entries['042700'].error).toBeFalsy();
   });
 
-  it('mixed proxy and timeout failures count together and show the more frequent banner', async () => {
+  it('mixed proxy and timeout failures count together; a tie goes to proxy-unreachable', async () => {
     const t = track(setup());
     t.ctl.setQuery(t.query());
     await vi.advanceTimersByTimeAsync(0);
