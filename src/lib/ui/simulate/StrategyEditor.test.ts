@@ -309,6 +309,34 @@ describe('기간·비용 구역', () => {
     expect(saved(app).period.from).toBe('2024-01-02');
   });
 
+  it('날짜를 지우면 입력이 모델 날짜로 돌아오고, 실행 기간도 화면과 같다', async () => {
+    const { app, onRun } = setup((s) => {
+      s.period = { from: '2024-03-04', to: '2026-10-11' };
+    });
+    await openSection('기간·자금');
+    const from = screen.getByLabelText('시작일') as HTMLInputElement;
+    const to = screen.getByLabelText('종료일') as HTMLInputElement;
+    await fireEvent.change(from, { target: { value: '' } });
+    expect(from.value).toBe('2024-03-04');
+    await fireEvent.change(to, { target: { value: '' } });
+    expect(to.value).toBe('2026-10-11');
+    await settle();
+    expect(saved(app).period).toEqual({ from: '2024-03-04', to: '2026-10-11' });
+    await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ period: { from: from.value, to: to.value } }));
+  });
+
+  it('입력이 비어 있는 채로 칸을 떠나도 모델 날짜로 돌아온다', async () => {
+    setup((s) => {
+      s.period = { from: '2024-03-04', to: '2026-10-11' };
+    });
+    await openSection('기간·자금');
+    const from = screen.getByLabelText('시작일') as HTMLInputElement;
+    from.value = ''; // 날짜 일부만 적으면 change 없이 값이 빈 채로 남는다
+    await fireEvent.blur(from);
+    expect(from.value).toBe('2024-03-04');
+  });
+
   it('시작일이 종료일 이후면 Banner', async () => {
     setup((s) => {
       s.period = { from: '2026-10-01', to: '2026-09-01' };

@@ -5,20 +5,28 @@
 
   let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
 
-  function setDate(key: 'from' | 'to', value: string) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return; // 지우면 값이 비므로 이전 날짜를 둔다
-    update((x) => (x.period[key] = value));
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  // 비우거나 덜 적은 값은 모델에 넣지 않고, 입력 표시를 모델 날짜로 되돌려 화면과 실행 기간을 같게 둔다
+  function restore(key: 'from' | 'to', input: HTMLInputElement): boolean {
+    if (DATE_RE.test(input.value)) return false;
+    input.value = s.period[key];
+    return true;
+  }
+  function setDate(key: 'from' | 'to', input: HTMLInputElement) {
+    if (restore(key, input)) return;
+    update((x) => (x.period[key] = input.value));
   }
 </script>
 
 <div class="dates">
   <label>
     <span>시작일</span>
-    <input type="date" value={s.period.from} onchange={(e) => setDate('from', e.currentTarget.value)} />
+    <input type="date" value={s.period.from} onchange={(e) => setDate('from', e.currentTarget)} onblur={(e) => restore('from', e.currentTarget)} />
   </label>
   <label>
     <span>종료일</span>
-    <input type="date" value={s.period.to} onchange={(e) => setDate('to', e.currentTarget.value)} />
+    <input type="date" value={s.period.to} onchange={(e) => setDate('to', e.currentTarget)} onblur={(e) => restore('to', e.currentTarget)} />
   </label>
 </div>
 <p class="hint">날짜는 한국 시간 기준이고, 시작일과 종료일 모두 포함해요.</p>
