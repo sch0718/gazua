@@ -48,8 +48,8 @@ describe('strategyIssues', () => {
     });
   });
 
-  it('골든크로스는 단기선이 장기선보다 짧아야 한다(켜져 있을 때만, 막지 않음)', () => {
-    const warn = { section: 'entry', text: '단기선 기간이 장기선보다 짧아야 해요', blocking: false };
+  it('골든크로스는 짧은 이동평균이 긴 이동평균보다 짧아야 한다(켜져 있을 때만, 막지 않음)', () => {
+    const warn = { section: 'entry', text: '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요', blocking: false };
     const t = structuredClone(s);
     t.entry.triggers.goldenCross = { on: true, short: 5, long: 5 };
     expect(strategyIssues(t, w)).toContainEqual(warn);

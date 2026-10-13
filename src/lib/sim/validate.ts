@@ -191,7 +191,7 @@ export function strategyIssues(s: Strategy, w: Watchlists): Issue[] {
   if (!t.reboundDays.on && !t.breakout.on && !t.maCross.on && !t.goldenCross.on)
     out.push({ section: 'entry', text: '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true });
   if (t.goldenCross.on && t.goldenCross.short >= t.goldenCross.long)
-    out.push({ section: 'entry', text: '단기선 기간이 장기선보다 짧아야 해요', blocking: false });
+    out.push({ section: 'entry', text: '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요', blocking: false });
 
   const { stopLoss, takeProfit } = s.exit;
   if (stopLoss.basis === 'avgAlways' && s.scaleIn.on && s.scaleIn.stepPct >= stopLoss.pct)

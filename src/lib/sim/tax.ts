@@ -20,18 +20,26 @@ export function sellTaxPct(date: string, market: TaxMarket, isEtf: boolean): num
   return market === 'KOSPI' ? row[1] : row[2];
 }
 
-/** 평일 n일 뒤(토·일만 건너뜀, 공휴일은 모름) */
+// KRX가 해마다 쉬는 날(연말 휴장일·신정). 그 밖의 공휴일은 모른다.
+const KRX_FIXED_CLOSURES = new Set(['12-31', '01-01']);
+
+/** 근사용 거래일: 토·일과 12-31·01-01이 아닌 날 */
+function approxTradingDay(d: string): boolean {
+  const w = kstWeekday(d);
+  return w !== 0 && w !== 6 && !KRX_FIXED_CLOSURES.has(d.slice(5));
+}
+
+/** 근사 거래일 n일 뒤(토·일·12-31·01-01만 건너뜀, 다른 공휴일은 모름) */
 function addWeekdays(date: string, n: number): string {
   let d = date;
   for (let left = n; left > 0; ) {
     d = addDays(d, 1);
-    const w = kstWeekday(d);
-    if (w !== 0 && w !== 6) left--;
+    if (approxTradingDay(d)) left--;
   }
   return d;
 }
 
-/** 체결일 다음 2번째 거래일(T+2 결제일). 축 끝을 넘으면 남은 만큼을 평일로 근사한다. */
+/** 체결일 다음 2번째 거래일(T+2 결제일). 축 끝을 넘으면 남은 만큼을 근사 거래일(평일, 12-31·01-01 제외)로 더한다. */
 export function settlementDate(tradeDate: string, days: string[]): string {
   // tradeDate 이상인 첫 거래일 위치 (이분 탐색)
   let lo = 0;
@@ -44,9 +52,9 @@ export function settlementDate(tradeDate: string, days: string[]): string {
   const target = lo + 2;
   if (target < days.length) return days[target];
   if (days.length === 0 || lo >= days.length) {
-    // 축 밖이면 날짜 자체를 평일로 맞춘 뒤 +2
+    // 축 밖이면 날짜 자체를 근사 거래일로 맞춘 뒤 +2
     let base = tradeDate;
-    while (kstWeekday(base) === 0 || kstWeekday(base) === 6) base = addDays(base, 1);
+    while (!approxTradingDay(base)) base = addDays(base, 1);
     return addWeekdays(base, 2);
   }
   return addWeekdays(days[days.length - 1], target - (days.length - 1));
