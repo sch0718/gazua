@@ -15,7 +15,8 @@
   import { kstDate } from '../../time/kst';
   import Sheet from '../components/Sheet.svelte';
   import { fmtWon } from '../format';
-  import { positionOf } from './positions';
+  import { positionOf, positionReturnPct } from './positions';
+  import { returnClass, shortDate, trendReturn } from './simText';
 
   let {
     open,
@@ -23,10 +24,22 @@
     trades,
     candles,
     name,
+    level = null,
     onclose,
-  }: { open: boolean; trade: Trade | null; trades: Trade[]; candles: Candle[]; name: string; onclose: () => void } = $props();
+  }: {
+    open: boolean;
+    trade: Trade | null;
+    trades: Trade[];
+    candles: Candle[];
+    name: string;
+    /** 전략이 고른 돌파 기준(A·B). 돌파 트리거를 안 쓰면 null */
+    level?: 'A' | 'B' | null;
+    onclose: () => void;
+  } = $props();
 
   const MARGIN_BARS = 20;
+  /** 같은 방향 마커가 이 봉 수 안이면 하나로 합친다(라벨 겹침 방지) */
+  const MERGE_BARS = 3;
   const LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
   // 마커·가격선 색 토큰: 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
   const MARKER_COLOR: Record<Trade['kind'], [string, string]> = {
@@ -58,8 +71,35 @@
     return { from, to };
   });
 
-  const md = (d: string) => `${Number(d.slice(5, 7))}.${Number(d.slice(8, 10))}`;
-  const summary = $derived(position?.trades.map((t) => `${LABEL[t.kind]} ${md(t.date)} ${fmtWon(t.price)}원`).join(' → ') ?? '');
+  const steps = $derived(position?.trades.map((t) => `${LABEL[t.kind]} ${shortDate(t.date)} ${fmtWon(t.price)}원`) ?? []);
+  const outcome = $derived.by(() => {
+    if (!position) return null;
+    const r = positionReturnPct(position);
+    return r === null ? { text: '보유 중', cls: '' } : { text: trendReturn(r), cls: returnClass(r) };
+  });
+  // 제목: `DB하이텍 · 25.03.24 매수`(포지션의 첫 매수일)
+  const title = $derived(position ? `${name} · ${position.trades[0].date.slice(2).replaceAll('-', '.')} 매수` : name);
+
+  const buying = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
+
+  /** 같은 방향 거래가 MERGE_BARS봉 안에 몰리면 마커 하나로(라벨 `매수·추가`·`익절·손절`). 시간 순으로 돌려준다. */
+  function mergedMarkers(list: Trade[], barOf: (date: string) => number) {
+    type Group = { time: string; bar: number; buying: boolean; kinds: Trade['kind'][] };
+    const groups: Group[] = [];
+    const lastOf = new Map<boolean, Group>();
+    for (const t of list) {
+      const bar = barOf(t.date);
+      const last = lastOf.get(buying(t));
+      if (last && bar - last.bar <= MERGE_BARS) {
+        last.kinds.push(t.kind);
+        continue;
+      }
+      const g = { time: t.date, bar, buying: buying(t), kinds: [t.kind] };
+      groups.push(g);
+      lastOf.set(g.buying, g);
+    }
+    return groups.sort((a, b) => a.bar - b.bar);
+  }
 
   let el = $state<HTMLDivElement>();
 
@@ -74,7 +114,8 @@
       height: node.clientHeight,
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: v(['--t3', '#676d77']), fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: v(['--grid', 'rgba(17,19,23,.07)']) } },
-      rightPriceScale: { borderVisible: false },
+      // 위는 매도 마커, 아래는 매수 마커·출처 로고 자리
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.22 } },
       timeScale: { borderVisible: false },
       localization: { locale: 'ko-KR', priceFormatter: (p: number) => fmtWon(Math.round(p)) },
     });
@@ -84,22 +125,31 @@
     line.setData(bars.map((k) => ({ time: kstDate(k.t) as Time, value: k.c })));
 
     // 마커는 시간 순이어야 한다
-    const markers: SeriesMarker<Time>[] = position.trades.map((t) => {
-      const buying = t.kind === 'buy' || t.kind === 'add';
+    const barOf = (date: string) => {
+      const i = dates.findIndex((d) => d >= date);
+      return i < 0 ? dates.length : i;
+    };
+    const markers: SeriesMarker<Time>[] = mergedMarkers(position.trades, barOf).map((g) => {
+      const colors = [...new Set(g.kinds.map((k) => v(MARKER_COLOR[k])))];
       return {
-        time: t.date as Time,
-        position: buying ? 'belowBar' : 'aboveBar',
-        shape: buying ? 'arrowUp' : 'arrowDown',
-        color: v(MARKER_COLOR[t.kind]),
-        text: LABEL[t.kind],
+        time: g.time as Time,
+        position: g.buying ? 'belowBar' : 'aboveBar',
+        shape: g.buying ? 'arrowUp' : 'arrowDown',
+        // 익절·손절처럼 색이 섞이면 중립색
+        color: colors.length === 1 ? colors[0] : v(['--t2', '#5b6069']),
+        text: [...new Set(g.kinds.map((k) => LABEL[k]))].join('·'),
       };
     });
     createSeriesMarkers(line, markers);
 
     if (pattern) {
-      for (const [title, price] of [['A', pattern.a], ['B', pattern.b], ['L', pattern.l]] as const) {
-        line.createPriceLine({ price, title, color: v(['--t3', '#676d77']), lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
+      // 고른 돌파 기준선만 강조색. L은 참고용이라 성긴 점선, 값은 요약 글에 있으니 축 라벨은 뺀다
+      const gray = v(['--t3', '#676d77']);
+      const accent = v(['--accent', '#5b47e0']);
+      for (const [title, price] of [['A', pattern.a], ['B', pattern.b]] as const) {
+        line.createPriceLine({ price, title, color: title === level ? accent : gray, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true });
       }
+      line.createPriceLine({ price: pattern.l, title: 'L', color: gray, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false });
     }
     c.timeScale().fitContent();
     return () => {
@@ -109,13 +159,17 @@
   });
 </script>
 
-<Sheet {open} title={name} {onclose}>
+<Sheet {open} {title} {onclose}>
   <div class="trade-chart">
     <div class="plot" bind:this={el} aria-hidden="true"></div>
-    <p class="summary">{summary}</p>
+    <p class="summary num">
+      {#each steps as step, i (i)}{#if i > 0}{' → '}{/if}<span class="step">{step}</span>{/each}{#if outcome}{' · '}<span
+          class="step {outcome.cls}">{outcome.text}</span
+        >{/if}
+    </p>
     {#if pattern}
       <!-- 차트가 aria-hidden이라 A/B/L 가격선도 글로 남긴다 -->
-      <p class="summary">A {fmtWon(pattern.a)}원 · B {fmtWon(pattern.b)}원 · L {fmtWon(pattern.l)}원</p>
+      <p class="summary num">A {fmtWon(pattern.a)}원 · B {fmtWon(pattern.b)}원 · L {fmtWon(pattern.l)}원</p>
     {/if}
   </div>
 </Sheet>
@@ -129,7 +183,11 @@
   }
   .summary {
     margin: 8px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-sub);
     color: var(--t2);
+  }
+  /* 단계 하나(`매수 03.24 50,875원`)는 중간에서 줄바꿈하지 않는다 */
+  .step {
+    white-space: nowrap;
   }
 </style>

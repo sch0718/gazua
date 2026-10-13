@@ -27,14 +27,47 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
   await expectNoHorizontalScroll(page);
   await shot(page, testInfo, 'sim-2-result');
 
+  // 총수익률 값은 한 줄이고 반 카드 밖으로 넘치지 않는다(375px에서 반 카드 안쪽 약 143px).
+  // 긴 값은 실제 값 옆에 복제본(글자 수 --chars를 함께 바꿈)을 붙여 잰다.
+  const mainValue = result.locator('.cards .value.main');
+  for (const text of [null, '▲ +99.9%', '▼ −99.9%', '▲ +125.3%', '▲ +1234.5%']) {
+    const m = await mainValue.evaluate((orig, t) => {
+      const el = t === null ? orig : (orig.cloneNode(true) as HTMLElement);
+      if (t !== null) {
+        el.textContent = t;
+        el.style.setProperty('--chars', String(t.length));
+        orig.after(el);
+      }
+      // 카드 몫 = (카드 목록 폭 − 칸 사이) ÷ 2 − 카드 안쪽 여백. 넘친 값이 칸을 넓혀도 이 몫과 비교한다
+      const list = orig.closest('.cards')!;
+      const card = getComputedStyle(orig.parentElement!);
+      const share = (list.clientWidth - parseFloat(getComputedStyle(list).columnGap)) / 2;
+      const inner = share - parseFloat(card.paddingLeft) - parseFloat(card.paddingRight);
+      const fontSize = parseFloat(getComputedStyle(el).fontSize);
+      // 글자 자체의 폭(소수점까지). scrollWidth는 정수로 올림돼 몫(143.5px)과 비교가 어긋난다
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const width = range.getBoundingClientRect().width;
+      const out = { text: el.textContent, width, inner, oneLine: el.getBoundingClientRect().height < fontSize * 2 };
+      if (t !== null) el.remove();
+      return out;
+    }, text);
+    expect(m.oneLine, `총수익률 '${m.text}' 줄바꿈`).toBe(true);
+    expect(m.width, `총수익률 '${m.text}' ${m.width}px > 카드 ${m.inner}px`).toBeLessThanOrEqual(m.inner);
+  }
+
   // 거래 내역 첫 행 → 거래 차트 시트
   await result.getByRole('radio', { name: '거래 내역' }).click();
   const firstTrade = result.getByRole('list', { name: '거래 내역' }).getByRole('button').first();
   await expect(firstTrade).toBeVisible();
-  const stockName = (await firstTrade.locator('.name').innerText()).trim();
+  // 행 버튼의 접근 가능한 이름은 `종목명 · 값 · MM.DD · 사유`
+  const rowName = /button "(.+)"/.exec(await firstTrade.ariaSnapshot())![1];
+  const stockName = rowName.split(' · ')[0];
   await firstTrade.click();
 
-  const sheet = page.getByRole('dialog', { name: stockName });
+  // 시트 제목은 `종목명 · YY.MM.DD 매수`
+  const escaped = stockName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const sheet = page.getByRole('dialog', { name: new RegExp(`^${escaped} · \\d{2}\\.\\d{2}\\.\\d{2} 매수$`) });
   await expect(sheet).toBeVisible();
   // 차트는 캔버스라 글자 요약으로 확인한다: `매수 MM.DD N원 → …`
   await expect(sheet).toContainText(/매수 .*원/);

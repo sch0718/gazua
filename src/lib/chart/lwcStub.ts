@@ -112,7 +112,10 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
           s.priceLines.push(o);
           return {};
         },
-        applyOptions: () => {},
+        // 테마가 바뀌어 색을 다시 넣는 경우를 확인하도록 옵션에 얕게 합친다
+        applyOptions: (o: Record<string, unknown>) => {
+          s.options = { ...s.options, ...o };
+        },
         attachPrimitive: () => {},
         priceToCoordinate: (price: number) => chart.priceToY(price),
       };
@@ -126,6 +129,12 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
       fireCrosshair();
     },
   };
+}
+
+/** 테스트 사이에 기록을 비운다(beforeEach에서 부른다). */
+export function resetLwcStub(): void {
+  lwcCharts.length = 0;
+  seriesByApi.clear();
 }
 
 /** v5의 createSeriesMarkers: 시리즈 api에서 StubSeries를 찾아 마커를 기록한다. */

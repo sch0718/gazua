@@ -125,6 +125,7 @@
                 <RunPanel
                   state={ctl.state}
                   colorConvention={app.settings.colorConvention}
+                  theme={app.settings.theme}
                   {stale}
                   onEdit={edit}
                   onRetry={retry}

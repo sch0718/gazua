@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import { ApiError } from '../lib/providers/errors';
@@ -45,7 +45,7 @@ afterEach(() => {
   apps = [];
   dismissSnackbar();
   vi.unstubAllGlobals();
-  lwcCharts.length = 0;
+  resetLwcStub();
 });
 
 function stubWidth(wide: boolean, phone = false) {

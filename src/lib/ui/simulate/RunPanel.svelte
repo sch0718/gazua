@@ -12,6 +12,7 @@
   let {
     state: run,
     colorConvention,
+    theme,
     stale = false,
     onEdit,
     onRetry,
@@ -21,6 +22,8 @@
   }: {
     state: RunState;
     colorConvention: 'kr' | 'global';
+    /** 앱 테마(app.settings.theme). 결과 차트 색을 다시 읽는 신호 */
+    theme?: string;
     /** 결과를 낸 뒤 규칙이 바뀌었다(넓은 화면). 배너를 보이고 본문을 흐리게 한다 */
     stale?: boolean;
     /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
@@ -45,7 +48,7 @@
     />
   {/if}
   <div class:dim={stale}>
-    <ResultView state={run} {colorConvention} {onEdit} {onTrade} />
+    <ResultView state={run} {colorConvention} {theme} {onEdit} {onTrade} />
   </div>
 {:else if run.kind === 'idle'}
   <p class="hint">규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요</p>

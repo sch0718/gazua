@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, ResizeObserverStub } from '../../chart/lwcStub';
+import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
 import { doneState, noTrades } from './resultFixture';
 import ResultView from './ResultView.svelte';
 import type { DoneState } from './runController.svelte';
@@ -10,15 +10,15 @@ vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
-  lwcCharts.length = 0;
+  resetLwcStub();
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function setup(state: DoneState = doneState()) {
+function setup(state: DoneState = doneState(), theme = 'system') {
   const onEdit = vi.fn();
   const onTrade = vi.fn();
-  render(ResultView, { state, colorConvention: 'kr', onEdit, onTrade });
-  return { onEdit, onTrade };
+  const r = render(ResultView, { state, colorConvention: 'kr', theme, onEdit, onTrade });
+  return { onEdit, onTrade, ...r };
 }
 
 const tab = (name: string | RegExp) => screen.getByRole('radio', { name });
@@ -119,6 +119,19 @@ describe('ResultView', () => {
     expect(items[3].textContent).not.toContain('아직 보유');
   });
 
+  it('총수익률 값은 글자 수(--chars)로 카드 폭에 맞춘다(▲ +125.3% = 9자)', () => {
+    const { unmount } = setup();
+    const value = () => within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem')[0].querySelector<HTMLElement>('.value')!;
+    expect(value().style.getPropertyValue('--chars')).toBe('8');
+    unmount();
+    setup(doneState((s) => (s.result.summary.totalReturnPct = 125.3)));
+    expect(value().textContent).toBe('▲ +125.3%');
+    expect(value().style.getPropertyValue('--chars')).toBe('9');
+    // 나머지 카드는 글자 수를 달지 않는다
+    const others = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem').slice(1);
+    expect(others.every((li) => li.querySelector<HTMLElement>('.value')!.style.getPropertyValue('--chars') === '')).toBe(true);
+  });
+
   it('총수익률이 반올림해서 0.0%면 화살표도 색도 없다', () => {
     setup(doneState((s) => (s.result.summary.totalReturnPct = 0.04)));
     const v = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem')[0].querySelector('.value')!;
@@ -136,6 +149,28 @@ describe('ResultView', () => {
       'KOSPI ▲ +11.0%',
     ]);
     expect(within(rows[2]).getByText('▼ −2.5%').className).toContain('down');
+  });
+
+  it('비교 목록: 자산 곡선과 같은 견본(색·실선/점선)', () => {
+    setup();
+    const rows = within(screen.getByRole('list', { name: '비교 기준' })).getAllByRole('listitem');
+    const sw = rows.map((r) => r.querySelector('.swatch'));
+    expect(sw.every((el) => el?.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(sw.map((el) => el?.classList.contains('dashed'))).toEqual([false, false, true, true]);
+    const legend = [...document.querySelectorAll('.legend .swatch')].map((el) => (el as HTMLElement).style.cssText);
+    expect(sw.map((el) => (el as HTMLElement).style.cssText)).toEqual(legend);
+  });
+
+  it('테마가 바뀌면 자산 곡선 색을 다시 넣는다', async () => {
+    const { rerender } = setup(doneState(), 'light');
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(4));
+    document.documentElement.style.setProperty('--accent', '#a093ff');
+    try {
+      await rerender({ theme: 'dark' });
+      await vi.waitFor(() => expect(lwcCharts[0].series[0].options.color).toBe('#a093ff'));
+    } finally {
+      document.documentElement.style.removeProperty('--accent');
+    }
   });
 
   it('지수·지정 종목 실패면 그 줄에 사유', () => {
@@ -162,17 +197,18 @@ describe('ResultView', () => {
     expect(tab('거래 내역')).toBeTruthy();
     expect(tab('종목별')).toBeTruthy();
     expect(tab('건너뛴 신호 3')).toBeTruthy();
-    const loss = screen.getByText('▼5.6%');
-    expect(loss.className).toContain('down');
-    expect(screen.getByText('▲15.0%').className).toContain('up');
-    await fireEvent.click(screen.getByRole('button', { name: /03\.14 SK하이닉스/ }));
+    const trades = screen.getByRole('list', { name: '거래 내역' });
+    expect(within(trades).getByText('▼ −5.6%').className).toContain('down');
+    expect(within(trades).getByText('▲ +15.0%').className).toContain('up');
+    await fireEvent.click(screen.getByRole('button', { name: /^SK하이닉스 · .* · 03\.14 · / }));
     expect(onTrade).toHaveBeenCalledWith(expect.objectContaining({ date: '2024-03-14', symbol: '000660' }));
   });
 
   it('거래 행을 누르면 그 종목의 거래 차트 시트가 열린다', async () => {
     setup();
-    await fireEvent.click(screen.getByRole('button', { name: /04\.02 SK하이닉스/ }));
-    expect(screen.getByRole('dialog', { name: 'SK하이닉스' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /^SK하이닉스 · .* · 04\.02 · / }));
+    // 매도 행을 눌러도 그 포지션의 매수일이 제목
+    expect(screen.getByRole('dialog', { name: 'SK하이닉스 · 24.03.14 매수' })).toBeTruthy();
   });
 
   it('종목별 탭: 손익·참여 시작일·제외', async () => {
