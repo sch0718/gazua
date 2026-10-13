@@ -17,7 +17,8 @@
   import ScaleInSection from './editor/ScaleInSection.svelte';
   import UniverseSection from './editor/UniverseSection.svelte';
   import { sectionSummary } from './simText';
-  import { duplicateStrategy, STRATEGIES_FULL_TEXT } from './strategyActions.svelte';
+  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
+  import { duplicateStrategy } from './strategyActions.svelte';
 
   let {
     app,
@@ -141,7 +142,7 @@
   function duplicate() {
     flush(); // 사본은 방금 고친 내용까지 담는다
     const id = duplicateStrategy(app, draft);
-    if (id === null) return showSnackbar(STRATEGIES_FULL_TEXT);
+    if (id === null) return showSnackbar(STRATEGY_CAP_MESSAGE);
     app.navigate({ name: 'simulate', strategyId: id });
   }
 

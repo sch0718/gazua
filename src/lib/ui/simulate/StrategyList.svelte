@@ -7,19 +7,19 @@
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { strategyLine } from './simText';
-  import { duplicateStrategy, STRATEGIES_FULL_TEXT } from './strategyActions.svelte';
+  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
+  import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
 
   let { app }: { app: App } = $props();
 
   const full = () => app.strategies.length >= MAX_STRATEGIES;
-  const FULL_TEXT = STRATEGIES_FULL_TEXT;
 
   function create() {
-    if (full()) return showSnackbar(FULL_TEXT);
+    if (full()) return showSnackbar(STRATEGY_CAP_MESSAGE);
     const ids = app.watchlists.groups.map((g) => g.id);
     const last = app.settings.lastGroupId;
     const groupId = last && ids.includes(last) ? last : (ids[0] ?? null);
-    const s = newStrategy(Date.now(), groupId);
+    const s = newStrategy(Date.now(), groupId, nextStrategyName(app.strategies));
     app.setStrategies([...app.strategies, s]);
     app.navigate({ name: 'simulate', strategyId: s.id });
   }
@@ -27,6 +27,7 @@
   let menuId = $state<string | null>(null);
   let renaming = $state(false);
   let draft = $state('');
+  let nameError = $state('');
   const target = $derived(app.strategies.find((s) => s.id === menuId) ?? null);
 
   function closeMenu() {
@@ -36,17 +37,21 @@
 
   function duplicate(s: Strategy) {
     closeMenu();
-    if (duplicateStrategy(app, s) === null) showSnackbar(FULL_TEXT);
+    if (duplicateStrategy(app, s) === null) showSnackbar(STRATEGY_CAP_MESSAGE);
   }
 
   function startRename(s: Strategy) {
     draft = s.name;
+    nameError = '';
     renaming = true;
   }
 
   function saveRename(s: Strategy) {
     const name = draft.trim().slice(0, NAME_MAX);
-    if (!name) return;
+    if (!name) {
+      nameError = '이름을 적어 주세요';
+      return;
+    }
     app.setStrategies(app.strategies.map((x) => (x.id === s.id ? { ...x, name, updatedAt: Date.now() } : x)));
     closeMenu();
   }
@@ -55,11 +60,11 @@
     closeMenu();
     const index = app.strategies.findIndex((x) => x.id === s.id);
     app.setStrategies(app.strategies.filter((x) => x.id !== s.id));
-    showSnackbar(`'${s.name}'을 지웠어요`, {
+    showSnackbar(`'${s.name}'을(를) 삭제했어요`, {
       label: '되돌리기',
       run: () => {
         if (app.strategies.some((x) => x.id === s.id)) return;
-        if (full()) return showSnackbar(FULL_TEXT);
+        if (full()) return showSnackbar(STRATEGY_CAP_MESSAGE);
         const next = [...app.strategies];
         next.splice(Math.min(index, next.length), 0, s);
         app.setStrategies(next);
@@ -107,8 +112,17 @@
           saveRename(target);
         }}
       >
-        <input aria-label="전략 이름" maxlength={NAME_MAX} bind:value={draft} data-autofocus />
-        <button type="submit" class="primary" disabled={draft.trim() === ''}>저장</button>
+        <input
+          aria-label="전략 이름"
+          maxlength={NAME_MAX}
+          bind:value={draft}
+          oninput={() => (nameError = '')}
+          aria-invalid={nameError ? 'true' : undefined}
+          aria-describedby={nameError ? 'rename-err' : undefined}
+          data-autofocus
+        />
+        {#if nameError}<p id="rename-err" class="err" role="alert">{nameError}</p>{/if}
+        <button type="submit" class="primary">저장</button>
       </form>
     {:else}
       <div class="menu">
@@ -215,13 +229,18 @@
     background: var(--surface2);
   }
   .danger {
-    color: var(--down);
+    color: var(--err);
   }
   .rename {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 4px 20px;
+  }
+  .err {
+    margin: -4px 0 0;
+    font-size: var(--fs-sub);
+    color: var(--err);
   }
   .rename input {
     min-height: var(--touch);

@@ -16,9 +16,12 @@ export function loadStrategies(st: SafeStorage, profileId: string): Strategy[] {
   return strategies;
 }
 
+/** 한도 문구. 오류와 화면 스낵바가 같은 문구를 쓴다. */
+export const STRATEGY_CAP_MESSAGE = `전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`;
+
 /** 저장 한도를 넘으면 던진다. 앱 상태와 저장소가 같은 문구·기준을 쓴다. */
 export function assertStrategyCap(list: Strategy[]): void {
-  if (list.length > MAX_STRATEGIES) throw new Error(`전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`);
+  if (list.length > MAX_STRATEGIES) throw new Error(STRATEGY_CAP_MESSAGE);
 }
 
 export function saveStrategies(st: SafeStorage, profileId: string, list: Strategy[]): void {

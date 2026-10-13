@@ -118,14 +118,59 @@ describe('Simulate list', () => {
     expect(app.strategies[0].name).toBe('반등 매매');
   });
 
+  it('menu: rename with an empty name shows an error under the field on Enter', async () => {
+    const app = setup(['눌림목']);
+    await fireEvent.click(screen.getByRole('button', { name: '눌림목 메뉴' }));
+    await fireEvent.click(screen.getByRole('button', { name: '이름 바꾸기' }));
+    const input = screen.getByRole('textbox', { name: '전략 이름' });
+    await fireEvent.input(input, { target: { value: '   ' } });
+    await fireEvent.submit(input.closest('form')!);
+    expect(screen.getByText('이름을 적어 주세요')).toBeTruthy();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(app.strategies[0].name).toBe('눌림목');
+    // 다시 적으면 오류가 사라진다
+    await fireEvent.input(input, { target: { value: '반등' } });
+    expect(screen.queryByText('이름을 적어 주세요')).toBeNull();
+  });
+
   it('menu: delete shows 되돌리기 and restores in place', async () => {
     const app = setup(['가', '나', '다']);
     await fireEvent.click(screen.getByRole('button', { name: '나 메뉴' }));
     await fireEvent.click(screen.getByRole('button', { name: '삭제' }));
     expect(app.strategies.map((s) => s.name)).toEqual(['가', '다']);
+    expect(currentSnackbar()?.message).toBe("'나'을(를) 삭제했어요");
     expect(currentSnackbar()?.action?.label).toBe('되돌리기');
     currentSnackbar()!.action!.run();
     expect(app.strategies.map((s) => s.name)).toEqual(['가', '나', '다']);
+  });
+
+  it('new strategies are numbered: 새 전략, 새 전략 2', async () => {
+    const app = setup();
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 새 전략' }));
+    app.navigate({ name: 'simulate' });
+    await fireEvent.click(await screen.findByRole('button', { name: '＋ 새 전략' }));
+    expect(app.strategies.map((s) => s.name)).toEqual(['새 전략', '새 전략 2']);
+  });
+
+  it('at 20 strategies, 복제 only shows the limit snackbar', async () => {
+    const app = setup(Array.from({ length: 20 }, (_, i) => `전략 ${i}`));
+    await fireEvent.click(screen.getByRole('button', { name: '전략 3 메뉴' }));
+    await fireEvent.click(screen.getByRole('button', { name: '복제' }));
+    expect(app.strategies).toHaveLength(20);
+    expect(currentSnackbar()?.message).toBe('전략은 20개까지 저장할 수 있어요');
+  });
+
+  it('at 20 strategies, 되돌리기 does not restore and shows the limit snackbar', async () => {
+    const app = setup(Array.from({ length: 20 }, (_, i) => `전략 ${i}`));
+    await fireEvent.click(screen.getByRole('button', { name: '전략 3 메뉴' }));
+    await fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+    expect(app.strategies).toHaveLength(19);
+    // 지운 자리가 다른 전략으로 다시 찼다
+    app.setStrategies([...app.strategies, newStrategy(NOW, 'g1', '끼어든 전략')]);
+    currentSnackbar()!.action!.run();
+    expect(app.strategies).toHaveLength(20);
+    expect(app.strategies.some((s) => s.name === '전략 3')).toBe(false);
+    expect(currentSnackbar()?.message).toBe('전략은 20개까지 저장할 수 있어요');
   });
 
   it('at 20 strategies ＋ 새 전략 only shows a snackbar', async () => {
@@ -147,6 +192,14 @@ describe('Simulate list', () => {
     const nav = screen.getByRole('navigation', { name: '탐색' });
     const item = within(nav).getByRole('button', { name: '시뮬레이션' });
     expect(item.className).toContain('on');
+  });
+
+  it('the rail puts 시뮬레이션 right before 설정', () => {
+    setup();
+    const nav = screen.getByRole('navigation', { name: '탐색' });
+    const sim = within(nav).getByRole('button', { name: '시뮬레이션' });
+    const set = within(nav).getByRole('button', { name: '설정' });
+    expect(sim.nextElementSibling).toBe(set);
   });
 });
 

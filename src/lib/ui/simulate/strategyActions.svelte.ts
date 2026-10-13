@@ -3,7 +3,14 @@ import type { App } from '../../state/app.svelte';
 import { MAX_STRATEGIES, NAME_MAX } from '../../sim/defaults';
 import type { Strategy } from '../../sim/types';
 
-export const STRATEGIES_FULL_TEXT = `전략은 ${MAX_STRATEGIES}개까지 저장할 수 있어요`;
+/** 새 전략 이름: `새 전략`이 없으면 그대로, 있으면 비어 있는 가장 작은 번호(`새 전략 2`, `새 전략 3`…). */
+export function nextStrategyName(list: Strategy[], base = '새 전략'): string {
+  const used = new Set(list.map((s) => s.name));
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
 
 /** 원본 바로 뒤에 `… 사본`을 새 id로 넣고 그 id를 돌려준다. 가득 찼으면 null. */
 export function duplicateStrategy(app: App, s: Strategy): string | null {

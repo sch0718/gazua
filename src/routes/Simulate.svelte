@@ -1,7 +1,7 @@
 <script lang="ts">
   // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
   // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`↔`결과`로 오감), PC(≥1024)는 좌우로 둘 다 보인다.
-  import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { onDestroy, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
   import { strategyIssues, type Issue } from '../lib/sim/validate';
@@ -79,11 +79,12 @@
   }
 
   // 경로를 바로잡았다는 안내(없는 전략)는 여기서 한 번만 보여 준다.
+  // 프로필 전환 때는 App이 같은 흐름에서 스낵바를 닫으므로, 그것이 끝난 뒤(tick) 띄운다.
   $effect(() => {
     const notice = app.routeNotice;
     if (!notice) return;
     app.clearRouteNotice();
-    showSnackbar(notice);
+    void tick().then(() => showSnackbar(notice));
   });
 </script>
 

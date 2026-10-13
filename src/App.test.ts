@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { newStrategy } from './lib/sim/defaults';
 import App from './App.svelte';
 
 beforeEach(() => {
@@ -45,5 +46,32 @@ describe('App bar', () => {
     await screen.findAllByRole('button', { name: '시뮬레이션' });
     const bar = document.querySelector('header.bar') as HTMLElement;
     expect(bar.querySelector('.chip, [class*="chip"]')).toBeTruthy();
+  });
+});
+
+describe('route notice', () => {
+  it('shows 전략을 찾을 수 없어요 when switching to a profile that lacks the routed strategy', async () => {
+    localStorage.setItem(
+      'gazua:v1:meta',
+      JSON.stringify({
+        schemaVersion: 1,
+        activeProfileId: 'p1',
+        profiles: [
+          { id: 'p1', name: '내 프로필', createdAt: 1 },
+          { id: 'p2', name: '둘째', createdAt: 2 },
+        ],
+      }),
+    );
+    localStorage.setItem('gazua:v1:p:p2:settings', JSON.stringify({ onboarded: true }));
+    localStorage.setItem('gazua:v1:p:p2:watchlists', JSON.stringify({ groups: [{ id: 'g1', name: '내 관심', items: [] }] }));
+    localStorage.setItem(
+      'gazua:v1:p:p1:strategies',
+      JSON.stringify({ strategies: [{ ...newStrategy(1, 'g1', '눌림목'), id: 's1' }] }),
+    );
+    location.hash = '#/simulate/s1';
+    render(App);
+    await fireEvent.click(await screen.findByRole('button', { name: /둘째/ }));
+    await waitFor(() => expect(screen.getByText('전략을 찾을 수 없어요')).toBeTruthy());
+    expect(location.hash).toBe('#/simulate');
   });
 });
