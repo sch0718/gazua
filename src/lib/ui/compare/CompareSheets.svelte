@@ -39,8 +39,8 @@
     isOpenToday: boolean;
     /** 상세 시트에서 종목을 지우거나 옮긴 뒤 포커스할 곳(사라진 행 대신) */
     detailReturnFocus?: () => HTMLElement | null | undefined;
-    /** 상세에서 지운 종목을 되돌린 뒤 포커스할 곳 */
-    detailRestoredFocus?: (symbol: string) => HTMLElement | null | undefined;
+    /** 상세에서 지운 종목을 되돌린 뒤 포커스할 곳(groupId: 지웠던 그룹) */
+    detailRestoredFocus?: (symbol: string, groupId: string) => HTMLElement | null | undefined;
   } = $props();
 
   const close = () => (sheet = null);

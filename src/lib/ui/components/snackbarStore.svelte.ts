@@ -15,6 +15,13 @@ let seq = 0;
 let deadline = 0;
 let remaining = 0;
 let held = false;
+// holdSnackbarWhileFocused가 지켜보는 요소의 리스너를 떼는 함수
+let unwatch: (() => void) | undefined;
+
+function stopWatching(): void {
+  unwatch?.();
+  unwatch = undefined;
+}
 
 /** 렌더링용 현재 스낵바(없으면 null). */
 export function currentSnackbar(): SnackbarItem | null {
@@ -22,6 +29,7 @@ export function currentSnackbar(): SnackbarItem | null {
 }
 
 export function dismissSnackbar(): void {
+  stopWatching();
   clearTimeout(timer);
   timer = undefined;
   held = false;
@@ -37,6 +45,7 @@ function arm(id: number, ms: number): void {
 
 /** 새 스낵바는 이전 것을 대체하고 타이머도 새로 시작한다(멈춤도 풀린다). */
 export function showSnackbar(message: string, action?: SnackbarAction, ms = 5000): void {
+  stopWatching();
   clearTimeout(timer);
   held = false;
   const id = ++seq;
@@ -58,6 +67,30 @@ export function releaseSnackbar(): void {
   if (!current || !held) return;
   held = false;
   arm(current.id, remaining);
+}
+
+/**
+ * 지운 뒤 포커스를 옮긴 요소(다음 행 등)에 포커스가 머무는 동안 멈춘다. 그 요소를 떠나거나 문서에서 빠지면 남은 시간부터 다시 흐른다.
+ * 스낵바 버튼으로 옮기면 스낵바 자신의 멈춤이 이어받는다. 포커스가 그 요소에 없으면 아무것도 하지 않는다.
+ */
+export function holdSnackbarWhileFocused(el: HTMLElement): void {
+  if (!current || document.activeElement !== el) return;
+  stopWatching();
+  holdSnackbar();
+  const release = () => {
+    stopWatching();
+    releaseSnackbar();
+  };
+  // 포커스된 요소가 문서에서 빠지면 focusout이 오지 않을 수 있다.
+  const observer = new MutationObserver(() => {
+    if (!el.isConnected) release();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  el.addEventListener('focusout', release);
+  unwatch = () => {
+    observer.disconnect();
+    el.removeEventListener('focusout', release);
+  };
 }
 
 /** 버튼 동작: 먼저 닫고 실행한다(동작이 새 스낵바를 띄워도 지워지지 않게). */

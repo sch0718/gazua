@@ -9,6 +9,7 @@
   import type { SnapshotSeries } from '../lib/ui/compare/compareController.svelte';
   import Badge from '../lib/ui/components/Badge.svelte';
   import Sheet from '../lib/ui/components/Sheet.svelte';
+  import { holdSnackbarWhileFocused } from '../lib/ui/components/snackbarStore.svelte';
   import { fmtPct, fmtWon, trendClass } from '../lib/ui/format';
   import { moveToGroup, removeWithUndo } from './groupActions';
   import { detailView, quoteVenuesFor } from './stockDetail';
@@ -41,8 +42,8 @@
     inline?: boolean;
     /** 지우거나 옮겨 이 종목의 행이 사라진 뒤 포커스할 곳. 시트는 Sheet가, inline은 여기서 옮긴다. */
     returnFocus?: () => HTMLElement | null | undefined;
-    /** 되돌리기 뒤 포커스할 곳(되돌린 행) */
-    restoredFocus?: (symbol: string) => HTMLElement | null | undefined;
+    /** 되돌리기 뒤 포커스할 곳(되돌린 행). groupId는 지웠던 그룹이다. */
+    restoredFocus?: (symbol: string, groupId: string) => HTMLElement | null | undefined;
     /** 시트를 닫거나(모바일) 선택을 푼다(PC). 삭제·이동 뒤에도 부른다. */
     onclose: () => void;
   } = $props();
@@ -121,17 +122,25 @@
     picking = false;
   });
 
-  function left() {
+  /** 닫고 returnFocus로 포커스를 옮긴다. focused: 포커스가 실제로 그 요소로 옮겨졌을 때 부른다. */
+  function left(focused?: (el: HTMLElement) => void) {
     const focus = returnFocus;
     onclose();
-    // inline은 닫으면 패널째 사라져 포커스가 body로 빠진다. 렌더가 끝난 뒤 옮긴다.
-    if (inline && focus) void tick().then(() => focus()?.focus());
+    if (!focus) return;
+    // inline은 닫으면 패널째 사라져 포커스가 body로 빠지므로 렌더가 끝난 뒤 옮긴다. 시트는 닫을 때 Sheet가 옮긴다.
+    void tick().then(() => {
+      const el = focus();
+      if (inline) el?.focus();
+      if (el && document.activeElement === el) focused?.(el);
+    });
   }
 
   function remove() {
     const sym = symbol;
+    const gid = groupId;
     const focus = restoredFocus;
-    if (removeWithUndo(app, groupId, sym, name, focus && (() => focus(sym)))) left();
+    // 되돌리기에 닿기 전에 스낵바가 닫히지 않게, 포커스를 받은 요소에 머무는 동안 멈춘다(WCAG 2.2.1).
+    if (removeWithUndo(app, gid, sym, name, focus && (() => focus(sym, gid)))) left(holdSnackbarWhileFocused);
   }
 
   function moveTo(target: string) {

@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import Badge from '../components/Badge.svelte';
   import { fmtWon, trendClass } from '../format';
   import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
   import { sortRows, type LeaderRow } from './rows';
 
-  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 스크럽 중에는 frozenOrder를 지킨다.
+  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 고정 중(스크럽·키보드 포커스)에는 frozenOrder를 지킨다.
   let {
     rows,
     frozenOrder,
@@ -18,6 +19,7 @@
     ontogglehidden,
     onreorder,
     onopenadd,
+    onfocuswithin,
   }: {
     rows: LeaderRow[];
     frozenOrder: string[] | null;
@@ -34,6 +36,8 @@
     /** `symbol`을 그룹에서 `target` 자리로 옮긴다. */
     onreorder: (symbol: string, target: string) => void;
     onopenadd: () => void;
+    /** 포커스가 목록 안으로 들어오면 그때 보이는 순서를, 목록 밖으로 나가면 null을 알린다. */
+    onfocuswithin?: (order: string[] | null) => void;
   } = $props();
 
   const LONG_PRESS_MS = 500;
@@ -49,11 +53,37 @@
     return (index >= 0 ? listEl?.querySelectorAll<HTMLElement>(':scope > li > .main-btn')[index] : undefined) ?? addBtn;
   }
 
+  const shownRows = () => [...(listEl?.querySelectorAll<HTMLElement>(':scope > li') ?? [])];
+
+  /** symbol 행이 지금 몇 번째로 보이는지(없으면 -1). */
+  export function indexOf(symbol: string): number {
+    return shownRows().findIndex((l) => l.dataset.symbol === symbol);
+  }
+
   /** symbol 행의 버튼(되돌린 행으로 포커스를 옮길 때). */
   export function rowButtonFor(symbol: string): HTMLElement | undefined {
-    const li = [...(listEl?.querySelectorAll<HTMLElement>(':scope > li') ?? [])].find((l) => l.dataset.symbol === symbol);
+    const li = shownRows().find((l) => l.dataset.symbol === symbol);
     return li?.querySelector<HTMLElement>(':scope > .main-btn') ?? undefined;
   }
+
+  // 키보드 포커스가 목록 안에 있는지. 들어오고 나갈 때만 알린다(목록 안에서 옮길 때는 알리지 않는다).
+  let focusInside = false;
+  function onfocusin() {
+    if (focusInside) return;
+    focusInside = true;
+    onfocuswithin?.(ordered.map((r) => r.symbol));
+  }
+  function leave() {
+    focusInside = false;
+    onfocuswithin?.(null);
+  }
+  function onfocusout(e: FocusEvent) {
+    const next = e.relatedTarget as Node | null;
+    if (focusInside && (!next || !listEl.contains(next))) leave();
+  }
+  onDestroy(() => {
+    if (focusInside) leave();
+  });
 
   // 다시 정렬하며 행(DOM 노드)을 옮기면 브라우저가 그 안의 포커스를 버린다(예: 되돌린 행에 값이 들어와 위로 갈 때).
   // 옮기기 전에 리스트 안의 포커스를 기억했다가, body로 빠졌으면 같은 요소로 되돌린다.
@@ -69,6 +99,8 @@
     focusBeforeSort = null;
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (el?.isConnected && lost) el.focus({ preventScroll: true });
+    // 포커스가 있던 행이 사라지면 focusout이 오지 않을 수 있다. 목록에 포커스가 없으면 고정을 푼다.
+    if (focusInside && !listEl?.contains(document.activeElement)) leave();
   });
 
   let press: { symbol: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -183,7 +215,7 @@
     <span>{metricLabel} 순 · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span>
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
-  <ul bind:this={listEl}>
+  <ul bind:this={listEl} {onfocusin} {onfocusout}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
       {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}

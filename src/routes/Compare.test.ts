@@ -12,6 +12,7 @@ import { formatMetricValue } from '../lib/ui/compare/compareText';
 import { fmtWon } from '../lib/ui/format';
 import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
 import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { addItem, removeItem } from '../lib/state/watchlist';
 import { ApiError } from '../lib/providers/errors';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type WatchItem } from '../lib/state/schema';
 import { createSafeStorage } from '../lib/state/storage';
@@ -326,6 +327,29 @@ describe('Compare sheets', () => {
         expect(document.activeElement).toBe(mainButtons()[1]);
       });
 
+      it(`${label}: after deleting with the keyboard, 되돌리기 stays while focus rests on the next row, then the remaining time runs`, async () => {
+        const app = makeApp(EXAMPLE.slice(0, 3));
+        render(SnackbarHost);
+        render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
+        await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          await deleteAt(1, wide);
+          await tick();
+          expect(document.activeElement).toBe(mainButtons()[1]);
+          vi.advanceTimersByTime(6000);
+          expect(currentSnackbar()?.message).toMatch(/삭제했어요$/);
+          // 포커스가 떠나면 멈춘 때의 남은 시간(5초)부터
+          addButton().focus();
+          vi.advanceTimersByTime(4999);
+          expect(currentSnackbar()).not.toBeNull();
+          vi.advanceTimersByTime(1);
+          expect(currentSnackbar()).toBeNull();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it(`${label}: deleting the last row focuses ＋ 종목 추가`, async () => {
         const app = makeApp(EXAMPLE.slice(0, 2));
         render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide });
@@ -335,6 +359,51 @@ describe('Compare sheets', () => {
         expect(document.activeElement).toBe(addButton());
       });
     }
+  });
+
+  it('deleting with the mouse (focus on the page, not moved to a row) keeps the usual 5 seconds', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 3));
+    render(SnackbarHost);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: false });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      (document.activeElement as HTMLElement | null)?.blur();
+      await fireEvent.click(rowOf('SK하이닉스').querySelector('.main-btn')!);
+      await fireEvent.click(within(screen.getByRole('dialog', { name: '종목 상세' })).getByRole('button', { name: '삭제' }));
+      await tick();
+      await tick();
+      expect(document.activeElement).toBe(document.body);
+      vi.advanceTimersByTime(4999);
+      expect(currentSnackbar()).not.toBeNull();
+      vi.advanceTimersByTime(1);
+      expect(currentSnackbar()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('되돌리기 after switching groups does not focus the same symbol’s row in the group now shown', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 3));
+    app.setWatchlists({ ...app.watchlists, groups: [...app.watchlists.groups, { id: 'g2', name: '배당', items: items([EXAMPLE[1], EXAMPLE[3]]) }] });
+    render(SnackbarHost);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    const btn = rowOf('SK하이닉스').querySelector<HTMLElement>('.main-btn')!;
+    btn.focus();
+    await fireEvent.click(btn);
+    const del = within(screen.getByRole('region', { name: '선택한 종목' })).getByRole('button', { name: '삭제' });
+    del.focus();
+    await fireEvent.click(del);
+    await tick();
+    app.navigate({ name: 'compare', groupId: 'g2' });
+    await tick();
+    await vi.waitFor(() => expect(rowOf('SK하이닉스')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+    await tick();
+    await tick();
+    expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toContain(EXAMPLE[1]);
+    expect(document.activeElement).not.toBe(rowOf('SK하이닉스').querySelector('.main-btn'));
   });
 
   it('≥1024: 되돌리기 with another sheet open does not move focus to a leaderboard row behind it', async () => {
@@ -553,6 +622,111 @@ describe('Compare sheets', () => {
       expect(today.c).not.toBe(PRICE);
       await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText(pct(today.c, s.base!))).toBeTruthy());
       expect(within(rowOf('삼성전자')).queryByText(pct(PRICE, s.base!))).toBeNull();
+    });
+  });
+
+  describe('leaderboard order while keyboard focus is inside (D2)', () => {
+    /** 종목마다 기준가 대비 pct[symbol]%의 현재가를 준다. 바꾼 뒤 'online'으로 바로 새로 받는다. */
+    function controlQuotes(app: App, pct: Record<string, number>) {
+      const bases: Record<string, number> = {};
+      const snaps = app.data.snapshots;
+      const real = snaps.load.bind(snaps);
+      vi.spyOn(snaps, 'load').mockImplementation(async (args) => {
+        const r = await real(args);
+        if (r.base !== null) bases[r.symbol] = r.base;
+        return r;
+      });
+      const priceOf = (symbol: string) => Math.round(bases[symbol] * (1 + (pct[symbol] ?? 0) / 100));
+      vi.spyOn(app.provider, 'getQuotes').mockImplementation(async (symbols, venue) =>
+        symbols.filter((s) => bases[s] !== undefined).map((symbol) => ({ symbol, venue, price: priceOf(symbol), ts: NOW })),
+      );
+      const valueText = (symbol: string) => formatMetricValue(((priceOf(symbol) - bases[symbol]) * 100) / bases[symbol], '%');
+      return { valueText };
+    }
+    const order = () => [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll<HTMLElement>('li')].map((li) => li.dataset.symbol);
+    const mainOf = (symbol: string) => screen.getByRole('region', { name: '리더보드' }).querySelector<HTMLElement>(`li[data-symbol="${symbol}"] .main-btn`)!;
+    const [A, B, C, D] = EXAMPLE;
+    const refreshQuotes = () => window.dispatchEvent(new Event('online'));
+    async function setup(pct: Record<string, number>) {
+      const app = makeApp([A, B, C]);
+      const q = controlQuotes(app, pct);
+      render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      // 첫 시세는 기준가를 알기 전에 오므로 한 번 더 받는다
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(q.valueText(C))).toBeTruthy(), { timeout: 3000 });
+      return { app, ...q };
+    }
+
+    it('values update but the rows keep their order; focus leaving the list re-sorts', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { valueText } = await setup(pct);
+      expect(order()).toEqual([A, B, C]);
+      mainOf(B).focus();
+      Object.assign(pct, { [A]: 1, [C]: 3 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+      expect(within(mainOf(A)).getByText(valueText(A))).toBeTruthy();
+      expect(order()).toEqual([A, B, C]);
+      expect(document.activeElement).toBe(mainOf(B));
+      // 목록 밖(머리줄의 ＋ 종목 추가)으로 나가면 바로 다시 정렬한다
+      board().getByRole('button', { name: '＋ 종목 추가' }).focus();
+      await tick();
+      expect(order()).toEqual([C, B, A]);
+    });
+
+    it('a click outside (focus to nowhere) also lifts the hold', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { valueText } = await setup(pct);
+      mainOf(A).focus();
+      Object.assign(pct, { [A]: 1, [C]: 3 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(C)).getByText(valueText(C))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([A, B, C]);
+      mainOf(A).blur();
+      await tick();
+      expect(order()).toEqual([C, B, A]);
+    });
+
+    it('adding and removing stocks while held keeps one row per stock; new ones go last', async () => {
+      const { app, valueText } = await setup({ [A]: 3, [B]: 2, [C]: 1, [D]: 9 });
+      mainOf(C).focus();
+      const g = app.watchlists.groups[0];
+      app.setWatchlists({ ...app.watchlists, groups: [addItem(removeItem(g, B).group, D, NOW)] });
+      await tick();
+      await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(D)).getByText(valueText(D))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([A, C, D]);
+      expect(document.activeElement).toBe(mainOf(C));
+    });
+
+    it('deleting from the detail sheet uses the row’s position just before the delete, not when it was opened', async () => {
+      const pct = { [A]: 3, [B]: 2, [C]: 1 };
+      const { app, valueText } = await setup(pct);
+      mainOf(A).focus();
+      await fireEvent.click(mainOf(A));
+      const dialog = screen.getByRole('dialog', { name: '종목 상세' });
+      // 시트에 포커스가 있으니 고정이 풀려 있고, 값이 바뀌면 A가 맨 아래로 간다
+      Object.assign(pct, { [A]: 0 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(A)).getByText(valueText(A))).toBeTruthy(), { timeout: 3000 });
+      expect(order()).toEqual([B, C, A]);
+      const del = within(dialog).getByRole('button', { name: '삭제' });
+      del.focus();
+      await fireEvent.click(del);
+      await tick();
+      expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual([B, C]);
+      expect(document.activeElement).toBe(board().getByRole('button', { name: '＋ 종목 추가' }));
+    });
+
+    it('Alt+Arrow while held still moves the row', async () => {
+      await setup({ [A]: 0, [B]: 0, [C]: 0 });
+      expect(order()).toEqual([A, B, C]);
+      mainOf(A).focus();
+      await fireEvent.keyDown(mainOf(A), { key: 'ArrowDown', altKey: true });
+      expect(order()).toEqual([B, A, C]);
+      expect(document.activeElement).toBe(mainOf(A));
     });
   });
 

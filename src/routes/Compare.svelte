@@ -201,7 +201,11 @@
 
   // ── 스크럽과 리더보드 ───────────────────────────────────
   let scrubT = $state<number | null>(null);
-  let frozenOrder = $state.raw<string[] | null>(null);
+  // 리더보드 순서 고정: 스크럽 중이면 스크럽을 시작할 때의 순서, 아니면 키보드 포커스가 목록에 들어올 때의 순서(D2).
+  // 값은 계속 바뀌고, 고정 순서에 없는 종목은 끝에 붙는다(sortRows).
+  let scrubOrder = $state.raw<string[] | null>(null);
+  let focusOrder = $state.raw<string[] | null>(null);
+  const frozenOrder = $derived(scrubOrder ?? focusOrder);
 
   // 행 값과 가격은 같은 5초 시세로 계산한다(스펙 4.4·7.2-6). 차트·데이터 표는 원래 캔들 그대로.
   // 1초 시계는 구독하지 않는다. withQuote는 now의 날짜만 보므로 날짜나 시세가 바뀔 때만 시각을 새로 읽는다.
@@ -249,14 +253,14 @@
   );
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
 
-  /** 스크럽을 시작할 때의 순서를 고정한다(값이 바뀌어도 행이 튀지 않게). */
+  /** 스크럽을 시작할 때 보이던 순서를 고정한다(값이 바뀌어도 행이 튀지 않게). */
   function oncrosshair(t: number | null) {
     if (t === null) {
       scrubT = null;
-      frozenOrder = null;
+      scrubOrder = null;
       return;
     }
-    if (scrubT === null) frozenOrder = sortRows(rows, null).map((r) => r.symbol);
+    if (scrubT === null) scrubOrder = sortRows(rows, focusOrder).map((r) => r.symbol);
     scrubT = t;
   }
 
@@ -270,7 +274,10 @@
     if (!group) return;
     const from = group.items.findIndex((i) => i.symbol === symbol);
     const to = group.items.findIndex((i) => i.symbol === target);
-    if (from >= 0 && to >= 0) saveGroup(moveItem(group, from, to));
+    if (from < 0 || to < 0) return;
+    saveGroup(moveItem(group, from, to));
+    // 키보드로 옮기면(Alt+↑↓) 포커스가 목록 안이다. 직접 옮긴 것이니 새 순서로 다시 고정한다.
+    if (focusOrder) focusOrder = sortRows(rows, null).map((r) => r.symbol);
   }
 
   function addGroup() {
@@ -293,20 +300,26 @@
     app.navigate({ name: 'compare', groupId: created.id });
   }
 
-  function select(symbol: string) {
-    selected = symbol;
-    if (!wide) openSheet = 'detail';
-  }
-
   // 상세에서 지우거나 옮기면 그 행이 사라진다. 리더보드에서 몇 번째였는지 기억해 두었다가
   // 같은 자리의 다음 행(없으면 `＋ 종목 추가`)으로 포커스를 옮긴다. 시트·오른쪽 패널 모두 같다.
   let board = $state<ReturnType<typeof Leaderboard>>();
-  const boardOrder = $derived(sortRows(rows, frozenOrder).map((r) => r.symbol));
   let selectedIndex = -1;
-  $effect(() => {
-    const i = selected ? boardOrder.indexOf(selected) : -1;
+  const readSelectedIndex = (symbol: string) => {
+    const i = board?.indexOf(symbol) ?? -1;
     if (i >= 0) selectedIndex = i;
+  };
+  // 그룹 종목이 바뀔 때(지우기·옮기기) 행이 사라지기 전의 리더보드 DOM에서 다시 읽는다(pre: DOM을 고치기 전).
+  $effect.pre(() => {
+    void items;
+    const s = untrack(() => selected);
+    if (s) untrack(() => readSelectedIndex(s));
   });
+
+  function select(symbol: string) {
+    selected = symbol;
+    readSelectedIndex(symbol);
+    if (!wide) openSheet = 'detail';
+  }
   // 마지막 종목이었으면 리더보드가 통째로 사라지므로 빈 상태의 `＋ 종목 추가`로.
   const emptyAddButton = () => document.querySelector<HTMLElement>('[data-empty-add]');
   const detailReturnFocus = () => {
@@ -314,8 +327,9 @@
     return el?.isConnected ? el : emptyAddButton();
   };
   // 되돌리면 그 행으로. 0개에서 되돌리면 리더보드가 다시 그려진 뒤의 새 인스턴스에서 찾는다.
-  // 다른 시트가 열려 있으면 그 행은 aria-modal 뒤에 있으니 포커스를 옮기지 않는다.
-  const detailRestoredFocus = (symbol: string) => (openSheet === null ? board?.rowButtonFor(symbol) : null);
+  // 다른 시트가 열려 있으면 그 행은 aria-modal 뒤에 있고, 다른 그룹을 보고 있으면 같은 심볼이어도 다른 그룹의 행이니 옮기지 않는다.
+  const detailRestoredFocus = (symbol: string, groupId: string) =>
+    openSheet === null && group?.id === groupId ? board?.rowButtonFor(symbol) : null;
 
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
@@ -485,6 +499,7 @@
     ontogglehidden={(s) => group && saveGroup(toggleHidden(group, s))}
     onreorder={reorder}
     onopenadd={() => (openSheet = 'add')}
+    onfocuswithin={(order) => (focusOrder = order)}
   />
   {#if wide && group}
     {#if selected && items.some((i) => i.symbol === selected)}
