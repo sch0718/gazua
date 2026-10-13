@@ -71,13 +71,15 @@ export function createRequestQueue(cfg: RequestQueueConfig): RequestQueue {
     try {
       entry.resolve(await entry.task());
     } catch (e) {
+      // 429면 같은 그룹 전체를 쉰다. 다른 항목이 그 사이에 또 429를 맞지 않게. 재시도를 다 쓴 마지막 429도 쉰다.
+      if (e instanceof ApiError && e.code === 'rate-limited') {
+        g.nextStart = Math.max(g.nextStart, now() + (e.retryAfterMs ?? DEFAULT_RATE_LIMIT_WAIT_MS));
+      }
       const delay = retryDelay(e, entry.attempt);
       if (delay === undefined) {
         entry.reject(e);
         return;
       }
-      // 429면 같은 그룹 전체를 쉰다. 다른 항목이 그 사이에 또 429를 맞지 않게
-      if (e instanceof ApiError && e.code === 'rate-limited') g.nextStart = Math.max(g.nextStart, now() + delay);
       await sleep(delay);
       // Re-enter the queue so retries are paced and prioritised like any other start.
       entry.attempt++;

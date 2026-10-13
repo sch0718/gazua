@@ -254,6 +254,17 @@ export function createApp(deps: AppDeps): App {
         storageTokenStore(storage, profileKeys.token(id, p), () => current() && !lockMode());
   }
 
+  /** 프로필이 아직 있을 때만 쓴다: 지운 프로필의 발급 시각 키를 늦게 끝난 발급이 되살리지 않게. */
+  function issuedAtStoreFor(id: string, p: 'kis'): IssuedAtStore {
+    const store = storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(id, p));
+    return {
+      load: store.load,
+      save: (t) => {
+        if (meta.profiles.some((x) => x.id === id)) store.save(t);
+      },
+    };
+  }
+
   function buildProvider(): MarketDataProvider {
     const id = activeId();
     const generation = providerGeneration;
@@ -262,7 +273,7 @@ export function createApp(deps: AppDeps): App {
       now,
       fetchImpl,
       tokenStore: (p) => tokenStoreFor(id, p, generation),
-      issuedAtStore: (p) => storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(id, p)),
+      issuedAtStore: (p) => issuedAtStoreFor(id, p),
     });
   }
 
@@ -667,7 +678,7 @@ export function createApp(deps: AppDeps): App {
     },
 
     tokenIssuedAt(p) {
-      return storageIssuedAtStore(storage, profileKeys.tokenIssuedAt(activeId(), p));
+      return issuedAtStoreFor(activeId(), p);
     },
 
     lock() {

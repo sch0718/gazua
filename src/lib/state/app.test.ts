@@ -757,6 +757,48 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(app.meta.profiles).toHaveLength(1);
   });
 
+  it('deleteProfile: a KIS token issued after the delete does not write p:<id>:tokenIssuedAt back', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    seed(backing, 'p:p2:secrets', SECRETS);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/oauth2/tokenP')) await gate;
+      return new Response(JSON.stringify(url.includes('/oauth2/tokenP') ? tokenFixture : price005930), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const app = make(backing, { fetchImpl });
+    app.switchProfile('p2');
+    const inFlight = app.provider.getQuotes(['005930'], 'KRX').catch(() => undefined);
+    // 토큰 발급이 진행 중일 때 그 프로필을 지운다.
+    app.deleteProfile('p2');
+    release();
+    await inFlight;
+    await Promise.resolve();
+    expect(backing.dump()).not.toContain('p:p2:');
+  });
+
+  it('deleteProfile: tokenIssuedAt(...).save for a deleted profile is a no-op', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const app = make(backing);
+    app.switchProfile('p2');
+    const store = app.tokenIssuedAt('kis');
+    store.save(NOW);
+    expect(backing.dump()).toContain('p:p2:tokenIssuedAt:kis');
+    app.deleteProfile('p2');
+    store.save(NOW);
+    expect(backing.dump()).not.toContain('p:p2:');
+  });
+
   it('setStrategies persists, switchProfile swaps the list, deleteProfile removes the key', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_TWO);

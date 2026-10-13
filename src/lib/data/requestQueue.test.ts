@@ -146,6 +146,29 @@ describe('createRequestQueue', () => {
     expect(starts.c).toBeLessThan(1000);
   });
 
+  it('a 429 that exhausted its retries still pauses the group', async () => {
+    const c = fakeClock();
+    const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });
+    let aRuns = 0;
+    let lastAt = -1;
+    const a = q
+      .run('kis', 'a', 0, async () => {
+        lastAt = c.now();
+        // 재시도(3번)를 다 쓴 마지막 시도도 429다
+        throw err('rate-limited', { status: 429, retryAfterMs: ++aRuns < 4 ? 1 : 5000 });
+      })
+      .catch((e) => e);
+    await c.settle();
+    expect((await a).code).toBe('rate-limited');
+    expect(aRuns).toBe(4);
+    let bStart = -1;
+    const b = q.run('kis', 'b', 0, async () => void (bStart = c.now()));
+    await c.settle();
+    await b;
+    // 마지막 429의 Retry-After(5000ms)만큼 그룹이 쉰 뒤에야 다음 요청이 시작한다
+    expect(bStart).toBeGreaterThanOrEqual(lastAt + 5000);
+  });
+
   it('waits 1000 ms on rate-limited without retryAfterMs', async () => {
     const c = fakeClock();
     const q = createRequestQueue({ ratesPerSec: { kis: 100 }, now: c.now, sleep: c.sleep });

@@ -304,7 +304,8 @@
     return el?.isConnected ? el : emptyAddButton();
   };
   // 되돌리면 그 행으로. 0개에서 되돌리면 리더보드가 다시 그려진 뒤의 새 인스턴스에서 찾는다.
-  const detailRestoredFocus = (symbol: string) => board?.rowButtonFor(symbol);
+  // 다른 시트가 열려 있으면 그 행은 aria-modal 뒤에 있으니 포커스를 옮기지 않는다.
+  const detailRestoredFocus = (symbol: string) => (openSheet === null ? board?.rowButtonFor(symbol) : null);
 
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.

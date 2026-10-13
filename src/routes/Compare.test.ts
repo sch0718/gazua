@@ -337,6 +337,31 @@ describe('Compare sheets', () => {
     }
   });
 
+  it('≥1024: 되돌리기 with another sheet open does not move focus to a leaderboard row behind it', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 3));
+    render(SnackbarHost);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    const rowButtons = () => [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll<HTMLElement>('li .main-btn')];
+    const btn = rowButtons()[1];
+    btn.focus();
+    await fireEvent.click(btn);
+    const del = within(screen.getByRole('region', { name: '선택한 종목' })).getByRole('button', { name: '삭제' });
+    del.focus();
+    await fireEvent.click(del);
+    await tick();
+    // 패널에서 지운 뒤 다른 시트를 열고, 그 안에서 되돌리기를 누른다
+    await fireEvent.click(board().getByRole('button', { name: '＋ 종목 추가' }));
+    const dialog = screen.getByRole('dialog', { name: '종목 추가' });
+    await fireEvent.click(screen.getByRole('button', { name: '되돌리기' }));
+    await tick();
+    await tick();
+    expect(rowButtons()).toHaveLength(3);
+    expect(document.activeElement?.classList.contains('main-btn')).toBe(false);
+    expect(rowButtons()).not.toContain(document.activeElement);
+    expect(dialog.isConnected).toBe(true);
+  });
+
   it('at ≥1024 the detail renders inline in the side panel, not as a sheet', async () => {
     const app = makeApp(EXAMPLE.slice(0, 2));
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd, wide: true });
