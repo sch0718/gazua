@@ -730,6 +730,19 @@ describe('저장 시점', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(saved(app).name).toBe('숨김 전');
   });
+
+  it('저장할 게 없으면 pagehide가 저장하지 않는다(처음 · 저장한 뒤 다시)', async () => {
+    const { app } = setup();
+    const spy = vi.spyOn(app, 'setStrategies');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(spy).not.toHaveBeenCalled();
+    await fireEvent.input(screen.getByRole('textbox', { name: '전략 이름' }), { target: { value: '한 번' } });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    // 방금 저장했으니 또 숨겨도 저장하지 않는다
+    window.dispatchEvent(new Event('pagehide'));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('PatternHelp 문구', () => {

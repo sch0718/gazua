@@ -62,6 +62,12 @@ function stubWidth(wide: boolean, phone = false) {
   );
 }
 
+// jsdom은 Enter의 암묵적 제출을 하지 않는다: 브라우저처럼 keydown이 막히지 않았으면 폼의 기본 버튼(첫 submit 버튼)을 누른다
+async function pressEnter(input: HTMLElement) {
+  const notPrevented = await fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+  if (notPrevented) await fireEvent.click(input.closest('form')!.querySelector<HTMLButtonElement>('button[type="submit"]')!);
+}
+
 function shortPeriod(app: App) {
   app.setStrategies(app.strategies.map((s) => ({ ...s, period: { from: '2026-03-02', to: '2026-06-30' } })));
 }
@@ -124,7 +130,7 @@ describe('Simulate list', () => {
     await fireEvent.click(screen.getByRole('button', { name: '이름 바꾸기' }));
     const input = screen.getByRole('textbox', { name: '전략 이름' });
     await fireEvent.input(input, { target: { value: '   ' } });
-    await fireEvent.submit(input.closest('form')!);
+    await pressEnter(input);
     expect(screen.getByText('이름을 적어 주세요')).toBeTruthy();
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(app.strategies[0].name).toBe('눌림목');
@@ -133,15 +139,27 @@ describe('Simulate list', () => {
     expect(screen.queryByText('이름을 적어 주세요')).toBeNull();
   });
 
-  it('menu: rename with an empty name twice re-inserts the alert so it is announced again', async () => {
+  it('menu: rename with an empty name shows the same error when 저장 is clicked', async () => {
+    const app = setup(['눌림목']);
+    await fireEvent.click(screen.getByRole('button', { name: '눌림목 메뉴' }));
+    await fireEvent.click(screen.getByRole('button', { name: '이름 바꾸기' }));
+    const input = screen.getByRole('textbox', { name: '전략 이름' });
+    await fireEvent.input(input, { target: { value: '' } });
+    await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(screen.getByRole('alert').textContent).toBe('이름을 적어 주세요');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(app.strategies[0].name).toBe('눌림목');
+  });
+
+  it('menu: rename with an empty name twice (Enter, then 저장) re-inserts the alert so it is announced again', async () => {
     setup(['눌림목']);
     await fireEvent.click(screen.getByRole('button', { name: '눌림목 메뉴' }));
     await fireEvent.click(screen.getByRole('button', { name: '이름 바꾸기' }));
     const input = screen.getByRole('textbox', { name: '전략 이름' });
     await fireEvent.input(input, { target: { value: '' } });
-    await fireEvent.submit(input.closest('form')!);
+    await pressEnter(input);
     const first = await screen.findByRole('alert');
-    await fireEvent.submit(input.closest('form')!);
+    await fireEvent.click(screen.getByRole('button', { name: '저장' }));
     await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first));
     expect(screen.getByRole('alert').textContent).toBe('이름을 적어 주세요');
   });
@@ -625,7 +643,7 @@ describe('Simulate run states', () => {
 });
 
 describe('Simulate app bar', () => {
-  it('폰 폭에서는 상태 칩이 없고 넓은 화면에서는 있다', () => {
+  it('폰 폭에서는 상태 칩이 없다', () => {
     stubWidth(false, true);
     setup();
     expect(screen.queryByTestId('chip')).toBeNull();

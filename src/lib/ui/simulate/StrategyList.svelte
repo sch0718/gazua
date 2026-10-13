@@ -3,12 +3,12 @@
   import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { MAX_STRATEGIES, NAME_MAX, newStrategy } from '../../sim/defaults';
+  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { kstDate } from '../../time/kst';
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { strategyLine } from './simText';
-  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
 
   let { app }: { app: App } = $props();

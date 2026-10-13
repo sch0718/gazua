@@ -3,6 +3,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { UniverseItem } from '../../data/universe';
   import { MAX_STRATEGIES, NAME_MAX } from '../../sim/defaults';
+  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { strategyIssues, type Issue } from '../../sim/validate';
   import type { App } from '../../state/app.svelte';
@@ -17,7 +18,6 @@
   import ScaleInSection from './editor/ScaleInSection.svelte';
   import UniverseSection from './editor/UniverseSection.svelte';
   import { sectionSummary } from './simText';
-  import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import { duplicateStrategy } from './strategyActions.svelte';
 
   let {
