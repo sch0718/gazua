@@ -1,3 +1,4 @@
+import { roundMoney } from './money';
 import type { Strategy } from './types';
 
 export interface Position {
@@ -16,13 +17,16 @@ export interface Position {
   takeLevels(): { stage: number; price: number; qty: number }[];
 }
 
-/** q주의 총비용(수수료 포함). 매수 현금 차감과 같은 식 */
-export const costOf = (q: number, price: number, feePct: number): number => q * price * (1 + feePct / 100);
+/** q주의 총비용(수수료 포함, 0.0001원 단위). 매수 현금 차감과 같은 식 */
+export const costOf = (q: number, price: number, feePct: number): number => roundMoney(q * price * (1 + feePct / 100));
 
-/** amount 안에서 살 수 있는 최대 주수. 나눗셈이 경계에서 6.999…로 어긋나도 총비용이 amount 이하면 1주 더 산다 */
+/** amount 안에서 살 수 있는 최대 주수. 나눗셈이 경계에서 6.999…로 어긋나도 반올림한 총비용으로 비교해 바로잡는다 */
 export function maxShares(amount: number, price: number, feePct: number): number {
-  const q = Math.floor(amount / (price * (1 + feePct / 100)));
-  return costOf(q + 1, price, feePct) <= amount ? q + 1 : q;
+  const budget = roundMoney(amount);
+  let q = Math.floor(budget / (price * (1 + feePct / 100)));
+  while (q > 0 && costOf(q, price, feePct) > budget) q--;
+  while (costOf(q + 1, price, feePct) <= budget) q++;
+  return q;
 }
 
 export function openPosition(

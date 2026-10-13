@@ -1,5 +1,6 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
+import { roundMoney } from './money';
 import { costOf, maxShares } from './position';
 import type { SimInput } from './types';
 
@@ -27,19 +28,19 @@ function buyAndHold(days: string[], candles: Candle[], slice: number, feePct: nu
       if (!bought) {
         bought = true;
         qty = maxShares(slice, b.o, feePct);
-        cash = slice - costOf(qty, b.o, feePct);
+        cash = roundMoney(slice - costOf(qty, b.o, feePct));
       }
       lastClose = b.c;
     }
-    return cash + (lastClose === null ? 0 : qty * lastClose);
+    return roundMoney(cash + (lastClose === null ? 0 : qty * lastClose));
   });
 }
 
 export function holdCurve(days: string[], stocks: SimInput['stocks'], initial: number, feePct: number): number[] {
   if (stocks.length === 0) return days.map(() => initial);
-  const slice = initial / stocks.length;
+  const slice = roundMoney(initial / stocks.length);
   const curves = stocks.map((s) => buyAndHold(days, s.candles, slice, feePct));
-  return days.map((_, i) => curves.reduce((sum, c) => sum + c[i], 0));
+  return days.map((_, i) => roundMoney(curves.reduce((sum, c) => sum + c[i], 0)));
 }
 
 export function singleCurve(days: string[], candles: Candle[], initial: number, feePct: number): number[] {

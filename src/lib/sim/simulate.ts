@@ -1,5 +1,6 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
+import { roundMoney } from './money';
 import { createPatternTracker, type PatternTracker } from './pattern';
 import { costOf, maxShares, openPosition, type Position } from './position';
 import { sellTaxPct, settlementDate } from './tax';
@@ -32,12 +33,12 @@ export interface WalkCtx {
 
 /** 1회 금액으로 살 수량과 총비용(수수료 포함)·수수료. 못 사면 건너뜀 사유.
  *  비용은 여기서 한 번만 계산하고 수수료는 비용에서 뺀다(수량 × 가격 + 수수료 = 비용) */
-function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number; fee: number } | Skip['reason'] {
+export function sizeBuy(amount: number, price: number, feePct: number, cash: number): { qty: number; cost: number; fee: number } | Skip['reason'] {
   const qty = maxShares(amount, price, feePct);
   if (qty === 0) return '1주가 1회 금액보다 비쌈';
   const cost = costOf(qty, price, feePct);
   if (cash < cost) return '현금 부족';
-  return { qty, cost, fee: cost - qty * price };
+  return { qty, cost, fee: roundMoney(cost - qty * price) };
 }
 
 /** 시가 → 저가 → 고가 → 종가를 가격 커서 하나로 지나가며 손절·추가 매수·익절을 체결한다(스펙 5.2). */
@@ -46,14 +47,14 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
   const single = ctx.takeProfit.length === 1;
 
   const sell = (qty: number, price: number, kind: Trade['kind'], stage?: number) => {
-    const gross = qty * price;
-    const fee = (gross * feePct) / 100;
-    const tax = (gross * ctx.taxPct) / 100;
+    const gross = roundMoney(qty * price);
+    const fee = roundMoney((gross * feePct) / 100);
+    const tax = roundMoney((gross * ctx.taxPct) / 100);
     const pnlPct = (price / pos.avgPrice - 1) * 100;
     const reason =
       stage === undefined ? '손절' : single ? '익절' : `${stage}단계 익절 ${ctx.takeProfit[stage - 1].sellPct}%`;
     pos.sell(qty, stage);
-    ctx.wallet.cash += gross - fee - tax;
+    ctx.wallet.cash = roundMoney(ctx.wallet.cash + roundMoney(gross - fee - tax));
     ctx.trade({ date, symbol, kind, ...(stage !== undefined && { stage }), price, qty, fee, tax, reason, pnlPct });
   };
 
@@ -65,7 +66,7 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
       return;
     }
     pos.buy(price, sized.qty);
-    ctx.wallet.cash -= sized.cost;
+    ctx.wallet.cash = roundMoney(ctx.wallet.cash - sized.cost);
     ctx.trade({ date, symbol, kind: 'add', price, qty: sized.qty, fee: sized.fee, tax: 0, reason: '추가 매수' });
   };
 
@@ -137,8 +138,8 @@ interface SymState {
 export function simulateCore(input: SimInput): CoreResult {
   const { strategy: s, days } = input;
   const feePct = s.costs.feePct;
-  const amount = (s.capital.initial * s.capital.perBuyPct) / 100;
-  const wallet = { cash: s.capital.initial };
+  const amount = roundMoney((s.capital.initial * s.capital.perBuyPct) / 100);
+  const wallet = { cash: roundMoney(s.capital.initial) };
   const inDays = new Set(days);
   const equity: CoreResult['equity'] = [];
   const trades: Trade[] = [];
@@ -164,8 +165,8 @@ export function simulateCore(input: SimInput): CoreResult {
   const record = (st: SymState, t: Trade) => {
     trades.push(t);
     const rt = st.rt!;
-    if (t.kind === 'buy' || t.kind === 'add') rt.cost += t.price * t.qty + t.fee;
-    else rt.proceeds += t.price * t.qty - t.fee - t.tax;
+    if (t.kind === 'buy' || t.kind === 'add') rt.cost = roundMoney(rt.cost + roundMoney(t.price * t.qty) + t.fee);
+    else rt.proceeds = roundMoney(rt.proceeds + roundMoney(t.price * t.qty) - t.fee - t.tax);
   };
 
   days.forEach((date, di) => {
@@ -188,7 +189,7 @@ export function simulateCore(input: SimInput): CoreResult {
       st.pos = openPosition(price, sized.qty, s.scaleIn, s.exit);
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
-      wallet.cash -= sized.cost;
+      wallet.cash = roundMoney(wallet.cash - sized.cost);
       record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee: sized.fee, tax: 0, reason, pattern: snapshot });
     }
 
@@ -219,7 +220,7 @@ export function simulateCore(input: SimInput): CoreResult {
       });
       if (st.pos.qty === 0) {
         const rt = st.rt!;
-        roundTrips.push({ symbol, open: rt.open, close: date, cost: rt.cost, pnl: rt.proceeds - rt.cost, holdDays: di - rt.openDay + 1 });
+        roundTrips.push({ symbol, open: rt.open, close: date, cost: rt.cost, pnl: roundMoney(rt.proceeds - rt.cost), holdDays: di - rt.openDay + 1 });
         st.pos = null;
         st.rt = null;
         closed.add(st);
@@ -239,21 +240,21 @@ export function simulateCore(input: SimInput): CoreResult {
         if (closed.has(st)) st.tracker.reset(i);
         st.lastClose = st.stock.candles[i].c;
       }
-      if (st.pos) held += st.pos.qty * st.lastClose!; // 봉 없는 날은 마지막 종가
+      if (st.pos) held = roundMoney(held + st.pos.qty * st.lastClose!); // 봉 없는 날은 마지막 종가
     }
-    equity.push({ date, value: wallet.cash + held, cash: wallet.cash });
+    equity.push({ date, value: roundMoney(wallet.cash + held), cash: wallet.cash });
   });
 
   const last = days.length - 1;
   for (const st of syms) {
     if (!st.pos || !st.rt) continue;
-    const value = st.pos.qty * st.lastClose!;
+    const value = roundMoney(st.pos.qty * st.lastClose!);
     roundTrips.push({
       symbol: st.stock.symbol,
       open: st.rt.open,
       close: null,
       cost: st.rt.cost,
-      pnl: st.rt.proceeds + value - st.rt.cost,
+      pnl: roundMoney(st.rt.proceeds + value - st.rt.cost),
       holdDays: last - st.rt.openDay + 1,
     });
   }

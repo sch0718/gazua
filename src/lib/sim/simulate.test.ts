@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { newStrategy } from './defaults';
-import { openPosition } from './position';
+import { costOf, openPosition } from './position';
 import { simulate, simulateCore, walkBar, type WalkCtx } from './simulate';
 import { bar, tradingDates } from './testBars';
 import type { SimInput, Skip, Strategy, Trade } from './types';
@@ -94,8 +94,8 @@ describe('simulateCore', () => {
   });
 
   it('시가 매수: 현금이 정확히 비용이면 사고 현금 0, 수수료 = 비용 − 수량 × 가격', () => {
-    // 101주 × 87원 × 1.00015. 따로 계산한 수수료는 1e-12만큼 어긋난다
-    const initial = 101 * 87 * (1 + 0.015 / 100);
+    // 101주 × 87원 × 1.00015를 0.0001원 단위로 맞춘 값. 따로 계산한 수수료는 1e-12만큼 어긋난다
+    const initial = costOf(101, 87, 0.015);
     const s = strat((x) => {
       x.costs.feePct = 0.015;
       x.capital = { initial, perBuyPct: 100 };
@@ -452,5 +452,22 @@ describe('simulate', () => {
     expect(r.trades[0]).toMatchObject({ kind: 'buy', price: 80_000, qty: 7 });
     expect(r.equity[r.equity.length - 1].strategy).toBeCloseTo(700_000, 6);
     expect(r.summary.totalReturnPct).toBeCloseTo((700_000 / 560_084 - 1) * 100, 6);
+  });
+
+  it('경계: 자금 1,020,153원으로 10,200원 100주(총비용 1,020,153원)를 현금 부족 없이 산다', () => {
+    const s = strat((x) => {
+      x.capital = { initial: 1_020_153, perBuyPct: 100 };
+      x.costs.feePct = 0.015;
+      x.exit.takeProfit = [{ pct: 500, sellPct: 100 }];
+      x.exit.stopLoss = { pct: 50, basis: 'avgAlways' };
+    });
+    const base = BASE.map((c) => c * 100);
+    const inp = input(s, [candles(base, [[10_200, 12_000, 10_200, 12_000]])]);
+    expect(d(9)).toBe('2026-01-16');
+    const r = simulate(inp);
+    expect(r.skipped).toEqual([]);
+    expect(r.trades).toHaveLength(1);
+    expect(r.trades[0]).toMatchObject({ kind: 'buy', price: 10_200, qty: 100, fee: 153 });
+    expect(r.equity[r.equity.length - 1]).toMatchObject({ strategy: 1_200_000, cash: 0 });
   });
 });
