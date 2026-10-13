@@ -3,17 +3,17 @@
   import type { SimFailure } from '../../sim/loadSimData';
   import type { SimResult } from '../../sim/types';
   import { trendClass } from '../format';
-  import { dotDate, trendWon } from './simText';
+  import { dotDate, startsLate, trendWon } from './simText';
 
   let {
     perSymbol,
-    requestedFrom,
+    axisFrom,
     failed,
     colorConvention,
   }: {
     perSymbol: SimResult['perSymbol'];
-    /** 요청한 기간의 시작일 */
-    requestedFrom: string;
+    /** 실제 데이터 축의 시작일(meta.from). 축 전체가 늦은 것은 머리줄이 알린다 */
+    axisFrom: string;
     failed: SimFailure[];
     colorConvention: 'kr' | 'global';
   } = $props();
@@ -28,7 +28,7 @@
       </div>
       <div class="sub">
         <span>거래 {p.roundTrips}번</span>
-        {#if p.firstDate && p.firstDate > requestedFrom}
+        {#if p.firstDate && startsLate(p.firstDate, axisFrom)}
           <span>{dotDate(p.firstDate)}부터 참여</span>
         {/if}
       </div>
@@ -48,7 +48,7 @@
   li {
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
-    font-size: 14px;
+    font-size: var(--fs-body);
   }
   .line {
     display: flex;
@@ -60,7 +60,7 @@
   .sub {
     display: flex;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--fs-sub);
     color: var(--t3);
     margin-top: 2px;
   }

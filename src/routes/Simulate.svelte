@@ -4,6 +4,7 @@
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
+  import type { Issue } from '../lib/sim/validate';
   import type { App } from '../lib/state/app.svelte';
   import { runIssueAction } from '../lib/ui/compare/loadIssue';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
@@ -34,6 +35,9 @@
   const compact = $derived(compactQuery?.current ?? false);
   let showResult = $state(false);
   let lastDraft: Strategy | null = null;
+  // 결과의 `규칙 고치기`가 열어 달라는 편집 구역(번호가 바뀔 때마다 한 번 연다)
+  let openRequest = $state<{ section: Issue['section']; seq: number } | null>(null);
+  let openSeq = 0;
 
   // 다른 전략·프로필로 가면 실행을 멈추고 편집으로 돌아간다. 저장으로 객체만 바뀐 것은 무시한다(id로 비교).
   const strategyId = $derived(strategy?.id ?? null);
@@ -44,6 +48,7 @@
       ctl.cancel();
       showResult = false;
       lastDraft = null;
+      openRequest = null;
     });
   });
   onDestroy(() => ctl.cancel());
@@ -53,7 +58,10 @@
     ctl.run(draft);
     showResult = true;
   }
-  const edit = () => (showResult = false);
+  function edit(section?: Issue['section']) {
+    showResult = false;
+    if (typeof section === 'string') openRequest = { section, seq: ++openSeq };
+  }
   const showRun = () => (showResult = true);
   function cancel() {
     ctl.cancel();
@@ -80,7 +88,7 @@
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
       <span class="title">시뮬레이션</span>
       {#if showResult && !wide}
-        <button type="button" class="rules" onclick={edit}>규칙</button>
+        <button type="button" class="rules" onclick={() => edit()}>규칙</button>
       {:else if !showResult && !wide && ctl.state.kind !== 'idle'}
         <button type="button" class="rules" onclick={showRun}>결과</button>
       {/if}
@@ -99,7 +107,7 @@
           <div class="sim" class:split={wide}>
             {#if wide || !showResult}
               <div class="pane">
-                <StrategyEditor {app} {strategy} onRun={run} />
+                <StrategyEditor {app} {strategy} onRun={run} {openRequest} />
               </div>
             {/if}
             {#if wide || showResult}

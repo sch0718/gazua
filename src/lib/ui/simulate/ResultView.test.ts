@@ -40,7 +40,18 @@ describe('ResultView', () => {
     expect(screen.getByText('2025.01.02 ~ 2026.10.08 (요청 2023.10.11부터) · KRX 일봉 · 10/12 14:05 받음')).toBeTruthy();
   });
 
-  it('종목별 탭: 모든 종목이 같은 날 시작해도 요청 시작일보다 늦으면 참여 시작일을 보인다', async () => {
+  it('머리줄: 요청 시작일이 일요일이라 월요일에 시작해도 요청 문구가 없다', () => {
+    setup(
+      doneState((s) => {
+        s.meta.strategy.period.from = '2026-03-01';
+        s.meta.from = '2026-03-02';
+        s.meta.to = '2026-06-30';
+      }),
+    );
+    expect(screen.queryByText(/\(요청/)).toBeNull();
+  });
+
+  it('종목별 탭: 모든 종목이 데이터 축 시작일에 시작했으면 참여 시작일을 보이지 않는다', async () => {
     setup(
       doneState((s) => {
         s.meta.from = '2025-01-02';
@@ -49,7 +60,23 @@ describe('ResultView', () => {
       }),
     );
     await fireEvent.click(tab('종목별'));
-    expect(screen.getAllByText('2025.01.02부터 참여')).toHaveLength(2);
+    expect(screen.queryByText(/부터 참여/)).toBeNull();
+  });
+
+  it('종목별 탭: 한 종목만 축보다 3개월 늦으면 그 행만 참여 시작일을 보인다', async () => {
+    setup(
+      doneState((s) => {
+        s.result.perSymbol = [
+          { symbol: '005930', name: '삼성전자', pnl: 141_000, roundTrips: 1, firstDate: '2023-10-11' },
+          { symbol: '000660', name: 'SK하이닉스', pnl: -88_000, roundTrips: 1, firstDate: '2024-01-11' },
+        ];
+      }),
+    );
+    await fireEvent.click(tab('종목별'));
+    expect(screen.getAllByText(/부터 참여/)).toHaveLength(1);
+    const rows = within(screen.getByRole('list', { name: '종목별' })).getAllByRole('listitem');
+    expect(rows[1].textContent).toContain('2024.01.11부터 참여');
+    expect(rows[0].textContent).not.toContain('부터 참여');
   });
 
   it('데모가 아니면 배지가 없다', () => {
@@ -64,7 +91,7 @@ describe('ResultView', () => {
     expect(items).toHaveLength(4);
     expect(items[0].textContent).toContain('총수익률');
     expect(within(items[0]).getByText('▲ +32.4%').className).toContain('up');
-    expect(within(items[0]).getByText('보유 대비 +16.1%p')).toBeTruthy();
+    expect(within(items[0]).getByText('그냥 보유보다 +16.1%p')).toBeTruthy();
     expect(items[1].textContent).toContain('최대 낙폭');
     expect(items[1].textContent).toContain('−12.3%');
     expect(items[2].textContent).toContain('승률');
@@ -72,7 +99,31 @@ describe('ResultView', () => {
     expect(items[2].textContent).toContain('24승 17패');
     expect(items[3].textContent).toContain('거래 횟수');
     expect(items[3].textContent).toContain('41번');
-    expect(items[3].textContent).toContain('평균 19일 보유');
+    expect(items[3].textContent).toContain('끝난 41번 · 아직 보유 1종목 · 평균 19일');
+  });
+
+  it('요약 카드: 토큰 클래스 — 총수익률만 headline 크기, 나머지는 title 크기', () => {
+    setup();
+    const items = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem');
+    expect(items.every((li) => li.classList.contains('card'))).toBe(true);
+    expect(items[0].querySelector('.value')?.classList.contains('main')).toBe(true);
+    expect(items.slice(1).every((li) => !li.querySelector('.value')?.classList.contains('main'))).toBe(true);
+    expect(items.every((li) => li.querySelector('.value')?.classList.contains('num'))).toBe(true);
+    expect([...document.querySelectorAll('.cards small')].every((el) => el.classList.contains('num'))).toBe(true);
+  });
+
+  it('거래 카드: 보유 중이 없으면 그 구절을 뺀다', () => {
+    setup(doneState((s) => (s.result.summary.openPositions = 0)));
+    const items = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem');
+    expect(items[3].textContent).toContain('끝난 41번 · 평균 19일');
+    expect(items[3].textContent).not.toContain('아직 보유');
+  });
+
+  it('총수익률이 반올림해서 0.0%면 화살표도 색도 없다', () => {
+    setup(doneState((s) => (s.result.summary.totalReturnPct = 0.04)));
+    const v = within(screen.getByRole('list', { name: '요약' })).getAllByRole('listitem')[0].querySelector('.value')!;
+    expect(v.textContent).toBe('0.0%');
+    expect(v.className).not.toMatch(/\b(up|down)\b/);
   });
 
   it('비교 목록 4줄과 ▲▼ 색', () => {
@@ -80,7 +131,7 @@ describe('ResultView', () => {
     const rows = within(screen.getByRole('list', { name: '비교 기준' })).getAllByRole('listitem');
     expect(rows.map((r) => r.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
       '내 전략 ▲ +32.4%',
-      '같은 종목 보유 ▲ +16.3%',
+      '같은 종목 사서 보유 ▲ +16.3%',
       'KODEX 200 ▼ −2.5%',
       'KOSPI ▲ +11.0%',
     ]);
@@ -138,7 +189,7 @@ describe('ResultView', () => {
     await fireEvent.click(tab('건너뛴 신호 3'));
     const rows = within(screen.getByRole('list', { name: '건너뛴 신호' })).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    expect(rows[2].textContent?.replace(/\s+/g, ' ').trim()).toBe('2024.08.05 삼성전자 현금 부족');
+    expect(rows[2].textContent?.replace(/\s+/g, ' ').trim()).toBe('2024.08.05 삼성전자 현금이 모자랐어요');
   });
 
   it('한계 안내 3줄', () => {
@@ -151,16 +202,24 @@ describe('ResultView', () => {
   it('거래 0건·건너뜀 0 → 신호 없음 안내와 규칙 고치기', async () => {
     const { onEdit } = setup(doneState((s) => noTrades(s)));
     expect(screen.getByText('기간 동안 매수 신호가 한 번도 나지 않았어요')).toBeTruthy();
-    expect(screen.getByText('가장 크게 빠진 때도 8.2%였어요(조건 10%)')).toBeTruthy();
+    expect(screen.getByText('고점 대비 가장 크게 빠진 때도 8.2%라, 하락 조건(10% 이상)에 닿지 않았어요')).toBeTruthy();
     expect(screen.queryByRole('list', { name: '요약' })).toBeNull();
     expect(screen.queryByRole('radiogroup')).toBeNull();
     expect(screen.getByText('배당 제외 · 가격 수익률만이에요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
     expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith(); // 클릭 이벤트가 구역으로 넘어가면 안 된다
   });
 
-  it('all-skipped result shows the dominant skip reason', () => {
-    setup(
+  it('건너뛴 신호 탭이 비면 안내 문구', async () => {
+    setup(doneState((s) => (s.result.skipped = [])));
+    await fireEvent.click(tab('건너뛴 신호 0'));
+    expect(screen.getByText('건너뛴 신호가 없어요')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: '건너뛴 신호' })).toBeNull();
+  });
+
+  it('전부 건너뜀: 제목 · 사유별 개수 · 안내, 규칙 고치기는 기간·자금 구역을 연다', async () => {
+    const { onEdit } = setup(
       doneState((s) =>
         noTrades(s, [
           { date: '2024-07-01', symbol: '000660', reason: '1주가 1회 금액보다 비쌈' },
@@ -169,9 +228,19 @@ describe('ResultView', () => {
         ]),
       ),
     );
-    expect(screen.getByText('매수 신호 3번이 모두 건너뛰어졌어요')).toBeTruthy();
-    expect(screen.getByText('가장 많은 이유: 1주가 1회 금액보다 비쌈')).toBeTruthy();
+    expect(screen.getByText('매수 신호가 3번 났지만 한 번도 사지 못했어요')).toBeTruthy();
+    const counts = within(screen.getByRole('list', { name: '건너뛴 이유' })).getAllByRole('listitem');
+    expect(counts.map((r) => r.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['1주가 회당 금액보다 비싸요 2번', '현금이 모자랐어요 1번']);
+    expect(screen.getByText('기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요')).toBeTruthy();
     expect(within(screen.getByRole('list', { name: '건너뛴 신호' })).getAllByRole('listitem')).toHaveLength(3);
-    expect(screen.getByRole('button', { name: '규칙 고치기' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
+    expect(onEdit).toHaveBeenCalledWith('capital');
+  });
+
+  it('전부 건너뜀: 가장 많은 사유가 거래 없음이면 자금 안내도 구역 열기도 없다', async () => {
+    const { onEdit } = setup(doneState((s) => noTrades(s, [{ date: '2024-07-01', symbol: '000660', reason: '거래 없음' }])));
+    expect(screen.queryByText(/기간·자금에서/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
+    expect(onEdit).toHaveBeenCalledWith();
   });
 });

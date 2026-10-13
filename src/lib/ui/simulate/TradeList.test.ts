@@ -37,6 +37,13 @@ describe('TradeList', () => {
     expect(loss.querySelector('.pnl')?.className).toContain('down');
   });
 
+  it('손익이 반올림해서 0.0%면 화살표도 색도 없다', () => {
+    setup((t) => (t[1].pnlPct = 0.04));
+    const row = screen.getByRole('button', { name: /04\.02 SK하이닉스 · 손절 · 0\.0%/ });
+    expect(row.querySelector('.pnl')?.className).not.toMatch(/\b(up|down)\b/);
+    expect(row.textContent).not.toMatch(/[▲▼]/);
+  });
+
   it('행을 누르면 onTrade(trade)', async () => {
     const { trades, onTrade } = setup();
     await fireEvent.click(screen.getByRole('button', { name: /04\.02 SK하이닉스/ }));

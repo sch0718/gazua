@@ -2,6 +2,7 @@
   // 결과 자리(스펙 7.5): 받는 중 · 일부 실패 · 연결 오류 · 데이터 없음 · 엔진 예외 · 결과.
   import type { ErrorActionTarget } from '../../providers/errors';
   import type { Trade } from '../../sim/types';
+  import type { Issue } from '../../sim/validate';
   import { META_ERROR } from '../compare/compareController.svelte';
   import { connectionIssue } from '../compare/loadIssue';
   import Banner from '../components/Banner.svelte';
@@ -20,7 +21,8 @@
   }: {
     state: RunState;
     colorConvention: 'kr' | 'global';
-    onEdit: () => void;
+    /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
+    onEdit: (section?: Issue['section']) => void;
     onRetry: () => void;
     onCancel: () => void;
     onTrade: (t: Trade) => void;
@@ -60,7 +62,7 @@
           {/each}
         </ul>
       {/if}
-      <div class="actions"><button type="button" class="primary" onclick={onEdit}>규칙 고치기</button></div>
+      <div class="actions"><button type="button" class="primary" onclick={() => onEdit()}>규칙 고치기</button></div>
     {:else}
       <p>계산 중 문제가 생겼어요</p>
       <div class="actions"><button type="button" class="primary" onclick={onRetry}>다시 실행</button></div>

@@ -1,23 +1,19 @@
 <script lang="ts">
   // 거래 내역(스펙 7.4-5): 날짜 · 종목 · 사유, 매수는 수량@가격, 매도는 손익 %. 행을 누르면 거래 차트.
   import type { Trade } from '../../sim/types';
-  import { fmtWon, trendClass } from '../format';
-  import { fmtReturnPct, shortDate } from './simText';
+  import { fmtWon } from '../format';
+  import { fmtReturnPct, returnClass, shortDate } from './simText';
 
   let {
     trades,
     names,
-    colorConvention,
     onTrade,
   }: { trades: Trade[]; names: Record<string, string>; colorConvention: 'kr' | 'global'; onTrade: (t: Trade) => void } = $props();
 
   const isBuy = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
   const why = (t: Trade) => (t.kind === 'buy' ? `${t.reason} 매수` : t.kind === 'add' ? '추가 매수' : t.reason);
   // 매도 손익: 부호는 ▲▼가 맡으므로 절댓값
-  const pnl = (v: number) => {
-    const text = fmtReturnPct(Math.abs(v));
-    return text === '0.0%' ? text : `${v > 0 ? '▲' : '▼'}${text}`;
-  };
+  const pnl = (v: number) => (returnClass(v) === '' ? '0.0%' : `${v > 0 ? '▲' : '▼'}${fmtReturnPct(Math.abs(v))}`);
 </script>
 
 <ul class="rows" aria-label="거래 내역">
@@ -31,7 +27,7 @@
           <span class="why num">· {t.qty}주 @ {fmtWon(t.price)}</span>
         {:else if t.pnlPct !== undefined}
           <span class="why">·</span>
-          <span class="num pnl {trendClass(t.pnlPct, colorConvention)}">{pnl(t.pnlPct)}</span>
+          <span class="num pnl {returnClass(t.pnlPct)}">{pnl(t.pnlPct)}</span>
         {/if}
       </button>
     </li>

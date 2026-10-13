@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import type { Watchlists } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { fmtReturnPct, resultHeadline, sectionSummary, strategyLine } from './simText';
+import { fmtReturnPct, nearMissText, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, trendReturn } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -106,5 +106,68 @@ describe('resultHeadline', () => {
     expect(resultHeadline('2023-10-12', '2026-10-12', 'KRX 일봉', at, '2023-10-12')).toBe(
       '2023.10.12 ~ 2026.10.12 · KRX 일봉 · 10/12 14:05 받음',
     );
+  });
+});
+
+describe('startsLate', () => {
+  it('is false across a weekend or a 5-day holiday', () => {
+    expect(startsLate('2026-03-02', '2026-03-01')).toBe(false);
+    expect(startsLate('2026-09-29', '2026-09-24')).toBe(false);
+    expect(startsLate('2026-03-08', '2026-03-01')).toBe(false); // 정확히 7일
+  });
+  it('is true only when the gap is more than 7 days', () => {
+    expect(startsLate('2026-03-09', '2026-03-01')).toBe(true);
+    expect(startsLate('2025-01-02', '2023-10-12')).toBe(true);
+    expect(startsLate('2023-10-12', '2023-10-12')).toBe(false);
+  });
+});
+
+describe('resultHeadline requested note', () => {
+  const at = kstEpoch('2026-10-12', '14:05:00');
+  it('요청 시작일이 일요일이라 월요일에 시작해도 요청 문구가 없다', () => {
+    expect(resultHeadline('2026-03-02', '2026-10-12', 'KRX 일봉', at, '2026-03-01')).not.toContain('(요청');
+  });
+});
+
+describe('trendReturn near zero', () => {
+  it('반올림해서 0.0%면 화살표도 색도 없다', () => {
+    expect(trendReturn(0.04)).toBe('0.0%');
+    expect(trendReturn(-0.04)).toBe('0.0%');
+    expect(returnClass(0.04)).toBe('');
+    expect(returnClass(-0.04)).toBe('');
+    expect(trendReturn(0.05)).toBe('▲ +0.1%');
+    expect(returnClass(0.05)).toBe('up');
+    expect(returnClass(-0.06)).toBe('down');
+    expect(returnClass(null)).toBe('');
+  });
+});
+
+describe('skipReasonLabel', () => {
+  it('maps the engine reasons to friendly text', () => {
+    expect(skipReasonLabel('현금 부족')).toBe('현금이 모자랐어요');
+    expect(skipReasonLabel('1주가 1회 금액보다 비쌈')).toBe('1주가 회당 금액보다 비싸요');
+    expect(skipReasonLabel('거래 없음')).toBe('그날 거래가 없었어요');
+  });
+});
+
+describe('nearMissText', () => {
+  const s = () => newStrategy(kstEpoch('2026-10-12', '10:00:00'), 'g1');
+  it('① 하락 폭이 조건에 못 미쳤을 때', () => {
+    const x = s();
+    x.entry.decline.dropPct = { on: true, value: 85 };
+    expect(nearMissText({ maxDropPct: 27, declineDays: 0 }, x)).toBe('고점 대비 가장 크게 빠진 때도 27.0%라, 하락 조건(85% 이상)에 닿지 않았어요');
+  });
+  it('② 하락 조건은 채웠지만 사는 신호가 없었을 때', () => {
+    const x = s();
+    x.entry.decline.dropPct = { on: true, value: 10 };
+    expect(nearMissText({ maxDropPct: 30, declineDays: 12 }, x)).toBe(
+      '충분히 떨어진 날은 12일 있었지만, 그 뒤 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요',
+    );
+  });
+  it('③ 일수 조건 때문일 때', () => {
+    const x = s();
+    x.entry.decline.dropPct = { on: false, value: 10 };
+    x.entry.decline.days = { on: true, value: 7 };
+    expect(nearMissText({ maxDropPct: 30, declineDays: 0 }, x)).toBe('고점 뒤 7거래일 넘게 떨어진 적이 없었어요(조건 7일 이상)');
   });
 });

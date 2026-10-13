@@ -55,6 +55,19 @@ afterEach(() => {
 });
 
 describe('StrategyEditor 구역', () => {
+  it('openRequest로 지정한 구역이 열린다(자금은 기간·자금), 같은 요청 번호는 다시 열지 않는다', async () => {
+    const { view } = setup();
+    expect(header('기간·자금').getAttribute('aria-expanded')).toBe('false');
+    await view.rerender({ openRequest: { section: 'capital', seq: 1 } });
+    expect(header('기간·자금').getAttribute('aria-expanded')).toBe('true');
+    expect(header('매수').getAttribute('aria-expanded')).toBe('false');
+    await openSection('기간·자금'); // 사용자가 접는다
+    await view.rerender({ openRequest: { section: 'capital', seq: 1 } });
+    expect(header('기간·자금').getAttribute('aria-expanded')).toBe('false');
+    await view.rerender({ openRequest: { section: 'capital', seq: 2 } });
+    expect(header('기간·자금').getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('seven collapsed sections in spec order with one-line summaries', async () => {
     setup();
     const heads = screen.getAllByRole('button').filter((b) => b.hasAttribute('aria-expanded'));

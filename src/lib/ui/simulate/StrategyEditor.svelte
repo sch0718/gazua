@@ -23,12 +23,15 @@
     app,
     strategy,
     onRun,
+    openRequest = null,
     loadItems = sharedUniverse,
   }: {
     app: App;
     strategy: Strategy;
     /** 막는 경고가 없을 때 저장 대기분을 저장한 뒤 작업본(사본)을 넘긴다 */
     onRun: (draft: Strategy) => void;
+    /** 결과 화면에서 `규칙 고치기`로 들어올 때 열 구역. seq가 바뀔 때마다 한 번 연다 */
+    openRequest?: { section: Issue['section']; seq: number } | null;
     loadItems?: () => Promise<UniverseItem[]>;
   } = $props();
 
@@ -91,6 +94,15 @@
     const sum = (k: Issue['section']) => sectionSummary(draft, k, app.watchlists, benchName);
     return key === 'period' ? `${sum('period')} · ${sum('capital')}` : sum(key);
   }
+
+  // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다
+  let handledSeq = -1;
+  $effect(() => {
+    const req = openRequest;
+    if (!req || req.seq === handledSeq) return;
+    handledSeq = req.seq;
+    openKeys[keyOf(req.section)] = true;
+  });
 
   const toggle = (key: Key) => (openKeys[key] = !openKeys[key]);
 

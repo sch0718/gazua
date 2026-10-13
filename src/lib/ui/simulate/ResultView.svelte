@@ -2,12 +2,12 @@
   // 결과 보기(스펙 7.4): 머리줄 · 요약 카드 · 자산 곡선 · 비교 기준 · 탭 · 한계 안내.
   // 탭 본문은 TradeList·SymbolTab·SkipList로 나눴다.
   import type { Trade } from '../../sim/types';
+  import type { Issue } from '../../sim/validate';
   import Badge from '../components/Badge.svelte';
   import Segmented from '../components/Segmented.svelte';
-  import { trendClass } from '../format';
   import EquityChart from './EquityChart.svelte';
   import type { DoneState } from './runController.svelte';
-  import { dominantSkipReason, fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, trendReturn } from './simText';
+  import { dominantSkipReason, fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, returnClass, skipCounts, skipReasonLabel, trendReturn } from './simText';
   import SkipList from './SkipList.svelte';
   import SymbolTab from './SymbolTab.svelte';
   import TradeChartSheet from './TradeChartSheet.svelte';
@@ -19,7 +19,13 @@
     colorConvention,
     onEdit,
     onTrade,
-  }: { state: DoneState; colorConvention: 'kr' | 'global'; onEdit: () => void; onTrade: (t: Trade) => void } = $props();
+  }: {
+    state: DoneState;
+    colorConvention: 'kr' | 'global';
+    /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
+    onEdit: (section?: Issue['section']) => void;
+    onTrade: (t: Trade) => void;
+  } = $props();
 
   const result = $derived(done.result);
   const meta = $derived(done.meta);
@@ -39,16 +45,22 @@
   const oneDecimal = (v: number) => `${(Math.round(v * 10) / 10).toFixed(1)}%`;
 
   const cards = $derived([
-    { label: '총수익률', value: trendReturn(sum.totalReturnPct), cls: trendClass(sum.totalReturnPct, colorConvention), sub: `보유 대비 ${fmtPp(sum.vsHoldPp)}` },
-    { label: '최대 낙폭', value: fmtReturnPct(sum.mddPct), cls: '', sub: '' },
-    { label: '승률', value: sum.winRatePct === null ? '—' : oneDecimal(sum.winRatePct), cls: '', sub: `${sum.wins}승 ${sum.losses}패` },
+    { label: '총수익률', value: trendReturn(sum.totalReturnPct), cls: returnClass(sum.totalReturnPct), sub: `그냥 보유보다 ${fmtPp(sum.vsHoldPp)}`, main: true },
+    { label: '최대 낙폭', value: fmtReturnPct(sum.mddPct), cls: '', sub: '', main: false },
+    { label: '승률', value: sum.winRatePct === null ? '—' : oneDecimal(sum.winRatePct), cls: '', sub: `${sum.wins}승 ${sum.losses}패`, main: false },
     {
       label: '거래 횟수',
       value: `${sum.roundTrips}번`,
       cls: '',
-      sub: [sum.avgHoldDays === null ? '' : `평균 ${Math.round(sum.avgHoldDays)}일 보유`, sum.openPositions ? `보유 중 ${sum.openPositions}` : '']
+      // 거래 횟수는 끝난 거래만 센다(보유 중인 종목은 따로)
+      sub: [
+        `끝난 ${sum.roundTrips}번`,
+        sum.openPositions ? `아직 보유 ${sum.openPositions}종목` : '',
+        sum.avgHoldDays === null ? '' : `평균 ${Math.round(sum.avgHoldDays)}일`,
+      ]
         .filter(Boolean)
         .join(' · '),
+      main: false,
     },
   ]);
 
@@ -56,7 +68,7 @@
   const rows = $derived.by(() => {
     const out: Row[] = [
       { label: '내 전략', value: sum.totalReturnPct, failed: null },
-      { label: '같은 종목 보유', value: result.benchmarks.holdReturnPct, failed: null },
+      { label: '같은 종목 사서 보유', value: result.benchmarks.holdReturnPct, failed: null },
     ];
     if (benchName !== null) {
       const v = result.benchmarks.benchmarkReturnPct;
@@ -68,7 +80,11 @@
   });
 
   const noTrades = $derived(result.trades.length === 0);
-  const topSkip = $derived(dominantSkipReason(result.skipped));
+  // 가장 많은 이유가 현금·금액이면 기간·자금을 고치라고 안내하고 그 구역을 연다
+  const cashIssue = $derived.by(() => {
+    const top = dominantSkipReason(result.skipped);
+    return top === '현금 부족' || top === '1주가 1회 금액보다 비쌈';
+  });
 </script>
 
 <section class="result" aria-label="시뮬레이션 결과">
@@ -83,10 +99,15 @@
         <p class="big">기간 동안 매수 신호가 한 번도 나지 않았어요</p>
         {#if result.nearMiss}<p>{nearMissText(result.nearMiss, meta.strategy)}</p>{/if}
       {:else}
-        <p class="big">매수 신호 {result.skipped.length}번이 모두 건너뛰어졌어요</p>
-        <p>가장 많은 이유: {topSkip}</p>
+        <p class="big">매수 신호가 {result.skipped.length}번 났지만 한 번도 사지 못했어요</p>
+        <ul class="why-list" aria-label="건너뛴 이유">
+          {#each skipCounts(result.skipped) as c (c.reason)}
+            <li>{skipReasonLabel(c.reason)} <span class="num">{c.n}번</span></li>
+          {/each}
+        </ul>
+        {#if cashIssue}<p>기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요</p>{/if}
       {/if}
-      <button type="button" class="fix" onclick={onEdit}>규칙 고치기</button>
+      <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>
     </div>
     {#if result.skipped.length > 0}
       <SkipList skipped={result.skipped} names={meta.names} />
@@ -94,10 +115,10 @@
   {:else}
     <ul class="cards" aria-label="요약">
       {#each cards as c (c.label)}
-        <li>
+        <li class="card">
           <span class="label">{c.label}</span>
-          <b class="num value {c.cls}">{c.value}</b>
-          {#if c.sub}<small>{c.sub}</small>{/if}
+          <b class="num value {c.cls}" class:main={c.main}>{c.value}</b>
+          {#if c.sub}<small class="num">{c.sub}</small>{/if}
         </li>
       {/each}
     </ul>
@@ -113,7 +134,7 @@
           {#if r.failed}
             <span class="failed">{r.failed}</span>
           {:else}
-            <b class="num {trendClass(r.value, colorConvention)}">{trendReturn(r.value)}</b>
+            <b class="num {returnClass(r.value)}">{trendReturn(r.value)}</b>
           {/if}
         </li>
       {/each}
@@ -133,7 +154,7 @@
       {#if tab === 'trades'}
         <TradeList trades={result.trades} names={meta.names} {colorConvention} onTrade={pick} />
       {:else if tab === 'symbols'}
-        <SymbolTab perSymbol={result.perSymbol} requestedFrom={meta.strategy.period.from} failed={meta.failed} {colorConvention} />
+        <SymbolTab perSymbol={result.perSymbol} axisFrom={meta.from} failed={meta.failed} {colorConvention} />
       {:else}
         <SkipList skipped={result.skipped} names={meta.names} />
       {/if}
@@ -161,11 +182,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 16px;
+    padding: 16px var(--gutter);
+    font-size: var(--fs-body);
   }
   .head {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-sub);
     color: var(--t2);
   }
   .cards {
@@ -181,20 +203,22 @@
     flex-direction: column;
     gap: 2px;
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--r-card);
     background: var(--surface);
-    border: 1px solid var(--line);
   }
   .label {
-    font-size: 12px;
+    font-size: var(--fs-sub);
     color: var(--t3);
   }
   .value {
-    font-size: 20px;
+    font-size: var(--fs-title);
     font-weight: 700;
   }
+  .value.main {
+    font-size: var(--fs-headline);
+  }
   small {
-    font-size: 12px;
+    font-size: var(--fs-sub);
     color: var(--t2);
   }
   .bench {
@@ -207,7 +231,7 @@
     justify-content: space-between;
     padding: 8px 0;
     border-bottom: 1px solid var(--line);
-    font-size: 14px;
+    font-size: var(--fs-body);
   }
   .failed {
     color: var(--t3);
@@ -222,8 +246,14 @@
   .empty p {
     margin: 0;
   }
+  .why-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--fs-sub);
+  }
   .big {
-    font-size: 16px;
+    font-size: var(--fs-title);
     font-weight: 700;
     color: var(--t1);
   }
@@ -239,7 +269,7 @@
   .limits {
     margin: 0;
     padding-left: 18px;
-    font-size: 12px;
+    font-size: var(--fs-sub);
     color: var(--t3);
   }
 </style>
