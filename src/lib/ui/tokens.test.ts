@@ -95,6 +95,24 @@ describe('tokens.css', () => {
     });
 
     it.each([
+      ['light', light],
+      ['dark (system)', darkAuto],
+      ['dark (data-theme)', darkSet],
+    ])('%s: 자산 곡선 비교 종목 선(--line-bench)은 --bg 위 3:1 이상(그래픽)', (_, b) => {
+      expect(ratio(token(b, 'line-bench'), token(b, 'bg'))).toBeGreaterThanOrEqual(3);
+      expect(ratio(token(b, 'line-bench'), token(b, 'surface'))).toBeGreaterThanOrEqual(3);
+    });
+
+    it('카드 안 세그먼트: 라이트는 기본 모양(트랙 --surface2·선택 --surface), 다크는 트랙 --bg·선택 --surface2', () => {
+      const v = (b: string, name: string) => b.match(new RegExp(`--${name}: ([^;]+);`))![1].trim();
+      expect([v(light, 'seg-card-track'), v(light, 'seg-card-on')]).toEqual(['var(--surface2)', 'var(--surface)']);
+      for (const d of [darkAuto, darkSet]) expect([v(d, 'seg-card-track'), v(d, 'seg-card-on')]).toEqual(['var(--bg)', 'var(--surface2)']);
+      // 선택 항목과 트랙의 차이가 기본 세그먼트보다 작아지지 않는다(라이트 1.13, 다크 1.19)
+      expect(ratio(token(light, 'surface'), token(light, 'surface2'))).toBeGreaterThan(1.1);
+      expect(ratio(token(darkSet, 'surface2'), token(darkSet, 'bg'))).toBeGreaterThan(1.15);
+    });
+
+    it.each([
       ['light', light, 0.1],
       ['dark', darkSet, 0.14],
     ])('%s: accent text on its own tint (NXT badge) over every surface', (_, b, alpha) => {

@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { loadIndexSeries } from '../lib/data/candleService';
 import { memoryCache } from '../lib/data/testCache';
 import { sessionsForDay } from '../lib/market/sessions';
@@ -48,7 +48,7 @@ const rowOf = (name: string) => board().getByText(name).closest('li')!;
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
-  lwcCharts.length = 0;
+  resetLwcStub();
 });
 afterEach(() => {
   for (const a of apps) a.destroy();

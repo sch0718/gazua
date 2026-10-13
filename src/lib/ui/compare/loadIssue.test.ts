@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../time/kst';
-import { dominantFault, issueView, type LoadIssue } from './loadIssue';
+import { ApiError } from '../../providers/errors';
+import { connectionIssue, dominantFault, issueView, type LoadIssue } from './loadIssue';
 
 const NOW = kstEpoch('2026-10-12', '17:25:00');
 const issue = (over: Partial<LoadIssue>): LoadIssue => ({
@@ -88,5 +89,25 @@ describe('issueView', () => {
 
   it('row-level codes (upstream, path-blocked, token-expired) stay in their rows', () => {
     for (const code of ['upstream', 'path-blocked', 'token-expired'] as const) expect(issueView(issue({ code }), NOW)).toBeNull();
+  });
+});
+
+describe('connectionIssue', () => {
+  it('uses the banner copy and action of the error code', () => {
+    expect(connectionIssue(new ApiError('invalid-credentials'), '종목 정보를 받지 못했어요')).toEqual({
+      text: '키가 맞지 않아요',
+      action: { label: '키 다시 입력', target: 'credentials' },
+    });
+  });
+
+  it('codes without an action and unknown errors fall back to 진단 열기', () => {
+    expect(connectionIssue(new ApiError('upstream'), 'x')).toEqual({
+      text: '증권사 서버에서 오류가 났어요',
+      action: { label: '진단 열기', target: 'diagnostics' },
+    });
+    expect(connectionIssue(new TypeError('fetch'), '종목 정보를 받지 못했어요')).toEqual({
+      text: '종목 정보를 받지 못했어요',
+      action: { label: '진단 열기', target: 'diagnostics' },
+    });
   });
 });

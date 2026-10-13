@@ -4,11 +4,14 @@
     label,
     onchange,
     disabled = false,
+    id,
   }: {
     checked: boolean;
     label: string;
     onchange: (checked: boolean) => void;
     disabled?: boolean;
+    /** 바깥 <label for>와 연결할 때 */
+    id?: string;
   } = $props();
 </script>
 
@@ -18,6 +21,7 @@
   role="switch"
   aria-checked={checked}
   aria-label={label}
+  {id}
   {disabled}
   onclick={() => onchange(!checked)}
 >

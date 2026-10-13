@@ -6,27 +6,43 @@
   import { MAX_ITEMS } from '../lib/state/watchlist';
   import Badge from '../lib/ui/components/Badge.svelte';
   import Sheet from '../lib/ui/components/Sheet.svelte';
+  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import { FULL_MESSAGE, addToGroup } from './groupActions';
   import { sharedUniverse } from './universeSource';
 
   // 종목 추가 시트(스펙 7.3, 9-5·6·7): 초성 검색, 최근 추가, 연속 추가, 8종목 한도.
+  // 기본(group)은 관심 그룹에 더한다. 전략 편집에서는 같은 검색을 쓰되 고른 종목을 onpick으로만 알린다.
+  //   single: 하나 고르면 닫는다(비교 종목). multi: picked를 표시하고 max까지 연달아 고른다(직접 고른 종목).
   let {
     open,
     app,
-    groupId,
+    groupId = '',
     metas,
     now,
     onclose,
     loadItems = sharedUniverse,
+    mode = 'group',
+    title = '종목 추가',
+    onpick,
+    picked = [],
+    max = MAX_ITEMS,
+    limitMessage = `${max}종목까지 넣을 수 있어요`,
   }: {
     open: boolean;
     app: App;
-    groupId: string;
+    groupId?: string;
     /** 불러온 종목 메타(NXT 배지는 아는 종목만) */
     metas: Record<string, StockMeta>;
     now: number;
     onclose: () => void;
     loadItems?: () => Promise<UniverseItem[]>;
+    mode?: 'group' | 'single' | 'multi';
+    title?: string;
+    onpick?: (item: UniverseItem) => void;
+    /** multi: 이미 고른 종목 코드 */
+    picked?: string[];
+    max?: number;
+    limitMessage?: string;
   } = $props();
 
   const RESULT_LIMIT = 30;
@@ -57,8 +73,9 @@
 
   const group = $derived(app.watchlists.groups.find((g) => g.id === groupId));
   const count = $derived(group?.items.length ?? 0);
-  const full = $derived(count >= MAX_ITEMS);
-  const present = $derived(new Set(group?.items.map((i) => i.symbol) ?? []));
+  const grouped = $derived(mode === 'group');
+  const full = $derived(grouped && count >= MAX_ITEMS);
+  const present = $derived(new Set(grouped ? (group?.items.map((i) => i.symbol) ?? []) : mode === 'multi' ? picked : []));
   const trimmed = $derived(query.trim());
 
   const results = $derived(universe && trimmed ? searchUniverse(universe, trimmed, RESULT_LIMIT) : []);
@@ -71,6 +88,17 @@
 
   function add(item: UniverseItem) {
     if (present.has(item.s)) return;
+    if (mode === 'single') {
+      onpick?.(item);
+      onclose();
+      return;
+    }
+    if (mode === 'multi') {
+      if (picked.length >= max) return void showSnackbar(limitMessage);
+      onpick?.(item);
+      added++;
+      return;
+    }
     if (addToGroup(app, groupId, item.s, now) !== 'added') return;
     app.addRecent(item.s);
     added++;
@@ -84,10 +112,14 @@
   }
 </script>
 
-<Sheet {open} title="종목 추가" {onclose}>
-  <p class="sub">
-    {group?.name} 그룹 · {count}/{MAX_ITEMS}{full ? '' : ` · ${MAX_ITEMS - count}개 더 추가할 수 있어요`}
-  </p>
+<Sheet {open} {title} {onclose}>
+  {#if grouped}
+    <p class="sub">
+      {group?.name} 그룹 · {count}/{MAX_ITEMS}{full ? '' : ` · ${MAX_ITEMS - count}개 더 추가할 수 있어요`}
+    </p>
+  {:else if mode === 'multi'}
+    <p class="sub">고른 종목 {picked.length}/{max}</p>
+  {/if}
   <label class="search">
     <span aria-hidden="true">⌕</span>
     <input
@@ -132,22 +164,25 @@
             type="button"
             class="addbtn"
             class:done={has}
-            aria-label="{item.n} {has ? '추가됨' : '추가'}"
+            class:pick={mode === 'single' && !has}
+            aria-label="{item.n} {has ? '추가됨' : mode === 'single' ? '선택' : '추가'}"
             aria-disabled={!has && full ? 'true' : undefined}
             aria-describedby={!has && full ? limitId : undefined}
             onclick={() => add(item)}
           >
-            {has ? '✓' : '＋'}
+            {has ? '✓' : mode === 'single' ? '선택' : '＋'}
           </button>
         </li>
       {/each}
     </ul>
   {/if}
 
-  <div class="foot">
-    <span>{added > 0 ? `이번에 ${added}개 추가했어요` : '여러 개를 연달아 추가할 수 있어요'}</span>
-    <button type="button" class="btn" onclick={onclose}>완료</button>
-  </div>
+  {#if mode !== 'single'}
+    <div class="foot">
+      <span>{added > 0 ? `이번에 ${added}개 추가했어요` : '여러 개를 연달아 추가할 수 있어요'}</span>
+      <button type="button" class="btn" onclick={onclose}>완료</button>
+    </div>
+  {/if}
 </Sheet>
 
 <style>
@@ -243,6 +278,9 @@
     font-size: 20px;
     font-weight: 700;
     flex: none;
+  }
+  .addbtn.pick {
+    font-size: 14px;
   }
   .addbtn.done {
     background: var(--accent);

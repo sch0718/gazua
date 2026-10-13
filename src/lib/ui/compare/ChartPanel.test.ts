@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, ResizeObserverStub } from '../../chart/lwcStub';
+import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
 import type { ChartSeriesInput } from '../../chart/lineData';
 import { sessionsForDay } from '../../market/sessions';
 import { kstEpoch } from '../../time/kst';
@@ -41,7 +41,7 @@ function setup(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
-  lwcCharts.length = 0;
+  resetLwcStub();
 });
 afterEach(() => {
   vi.unstubAllGlobals();

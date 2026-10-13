@@ -5,7 +5,7 @@ import { sessionsForDay } from '../market/sessions';
 import { kstEpoch } from '../time/kst';
 import CompareChartFixture from './CompareChartFixture.svelte';
 import { toChartTime, type ChartSeriesInput } from './lineData';
-import { lwcCharts, lwcStubHooks, ResizeObserverStub } from './lwcStub';
+import { lwcCharts, lwcStubHooks, resetLwcStub, ResizeObserverStub } from './lwcStub';
 
 vi.mock('lightweight-charts', async () => (await import('./lwcStub')).lwcModule());
 
@@ -26,7 +26,7 @@ const input = (id: string, slot: ChartSeriesInput['slot']): ChartSeriesInput => 
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
-  lwcCharts.length = 0;
+  resetLwcStub();
 });
 afterEach(() => {
   lwcStubHooks.crosshairOnSetData = null;

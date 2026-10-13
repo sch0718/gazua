@@ -21,8 +21,7 @@
   import GroupTabs from '../lib/ui/compare/GroupTabs.svelte';
   import Headline from '../lib/ui/compare/Headline.svelte';
   import Leaderboard from '../lib/ui/compare/Leaderboard.svelte';
-  import { issueView } from '../lib/ui/compare/loadIssue';
-  import type { ErrorActionTarget } from '../lib/providers/errors';
+  import { issueView, runIssueAction } from '../lib/ui/compare/loadIssue';
   import Banner from '../lib/ui/components/Banner.svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
   import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel } from '../lib/ui/compare/compareText';
@@ -186,16 +185,6 @@
         return e !== undefined && (e.series === null || e.series.stale);
       }),
   );
-  function runIssueAction(target: ErrorActionTarget) {
-    if (target === 'diagnostics') app.navigate({ name: 'settings', section: 'diagnostics' });
-    else if (target === 'credentials') app.navigate({ name: 'settings', section: 'connection' });
-    else {
-      void navigator.clipboard?.writeText(location.origin).then(
-        () => showSnackbar('허용할 주소를 복사했어요'),
-        () => showSnackbar(`복사하지 못했어요 · ${location.origin}`),
-      );
-    }
-  }
   // 다시 온라인이 되면 바로 새로 받는다.
   onMount(() => {
     const online = () => void ctl.refresh();
@@ -356,7 +345,7 @@
           message={issueNotice.text}
           tone={issueNotice.tone}
           actionLabel={action?.label}
-          onaction={action ? () => runIssueAction(action.target) : undefined}
+          onaction={action ? () => runIssueAction(app, action.target) : undefined}
         />
       {/if}
       {#if pull > 0 || refreshing}

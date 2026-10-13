@@ -7,12 +7,15 @@
     onchange,
     label,
     wide = false,
+    onSurface = false,
   }: {
     options: Option[];
     value: string;
     onchange: (value: string) => void;
     label?: string;
     wide?: boolean;
+    /** 표면(--surface) 카드 안에 놓을 때: 트랙·선택 색을 테마별 토큰으로(라이트는 기본 모양, 다크는 트랙 --bg·선택 --surface2) */
+    onSurface?: boolean;
   } = $props();
 
   let buttons = $state<HTMLButtonElement[]>([]);
@@ -44,7 +47,7 @@
   });
 </script>
 
-<div class="seg" class:wide role="radiogroup" aria-label={label}>
+<div class="seg" class:wide class:on-surface={onSurface} role="radiogroup" aria-label={label}>
   {#each options as o, i (o.value)}
     <button
       type="button"
@@ -87,6 +90,12 @@
     background: var(--surface);
     color: var(--t1);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  }
+  .seg.on-surface {
+    background: var(--seg-card-track);
+  }
+  .on-surface button.on {
+    background: var(--seg-card-on);
   }
   button[aria-disabled='true'] {
     color: var(--t3);

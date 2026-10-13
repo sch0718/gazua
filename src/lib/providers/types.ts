@@ -1,4 +1,5 @@
 import type { Candle } from '../data/metrics';
+import type { Priority } from '../data/requestQueue';
 import type { SecurityType, TradingDay } from '../market/sessions';
 import type { Venue } from '../market/tradable';
 
@@ -41,6 +42,8 @@ export interface CandleQuery {
   /** KST `YYYY-MM-DD`, 양끝 포함 */
   from: string;
   to: string;
+  /** 요청 큐 우선순위. 기본 1 */
+  priority?: Priority;
 }
 
 export interface MarketDataProvider {
@@ -66,6 +69,7 @@ export interface MarketDataProvider {
     interval: '1m' | '1d',
     from: string,
     to: string,
+    priority?: Priority,
   ): Promise<Candle[]>;
 }
 

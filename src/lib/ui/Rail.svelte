@@ -34,7 +34,16 @@
   {@render children?.()}
   <button
     type="button"
-    class="ritem settings-item"
+    class="ritem sim-item"
+    class:on={route.name === 'simulate'}
+    aria-current={route.name === 'simulate' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'simulate' })}
+  >
+    시뮬레이션
+  </button>
+  <button
+    type="button"
+    class="ritem"
     class:on={route.name === 'settings'}
     onclick={() => app.navigate({ name: 'settings' })}
   >
@@ -98,7 +107,7 @@
     padding: 14px 10px 4px;
     letter-spacing: 0.04em;
   }
-  .settings-item {
+  .sim-item {
     margin-top: auto;
   }
 </style>

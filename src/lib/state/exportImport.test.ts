@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { exportData, exportFileName, importData } from './exportImport';
+import { newStrategy } from '../sim/defaults';
+import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
@@ -215,5 +216,68 @@ describe('exportFileName', () => {
   it('uses the profile name and the KST date, replacing characters files cannot have', () => {
     expect(exportFileName('내 프로필', kstEpoch('2026-10-12', '23:30:00'))).toBe('gazua-내 프로필-2026-10-12.json');
     expect(exportFileName('a/b:c', kstEpoch('2026-10-12', '00:10:00'))).toBe('gazua-a_b_c-2026-10-12.json');
+  });
+});
+
+describe('strategies in export files', () => {
+  const strat = { ...newStrategy(1_700_000_000_000, 'g1', '전략'), id: 's1' };
+
+  it('내보낸 JSON에 strategies가 있고 가져온 새 프로필에 같은 전략이 저장된다', () => {
+    const { st, backing } = source();
+    seed(backing, profileKeys.strategies('p1'), { strategies: [strat] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).strategies).toEqual([strat]);
+    const res = importData(st, json);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!)).toEqual({ strategies: [strat] });
+  });
+
+  it('strategies가 없는 옛 파일도 가져오고 목록은 []', () => {
+    const { st, backing } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    delete parsed.strategies;
+    const res = importData(st, JSON.stringify(parsed));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const raw = backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`);
+    expect(JSON.parse(raw!)).toEqual({ strategies: [] });
+  });
+
+  it('전략이 20개를 넘거나 id가 겹치면 20개까지, 중복은 뺀다', () => {
+    const { st, backing } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    const many = Array.from({ length: 21 }, (_, i) => ({ ...strat, id: `s${i}` }));
+    parsed.strategies = [...many, { ...strat, id: 's0' }];
+    const res = importData(st, JSON.stringify(parsed));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!).strategies;
+    expect(saved).toHaveLength(20);
+    expect(new Set(saved.map((x: { id: string }) => x.id)).size).toBe(20);
+    parsed.strategies = [strat, { ...strat }, { ...strat, id: 's2' }];
+    const res2 = importData(st, JSON.stringify(parsed));
+    if (!res2.ok) throw new Error('expected ok');
+    const saved2 = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res2.profileId)}`)!).strategies;
+    expect(saved2.map((x: { id: string }) => x.id)).toEqual(['s1', 's2']);
+  });
+
+  it('가져온 전략의 빈 id 항목은 버리고, 소수 이동평균 기간은 기본값으로 저장한다', () => {
+    const { st, backing } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    const bad = { ...strat, id: 's2', entry: { ...strat.entry, filter: { aboveMa: { on: true, period: 2.5 } } } };
+    parsed.strategies = [{ ...strat, id: '' }, bad];
+    const res = importData(st, JSON.stringify(parsed));
+    if (!res.ok) throw new Error('expected ok');
+    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!).strategies;
+    expect(saved.map((x: { id: string }) => x.id)).toEqual(['s2']);
+    expect(saved[0].entry.filter.aboveMa).toEqual({ on: true, period: 60 });
+  });
+
+  it('strategies가 배열이 아니면 형식 오류', () => {
+    const { st } = source();
+    const parsed = JSON.parse(exportData(st, 'p1', false));
+    parsed.strategies = 'x';
+    expect(importData(st, JSON.stringify(parsed))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
   });
 });

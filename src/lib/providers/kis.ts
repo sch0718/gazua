@@ -258,7 +258,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
     }
   }
 
-  async function dailyOnce(plan: DailyPlan, from: string, to: string): Promise<Map<string, DailyRow>> {
+  async function dailyOnce(plan: DailyPlan, from: string, to: string, priority: Priority): Promise<Map<string, DailyRow>> {
     const rows = new Map<string, DailyRow>();
     let cursor = compact(to);
     for (let page = 0; page < DAILY_MAX_PAGES; page++) {
@@ -266,7 +266,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
         path: plan.path,
         trId: plan.trId,
         query: { ...plan.query, FID_INPUT_DATE_1: compact(from), FID_INPUT_DATE_2: cursor },
-        priority: 1,
+        priority,
       });
       const parsed = outputRows(res.json, 'output2')
         .map(plan.mapRow)
@@ -289,14 +289,14 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
     return rows;
   }
 
-  async function dailyCandles(plan: DailyPlan, from: string, to: string): Promise<Candle[]> {
+  async function dailyCandles(plan: DailyPlan, from: string, to: string, priority: Priority): Promise<Candle[]> {
     let rows: Map<string, DailyRow>;
     try {
-      rows = await dailyOnce(plan, from, to);
+      rows = await dailyOnce(plan, from, to, priority);
     } catch (e) {
       if (!(e instanceof PageInconsistency)) throw e;
       try {
-        rows = await dailyOnce(plan, from, to);
+        rows = await dailyOnce(plan, from, to, priority);
       } catch (e2) {
         if (e2 instanceof PageInconsistency) throw upstream('KIS daily pages are inconsistent');
         throw e2;
@@ -325,7 +325,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
           FID_PW_DATA_INCU_YN: 'N',
           FID_FAKE_TICK_INCU_YN: '',
         },
-        priority: 1,
+        priority: q.priority ?? 1,
       });
       const rows = outputRows(res.json, 'output2');
       const ofDate = rows.filter((r) => text(r.stck_bsop_date) === compact(date));
@@ -458,6 +458,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
         },
         q.from,
         q.to,
+        q.priority ?? 1,
       );
     },
 
@@ -475,7 +476,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
       });
     },
 
-    async getIndexCandles(index, interval, from, to) {
+    async getIndexCandles(index, interval, from, to, priority = 1) {
       const iscd = INDEX_CODE[index];
       if (interval === '1d') {
         return dailyCandles(
@@ -487,6 +488,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
           },
           from,
           to,
+          priority,
         );
       }
       // 지수 분봉 TR에는 날짜 파라미터가 없어 당일만 받을 수 있다.
@@ -502,7 +504,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
           FID_INPUT_HOUR_1: '60', // 봉 간격(초)
           FID_PW_DATA_INCU_YN: 'N',
         },
-        priority: 1,
+        priority,
       });
       const byT = new Map<number, Candle>();
       for (const r of outputRows(res.json, 'output2')) {

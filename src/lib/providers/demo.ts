@@ -322,7 +322,8 @@ export function createDemoProvider(opts: {
       for (let d = from; d <= to; d = addDays(d, 1)) days.push(tradingDay(d));
       return days;
     },
-    async getIndexCandles(index, interval, from, to) {
+    // 우선순위는 받기만 한다(큐가 없다).
+    async getIndexCandles(index, interval, from, to, _priority) {
       return candlesFor(indexInstrument(index), 'KRX', interval, from, to);
     },
   };

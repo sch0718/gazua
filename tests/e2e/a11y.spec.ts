@@ -57,6 +57,56 @@ test('종목 상세가 열린 상태에 심각한 접근성 위반이 없다', a
   await expectNoSeriousViolations(page, '종목 상세');
 });
 
+test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위반이 없다', async ({ page }) => {
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+  await expectNoSeriousViolations(page, '시뮬레이션 목록');
+  await expectNoHorizontalScroll(page);
+
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  const run = page.getByRole('button', { name: '시뮬레이션 실행' });
+  await expect(run).toBeVisible();
+  await expectNoSeriousViolations(page, '전략 편집');
+
+  await run.click();
+  const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
+  await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expectNoSeriousViolations(page, '시뮬레이션 결과');
+  await expectNoHorizontalScroll(page);
+});
+
+// 펼친 구역: 기본 전략에서 꺼진 조건(고점 뒤 지난 거래일·골든크로스 칸 등)이 흐리게 보여도 글자 대비를 지킨다.
+async function openEditorSections(page: Page): Promise<void> {
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
+  for (const title of ['매수', '분할 매수', '매도']) {
+    const head = page.locator('button[aria-expanded]', { has: page.getByText(title, { exact: true }) });
+    await head.click();
+    await expect(head).toHaveAttribute('aria-expanded', 'true');
+  }
+  await expect(page.getByRole('textbox', { name: '고점 뒤 지난 거래일' })).toBeVisible();
+}
+
+test('전략 편집 구역(매수·분할 매수·매도)을 펼친 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
+  await openEditorSections(page);
+  await expectNoSeriousViolations(page, '편집 구역 펼침(꺼진 조건 포함)');
+  // 전 고점 돌파를 끄면 A/B 세그먼트도 흐려진다
+  await page.getByRole('switch', { name: '전 고점 돌파 사용' }).click();
+  await expectNoSeriousViolations(page, '편집 구역 펼침(전 고점 돌파 끔)');
+});
+
+test('거래 차트 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
+  const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
+  await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await result.getByRole('group', { name: '거래 내역' }).getByRole('button').first().click();
+  await expect(page.getByRole('dialog')).toContainText(/매수 .*원/);
+  await expectNoSeriousViolations(page, '거래 차트 시트');
+});
+
 // 시스템 다크 모드(prefers-color-scheme: dark)에서도 같은 기준을 지킨다.
 test.describe('다크 모드', () => {
   test.use({ colorScheme: 'dark' });
@@ -64,6 +114,13 @@ test.describe('다크 모드', () => {
   test('비교 화면(예시 그룹)에 심각한 접근성 위반이 없다', async ({ page }) => {
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
     await expectNoSeriousViolations(page, '다크 비교');
+  });
+
+  test('전략 편집 구역을 펼친 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
+    await openEditorSections(page);
+    await expectNoSeriousViolations(page, '다크 편집 구역 펼침');
+    await page.getByRole('switch', { name: '전 고점 돌파 사용' }).click();
+    await expectNoSeriousViolations(page, '다크 편집 구역 펼침(전 고점 돌파 끔)');
   });
 
   test('종목 추가 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {

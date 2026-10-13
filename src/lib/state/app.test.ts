@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
+import { newStrategy } from '../sim/defaults';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
@@ -685,6 +686,26 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(app.meta.profiles).toHaveLength(1);
   });
 
+  it('setStrategies persists, switchProfile swaps the list, deleteProfile removes the key', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const a = { ...newStrategy(NOW, 'g1', '가'), id: 'a' };
+    const b = { ...newStrategy(NOW, 'g1', '나'), id: 'b' };
+    seed(backing, 'p:p2:strategies', { strategies: [b] });
+    const app = make(backing);
+    expect(app.strategies).toEqual([]);
+    app.setStrategies([a]);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:strategies')!)).toEqual({ strategies: [a] });
+    expect(app.strategies).toEqual([a]);
+    app.switchProfile('p2');
+    expect(app.strategies).toEqual([b]);
+    app.deleteProfile('p2');
+    expect(backing.getItem('gazua:v1:p:p2:strategies')).toBeNull();
+    expect(app.strategies).toEqual([a]);
+  });
+
   it('verifyPassphrase checks the stored lock without changing state', async () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
@@ -951,5 +972,40 @@ describe('createApp — lock while switching profiles', () => {
     await expect(pending).rejects.toThrow(/profile changed/);
     expect(backing.getItem('gazua:v1:p:p1:secrets')).toBeNull();
     expect(backing.getItem('gazua:v1:p:p2:secrets')).toBeNull();
+  });
+});
+
+describe('simulate route', () => {
+  function withStrategy() {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    const app = make(backing);
+    app.setStrategies([newStrategy(1, 'g1', '전략')].map((x) => ({ ...x, id: 'abc' })));
+    return app;
+  }
+
+  it('navigate keeps strategyId for simulate', () => {
+    const app = withStrategy();
+    app.navigate({ name: 'simulate', strategyId: 'abc' });
+    expect(app.route).toEqual({ name: 'simulate', strategyId: 'abc' });
+    expect(location.hash).toBe('#/simulate/abc');
+  });
+
+  it('hashchange keeps it too', () => {
+    const app = withStrategy();
+    fireHash('#/simulate/abc');
+    expect(app.route).toEqual({ name: 'simulate', strategyId: 'abc' });
+  });
+
+  it('an unknown strategy becomes the list, rewrites the hash and leaves a notice', () => {
+    const app = withStrategy();
+    fireHash('#/simulate/nope');
+    expect(app.route).toEqual({ name: 'simulate' });
+    expect(location.hash).toBe('#/simulate');
+    expect(app.routeNotice).toBe('전략을 찾을 수 없어요');
+    app.clearRouteNotice();
+    expect(app.routeNotice).toBeNull();
   });
 });

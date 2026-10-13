@@ -46,6 +46,14 @@ describe('Banner roles', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('status')).toBeTruthy();
   });
+
+  it('live={false}면 alert·status 없이 글만(포커스로 읽히는 경고용)', () => {
+    render(Banner, { message: '고쳐 주세요', tone: 'error', live: false, id: 'b1' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.getElementById('b1')?.textContent).toContain('고쳐 주세요');
+    expect(document.getElementById('b1')?.getAttribute('tabindex')).toBe('-1');
+  });
 });
 
 describe('Toggle', () => {

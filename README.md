@@ -14,6 +14,7 @@
 - 종목별 거래 불가 시간 표시, 한 그룹 최대 8종목, 그룹·프로필 관리
 - 차트와 같은 값을 시각×종목 표로 보는 `표 보기`
 - 키보드 단축키: `/` 종목 검색 · `[` `]` 기간 이동 · `M` 지표 선택 · `V` 거래소 순환 · `H` 선택 종목 숨기기 · `?` 도움말
+- 매매 규칙 시뮬레이션: 관심종목에 내 매수·매도 규칙을 적용해 과거 성과를 보유·지수·ETF와 비교
 - 설치형 웹앱(PWA). 앱 셸만 캐시하고 시세 요청은 캐시하지 않아요.
 
 ## 데이터 공급자별 준비
@@ -74,8 +75,11 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
 ## 문서
 
 - 설계: [docs/superpowers/specs/2026-10-11-stock-compare-design.md](docs/superpowers/specs/2026-10-11-stock-compare-design.md)
+- 시뮬레이션 설계: [docs/superpowers/specs/2026-10-12-backtest-simulation-design.md](docs/superpowers/specs/2026-10-12-backtest-simulation-design.md)
 - 화면 목업: [docs/design/2026-10-11-mockups.html](docs/design/2026-10-11-mockups.html)
 - 구현 계획: [docs/superpowers/plans/2026-10-11-gazua.md](docs/superpowers/plans/2026-10-11-gazua.md)
+- 시뮬레이션 구현 계획: [docs/superpowers/plans/2026-10-12-backtest-simulation.md](docs/superpowers/plans/2026-10-12-backtest-simulation.md)
+- 시뮬레이션 화면 리뷰와 처리 결과: [docs/design/2026-10-13-simulation-ui-review.md](docs/design/2026-10-13-simulation-ui-review.md)
 - 실연결 점검 목록: [docs/live-check.md](docs/live-check.md)
 - 프록시: [proxy/README.md](proxy/README.md)
 - 초기 PoC: [poc/gazua-poc.html](poc/gazua-poc.html)

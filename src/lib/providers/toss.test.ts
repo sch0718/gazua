@@ -324,6 +324,47 @@ describe('toss provider: auth and errors', () => {
   });
 });
 
+describe('toss provider: request priority', () => {
+  it('passes priority to every daily, minute and index request; defaults to 1', async () => {
+    const { provider, runs } = setup();
+    await provider.getCandles({ ...dailyQuery('2026-10-06', '2026-10-08'), priority: 2 });
+    await provider.getCandles({ ...minuteQuery('2026-10-08'), priority: 2 });
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08', 2);
+    expect(runs.length).toBeGreaterThanOrEqual(3);
+    expect(runs.every((r) => r.priority === 2)).toBe(true);
+
+    runs.length = 0;
+    await provider.getCandles(dailyQuery('2026-10-06', '2026-10-08'));
+    await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08');
+    expect(runs.length).toBeGreaterThanOrEqual(2);
+    expect(runs.every((r) => r.priority === 1)).toBe(true);
+  });
+
+  it('does not key dedupe on priority: identical in-flight requests share the first caller priority', async () => {
+    const client = fakeClient();
+    const inner = fastQueue();
+    const executed: Priority[] = [];
+    const queue: RequestQueue = {
+      run: (group, key, priority, task) =>
+        inner.run(group, key, priority, () => {
+          executed.push(priority);
+          return task();
+        }),
+    };
+    const provider = createTossProvider({
+      client,
+      queue,
+      creds: { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET },
+      tokenStore: memoryStore(),
+      now: () => SUN,
+    });
+    const q = dailyQuery('2026-10-06', '2026-10-08');
+    await Promise.all([provider.getCandles({ ...q, priority: 2 }), provider.getCandles({ ...q, priority: 1 })]);
+    expect(candleCalls(client)).toHaveLength(1);
+    expect(executed).toEqual([2]);
+  });
+});
+
 describe('toss provider: quotes', () => {
   it('requires UNIFIED with a plain Error and makes no request', async () => {
     const { provider, client } = setup();

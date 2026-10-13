@@ -115,3 +115,44 @@ describe('AddStockSheet', () => {
     expect(screen.queryByText('종목 목록을 불러오지 못했어요')).toBeNull();
   });
 });
+
+describe('AddStockSheet modes (전략 편집)', () => {
+  function setupMode(props: Record<string, unknown>) {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf([]) }], now: NOW });
+    apps.push(app);
+    const onclose = vi.fn();
+    const onpick = vi.fn();
+    render(AddStockSheet, { open: true, app, groupId: '', metas: {}, now: NOW, onclose, onpick, loadItems: async () => UNIVERSE, ...props });
+    return { app, onclose, onpick };
+  }
+
+  it('single: tapping a row picks it, closes, and never touches the watchlist', async () => {
+    const { app, onclose, onpick } = setupMode({ mode: 'single', title: '비교 종목' });
+    expect(screen.getByRole('dialog', { name: '비교 종목' })).toBeTruthy();
+    await search('삼성전자');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '삼성전자 선택' })));
+    expect(onpick).toHaveBeenCalledWith(expect.objectContaining({ s: '005930', n: '삼성전자' }));
+    expect(onclose).toHaveBeenCalled();
+    expect(app.watchlists.groups[0].items).toHaveLength(0);
+  });
+
+  it('multi: picks without closing, marks picked rows, and tells when the limit is reached', async () => {
+    const { onpick, onclose } = setupMode({ mode: 'multi', picked: ['005930'], max: 2, title: '종목 고르기' });
+    expect(screen.getByText(/1\/2/)).toBeTruthy();
+    await search('삼성');
+    await vi.waitFor(() => rowOf('삼성전자'));
+    expect(within(rowOf('삼성전자')).getByRole('button', { name: '삼성전자 추가됨' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '삼성전기 추가' }));
+    expect(onpick).toHaveBeenCalledWith(expect.objectContaining({ s: '009150' }));
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it('multi: at the limit a tap shows the snackbar instead of picking', async () => {
+    const { onpick } = setupMode({ mode: 'multi', picked: ['A1', 'A2'], max: 2, limitMessage: '2종목까지 넣을 수 있어요' });
+    await search('삼성');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '삼성전기 추가' })));
+    expect(onpick).not.toHaveBeenCalled();
+    expect(currentSnackbar()?.message).toBe('2종목까지 넣을 수 있어요');
+  });
+});
+
