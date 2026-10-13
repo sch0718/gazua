@@ -521,7 +521,7 @@ p:{id}:tokenIssuedAt:kis  마지막 KIS 토큰 발급 시각(epoch ms)   // 비�
 - **공급자 계약 테스트**: 실제 응답을 녹화한 픽스처(키·계좌 정보 제거)로 KIS·토스·데모가 같은 테스트를 통과
 - **프록시**: 허용 경로·차단 경로(주문), CORS 출처 검사, `PROXY_TOKEN`
 - **E2E (Playwright, 데모 공급자)**: 375×812 / 820×1180 가로·세로 / 1440×900. 종목 추가 → 기간·지표·거래소 전환 → 삭제·되돌리기. axe 접근성 검사 포함
-- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<pnpm-lock.yaml 해시>`)를 캐시하고 적중하면 `install-deps`만 돌린다. 브라우저 버전은 락파일의 Playwright 버전이 정하므로 락파일이 바뀌면 키도 바뀐다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다. `pnpm check`는 `tsconfig.json`(앱 코드: `types: []`, 테스트 파일과 vitest에 의존하는 보조 파일(`contract.ts`·`lwcStub.ts`) 제외 — Node 전역 `process`·`Buffer`가 앱 코드에 보이지 않는다)과 `tsconfig.test.json`(테스트·설정 파일 포함, `types: ["node"]`) 두 번 svelte-check를 돌린다.
+- **CI**: e2e 잡은 Playwright 브라우저(`~/.cache/ms-playwright`, 키 `pw-<OS>-<pnpm-lock.yaml 해시>`)를 캐시하고 적중하면 `install-deps`만 돌린다. 브라우저 버전은 락파일의 Playwright 버전이 정하므로 락파일이 바뀌면 키도 바뀐다. ci 잡은 `pnpm check:e2e`(`tsconfig.e2e.json`, `tests/e2e`·`playwright.config.ts` 타입 검사)와 `pnpm test:universe`(`UNIVERSE_REUSE` 스위치)를 돌린다. `tsconfig.json`은 편집기와 Svelte 언어 서버가 기본으로 여는 넓은 설정이다(앱 코드·테스트·루트 설정 파일 포함, `types: ["node"]`, strict). `tsconfig.app.json`은 앱 전용이다(`src`만, `types: []`, 테스트 파일과 vitest에 의존하는 보조 파일(`contract.ts`·`lwcStub.ts`) 제외 — Node 전역 `process`·`Buffer`가 앱 코드에 보이지 않는다). `pnpm check`는 `tsconfig.app.json`, `tsconfig.json` 순으로 svelte-check를 두 번 돌린다. `tsconfig.e2e.json`은 `tsconfig.app.json`을 확장한다.
 - **실제 연결 점검표**: 실제 키로 장중·애프터·휴장일에 수동 확인(README에 체크리스트)
 
 ---
