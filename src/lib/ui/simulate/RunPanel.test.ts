@@ -222,8 +222,9 @@ describe('RunPanel', () => {
 
   describe('알림(라이브 영역 하나)', () => {
     it('받는 중: 시작·대기만 알리고, n/m이 늘 때는 알림 글이 그대로', async () => {
-      const p = setup(loading(3));
+      const p = setup({ kind: 'idle' });
       expect(live().getAttribute('role')).toBe('status');
+      await p.rerender({ state: loading(3) });
       expect(live().textContent).toBe('일봉 받는 중');
       // 보이는 진행 문구는 라이브 영역이 아니다
       expect(screen.getByText('일봉 받는 중 3/10').getAttribute('role')).toBeNull();
@@ -231,6 +232,34 @@ describe('RunPanel', () => {
       expect(live().textContent).toBe('일봉 받는 중');
       await p.rerender({ state: loading(4, true) });
       expect(live().textContent).toBe('일봉 받는 중 · 잠시 대기 중');
+    });
+
+    it('대기가 풀리면(대기 중 → 받는 중) 다시 알리지 않고, 또 기다리면 다시 알린다', async () => {
+      const p = setup({ kind: 'idle' });
+      await p.rerender({ state: loading(3) });
+      await p.rerender({ state: loading(4, true) });
+      expect(live().textContent).toBe('일봉 받는 중 · 잠시 대기 중');
+      await p.rerender({ state: loading(5) });
+      expect(live().textContent).not.toBe('일봉 받는 중');
+      expect(live().textContent).toBe('');
+      await p.rerender({ state: loading(6, true) });
+      expect(live().textContent).toBe('일봉 받는 중 · 잠시 대기 중');
+    });
+
+    it('다시 그려질 때(폰의 결과 버튼)는 비워 두고, 상태가 바뀔 때만 채운다', async () => {
+      for (const state of [doneState(), loading(3), loading(3, true), { kind: 'crash' } as RunState]) {
+        const p = setup(state);
+        expect(live().textContent, state.kind).toBe('');
+        // 같은 상태로 다시 그려도(n/m만 바뀜) 알리지 않는다
+        if (state.kind === 'loading') {
+          await p.rerender({ state: loading(4, state.progress.waiting) });
+          expect(live().textContent).toBe('');
+        }
+        p.view.unmount();
+      }
+      const p = setup(loading(9));
+      await p.rerender({ state: doneState() });
+      expect(live().textContent).toBe('결과가 나왔어요');
     });
 
     it('결과가 나오면 결과가 나왔어요', async () => {

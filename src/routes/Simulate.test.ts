@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { createRawSnippet } from 'svelte';
+import { createRawSnippet, tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
@@ -514,6 +514,94 @@ describe('Simulate run states', () => {
     await fireEvent.click(retry);
     expect(head().getAttribute('aria-expanded')).toBe('true');
     expect(spy.mock.calls.length).toBe(calls); // 다시 받지 않았다
+  }, 15000);
+
+  const NO_SIGNAL = '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요';
+  const entryHead = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
+  async function turnOffBuySignals() {
+    await fireEvent.click(entryHead());
+    await fireEvent.click(screen.getByRole('switch', { name: '저점 뒤 연속 상승 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 사용' }));
+    await fireEvent.click(entryHead());
+    expect(entryHead().getAttribute('aria-expanded')).toBe('false');
+  }
+
+  it('폰 폭: 막힌 다시 시도는 그 구역의 첫 막는 경고 Banner로 포커스(머리가 아니라)', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.spyOn(app.provider, 'getCandles').mockImplementation(() => Promise.reject(new Error('x')));
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await screen.findByRole('button', { name: '진단 열기' }, { timeout: 5000 });
+    await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
+    await turnOffBuySignals();
+    await fireEvent.click(screen.getByRole('button', { name: '결과' }));
+    const retry = screen.getByRole('button', { name: '다시 시도' });
+    retry.focus();
+    await fireEvent.click(retry);
+    await waitFor(() => expect(document.activeElement?.classList.contains('banner')).toBe(true));
+    expect(document.activeElement?.textContent).toContain(NO_SIGNAL);
+    expect(entryHead().getAttribute('aria-expanded')).toBe('true');
+  }, 15000);
+
+  it('PC 폭: 오래된 결과의 다시 실행이 막히면 옆 편집기의 첫 막는 경고 Banner로 포커스', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 })).toBeTruthy();
+    await turnOffBuySignals();
+    vi.mocked(simulate).mockClear();
+    const rerun = await screen.findByRole('button', { name: '다시 실행' });
+    rerun.focus();
+    await fireEvent.click(rerun);
+    await waitFor(() => expect(document.activeElement?.classList.contains('banner')).toBe(true));
+    expect(document.activeElement?.textContent).toContain(NO_SIGNAL);
+    expect(simulate).not.toHaveBeenCalled();
+  }, 15000);
+
+  it('폰 폭: 구역 없는 규칙 고치기(신호 없음)는 편집 화면의 이름 칸으로 포커스', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.mocked(simulate).mockImplementationOnce(() => doneState((s) => noTrades(s, [])).result);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    const fix = await screen.findByRole('button', { name: '규칙 고치기' }, { timeout: 5000 });
+    fix.focus();
+    await fireEvent.click(fix);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '전략 이름' })));
+  }, 15000);
+
+  it('폰 폭: 데이터 없음의 규칙 고치기도 이름 칸으로 포커스', async () => {
+    stubWidth(false, true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.spyOn(app.provider, 'getCandles').mockResolvedValue([]);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    expect(await screen.findByText('기간 안에 받은 데이터가 없어요', { selector: 'p:not([data-live])' }, { timeout: 5000 })).toBeTruthy();
+    const fix = screen.getByRole('button', { name: '규칙 고치기' });
+    fix.focus();
+    await fireEvent.click(fix);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '전략 이름' })));
+  }, 15000);
+
+  it('PC 폭: 구역 없는 규칙 고치기는 포커스를 옮기지 않는다(같은 화면에 그대로)', async () => {
+    stubWidth(true);
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.mocked(simulate).mockImplementationOnce(() => doneState((s) => noTrades(s, [])).result);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    const fix = await screen.findByRole('button', { name: '규칙 고치기' }, { timeout: 5000 });
+    fix.focus();
+    await fireEvent.click(fix);
+    await tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(fix);
   }, 15000);
 
   it('규칙 고치기(기간·자금) 뒤 결과로 갔다가 규칙을 다시 열면 구역이 강제로 열리지 않는다', async () => {

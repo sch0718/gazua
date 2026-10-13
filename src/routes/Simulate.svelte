@@ -1,7 +1,7 @@
 <script lang="ts">
   // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
   // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`↔`결과`로 오감), PC(≥1024)는 좌우로 둘 다 보인다.
-  // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼(좁은 화면).
+  // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { Strategy } from '../lib/sim/types';
@@ -72,6 +72,13 @@
     // 구역 없이 돌아가면 이전 요청을 지운다 — 좁은 화면에서 편집기가 다시 만들어질 때 옛 요청을 다시 열지 않도록
     openRequest = typeof section === 'string' ? { section, seq: ++openSeq } : null;
   }
+  // 결과의 `규칙 고치기`: 구역이 있으면 편집기가 그 구역(막는 경고·머리)으로 포커스를 옮긴다.
+  // 구역 없이 좁은 화면에서 편집으로 가면 누른 버튼이 사라지므로 편집 화면 첫 컨트롤(이름 칸)로. 넓은 화면은 그대로 둔다
+  function fixRules(section?: Issue['section']) {
+    const leavingResult = !wide && showResult;
+    edit(section);
+    if (leavingResult && typeof section !== 'string') void tick().then(() => editor?.focusName());
+  }
   const showRun = () => (showResult = true);
   function cancel() {
     ctl.cancel();
@@ -135,7 +142,7 @@
                   colorConvention={app.settings.colorConvention}
                   theme={app.settings.theme}
                   {stale}
-                  onEdit={edit}
+                  onEdit={fixRules}
                   onRetry={retry}
                   onCancel={cancel}
                   onIssueAction={(target) => runIssueAction(app, target)}

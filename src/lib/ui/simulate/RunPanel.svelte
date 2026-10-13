@@ -51,11 +51,13 @@
 
   const NO_DATA_TEXT = '기간 안에 받은 데이터가 없어요';
   const CRASH_TEXT = '계산 중 문제가 생겼어요';
+  const LOADING_TEXT = '일봉 받는 중';
+  const WAITING_TEXT = '일봉 받는 중 · 잠시 대기 중';
   // 라이브 영역 글: 받는 중은 시작·대기만(n/m은 넣지 않는다), 끝나면 결과·질문·문구. 연결 오류는 Banner가 알린다
   const announce = $derived.by(() => {
     switch (run.kind) {
       case 'loading':
-        return run.progress.waiting ? '일봉 받는 중 · 잠시 대기 중' : '일봉 받는 중';
+        return run.progress.waiting ? WAITING_TEXT : LOADING_TEXT;
       case 'done':
         return '결과가 나왔어요';
       case 'partial':
@@ -67,6 +69,20 @@
       default:
         return '';
     }
+  });
+
+  // 라이브 영역은 처음 그릴 때 비워 둔다(폰에서 `결과`로 다시 그려질 때 같은 글을 또 알리지 않게). 글이 바뀔 때만 채운다.
+  // 대기가 풀린 것(대기 중 → 받는 중)은 알리지 않고 비운다(또 기다리면 다시 알린다)
+  let liveText = $state('');
+  let prevAnnounce: string | null = null;
+  $effect(() => {
+    const next = announce;
+    untrack(() => {
+      const prev = prevAnnounce;
+      prevAnnounce = next;
+      if (prev === null || prev === next) return;
+      liveText = prev === WAITING_TEXT && next === LOADING_TEXT ? '' : next;
+    });
   });
 
   let root: HTMLDivElement;
@@ -91,7 +107,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="run-panel" bind:this={root} tabindex="-1">
-  <p class="sr-only" role="status" data-live>{announce}</p>
+  <p class="sr-only" role="status" data-live>{liveText}</p>
   {#if run.kind === 'done'}
     {#if stale}
       <Banner

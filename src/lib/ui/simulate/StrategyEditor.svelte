@@ -119,7 +119,8 @@
     return key === 'period' ? `${sum('period')} · ${sum('capital')}` : sum(key);
   }
 
-  // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다. 연 구역의 머리로 포커스
+  // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다.
+  // 연 구역에 막는 경고가 있으면 첫 막는 경고 Banner로(실행 버튼과 같은 규칙, 경고가 읽힌다), 없으면 그 머리로 포커스
   let handledSeq = -1;
   const heads: Partial<Record<Key, EditorSection>> = {};
   $effect(() => {
@@ -128,13 +129,23 @@
     handledSeq = req.seq;
     const key = keyOf(req.section);
     openKeys[key] = true;
-    void tick().then(() => heads[key]?.focusHead());
+    void tick().then(() => {
+      const first = sectionIssues(key).find((r) => r.issue.blocking);
+      const banner = first ? document.getElementById(first.id) : null;
+      if (banner) banner.focus();
+      else heads[key]?.focusHead();
+    });
   });
 
   let runButton: HTMLButtonElement;
   /** 맨 아래 실행 버튼으로 포커스(좁은 화면에서 받는 중에 취소했을 때) */
   export function focusRun() {
     runButton?.focus();
+  }
+  let nameInput: HTMLInputElement;
+  /** 이름 칸(편집 화면 첫 컨트롤)으로 포커스(좁은 화면에서 구역 없이 `규칙 고치기`로 들어왔을 때) */
+  export function focusName() {
+    nameInput?.focus();
   }
 
   const toggle = (key: Key) => (openKeys[key] = !openKeys[key]);
@@ -169,6 +180,7 @@
     <div class="name-field">
       <input
         class="name"
+        bind:this={nameInput}
         aria-label="전략 이름"
         maxlength={NAME_MAX}
         bind:value={nameText}
