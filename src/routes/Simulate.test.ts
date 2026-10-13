@@ -62,10 +62,20 @@ function stubWidth(wide: boolean, phone = false) {
   );
 }
 
-// jsdom은 Enter의 암묵적 제출을 하지 않는다: 브라우저처럼 keydown이 막히지 않았으면 폼의 기본 버튼(첫 submit 버튼)을 누른다
+// jsdom은 텍스트 칸의 Enter로 폼을 제출하지 않는다(암묵적 제출 없음). 브라우저처럼 흉내 낸다:
+// keydown이 막히지 않았으면 폼의 기본 버튼 — 트리 순서로 첫 submit 버튼(type이 없거나 잘못된 <button>,
+// input[type=submit|image] 포함) — 에 click을 보낸다(HTML 명세의 암묵적 제출). 이름 바꾸기 폼에서는 `저장`이다
+function defaultButton(form: HTMLFormElement): HTMLElement | null {
+  for (const el of Array.from(form.elements)) {
+    if (el instanceof HTMLButtonElement && el.type === 'submit') return el;
+    if (el instanceof HTMLInputElement && (el.type === 'submit' || el.type === 'image')) return el;
+  }
+  return null;
+}
 async function pressEnter(input: HTMLElement) {
   const notPrevented = await fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
-  if (notPrevented) await fireEvent.click(input.closest('form')!.querySelector<HTMLButtonElement>('button[type="submit"]')!);
+  const button = defaultButton(input.closest('form')!);
+  if (notPrevented && button) await fireEvent.click(button);
 }
 
 function shortPeriod(app: App) {
@@ -363,6 +373,8 @@ describe('Simulate run', () => {
     await fireEvent.click(run);
     await screen.findByRole('button', { name: '취소' });
     await waitFor(() => expect(document.activeElement?.classList.contains('run-panel')).toBe(true));
+    // 라이브 영역은 비어 있으므로(R3) 포커스 받는 자리의 이름이 시작을 알린다
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: /^일봉 받는 중/ }));
     release();
   }, 15000);
 

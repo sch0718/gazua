@@ -174,10 +174,13 @@
     background: transparent;
     border: 1px dashed var(--t3);
   }
+  /* 포커스·오류는 실선(입력에 outline이 없어 이 테두리가 포커스 표시다) */
   .muted .box:focus-within {
+    border-style: solid;
     border-color: var(--accent);
   }
   .muted .box.bad {
+    border-style: solid;
     border-color: var(--err);
   }
   input {

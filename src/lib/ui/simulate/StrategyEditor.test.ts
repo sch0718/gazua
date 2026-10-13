@@ -477,6 +477,11 @@ describe('편집 행 (설정 .row 패턴)', () => {
     // 켜진 칸(배경 있음·테두리 없음)과 모양으로도 구분: 점선
     expect(box).toMatch(/border:\s*1px dashed var\(--t3\)/);
     expect(box).not.toMatch(/var\(--line\)/);
+    // 포커스·오류 때는 실선(입력은 outline이 없어 이 테두리가 유일한 포커스 표시)
+    for (const state of [':focus-within', '.bad']) {
+      const body = rules(numberFieldSource).find(([sel]) => sel === `.muted .box${state}`)?.[1] ?? '';
+      expect(body, state).toMatch(/border-style:\s*solid/);
+    }
     const text = rules(numberFieldSource).find(([sel]) => sel.includes('.muted input') && sel.includes('.muted .suffix'))?.[1] ?? '';
     expect(text).toMatch(/color:\s*var\(--t3\)/);
     const seg = rules(entrySource).find(([sel]) => sel.includes('.seg'))?.[1] ?? '';

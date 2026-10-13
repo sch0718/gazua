@@ -46,6 +46,7 @@
   // 토큰을 못 읽을 때의 폴백은 라이트 토큰 값(tokens.css)과 같게, 토큰마다 하나
   const ACCENT: [string, string] = ['--accent', '#5b47e0'];
   const T2: [string, string] = ['--t2', '#5b6069'];
+  const T3: [string, string] = ['--t3', '#676d77'];
   const UP: [string, string] = ['--up', '#d4202f'];
   const DOWN: [string, string] = ['--down', '#1d5fd6'];
   // 마커·가격선 색 토큰: 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
@@ -125,7 +126,7 @@
     const c = createChart(node, {
       width: node.clientWidth,
       height: node.clientHeight,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: v(['--t3', '#676d77']), fontSize: 11 },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: v(T3), fontSize: 11 },
       grid: { vertLines: { visible: false }, horzLines: { color: v(['--grid', 'rgba(17,19,23,.07)']) } },
       // 위는 매도 마커, 아래는 매수 마커·출처 로고 자리
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.22 } },
@@ -157,7 +158,7 @@
 
     if (pattern) {
       // 고른 돌파 기준선만 강조색. L은 참고용이라 성긴 점선, 값은 요약 글에 있으니 축 라벨은 뺀다
-      const gray = v(['--t3', '#676d77']);
+      const gray = v(T3);
       const accent = v(ACCENT);
       for (const [title, price] of [['A', pattern.a], ['B', pattern.b]] as const) {
         line.createPriceLine({ price, title, color: title === level ? accent : gray, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true });

@@ -330,6 +330,18 @@ describe('RunPanel', () => {
       }
     });
 
+    it('받는 중이면 포커스 받는 자리(결과 자리)의 이름이 보이는 진행 줄이다(폰에서 받는 중으로 새로 그려질 때 읽힌다)', async () => {
+      const p = setup(loading(0));
+      root().focus();
+      const named = screen.getByRole('region', { name: '일봉 받는 중 0/10' });
+      expect(named).toBe(root());
+      expect(document.activeElement).toBe(named);
+      // 받는 중이 아니면 이름 없는 자리(영역 역할도 없다)
+      await p.rerender({ state: doneState() });
+      expect(root().getAttribute('role')).toBeNull();
+      expect(root().hasAttribute('aria-labelledby')).toBe(false);
+    });
+
     it('처음 그릴 때는 포커스를 옮기지 않는다', () => {
       setup({ kind: 'idle' });
       expect(document.activeElement).toBe(document.body);

@@ -85,6 +85,11 @@
     });
   });
 
+  // 받는 중이면 포커스 받는 자리(결과 자리)의 이름을 보이는 진행 줄로 둔다. 폰에서는 받는 중으로 새로 그려져
+  // 라이브 영역이 비어 있으므로, 실행 뒤 이 자리로 옮긴 포커스가 `일봉 받는 중`을 읽게 한다
+  const statusId = `run-status-${Math.random().toString(36).slice(2, 9)}`;
+  const loadingNow = $derived(run.kind === 'loading');
+
   let root: HTMLDivElement;
   /** 결과 자리로 포커스(좁은 화면에서 실행을 시작해 편집기가 내려갈 때) */
   export function focus() {
@@ -106,7 +111,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="run-panel" bind:this={root} tabindex="-1">
+<div
+  class="run-panel"
+  bind:this={root}
+  tabindex="-1"
+  role={loadingNow ? 'region' : undefined}
+  aria-labelledby={loadingNow ? statusId : undefined}
+>
   <p class="sr-only" role="status" data-live>{liveText}</p>
   {#if run.kind === 'done'}
     {#if stale}
@@ -136,7 +147,7 @@
         >
           <i style:width="{p.total ? (p.done / p.total) * 100 : 0}%"></i>
         </div>
-        <p>{p.total ? `일봉 받는 중 ${p.done}/${p.total}` : '일봉 받는 중'}{p.waiting ? ' · 잠시 대기 중' : ''}</p>
+        <p id={statusId}>{p.total ? `일봉 받는 중 ${p.done}/${p.total}` : '일봉 받는 중'}{p.waiting ? ' · 잠시 대기 중' : ''}</p>
         <p class="sub">종목 {sc.stocks}개 · 지수{sc.benchmark ? ' · 비교 기준' : ''}</p>
         <div class="actions"><button type="button" onclick={onCancel}>취소</button></div>
       {:else if run.kind === 'partial'}
