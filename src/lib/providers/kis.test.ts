@@ -812,4 +812,14 @@ describe('KIS token throttle countdown', () => {
     const noStore = make(undefined, clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
     expect((await noStore.getQuotes(['005930'], 'KRX').catch((e) => e)).retryAfterMs).toBeUndefined();
   });
+
+  it('caps the countdown at one minute when the stored issue time is in the future (clock moved back, bad value)', async () => {
+    const issuedAt = issuedAtStore();
+    issuedAt.save(T0 + 3_600_000);
+    const clock = { now: T0 };
+    const provider = make(issuedAt, clock, () => new ApiError('token-throttled', undefined, { status: 403 }));
+    const err = await provider.getQuotes(['005930'], 'KRX').catch((e) => e);
+    expect(err.code).toBe('token-throttled');
+    expect(err.retryAfterMs).toBe(60_000);
+  });
 });

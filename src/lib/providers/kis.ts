@@ -238,7 +238,8 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
     if (last === null) return e;
     return new ApiError(e.code, e.message, {
       ...(e.status !== undefined ? { status: e.status } : {}),
-      retryAfterMs: Math.max(0, last + KIS_TOKEN_INTERVAL_MS - now()),
+      // 시각이 미래(시계가 뒤로 감·잘못된 값)여도 제한은 1분이라 그 이상 기다리게 하지 않는다.
+      retryAfterMs: Math.min(KIS_TOKEN_INTERVAL_MS, Math.max(0, last + KIS_TOKEN_INTERVAL_MS - now())),
     });
   }
 
