@@ -33,6 +33,8 @@
   });
 
   function onkeydown(e: KeyboardEvent, index: number) {
+    // 브라우저·보조기술 단축키(Alt+←, Ctrl+Home 등)는 가로채지 않는다
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     const n = groups.length;
     let next: number;
     if (e.key === 'ArrowRight') next = (index + 1) % n;

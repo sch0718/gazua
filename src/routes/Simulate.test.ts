@@ -185,6 +185,43 @@ describe('Simulate list', () => {
     expect(app.strategies.map((s) => s.name)).toEqual(['가', '나', '다']);
   });
 
+  describe('menu: delete returns focus (the row and its menu button are gone)', () => {
+    const row = (id: string) => document.querySelector<HTMLElement>(`[data-strategy-row="${id}"]`);
+    const del = async (name: string) => {
+      const more = screen.getByRole('button', { name: `${name} 메뉴` });
+      more.focus(); // 실제 클릭은 포커스를 주지만 fireEvent.click은 주지 않는다
+      await fireEvent.click(more);
+      await fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+    };
+
+    it('a middle row sends focus to the next row button', async () => {
+      setup(['가', '나', '다']);
+      await del('나');
+      await waitFor(() => expect(document.activeElement).toBe(row('s2')));
+    });
+
+    it('the last row sends focus to the previous row button', async () => {
+      setup(['가', '나', '다']);
+      await del('다');
+      await waitFor(() => expect(document.activeElement).toBe(row('s1')));
+    });
+
+    it('the only row sends focus to ＋ 새 전략', async () => {
+      setup(['가']);
+      await del('가');
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '＋ 새 전략' })));
+    });
+
+    it('복제 keeps the usual return to the menu button', async () => {
+      setup(['가', '나']);
+      const more = screen.getByRole('button', { name: '가 메뉴' });
+      more.focus(); // 실제 클릭은 포커스를 주지만 fireEvent.click은 주지 않는다
+      await fireEvent.click(more);
+      await fireEvent.click(screen.getByRole('button', { name: '복제' }));
+      await waitFor(() => expect(document.activeElement).toBe(more));
+    });
+  });
+
   it('new strategies are numbered: 새 전략, 새 전략 2', async () => {
     const app = setup();
     await fireEvent.click(screen.getByRole('button', { name: '＋ 새 전략' }));

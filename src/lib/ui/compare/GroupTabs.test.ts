@@ -70,6 +70,25 @@ describe('GroupTabs', () => {
       expect(onselect).not.toHaveBeenCalled();
     });
 
+    it.each(['Alt', 'Ctrl', 'Meta'] as const)('%s+Arrow/Home/End are left to the browser (no focus move, no preventDefault)', async (mod) => {
+      const { onselect, tabs } = setup('b');
+      tabs[1].focus();
+      for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
+        const notCancelled = await fireEvent.keyDown(tabs[1], { key, [`${mod.toLowerCase()}Key`]: true });
+        expect(notCancelled, `${mod}+${key}`).toBe(true); // preventDefault 하지 않았다
+        expect(document.activeElement).toBe(tabs[1]);
+      }
+      expect(stops(tabs)).toEqual([tabs[1]]);
+      expect(onselect).not.toHaveBeenCalled();
+    });
+
+    it('Shift+Arrow is still handled', async () => {
+      const { tabs } = setup('b');
+      tabs[1].focus();
+      await fireEvent.keyDown(tabs[1], { key: 'ArrowRight', shiftKey: true });
+      expect(document.activeElement).toBe(tabs[2]);
+    });
+
     it('Enter selects the focused tab (the click a native button fires)', async () => {
       const { onselect, tabs } = setup('b');
       tabs[1].focus();
