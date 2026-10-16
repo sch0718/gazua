@@ -2,13 +2,13 @@
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 // 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않는다. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
-import { createKisClient } from './kis-collect.mjs';
+import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
 import { parseIdxcode } from './parse-idxcode.mjs';
 import { parseMaster } from './parse-master.mjs';
 
@@ -52,15 +52,36 @@ export function resolveSectors(stocks, idxcode) {
 }
 
 // ── 출력 경로 ─────────────────────────────────────────────────────────
+// 아직 없는 경로여도 실제로 있는 가장 가까운 상위 폴더를 realpath로 풀어서 비교한다(심볼릭 링크·대소문자 무시 파일시스템 대응).
+function realResolve(p) {
+  let cur = resolve(p);
+  const rest = [];
+  while (!existsSync(cur)) {
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    rest.unshift(basename(cur));
+    cur = parent;
+  }
+  return join(realpathSync.native(cur), ...rest);
+}
+
 // 저장소 안이면 .gitignore에 있는 data/만 허용한다.
 export function assertOutAllowed(out, repoRoot = REPO_ROOT) {
-  const abs = resolve(out);
-  const rel = relative(resolve(repoRoot), abs);
-  const inside = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  const abs = realResolve(out);
+  const rel = relative(realResolve(repoRoot), abs);
+  const inside = rel === '' || !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
   if (inside && rel !== 'data' && !rel.startsWith(`data${sep}`)) {
     throw new Error('저장소 안에는 data/ 폴더에만 쓸 수 있어요. 저장소 밖(예: ~/gazua-data/)을 고르세요');
   }
-  return abs;
+  return resolve(out);
+}
+
+// ── 키 형식 ───────────────────────────────────────────────────────────
+// 줄바꿈·공백·한글이 들어 있으면 fetch가 헤더 값 전체를 오류 메시지에 담는다. 값은 절대 되풀이하지 않는다.
+export function validateCreds(appKey, appSecret) {
+  const ok = (v) => typeof v === 'string' && /^[\x21-\x7e]+$/.test(v);
+  if (!ok(appKey)) throw new Error('KIS_APP_KEY 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)');
+  if (!ok(appSecret)) throw new Error('KIS_APP_SECRET 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)');
 }
 
 // ── 이어 받기 병합 ────────────────────────────────────────────────────
@@ -94,36 +115,66 @@ export async function mergeUpdate(old, fresh, refetch) {
 }
 
 // ── 진행분(.partial): 한 줄에 한 JSON. 끝난 종목마다 덧붙인다 ───────────────
+// 온전한 줄만 돌려준다. 호출한 쪽이 그 줄들로 파일을 다시 써서, 끊긴 마지막 줄 뒤에 덧붙이는 일이 없게 한다.
 function readPartial(path, header) {
-  const done = { stocks: new Map(), indices: new Map() };
-  if (!existsSync(path)) return done;
-  const lines = readFileSync(path, 'utf8').split('\n');
+  const empty = { stocks: new Map(), indices: new Map(), lines: [] };
+  if (!existsSync(path)) return empty;
+  const done = { stocks: new Map(), indices: new Map(), lines: [] };
   let ok = false;
-  for (const line of lines) {
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
     if (!line) continue;
     let rec;
     try {
       rec = JSON.parse(line);
     } catch {
-      break; // 쓰다 끊긴 마지막 줄
+      break; // 쓰다 끊긴 줄
     }
     if (rec.kind === 'header') {
-      ok = rec.from === header.from && rec.to === header.to && rec.update === header.update;
-      if (!ok) return { stocks: new Map(), indices: new Map() };
+      ok = rec.from === header.from && rec.to === header.to && rec.updateFrom === header.updateFrom;
+      if (!ok) return empty;
     } else if (!ok) {
-      return { stocks: new Map(), indices: new Map() };
+      return empty;
     } else if (rec.kind === 'stock') done.stocks.set(rec.s, rec);
     else if (rec.kind === 'index') done.indices.set(rec.id, rec);
+    else continue;
+    done.lines.push(line);
   }
   return done;
 }
 
+// 최종 파일을 조각으로 나눠 gzip 스트림에 쓴다(수백 MB 문자열을 한 번에 만들지 않는다).
+async function writeGzipJson(path, file) {
+  const gz = createGzip();
+  const sink = createWriteStream(path);
+  const finished = new Promise((resolveFn, reject) => {
+    sink.on('finish', resolveFn);
+    sink.on('error', reject);
+    gz.on('error', reject);
+  });
+  gz.pipe(sink);
+  const put = (chunk) => (gz.write(chunk) ? undefined : new Promise((r) => gz.once('drain', r)));
+  const { stocks, indices, ...head } = file;
+  await put(`${JSON.stringify(head).slice(0, -1)},"stocks":[`);
+  for (let i = 0; i < stocks.length; i++) await put((i ? ',' : '') + JSON.stringify(stocks[i]));
+  await put(`],"indices":${JSON.stringify(indices)}}`);
+  gz.end();
+  await finished;
+}
+
 /**
- * @param {{ years?: number; out: string; update?: string | object; client: ReturnType<typeof createKisClient>;
+ * @param {{ years?: number; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
  *   master: { stocks: any[]; idxcode: { code: string; name: string }[] };
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, now = Date.now, log = () => {}, repoRoot = REPO_ROOT }) {
+export async function collect({ years = 5, out, update, client, master, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [] }) {
+  // 로그에 나가는 모든 문구에서 키·토큰을 가린다.
+  const clean = (msg) => {
+    let t = client.scrub ? client.scrub(msg) : String(msg);
+    for (const sec of secrets) if (sec) t = t.split(sec).join('***');
+    return t.replace(/Bearer\s+\S+/gi, 'Bearer ***');
+  };
+  const log = (line) => rawLog(clean(line));
+  const errText = (e) => (e instanceof KisError ? e.message : `${e instanceof Error ? e.name : 'Error'}: ${e instanceof Error ? e.message : ''}`);
   const startedAt = now();
   const outDir = assertOutAllowed(out, repoRoot);
   const today = kstCompact(now());
@@ -141,17 +192,24 @@ export async function collect({ years = 5, out, update, client, master, now = Da
     const t = new Date(Date.UTC(+today.slice(0, 4) - years, +today.slice(4, 6) - 1, +today.slice(6, 8)));
     from = t.toISOString().slice(0, 10).replaceAll('-', '');
   }
-  const to = today;
+  // 장 마감(KST 18시) 전의 평일에는 아직 끝나지 않은 오늘 봉을 받지 않는다.
+  const kst = new Date(now() + KST_MS);
+  const weekday = kst.getUTCDay() >= 1 && kst.getUTCDay() <= 5;
+  const to = weekday && kst.getUTCHours() < 18 ? prevDay(today) : today;
   const oldStock = new Map((prev?.stocks ?? []).map((s) => [s.s, s]));
   const oldIndex = new Map((prev?.indices ?? []).map((i) => [i.id, i]));
 
   mkdirSync(outDir, { recursive: true });
   const filePath = join(outDir, `market-data-${today}.json.gz`);
   const partialPath = `${filePath}.partial`;
-  const header = { kind: 'header', from, to, update: Boolean(prev) };
+  const updateFrom = prev ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
+  const header = { kind: 'header', from, to, updateFrom };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);
-  else log(`진행분을 이어서 받아요 (종목 ${done.stocks.size}개 완료)`);
+  else {
+    writeFileSync(partialPath, `${[JSON.stringify(header), ...done.lines.filter((l) => !l.includes('"kind":"header"'))].join('\n')}\n`);
+    log(`진행분을 이어서 받아요 (종목 ${done.stocks.size}개 완료)`);
+  }
 
   const masterStocks = [...master.stocks].sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
   let refetched = 0;
@@ -202,6 +260,8 @@ export async function collect({ years = 5, out, update, client, master, now = Da
         const merged = await mergeUpdate(old, fresh, () => client.dailyCandles(m.s, dashed(from), to));
         cols = merged.cols;
         didRefetch = merged.refetched;
+        // 다시 받은 결과가 비면 기존 기록을 지우지 않는다.
+        if (didRefetch && cols.d.length === 0) throw new Error('다시 받은 데이터가 비어 있어요');
       } else {
         cols = await client.dailyCandles(m.s, dashed(from), to);
       }
@@ -212,11 +272,11 @@ export async function collect({ years = 5, out, update, client, master, now = Da
       stockData.set(m.s, rec);
     } catch (e) {
       if (e?.fatal || ++consecutiveFails >= MAX_CONSECUTIVE_FAILS) {
-        log(`중단했어요: ${e instanceof Error ? e.message : '오류'} (진행분은 ${partialPath} 에 남겼어요)`);
+        log(`중단했어요: ${errText(e)} (진행분은 ${partialPath} 에 남겼어요)`);
         throw e;
       }
       failed.push(m.s);
-      log(`실패 ${m.s}: ${e instanceof Error ? e.message : '오류'}`);
+      log(`실패 ${m.s}: ${errText(e)}`);
     }
   }
 
@@ -257,7 +317,7 @@ export async function collect({ years = 5, out, update, client, master, now = Da
 
   // 임시 파일에 쓴 뒤 이름을 바꿔 원자적으로 교체한다.
   const tmp = `${filePath}.tmp`;
-  writeFileSync(tmp, gzipSync(Buffer.from(JSON.stringify(file))));
+  await writeGzipJson(tmp, file);
   renameSync(tmp, filePath);
   rmSync(partialPath, { force: true });
 
@@ -324,6 +384,7 @@ async function main() {
   const appKey = process.env.KIS_APP_KEY;
   const appSecret = process.env.KIS_APP_SECRET;
   if (!appKey || !appSecret) throw new Error('환경변수 KIS_APP_KEY, KIS_APP_SECRET이 필요해요');
+  validateCreds(appKey, appSecret);
   assertOutAllowed(opts.out);
   const log = (line) => console.log(line);
   log('종목 마스터를 받아요');
@@ -334,7 +395,10 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
-    console.error(`[collect] ${e instanceof Error ? e.message : '실패했어요'}`);
+    // 환경변수의 키·시크릿이 문구에 섞여 있어도 가린다.
+    let msg = e instanceof Error ? e.message : '실패했어요';
+    for (const v of [process.env.KIS_APP_KEY, process.env.KIS_APP_SECRET]) if (v) msg = msg.split(v).join('***');
+    console.error(`[collect] ${msg}`);
     process.exit(1);
   });
 }

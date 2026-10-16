@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect, mergeUpdate, parseArgs, resolveSectors } from '../scripts/collect-market-data.mjs';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { REPO_ROOT, assertOutAllowed, collect, mergeUpdate, parseArgs, resolveSectors, validateCreds } from '../scripts/collect-market-data.mjs';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 
 const KEY = 'KEYSECRET-app-key-123';
@@ -434,4 +435,199 @@ test('CLI 옵션', () => {
   assert.equal(parseArgs([]).years, 5);
   assert.throws(() => parseArgs(['--years', 'x']));
   assert.throws(() => parseArgs(['--nope']));
+});
+
+// ── 수정 1차 ──────────────────────────────────────────────────────────
+const haltRows = (normal, halted) =>
+  Array.from({ length: normal + halted }, (_, i) =>
+    i < normal
+      ? { stck_bsop_date: dateStr(i), stck_oprc: '100', stck_hgpr: '110', stck_lwpr: '90', stck_clpr: '105', acml_vol: '1', acml_tr_pbmn: '105' }
+      : { stck_bsop_date: dateStr(i), stck_oprc: '0', stck_hgpr: '0', stck_lwpr: '0', stck_clpr: '105', acml_vol: '0', acml_tr_pbmn: '0' },
+  );
+
+test('(I1) 100일 넘는 거래정지(가격 0 행)가 있어도 앞의 기록을 끝까지 받는다', async () => {
+  const fake = fakeKis({ symbols: { X: haltRows(130, 120) }, indices: {} });
+  const r = await clientFor(fake).dailyCandles('X', dateStr(0), dateStr(249));
+  assert.equal(r.d.length, 130);
+  assert.equal(r.d[0], dateStr(0));
+  assert.ok(fake.calls.get.length >= 3);
+});
+
+test('(I1b) 같은 페이지만 되풀이해 주는 서버에서도 끝난다', async () => {
+  const rows = stockRows(100);
+  const fake = fakeKis({ symbols: {}, indices: {} }, { onGet: () => json({ rt_cd: '0', output2: rows.slice().reverse() }) });
+  const r = await clientFor(fake).dailyCandles('X', dateStr(0), dateStr(249));
+  assert.equal(r.d.length, 100);
+  assert.ok(fake.calls.get.length <= 3);
+});
+
+test('(I1c) --update: 다시 받은 결과가 비면 기존 기록을 지우지 않고 실패로 알린다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = { years: 2, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    const run1 = await collect({ ...opts, out: join(dir, 'a'), client: clientFor(fakeKis(dataFor(100))) });
+    const next = dataFor(100);
+    next.symbols['000020'] = haltRows(0, 100); // 전부 가격 0 → 받은 행이 비어 있다
+    const run2 = await collect({ ...opts, out: join(dir, 'b'), update: run1.file, client: clientFor(fakeKis(next)) });
+    assert.deepEqual(run2.summary.failed, ['000020']);
+    const kept = run2.file.stocks.find((s) => s.s === '000020');
+    assert.deepEqual(kept.c, run1.file.stocks.find((s) => s.s === '000020').c);
+    assert.equal(run2.summary.refetched, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(I2) fetch가 키·시크릿을 담은 일반 Error를 던져도 로그·오류·요약·파일에 없다', async () => {
+  const dir = tmpDir();
+  try {
+    const base = fakeKis(dataFor(30));
+    const fetchImpl = async (url, init) => {
+      if (new URL(url).searchParams.get('FID_INPUT_ISCD') === '000030') {
+        throw new TypeError(`Headers.append: "${KEY}\n${SECRET} Bearer ${TOKEN}" is an invalid header value.`);
+      }
+      return base.fetchImpl(url, init);
+    };
+    const logs = [];
+    const client = createKisClient({ appKey: KEY, appSecret: SECRET, fetchImpl, now: clock().now, sleep: clock().sleep });
+    const { summary } = await collect({ years: 2, out: join(dir, 'o'), client, master: master3(), now: clock().now, log: (l) => logs.push(l), repoRoot: join(dir, 'repo') });
+    assert.deepEqual(summary.failed, ['000030']);
+    // client가 없는 쪽에서 던진 일반 Error도 collect가 걸러낸다
+    const stub = { indexDaily: client.indexDaily, dailyCandles: async () => { throw new Error(`boom ${KEY} ${SECRET} Bearer ${TOKEN}`); } };
+    const logs2 = [];
+    await collect({ years: 2, out: join(dir, 'o2'), client: stub, master: master3(), now: clock().now, log: (l) => logs2.push(l), repoRoot: join(dir, 'repo'), secrets: [KEY, SECRET, TOKEN] }).catch((e) => logs2.push(e.message));
+    const texts = [...logs, ...logs2, JSON.stringify(summary)];
+    for (const d of ['o', 'o2']) for (const f of existsSync(join(dir, d)) ? readdirSync(join(dir, d)) : []) texts.push(readFileSync(join(dir, d, f)).toString('latin1'));
+    for (const needle of [KEY, SECRET, TOKEN]) for (const t of texts) assert.ok(!t.includes(needle), `${needle} 노출`);
+    assert.ok(logs.some((l) => l.includes('000030')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(I2b) 키·시크릿 형식이 틀리면 값을 되풀이하지 않고 거부한다', () => {
+  for (const bad of ['abc\ndef', 'a b', 'han글', '']) {
+    try {
+      validateCreds(bad, 'ok');
+      assert.fail('거부해야 해요');
+    } catch (e) {
+      assert.ok(!String(e.message).includes('abc') && !String(e.message).includes('han'));
+    }
+    assert.throws(() => validateCreds('ok', bad));
+  }
+  assert.doesNotThrow(() => validateCreds('PSabc123+/=', 'secret/+=='));
+  // CLI에서도 값이 출력에 나오지 않는다
+  const r = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts/collect-market-data.mjs'), '--out', join(tmpdir(), 'x')], {
+    env: { ...process.env, KIS_APP_KEY: 'BADKEY\nVALUE', KIS_APP_SECRET: 'SECRETXYZ' },
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 1);
+  assert.ok(!(r.stdout + r.stderr).includes('BADKEY') && !(r.stdout + r.stderr).includes('SECRETXYZ'));
+});
+
+test('(M3) 끊긴 마지막 줄이 있는 .partial은 정리한 뒤 이어 붙인다', async () => {
+  const dir = tmpDir();
+  try {
+    const out = join(dir, 'out');
+    mkdirSync(out);
+    const partial = join(out, 'market-data-20261016.json.gz.partial');
+    const stockLine = JSON.stringify({ kind: 'stock', s: '000010', refetched: false, ...Object.fromEntries(['d', 'o', 'h', 'l', 'c', 'v', 'tv'].map((k) => [k, k === 'd' ? [dateStr(0)] : [1]])) });
+    const header = JSON.stringify({ kind: 'header', from: '20241016', to: '20261015', updateFrom: null });
+    writeFileSync(partial, `${header}\n${stockLine}\n{"kind":"stock","s":"0000`);
+    const real = clientFor(fakeKis(dataFor(40)));
+    const calls = [];
+    const flaky = {
+      indexDaily: real.indexDaily,
+      dailyCandles: async (...a) => {
+        calls.push(a[0]);
+        if (calls.length === 2) throw Object.assign(new Error('중단'), { fatal: true });
+        return real.dailyCandles(...a);
+      },
+    };
+    await assert.rejects(collect({ years: 2, out, client: flaky, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') }), /중단/);
+    const lines = readFileSync(partial, 'utf8').split('\n').filter(Boolean);
+    for (const l of lines) JSON.parse(l); // 모두 온전한 줄
+    assert.equal(lines.length, 5); // 헤더, 지수 2, 기존 종목 1, 새로 끝난 종목 1
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(M4) 저장소 안의 ..foo, 심볼릭 링크로 들어간 경로를 거부한다', () => {
+  assert.throws(() => assertOutAllowed(join(REPO_ROOT, '..foo')), /data\//);
+  const dir = tmpDir();
+  try {
+    const link = join(dir, 'link');
+    symlinkSync(join(REPO_ROOT, 'src'), link);
+    assert.throws(() => assertOutAllowed(join(link, 'x')), /data\//);
+    assert.doesNotThrow(() => assertOutAllowed(join(dir, 'plain')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(M5) --update 원본이 다른 .partial은 이어 받지 않는다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = { years: 2, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    const run1 = await collect({ ...opts, out: join(dir, 'a'), client: clientFor(fakeKis(dataFor(60))) });
+    const A = join(dir, 'A.json.gz');
+    const B = join(dir, 'B.json.gz');
+    writeFileSync(A, gzipSync(JSON.stringify(run1.file)));
+    writeFileSync(B, gzipSync(JSON.stringify(run1.file)));
+    const real = clientFor(fakeKis(dataFor(70)));
+    let n = 0;
+    const flaky = { indexDaily: real.indexDaily, dailyCandles: async (...a) => { if (++n === 3) throw Object.assign(new Error('중단'), { fatal: true }); return real.dailyCandles(...a); } };
+    const out = join(dir, 'u');
+    await assert.rejects(collect({ ...opts, out, update: A, client: flaky }), /중단/);
+    const logs = [];
+    await collect({ ...opts, out, update: B, client: clientFor(fakeKis(dataFor(70))), log: (l) => logs.push(l) });
+    assert.ok(!logs.some((l) => l.includes('이어서')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(M6) 장 마감 전(KST 18시 이전 평일)이면 어제까지만 받는다', async () => {
+  const to = async (ms) => {
+    const dir = tmpDir();
+    try {
+      const fake = fakeKis(dataFor(10));
+      await collect({ years: 2, out: join(dir, 'o'), client: clientFor(fake), master: master3(), now: () => ms, log: () => {}, repoRoot: join(dir, 'repo') });
+      return fake.calls.get[0].q.FID_INPUT_DATE_2;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  assert.equal(await to(Date.UTC(2026, 9, 16, 3, 0)), '20261015'); // 금 12:00 KST
+  assert.equal(await to(Date.UTC(2026, 9, 16, 10, 0)), '20261016'); // 금 19:00 KST
+  assert.equal(await to(Date.UTC(2026, 9, 17, 3, 0)), '20261017'); // 토 12:00 KST
+});
+
+test('(M7) 요청에 20초 제한 신호를 붙이고, 네트워크 오류는 다시 시도한다', async () => {
+  const base = fakeKis({ symbols: { A: stockRows(5) }, indices: {} });
+  let n = 0;
+  const signals = [];
+  const fetchImpl = async (url, init) => {
+    if (!String(url).includes('tokenP')) {
+      signals.push(init.signal);
+      if (++n === 1) throw new TypeError('fetch failed');
+    }
+    return base.fetchImpl(url, init);
+  };
+  const c = clock();
+  const r = await createKisClient({ appKey: KEY, appSecret: SECRET, fetchImpl, now: c.now, sleep: c.sleep }).dailyCandles('A', dateStr(0), dateStr(4));
+  assert.equal(r.d.length, 5);
+  assert.ok(signals.every((x) => x instanceof AbortSignal));
+});
+
+test('(M7b) 스트리밍으로 쓴 파일이 반환값과 같은 JSON이다', async () => {
+  const dir = tmpDir();
+  try {
+    const { file, summary } = await collect({ years: 2, out: join(dir, 'o'), client: clientFor(fakeKis(dataFor(30))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    assert.deepEqual(readGz(summary.path), JSON.parse(JSON.stringify(file)));
+    assert.ok(!existsSync(`${summary.path}.tmp`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
