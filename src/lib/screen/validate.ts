@@ -1,6 +1,6 @@
 // 저장된 선정 기준의 검증과 편집 화면 경고. sim/validate.ts와 같은 규칙: 틀린 값은 기본값으로 되돌리고 repaired를 켠다.
 import { kstDate, kstEpoch } from '../time/kst';
-import { sanitizeEntry } from '../sim/validate';
+import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX, newCriteria } from './defaults';
 import type { Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
@@ -194,6 +194,28 @@ export function sanitizeCriteria(raw: unknown, now = Date.now()): { criteria: Se
   return { criteria, repaired };
 }
 
+const RULE_SECTIONS = ['entry', 'scaleIn', 'exit'];
+
+/**
+ * 참조 전략에서 전략 편집 화면이 실행을 막는 매수·매도 규칙 오류(스펙 5장). 반등 패턴은 entry만 본다.
+ * 종목 범위·기간·비용 등은 선정 기준 값으로 바뀌므로 보지 않는다. 지워진 전략은 건너뛴다.
+ */
+export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[]): Issue[] {
+  const out: Issue[] = [];
+  const blocking = (id: string, sections: string[]) => {
+    const s = strategies.find((x) => x.id === id);
+    return s ? ruleIssues(s).filter((i) => i.blocking && sections.includes(i.section)) : [];
+  };
+  const p = c.conditions.rebound;
+  if (p.on && p.pattern.from === 'strategy')
+    for (const i of blocking(p.pattern.strategyId, ['entry']))
+      out.push({ section: 'conditions', text: `반등 패턴 전략에 고칠 곳이 있어요: ${i.text}`, blocking: true });
+  if (c.trading.strategyId !== null)
+    for (const i of blocking(c.trading.strategyId, RULE_SECTIONS))
+      out.push({ section: 'trading', text: `매매 규칙 전략에 고칠 곳이 있어요: ${i.text}`, blocking: true });
+  return out;
+}
+
 export function criteriaIssues(c: SelectionCriteria, strategies: Strategy[]): Issue[] {
   const out: Issue[] = [];
   const has = (id: string) => strategies.some((s) => s.id === id);
@@ -203,6 +225,7 @@ export function criteriaIssues(c: SelectionCriteria, strategies: Strategy[]): Is
     out.push({ section: 'conditions', text: '반등 신호에 쓰던 전략이 없어요. 다시 골라 주세요', blocking: true });
   if (c.trading.strategyId !== null && !has(c.trading.strategyId))
     out.push({ section: 'trading', text: '매매 규칙 전략이 없어요. 다시 골라 주세요', blocking: true });
+  out.push(...strategyRuleIssues(c, strategies));
 
   if (c.period.from >= c.period.to) out.push({ section: 'period', text: '시작일이 종료일보다 앞이어야 해요', blocking: true });
   if (k.returnRange.on && k.returnRange.minPct > k.returnRange.maxPct)

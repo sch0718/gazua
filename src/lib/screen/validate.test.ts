@@ -231,6 +231,51 @@ describe('criteriaIssues', () => {
     expect(criteriaIssues(c, []).some((i) => i.section === 'period' && i.blocking)).toBe(true);
   });
 
+  // PR #11 리뷰 W2: 전략 편집 화면이 실행을 막는 오류 전략은 ②·반등 패턴에서도 막는다
+  const noSignals = () => {
+    const s = { ...newStrategy(NOW, null), id: 's1' };
+    for (const t of Object.values(s.entry.triggers)) t.on = false;
+    return s;
+  };
+  const badTakeProfit = () => ({
+    ...newStrategy(NOW, null),
+    id: 's1',
+    exit: { ...newStrategy(NOW, null).exit, takeProfit: [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }] },
+  });
+
+  it('② 전략의 매수 신호가 모두 꺼져 있으면 blocking(전략 편집 문구를 붙여서)', () => {
+    const c = withRef((x) => (x.trading.strategyId = 's1'));
+    const out = criteriaIssues(c, [noSignals()]).filter((i) => i.blocking);
+    expect(out).toEqual([
+      { section: 'trading', text: '매매 규칙 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true },
+    ]);
+  });
+
+  it('② 전략의 익절 단계가 역순이면 blocking', () => {
+    const c = withRef((x) => (x.trading.strategyId = 's1'));
+    expect(criteriaIssues(c, [badTakeProfit()]).filter((i) => i.blocking)).toEqual([
+      { section: 'trading', text: '매매 규칙 전략에 고칠 곳이 있어요: 익절 단계는 낮은 %부터 차례로 적어 주세요', blocking: true },
+    ]);
+  });
+
+  it('반등 패턴 전략은 매수(entry) 오류만 막는다', () => {
+    const c = withRef((x) => (x.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } }));
+    expect(criteriaIssues(c, [noSignals()]).filter((i) => i.blocking)).toEqual([
+      { section: 'conditions', text: '반등 패턴 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true },
+    ]);
+    expect(criteriaIssues(c, [badTakeProfit()]).filter((i) => i.blocking)).toEqual([]);
+    // 반등 조건을 끄면 보지 않는다
+    c.conditions.rebound.on = false;
+    expect(criteriaIssues(c, [noSignals()]).filter((i) => i.blocking)).toEqual([]);
+  });
+
+  it('전략의 종목 범위가 비어 있거나 기간이 틀려도 막지 않는다(선정 기준 값으로 대체)', () => {
+    const s = { ...newStrategy(NOW, null), id: 's1', period: { from: '2026-01-01', to: '2025-01-01' } };
+    expect(s.universe).toEqual({ kind: 'symbols', symbols: [] });
+    const c = withRef((x) => (x.trading.strategyId = 's1'));
+    expect(criteriaIssues(c, [s]).filter((i) => i.blocking)).toEqual([]);
+  });
+
   it('범위가 뒤집힌 수익률·고점 대비는 blocking', () => {
     const c = withRef((x) => {
       x.conditions.returnRange = { on: true, days: 60, minPct: 10, maxPct: -10 };

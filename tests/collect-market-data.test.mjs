@@ -458,11 +458,10 @@ test('(I1) 100일 넘는 거래정지(가격 0 행)가 있어도 앞의 기록�
   assert.ok(fake.calls.get.length >= 3);
 });
 
-test('(I1b) 같은 페이지만 되풀이해 주는 서버에서도 끝난다', async () => {
-  const rows = stockRows(100);
+test('(I1b) 같은 페이지만 되풀이해 주는 서버에서도 곧 끝나고, 자르지 않고 실패로 알린다', async () => {
+  const rows = stockRows(250).slice(150);
   const fake = fakeKis({ symbols: {}, indices: {} }, { onGet: () => json({ rt_cd: '0', output2: rows.slice().reverse() }) });
-  const r = await clientFor(fake).dailyCandles('X', dateStr(0), dateStr(249));
-  assert.equal(r.d.length, 100);
+  await assert.rejects(clientFor(fake).dailyCandles('X', dateStr(0), dateStr(249)), (e) => e.name === 'KisError' && !e.fatal && /진행되지 않아요/.test(e.message));
   assert.ok(fake.calls.get.length <= 3);
 });
 
@@ -728,3 +727,98 @@ test('(F2) 일봉 페이지 한도에 닿으면 자르지 않고 실패로 알�
   assert.ok(day <= 80);
 });
 const prevDayStr = (d) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) - 86_400_000).toISOString().slice(0, 10).replaceAll('-', '');
+
+// ── PR #11 리뷰 W1: 진행하지 않는 페이지 ───────────────────────────────
+// 그 종목 요청에는 최신 100행 페이지만 되풀이해 준다(커서를 무시하는 서버)
+const repeatLatest = (code, rows) => (_n, q) =>
+  q.FID_INPUT_ISCD === code ? json({ rt_cd: '0', msg_cd: 'MCA00000', output2: rows.slice(-100).reverse() }) : undefined;
+
+test('(W1a) --update 재수집에서 같은 페이지만 되풀이되면 250일 이력을 유지하고 실패로 알린다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = { years: 2, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    const run1 = await collect({ ...opts, out: join(dir, 'a'), client: clientFor(fakeKis(dataFor(250))) });
+    const old = run1.file.stocks.find((s) => s.s === '000020');
+    assert.equal(old.d.length, 250);
+    const next = dataFor(250);
+    next.symbols['000020'] = stockRows(250, 7); // 수정주가 변경 → 전체 재수집
+    const fake = fakeKis(next, { onGet: repeatLatest('000020', next.symbols['000020']) });
+    const run2 = await collect({ ...opts, out: join(dir, 'b'), update: run1.file, client: clientFor(fake) });
+    assert.deepEqual(run2.summary.failed, ['000020']);
+    assert.equal(run2.summary.refetched, 0);
+    const kept = run2.file.stocks.find((s) => s.s === '000020');
+    assert.equal(kept.d.length, 250);
+    assert.deepEqual(kept.c, old.c);
+    assertValidFile(run2.file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(W1a2) --update 재수집 결과가 기존 이력보다 늦게 시작하면(빈 페이지로 일찍 끝남) 기존 이력을 유지하고 실패로 알린다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = { years: 2, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    const run1 = await collect({ ...opts, out: join(dir, 'a'), client: clientFor(fakeKis(dataFor(250))) });
+    const old = run1.file.stocks.find((s) => s.s === '000020');
+    const next = dataFor(250);
+    next.symbols['000020'] = stockRows(250, 7).slice(150); // 서버가 최근 100일만 준다(이전은 빈 페이지)
+    const run2 = await collect({ ...opts, out: join(dir, 'b'), update: run1.file, client: clientFor(fakeKis(next)) });
+    assert.deepEqual(run2.summary.failed, ['000020']);
+    assert.equal(run2.summary.refetched, 0);
+    assert.deepEqual(run2.file.stocks.find((s) => s.s === '000020').c, old.c);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(W1a3) 기존 첫 날짜가 요청 범위 시작보다 앞이면 요청 범위 안의 첫 날짜와 비교한다(범위 밖이 잘린 것은 실패 아님)', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = { years: 2, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    // 지수가 100일 늦게 시작한다 → 파일 범위(=다음 --update의 요청 시작)는 dateStr(100), 종목 이력은 dateStr(0)부터
+    const first = dataFor(250);
+    first.indices = { '0001': indexRows(250).slice(100), '1001': indexRows(250).slice(100) };
+    const run1 = await collect({ ...opts, out: join(dir, 'a'), client: clientFor(fakeKis(first)) });
+    assert.equal(run1.file.range.from, `${dateStr(100).slice(0, 4)}-${dateStr(100).slice(4, 6)}-${dateStr(100).slice(6)}`);
+    assert.equal(run1.file.stocks.find((s) => s.s === '000020').d[0], dateStr(0));
+    const next = structuredClone(first);
+    next.symbols['000020'] = stockRows(250, 7);
+    const run2 = await collect({ ...opts, out: join(dir, 'b'), update: run1.file, client: clientFor(fakeKis(next)) });
+    assert.deepEqual(run2.summary.failed, []);
+    assert.equal(run2.summary.refetched, 1);
+    const s = run2.file.stocks.find((x) => x.s === '000020');
+    assert.equal(s.d[0], dateStr(100));
+    assert.equal(s.c[0], 1005 + 100 + 7);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(W1b) 신규 수집에서 같은 페이지만 되풀이되는 종목은 실패, 다른 종목은 정상', async () => {
+  const dir = tmpDir();
+  try {
+    const data = dataFor(250);
+    const fake = fakeKis(data, { onGet: repeatLatest('000020', data.symbols['000020']) });
+    const run = await collect({ years: 2, out: join(dir, 'a'), client: clientFor(fake), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    assert.deepEqual(run.summary.failed, ['000020']);
+    assert.deepEqual(run.file.stocks.map((s) => s.s).sort(), ['000010', '000030']);
+    for (const s of run.file.stocks) assert.equal(s.d.length, 250);
+    assert.ok(fake.calls.get.filter((g) => g.q.FID_INPUT_ISCD === '000020').length <= 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(W1c) 진짜 빈 페이지(최근 상장)는 실패가 아니다', async () => {
+  const dir = tmpDir();
+  try {
+    const data = dataFor(250);
+    data.symbols['000020'] = stockRows(250).slice(220); // 30일 전에 상장
+    const run = await collect({ years: 2, out: join(dir, 'a'), client: clientFor(fakeKis(data)), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    assert.deepEqual(run.summary.failed, []);
+    assert.equal(run.file.stocks.find((s) => s.s === '000020').d.length, 30);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

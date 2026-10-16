@@ -267,8 +267,11 @@ export async function collect({ years = 5, out, update, client, master, now = Da
         const merged = await mergeUpdate(old, fresh, () => client.dailyCandles(m.s, dashed(from), to));
         cols = merged.cols;
         didRefetch = merged.refetched;
-        // 다시 받은 결과가 비면 기존 기록을 지우지 않는다.
+        // 다시 받은 결과가 비거나 기존보다 늦게 시작하면(이력이 줄어듦) 기존 기록을 지우지 않는다.
+        // 기존 첫 날짜가 요청 시작보다 앞이면 요청 범위 안의 첫 날짜와 비교한다.
         if (didRefetch && cols.d.length === 0) throw new Error('다시 받은 데이터가 비어 있어요');
+        const oldFirst = old.d.find((d) => d >= from);
+        if (didRefetch && oldFirst !== undefined && cols.d[0] > oldFirst) throw new Error('다시 받은 이력이 기존보다 짧아요');
       } else {
         cols = await client.dailyCandles(m.s, dashed(from), to);
       }

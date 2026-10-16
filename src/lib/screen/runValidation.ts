@@ -10,6 +10,7 @@ import { beatCount, curveStats } from './metrics';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, type Precomputed } from './precompute';
 import { selectAt, type Selection } from './select';
 import type { Market, SelectionCriteria } from './types';
+import { strategyRuleIssues } from './validate';
 
 export type CurveStats = ReturnType<typeof curveStats>;
 export type CurvePoint = { date: string; value: number };
@@ -32,12 +33,13 @@ export interface ValidationResult {
   notes: ValidationNote[];
 }
 
-export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy';
+export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy';
 
 export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'no-rebalance': '기간 안에 재선정일이 없어요',
   'invalid-number': '계산 중 잘못된 숫자가 나왔어요',
   'missing-strategy': '매매 규칙 전략이 지워졌어요',
+  'invalid-strategy': '매매 규칙 전략에 고칠 곳이 있어요',
 };
 
 export class ValidationError extends Error {
@@ -133,6 +135,8 @@ export function runValidation(
     tradingStrategy = strategies.find((s) => s.id === criteria.trading.strategyId) ?? null;
     if (!tradingStrategy) throw new ValidationError('missing-strategy');
   }
+  // 편집 화면을 거치지 않은 실행도 막는다(전략 편집 화면이 막는 규칙 오류)
+  if (strategyRuleIssues(criteria, strategies).length > 0) throw new ValidationError('invalid-strategy');
 
   // 미리 계산과 모든 selectAt은 같은 해석된 entry를 쓴다
   const pre = (opts.precompute ?? precompute)(data, criteria, resolveReboundEntry(criteria, strategies));

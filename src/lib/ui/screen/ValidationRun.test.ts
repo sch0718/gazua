@@ -29,6 +29,7 @@ describe('ValidationRun', () => {
   it.each([
     ['no-rebalance', '기간 안에 재선정일이 없어요'],
     ['missing-strategy', '매매 규칙 전략이 지워졌어요'],
+    ['invalid-strategy', '매매 규칙 전략에 고칠 곳이 있어요'],
     ['crash', '계산 중 문제가 생겼어요'],
   ] as const)('error %s reads %s', (error, text) => {
     render(ValidationRun, { running: false, progress: { done: 0, total: 0 }, error, oncancel: () => {}, onfix: () => {} });

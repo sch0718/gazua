@@ -201,6 +201,32 @@ describe('runValidation', () => {
     );
   });
 
+  // PR #11 리뷰 W2: 전략 편집 화면이 막는 오류 전략으로는 ②를 돌리지 않는다
+  it.each([
+    ['매수 신호가 모두 꺼진 전략', (s: Strategy) => Object.values(s.entry.triggers).forEach((t) => (t.on = false))],
+    ['익절 단계가 역순인 전략', (s: Strategy) => (s.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }])],
+  ])("② %s이면 invalid-strategy 오류이고 simulate를 부르지 않는다", (_name, patch) => {
+    const s = { ...newStrategy(NOW, null), id: 's1' };
+    patch(s);
+    let err: unknown;
+    try {
+      run(crit((c) => (c.trading.strategyId = 's1')), [s]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(errorCode(err)).toBe('invalid-strategy');
+    expect((err as Error).message).toBe('매매 규칙 전략에 고칠 곳이 있어요');
+    expect(simulate).not.toHaveBeenCalled();
+  });
+
+  it('반등 패턴 전략의 매수 신호가 모두 꺼져 있어도 invalid-strategy', () => {
+    const s = { ...newStrategy(NOW, null), id: 's1' };
+    Object.values(s.entry.triggers).forEach((t) => (t.on = false));
+    const c = crit((c) => (c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } }));
+    expect(() => run(c, [s])).toThrow(expect.objectContaining({ code: 'invalid-strategy' }));
+  });
+
   it('시장별 3행: 범위만 바꿔 ①을 돌리고 inPool을 표시한다', () => {
     const r = run(crit());
     expect(r.byMarket.map((x) => [x.key, x.inPool])).toEqual([

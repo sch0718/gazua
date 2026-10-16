@@ -212,6 +212,17 @@ describe('② 매매 규칙', () => {
     expect(onRun).not.toHaveBeenCalled();
   });
 
+  it('a trading strategy the strategy editor would block (all buy signals off) blocks the run with its reason', async () => {
+    const { app, onRun } = setup({ strategies: ['눌림목'], crit: (c) => (c.trading.strategyId = 's0') });
+    const s = structuredClone(app.strategies[0]);
+    Object.values(s.entry.triggers).forEach((t) => (t.on = false));
+    app.setStrategies([s]);
+    await settle();
+    await fireEvent.click(runBtn());
+    expect(onRun).not.toHaveBeenCalled();
+    expect(document.activeElement?.textContent).toContain('매매 규칙 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요');
+  });
+
   it('picking a strategy sets trading.strategyId; 쓰지 않음 sets null', async () => {
     const { onRun } = setup({ strategies: ['눌림목'] });
     await open('② 매매 규칙');

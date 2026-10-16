@@ -181,10 +181,13 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
         const r = mapRow(raw);
         if (r && !rows.has(r.d)) rows.set(r.d, r);
       }
-      if (added === 0 || oldest <= f) {
+      // 행이 0개인 빈 페이지만 '더 과거 없음'(상장 전 등)으로 끝낸다.
+      if (out.length === 0 || (oldest !== '' && oldest <= f)) {
         finished = true;
         break;
       }
+      // 행은 있는데 새 날짜가 없으면 같은 페이지가 되풀이된 것: 앞 기록을 자르지 않고 그 종목을 실패로 둔다
+      if (added === 0) throw new KisError('일봉 페이지가 더 진행되지 않아요');
       cursor = prevDay(oldest);
     }
     // 한도에 닿았는데 from까지 못 받았으면 앞 기록을 조용히 자르지 않고 그 종목을 실패로 둔다
