@@ -7,11 +7,11 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { zipSync } from 'fflate';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 import { FLOW_API } from '../scripts/fetch-investor-flow.mjs';
-import { FIN_API } from '../scripts/fetch-fundamentals.mjs';
+import { FIN_API, buildFinWithStart } from '../scripts/fetch-fundamentals.mjs';
 
 // FRED 가짜 fetch: 주 5일 관측(2024-01-01부터), 환율 > 0, 유가는 음수 한 번 포함
 function fakeFredFetch({ fail = false, calls = [] } = {}) {
@@ -1695,7 +1695,8 @@ test('(FN10) --update: 받은 이력이 더 늦게 시작하면 이전 분기를
     // 이전 파일의 앞 분기 a를 바꿔 둔다(그 시절 결산월이 달랐던 것처럼). 지금 결산월로 다시 정하지 않는지 본다
     const prev = structuredClone(first.file);
     const pf = byS(prev, '000010').fin;
-    pf.a = pf.q.map((q) => (q < '202503' ? (q.endsWith('03') ? 1 : 0) : pf.a[pf.q.indexOf(q)]));
+    // 새 이력의 시작 경계(202412, 결산 분기 a = 1)는 그대로 두고 그 앞만 바꾼다
+    pf.a = pf.q.map((q) => (q < '202412' ? (q.endsWith('03') ? 1 : 0) : pf.a[pf.q.indexOf(q)]));
     const r = await runFin(dir, finDataFor(42, finAll({ firstYear: 2024, base: 500 })), { update: prev, out: join(dir, 'b') }); // 새 이력은 202503 ~ 202606
     const fn = byS(r.file, '000010').fin;
     const old = finResp({ firstYear: 2022 });
@@ -1866,4 +1867,42 @@ test('(FN17) 재무 경로의 요청 URL·로그·오류·출력 파일에도 �
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('(FN18) mergeFin은 새 이력의 확인된 시작 경계(가장 이른 연간 행)까지만 이전 분기를 붙이고, 경계 분기가 a = 1이 아니면 붙이지 않는다(D8)', () => {
+  const is = (ym, v) => ({ stac_yymm: ym, sale_account: String(v), bsop_prti: String(v), thtr_ntin: String(v) });
+  const bs = (ym) => ({ stac_yymm: ym, total_cptl: '1000', total_lblt: '500' });
+  // 이전 수집: 12월 결산. 202603·202606은 마지막 연간 행(202512) 뒤의 열린 회계연도 꼬리라 a를 가정한 값이다
+  const prev = buildFinWithStart({
+    annualIS: [is('202412', 400), is('202512', 400)],
+    quarterIS: ['202503', '202506', '202509', '202603', '202606'].map((m, i) => is(m, 100 * ((i % 3) + 1))),
+    quarterBS: ['202503', '202506', '202509', '202512', '202603', '202606'].map(bs),
+  }).fin;
+  assert.deepEqual(prev.q, ['202503', '202506', '202509', '202512', '202603', '202606']);
+  assert.deepEqual(prev.a, [0, 0, 0, 1, 0, 0]);
+  // 새 수집: 3월 결산으로 바뀌어 202603이 짧은 회계연도의 결산 분기(연간 행)다. 응답은 그 행부터만 있다
+  const { fin: fresh, start } = buildFinWithStart({
+    annualIS: [is('202603', 100), is('202703', 400)],
+    quarterIS: ['202606', '202609', '202612'].map((m, i) => is(m, 100 * (i + 1))),
+    quarterBS: ['202606', '202609', '202612', '202703'].map(bs),
+  });
+  assert.equal(start, '202603');
+  assert.deepEqual(fresh.q, ['202606', '202609', '202612', '202703']);
+  // 이전 파일의 202603은 a = 0(가정)이지만 실제로는 결산 분기다 → 붙이지 않는다
+  assert.deepEqual(mergeFin(prev, fresh, start), fresh);
+  // 경계 분기가 이전 파일에서도 a = 1이면 경계까지 붙인다(경계 뒤의 이전 분기는 새 값만 쓴다)
+  const prevOk = structuredClone(prev);
+  prevOk.a[prevOk.q.indexOf('202603')] = 1;
+  const merged = mergeFin(prevOk, fresh, start);
+  assert.deepEqual(merged.q, ['202503', '202506', '202509', '202512', '202603', ...fresh.q]);
+  assert.deepEqual(merged.a, [0, 0, 0, 1, 1, 0, 0, 0, 1]);
+  // 시작 경계를 모르면(undefined) 붙이지 않는다
+  assert.deepEqual(mergeFin(prevOk, fresh, undefined), fresh);
+  // 열 하나가 없거나 길이가 다른 이전 fin은 붙이지 않고 던지지도 않는다
+  const short = { q: ['202603'], rev: [1], op: [1], ni: [1], eq: [1], debt: [1] };
+  assert.deepEqual(mergeFin(short, fresh, start), fresh);
+  assert.deepEqual(mergeFin({ ...short, a: [1], rev: [] }, fresh, start), fresh);
+  assert.deepEqual(mergeFin({ q: '202603' }, fresh, start), fresh);
+  // 새로 받은 것이 없으면 이전 fin을 지킨다
+  assert.equal(mergeFin(prev, null, undefined), prev);
 });

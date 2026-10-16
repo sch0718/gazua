@@ -12,7 +12,7 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
 import { fetchFredSeries } from './fetch-fred.mjs';
-import { FIN_API, buildFin, fetchFundamentals } from './fetch-fundamentals.mjs';
+import { FIN_API, buildFinWithStart, fetchFundamentals } from './fetch-fundamentals.mjs';
 import { alignFlow, fetchInvestorFlow } from './fetch-investor-flow.mjs';
 import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
 import { parseIdxcode } from './parse-idxcode.mjs';
@@ -54,18 +54,25 @@ const finMonth = (ym) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(4, 6)) - 
 const quarterLabel = (ym) => `${ym.slice(0, 4)}년 ${Math.ceil(Number(ym.slice(4, 6)) / 3)}분기`;
 
 /**
- * --update의 재무 합치기(스펙 5장). 새로 받은 fin을 쓰고, 이전 fin에 새 첫 분기보다 앞선 분기가 있으면
- * 새 첫 분기와 3개월 간격으로 이어질 때만 앞에 붙인다. 붙인 분기는 이전 파일의 값과 a를 그대로 쓴다.
- * 새로 받은 것이 비면(null) 이전 fin을 지킨다.
+ * --update의 재무 합치기(스펙 5장). 새로 받은 fin을 쓰고, 이전 fin의 앞 분기를 붙일 수 있으면 붙인다.
+ * - 붙이는 분기는 새 이력의 시작 경계(start: 새 응답에서 가장 이른 연간 행) 이하만이다. 경계 뒤의 이전 분기는
+ *   이전 수집에서 열린 회계연도 꼬리라 a를 가정한 값일 수 있어 쓰지 않는다(D8).
+ * - 이전 fin의 마지막으로 붙일 분기가 정확히 경계이고 새 첫 분기의 3개월 전이며, 그 분기가 이전 파일에서
+ *   a = 1(결산 분기)일 때만 붙인다. 붙인 분기는 이전 파일의 값과 a를 그대로 쓴다.
+ * - 이전 fin의 열이 빠졌거나 길이가 다르면 붙이지 않는다. 새로 받은 것이 비면(null) 이전 fin을 지킨다.
  * @param {any} prev 이전 파일의 fin(없으면 undefined)
  * @param {any} fresh buildFin 결과(없으면 null)
+ * @param {string | undefined} start 새 이력의 시작 경계(YYYYMM)
  */
-export function mergeFin(prev, fresh) {
+export function mergeFin(prev, fresh, start) {
   if (!fresh) return prev ?? null;
-  if (!prev?.q?.length) return fresh;
-  const first = finMonth(fresh.q[0]);
-  const n = prev.q.filter((q) => finMonth(q) < first).length;
-  if (n === 0 || finMonth(prev.q[n - 1]) !== first - 3) return fresh;
+  const len = Array.isArray(prev?.q) ? prev.q.length : 0;
+  if (len === 0 || !start || !FIN_KEYS.every((k) => Array.isArray(prev[k]) && prev[k].length === len)) return fresh;
+  const bound = finMonth(start);
+  if (finMonth(fresh.q[0]) !== bound + 3) return fresh;
+  const at = prev.q.indexOf(start);
+  if (at < 0 || prev.a[at] !== 1) return fresh;
+  const n = at + 1;
   return Object.fromEntries(FIN_KEYS.map((k) => [k, [...prev[k].slice(0, n), ...fresh[k]]]));
 }
 
@@ -432,7 +439,8 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       fin = prevFin;
     } else {
       try {
-        fin = mergeFin(prevFin, buildFin(await fetchFundamentals(client, st.s))) ?? undefined;
+        const built = buildFinWithStart(await fetchFundamentals(client, st.s));
+        fin = mergeFin(prevFin, built.fin, built.start) ?? undefined;
         finFails = 0;
         appendFileSync(partialPath, `${JSON.stringify({ kind: 'fin', s: st.s, fin: fin ?? null })}\n`);
       } catch (e) {

@@ -174,6 +174,10 @@ describe('DataTools', () => {
       j.version = 1;
       delete j.macro;
       delete j.themes;
+      j.stocks.forEach((st: any) => {
+        delete st.flow;
+        delete st.fin;
+      });
       await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
       await pick(demo());
       expect(
@@ -190,12 +194,21 @@ describe('DataTools', () => {
     }
     const asV2 = (j: any) => {
       j.version = 2;
-      j.stocks.forEach((st: any) => delete st.flow);
+      j.stocks.forEach((st: any) => {
+        delete st.flow;
+        delete st.fin;
+      });
     };
     const emptyMacro = (j: any) => (j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
 
     it('v3 without any flow (--no-flows) keeps the plain macro/theme text', async () => {
-      await importVariant((j) => j.stocks.forEach((st: any) => delete st.flow));
+      await importVariant((j) => {
+        j.version = 3;
+        j.stocks.forEach((st: any) => {
+          delete st.flow;
+          delete st.fin;
+        });
+      });
       expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
     });
 

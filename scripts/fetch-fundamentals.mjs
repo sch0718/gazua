@@ -79,13 +79,22 @@ const round2 = (x) => Math.round(x * 100) / 100 + 0;
  * - 값이 하나라도 없는 분기는 빈 분기다. 3개월 간격으로 이어지는 마지막 구간만 남긴다.
  * @returns {{ q: string[]; a: number[]; rev: number[]; op: number[]; ni: number[]; eq: number[]; debt: number[] } | null}
  */
-export function buildFin({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cumulative = FIN_API.cumulative } = {}) {
+export function buildFin(rows, opts) {
+  return buildFinWithStart(rows, opts).fin;
+}
+
+/**
+ * buildFin과 같고, 시작 경계(확인된 회계연도의 앞 경계인 가장 이른 연간 행의 YYYYMM)를 함께 돌려준다.
+ * --update가 이전 분기를 이 경계까지만 앞에 붙이는 데 쓴다. 연간 행이 없으면 start는 undefined다.
+ * @returns {{ fin: ReturnType<typeof buildFin>; start: string | undefined }}
+ */
+export function buildFinWithStart({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cumulative = FIN_API.cumulative } = {}) {
   const aIS = byMonth(annualIS, IS_KEYS);
   const qIS = byMonth(quarterIS, IS_KEYS);
   const qBS = byMonth(quarterBS, BS_KEYS);
   const aBS = byMonth(annualBS, BS_KEYS);
   const ends = [...aIS.keys()].sort((x, y) => x - y);
-  if (ends.length === 0) return null;
+  if (ends.length === 0) return { fin: null, start: undefined };
   // 확인된 회계연도만 쓴다(D10): 연이은 두 연간 행 사이 (앞, 뒤]가 12개월 이하일 때만 한 회계연도다.
   // 가장 이른 연간 행, 또는 12개월 넘게 떨어진(연간 행이 빠진) 마지막 자리의 뒤 연간 행이 시작 경계다.
   let k0 = 0;
@@ -137,11 +146,14 @@ export function buildFin({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cu
     if ([...IS_KEYS, ...BS_KEYS].some((k) => v[k] === undefined)) continue;
     rows.push({ m, a: m === end ? 1 : 0, ...v });
   }
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return { fin: null, start: toYm(start) };
 
   let from = rows.length - 1;
   while (from > 0 && rows[from - 1].m === rows[from].m - 3) from--;
   const seg = rows.slice(from);
   const col = (k) => seg.map((r) => round2(r[k]));
-  return { q: seg.map((r) => toYm(r.m)), a: seg.map((r) => r.a), rev: col('rev'), op: col('op'), ni: col('ni'), eq: col('eq'), debt: col('debt') };
+  return {
+    fin: { q: seg.map((r) => toYm(r.m)), a: seg.map((r) => r.a), rev: col('rev'), op: col('op'), ni: col('ni'), eq: col('eq'), debt: col('debt') },
+    start: toYm(start),
+  };
 }

@@ -353,7 +353,7 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
 
   it("v1 데이터인데 환율·유가 조건이 켜져 있으면 'no-macro' 오류. 꺼져 있으면 그대로 돈다", () => {
     const { macro: _m, themes: _t, ...rest } = structuredClone(v2);
-    const v1: MarketDataFileV1 = { ...rest, version: 1 };
+    const v1: MarketDataFileV1 = { ...rest, version: 1, stocks: (fixture as MarketDataFileV4).stocks.map(({ flow, fin, ...s }) => (void flow, void fin, s)) };
     const c = crit((c) => (c.conditions.macro.usdkrw.beta.on = true));
     expect(() => run(c, [], v1)).toThrow(ValidationError);
     expect(() => run(c, [], v1)).toThrow('이 데이터에는 환율·유가가 없어요');
@@ -449,9 +449,10 @@ describe('runValidation: 투자자 수급', () => {
   });
 
   it("수급이 없는 데이터(v1·v2, 또는 수급 있는 종목 0)인데 수급을 쓰면 'no-flow' 오류. 쓰지 않으면 그대로 돈다", () => {
-    const v3 = fixture as MarketDataFileV3;
-    const v2: MarketDataFileV2 = { ...v3, version: 2, stocks: v3.stocks.map(({ flow, ...s }) => (void flow, s)) };
-    const none: MarketDataFileV3 = { ...v3, stocks: v2.stocks };
+    // 데모는 v4라 fin·flow를 지워 v2를 만들고, 수급 있는 종목이 0인 v3도 만든다
+    const v4 = fixture as MarketDataFileV4;
+    const v2: MarketDataFileV2 = { ...v4, version: 2, stocks: v4.stocks.map(({ flow, fin, ...s }) => (void flow, void fin, s)) };
+    const none: MarketDataFileV3 = { ...v4, version: 3, stocks: v2.stocks };
     for (const data of [v2, none] as MarketDataFile[]) {
       for (const c of [crit(foreign), crit((c) => (c.rank = { by: 'flow', take: 5, flow: { who: 'foreign', days: 20 } }))]) {
         let caught: unknown;

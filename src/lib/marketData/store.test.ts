@@ -186,6 +186,10 @@ describe('market data store', () => {
     j.version = 1;
     delete j.macro;
     delete j.themes;
+    j.stocks.forEach((s: any) => {
+      delete s.flow;
+      delete s.fin;
+    });
     return JSON.stringify(j);
   };
 
@@ -226,13 +230,16 @@ describe('market data store', () => {
     expect(await store.info()).toMatchObject({ version: 3, hasFlow: true, flowStocks: n });
   });
 
-  it('v4 import: info() still carries hasFlow and flowStocks', async () => {
+  it('v4 demo import: load() keeps every stock fin as imported, alongside hasFlow and flowStocks', async () => {
     const store = openMarketData();
-    const j = JSON.parse(await decompress(file()));
-    const n = j.stocks.filter((s: any) => s.flow).length;
-    const text = JSON.stringify({ ...j, version: 4 });
-    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
-    expect(await store.info()).toMatchObject({ version: 4, hasFlow: true, flowStocks: n });
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const src = JSON.parse(await decompress(file()));
+    const withFin = src.stocks.filter((s: any) => s.fin);
+    expect(withFin.length).toBeGreaterThan(0);
+    const body = (await store.load())! as any;
+    expect(body.version).toBe(4);
+    expect(body.stocks.filter((s: any) => s.fin).map((s: any) => [s.s, s.fin])).toEqual(withFin.map((s: any) => [s.s, s.fin]));
+    expect(await store.info()).toMatchObject({ version: 4, hasFlow: true, flowStocks: src.stocks.filter((s: any) => s.flow).length });
   });
 
   it('v3 without any flow has hasFlow false', async () => {
@@ -252,7 +259,10 @@ describe('market data store', () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
     j.version = 2;
-    j.stocks.forEach((s: any) => delete s.flow);
+    j.stocks.forEach((s: any) => {
+      delete s.flow;
+      delete s.fin;
+    });
     const text = JSON.stringify(j);
     await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
     expect(await store.info()).toMatchObject({ version: 2, hasFlow: false, flowStocks: 0 });
