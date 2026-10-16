@@ -166,6 +166,7 @@ const SKIP_LABEL: Record<Skip['reason'], string> = {
   '현금 부족': '현금이 모자랐어요',
   '1주가 1회 금액보다 비쌈': '1주가 회당 금액보다 비싸요',
   '거래 없음': '그날 거래가 없었어요',
+  '선정 기간이 아니에요': '선정 기간이 아니에요',
 };
 /** 건너뛴 이유의 표시 문구(엔진 enum은 그대로 둔다). */
 export const skipReasonLabel = (r: Skip['reason']): string => SKIP_LABEL[r];

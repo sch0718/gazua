@@ -409,6 +409,131 @@ it('candle t는 KST 자정', () => {
   expect(kstDate(candles(BASE)[0].t)).toBe(d(0));
 });
 
+// 창 밖 사유 (스펙 6.3)
+const OUT = '선정 기간이 아니에요';
+const withWindows = (s: Strategy, stocks: Candle[][], windows: { from: string; to: string }[]) => {
+  const inp = input(s, stocks);
+  inp.stocks.forEach((st) => (st.buyWindows = windows));
+  return simulateCore(inp);
+};
+const noPattern = (ts: Trade[]) => ts.map(({ pattern: _p, ...t }) => t);
+
+describe('buyWindows 없이 결과가 그대로 (리터럴 기대값, 도입 전 엔진 출력)', () => {
+  it('익절 시나리오', () => {
+    const s = strat((x) => (x.exit.takeProfit = [{ pct: 5, sellPct: 100 }]));
+    const core = one(s, [[87, 88, 86, 87], [88, 95, 88, 94]]);
+    expect(noPattern(core.trades)).toEqual([
+      { date: '2026-01-16', symbol: 'S0', kind: 'buy', price: 87, qty: 11494, fee: 0, tax: 0, reason: '3일 연속 상승' },
+      { date: '2026-01-19', symbol: 'S0', kind: 'take', stage: 1, price: 91.35000000000001, qty: 11494, fee: 0, tax: 2099.9538, reason: '익절', pnlPct: 5.000000000000004 },
+    ]);
+    expect(core.skipped).toEqual([]);
+    expect(core.equity.slice(-3)).toEqual([
+      { date: '2026-01-15', value: 10000000, cash: 10000000 },
+      { date: '2026-01-16', value: 10000000, cash: 9000022 },
+      { date: '2026-01-19', value: 10047898.9462, cash: 10047898.9462 },
+    ]);
+    expect(core.roundTrips).toEqual([{ symbol: 'S0', open: '2026-01-16', close: '2026-01-19', cost: 999978, pnl: 47898.9462, holdDays: 2 }]);
+  });
+
+  it('분할 매수 시나리오', () => {
+    const s = strat((x) => {
+      x.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+      x.exit.stopLoss.basis = 'avgAfterScaleIn';
+    });
+    const core = one(s, [[100, 100, 93, 94], [94, 95, 93, 95], [95, 99, 94, 98]]);
+    expect(noPattern(core.trades)).toEqual([
+      { date: '2026-01-16', symbol: 'S0', kind: 'buy', price: 100, qty: 10000, fee: 0, tax: 0, reason: '3일 연속 상승' },
+      { date: '2026-01-16', symbol: 'S0', kind: 'add', price: 97, qty: 10309, fee: 0, tax: 0, reason: '추가 매수' },
+      { date: '2026-01-16', symbol: 'S0', kind: 'add', price: 94.09, qty: 10628, fee: 0, tax: 0, reason: '추가 매수' },
+    ]);
+    expect(core.skipped).toEqual([]);
+    expect(core.equity.slice(-3)).toEqual([
+      { date: '2026-01-16', value: 9908116.48, cash: 7000038.48 },
+      { date: '2026-01-19', value: 9939053.48, cash: 7000038.48 },
+      { date: '2026-01-20', value: 10031864.48, cash: 7000038.48 },
+    ]);
+    expect(core.roundTrips).toEqual([{ symbol: 'S0', open: '2026-01-16', close: null, cost: 2999961.52, pnl: 31864.48, holdDays: 3 }]);
+  });
+
+  it('현금 부족 건너뜀 + 손절 시나리오(두 종목)', () => {
+    const s = strat((x) => (x.capital.perBuyPct = 60));
+    const core = simulateCore(
+      input(s, [candles(BASE, [[87, 88, 86, 87], [87, 88, 80, 81]]), candles(BASE, [[87, 88, 86, 87], [87, 88, 86, 87]])]),
+    );
+    expect(noPattern(core.trades)).toEqual([
+      { date: '2026-01-16', symbol: 'S0', kind: 'buy', price: 87, qty: 68965, fee: 0, tax: 0, reason: '3일 연속 상승' },
+      { date: '2026-01-19', symbol: 'S0', kind: 'stop', price: 82.64999999999999, qty: 68965, fee: 0, tax: 11399.9145, reason: '손절', pnlPct: -5.000000000000004 },
+    ]);
+    expect(core.skipped).toEqual([
+      { date: '2026-01-16', symbol: 'S1', reason: '현금 부족' },
+      { date: '2026-01-19', symbol: 'S1', reason: '현금 부족' },
+    ]);
+    expect(core.equity.slice(-3)).toEqual([
+      { date: '2026-01-15', value: 10000000, cash: 10000000 },
+      { date: '2026-01-16', value: 10000000, cash: 4000045 },
+      { date: '2026-01-19', value: 9688602.3355, cash: 9688602.3355 },
+    ]);
+  });
+});
+
+describe('buyWindows', () => {
+  it('창 밖 신호는 체결일에 건너뛰고 사유를 남긴다 (신호 다음 날이 창 밖이면 마지막 날 신호도 건너뜀)', () => {
+    // 신호는 d(8) 종가, 체결은 d(9) 시가. 창이 d(8)까지면 체결일이 창 밖
+    const core = withWindows(strat(), [candles(BASE, [[87, 88, 86, 87]])], [{ from: d(0), to: d(8) }]);
+    expect(core.trades).toEqual([]);
+    expect(core.skipped).toEqual([{ date: d(9), symbol: 'S0', reason: OUT }]);
+  });
+
+  it('창 안이면 그대로 체결하고, 양끝 날짜를 포함한다', () => {
+    const rest: O[] = [[87, 88, 86, 87]];
+    const inside = withWindows(strat(), [candles(BASE, rest)], [{ from: d(9), to: d(9) }]);
+    expect(kinds(inside.trades)).toEqual(['buy@87x11494']);
+    expect(inside.skipped).toEqual([]);
+    const second = withWindows(strat(), [candles(BASE, rest)], [{ from: d(0), to: d(3) }, { from: d(9), to: d(12) }]);
+    expect(kinds(second.trades)).toEqual(['buy@87x11494']);
+  });
+
+  it('창 밖이어도 현금 부족 등 다른 사유로 못 사면 원래 사유를 남긴다', () => {
+    const s = strat((x) => (x.capital.initial = 500));
+    const core = withWindows(s, [candles(BASE, [[87, 88, 86, 87]])], [{ from: d(0), to: d(8) }]);
+    expect(core.skipped).toEqual([{ date: d(9), symbol: 'S0', reason: '1주가 1회 금액보다 비쌈' }]);
+  });
+
+  it('창이 끝난 뒤에도 손절·익절은 계속 체결한다', () => {
+    const stopped = withWindows(strat(), [candles(BASE, [[87, 88, 86, 87], [80, 81, 79, 80]])], [{ from: d(0), to: d(9) }]);
+    expect(kinds(stopped.trades)).toEqual(['buy@87x11494', 'gapStop@80x11494']);
+    expect(stopped.trades[1].date).toBe(d(10));
+
+    const s = strat((x) => (x.exit.takeProfit = [{ pct: 5, sellPct: 100 }]));
+    const taken = withWindows(s, [candles(BASE, [[87, 88, 86, 87], [88, 95, 88, 94]])], [{ from: d(0), to: d(9) }]);
+    expect(kinds(taken.trades)).toEqual(['buy@87x11494', 'take@91.35x11494']);
+    expect(taken.trades[1].date).toBe(d(10));
+  });
+
+  it('분할 매수도 창 밖에서는 건너뛰고, 같은 날·종목·사유는 한 번만 남긴다', () => {
+    const s = strat((x) => {
+      x.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+      x.exit.stopLoss.basis = 'avgAfterScaleIn';
+    });
+    const rest: O[] = [[100, 100, 100, 100], [100, 100, 93, 94]];
+    const out = withWindows(s, [candles(BASE, rest)], [{ from: d(0), to: d(9) }]);
+    expect(kinds(out.trades)).toEqual(['buy@100x10000']);
+    expect(out.skipped).toEqual([{ date: d(10), symbol: 'S0', reason: OUT }]);
+
+    const inside = withWindows(s, [candles(BASE, rest)], [{ from: d(0), to: d(10) }]);
+    expect(kinds(inside.trades)).toEqual(['buy@100x10000', 'add@97x10309', 'add@94.09x10628']);
+    expect(inside.skipped).toEqual([]);
+  });
+
+  it('패턴 추적기는 창과 무관하게 돌아, 창 밖에서 건너뛴 뒤 창이 열리면 다음 신호에서 산다', () => {
+    // 같은 하락·반등 신호가 d(9)에 건너뛴 뒤에도 매일 새로 나므로 창이 열린 d(10) 체결이 된다
+    const core = withWindows(strat(), [candles(BASE, [[87, 88, 86, 87], [87, 88, 86, 88]])], [{ from: d(10), to: d(20) }]);
+    expect(core.skipped[0]).toEqual({ date: d(9), symbol: 'S0', reason: OUT });
+    expect(kinds(core.trades)).toEqual(['buy@87x11494']);
+    expect(core.trades[0].date).toBe(d(10));
+  });
+});
+
 describe('simulate', () => {
   it('평가액이 유한하지 않으면 던진다(시가 0 봉에 매수)', () => {
     const inp = input(strat(), [candles(BASE, [[0, 0, 0, 97], [97, 97, 97, 97]])]);

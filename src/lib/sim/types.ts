@@ -43,7 +43,7 @@ export interface PatternSnapshot {
 export interface SimInput {
   strategy: Strategy;
   days: string[]; // 거래일 축(시작~끝), 오름차순
-  stocks: { symbol: string; name: string; market: 'KOSPI' | 'KOSDAQ' | 'KR_ETC'; isEtf: boolean; candles: Candle[] }[]; // 그룹 순서, 워밍업 포함
+  stocks: { symbol: string; name: string; market: 'KOSPI' | 'KOSDAQ' | 'KR_ETC'; isEtf: boolean; candles: Candle[]; buyWindows?: { from: string; to: string }[] }[]; // 그룹 순서, 워밍업 포함. buyWindows(양끝 포함)가 있으면 그 안에서만 매수
   index: { id: 'KOSPI' | 'KOSDAQ'; candles: Candle[] } | null;
   benchmarkStock: {
     symbol: string;
@@ -71,7 +71,7 @@ export interface Trade {
 export interface Skip {
   date: string;
   symbol: string;
-  reason: '현금 부족' | '1주가 1회 금액보다 비쌈' | '거래 없음';
+  reason: '현금 부족' | '1주가 1회 금액보다 비쌈' | '거래 없음' | '선정 기간이 아니에요';
 }
 
 export interface SimResult {
