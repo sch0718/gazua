@@ -1,6 +1,6 @@
 // 시장 데이터 파일(수집 스크립트 산출물)을 브라우저 IndexedDB에 하나만 보관한다. 기기 단위 데이터다(스펙 4).
 import { openDB, type DBSchema } from 'idb';
-import { hasMacroFormat, validateMarketData, type MarketDataFile } from './format';
+import { hasMacroFormat, isV3, validateMarketData, type MarketDataFile } from './format';
 
 export type MarketSector = MarketDataFile['sectors'][number];
 /** 테마 선택 화면용 요약. 종목 목록은 본문에만 둔다. */
@@ -22,6 +22,10 @@ export interface MarketDataInfo {
   hasMacro?: boolean;
   /** 파일에 든 테마 수. 없던 시절의 요약은 0으로 읽는다. */
   themeCount?: number;
+  /** v3이고 투자자별 매매동향이 있는 종목이 하나라도 있다. 없던 시절의 요약은 false로 읽는다. */
+  hasFlow?: boolean;
+  /** 매매동향이 있는 종목 수. 없던 시절의 요약은 0으로 읽는다. */
+  flowStocks?: number;
 }
 
 export type ImportResult =
@@ -106,7 +110,7 @@ export function openMarketData(): MarketDataStore {
     try {
       const got = (await d.get(STORE, INFO_KEY)) as MarketDataInfo | undefined;
       // 버전 필드가 생기기 전의 요약은 v1이다
-      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0 } : null;
+      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0, hasFlow: got.hasFlow ?? false, flowStocks: got.flowStocks ?? 0 } : null;
     } finally {
       d.close();
     }
@@ -175,6 +179,7 @@ export function openMarketData(): MarketDataStore {
 
     const data = check.data;
     const v2 = hasMacroFormat(data);
+    const flowStocks = isV3(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
     const next: MarketDataInfo = {
       collectedAt: data.collectedAt,
       stocks: data.stocks.length,
@@ -182,6 +187,8 @@ export function openMarketData(): MarketDataStore {
       bytes: rawBytes,
       version: data.version,
       themeCount: v2 ? data.themes.length : 0,
+      hasFlow: flowStocks > 0,
+      flowStocks,
       hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();
