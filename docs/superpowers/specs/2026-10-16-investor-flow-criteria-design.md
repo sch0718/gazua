@@ -216,7 +216,7 @@ rank: { by: RankBy | 'flow'; take: number; series?: MacroSeriesKey; flow?: { who
   - 빈 날이 있을 때 `from` 이동
   - 종목 실패 시 계속하기
   - `--update`의 이어 붙이기와, 실패 시 이전 값 유지(일봉만 늘고 수급만 실패한 결과 파일이 v3 검증을 통과)
-  - 다음 `--update`가 수급 끝 다음 날부터 받아 메움
+  - 다음 `--update`가 수급 끝의 마지막 5일을 겹쳐 받아 메우고, 겹친 날은 새 값으로 덮어씀(P8)
   - `--flows-years`, `--no-flows`
   - 키가 요청 URL·로그·오류·출력 파일에 들어가지 않음(인증 헤더는 기존 KIS 클라이언트가 넣는 그대로다)
 - **계산**
