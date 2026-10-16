@@ -213,6 +213,9 @@ interface SelectionCriteria {
 - 거래정지 등으로 `p`에 봉이 없는 종목은 그 재선정에서 통과하지 않는다.
 - 수익률 기준 정렬(`rank.by = 'return'`)은 `returnRange.days`를 쓴다. 조건이 꺼져 있으면 60일이다.
 - 낮은 변동성 정렬은 `volatility.days`를 쓴다. 꺼져 있으면 20일이다.
+- 거래대금 정렬은 조건이 꺼져 있어도 `tradingValue.days`를 쓴다.
+- 봉이 모자라 정렬 값이 없는 종목은 통과했더라도 맨 뒤로 보낸다.
+- 이동평균 비교는 엄격하다: `above`는 `c[p] > 평균`, `below`는 `c[p] < 평균`.
 - 정렬이 같으면 종목코드 오름차순으로 정한다.
 
 ### 5.2 재선정일
@@ -237,6 +240,7 @@ interface Selection {
 ```
 
 - 후보 범위 → 조건 → 정렬 → 상위 `take` 순서다. `values`에는 각 조건의 계산값을 남긴다. 선정 이력에서 이유를 보여 주는 데 쓴다.
+  - 키: 켠 조건의 `marketCap`(원), `tradingValue`(원), `leaderRank`, `return`(%), `ma`(평균값), `fromHigh`(%), `volatility`(%), `rebound`(true)와 정렬 기준 값(`lowVolatility`는 `volatility`).
 - 지표는 종목마다 날짜순으로 **한 번** 미리 계산해 Worker 메모리에 둔다(이동평균, 이동 표준편차, 롤링 최대, 패턴 신호일 목록). 그래서 `selectAt`은 종목당 상수 시간이다.
 
 ### 6.2 ① 선정만: 동일 비중 보유 `holdSelection`

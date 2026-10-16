@@ -1,0 +1,157 @@
+import { RANK_RETURN_DAYS, type Precomputed, type StockSeries } from './precompute';
+import type { SelectionCriteria } from './types';
+
+export interface Selection {
+  date: string;
+  passed: number; // 조건 통과 수
+  picked: { symbol: string; values: Record<string, number | boolean | null> }[];
+}
+
+const EOK = 1e8;
+const SELECTABLE = ['STOCK', 'ETF'];
+
+// a에서 x 이상인 첫 인덱스
+function lowerBound(a: string[], x: string): number {
+  let lo = 0;
+  let hi = a.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * 재선정일 d의 선별(스펙 6.1). 모든 값은 축의 전 거래일 p의 봉까지만 쓴다.
+ * 순서: 후보 범위 → 조건 → 정렬 → 상위 take
+ */
+export function selectAt(
+  d: string,
+  pre: Precomputed,
+  c: SelectionCriteria,
+  poolOverride?: Pick<SelectionCriteria['pool'], 'markets' | 'types'>,
+): Selection {
+  const ai = lowerBound(pre.axis, d);
+  if (ai === 0) return { date: d, passed: 0, picked: [] };
+  const prevDay = pre.axis[ai - 1];
+
+  // 종목별 p: 그 종목의 d 전 마지막 봉. 그 봉이 축의 전 거래일이 아니면 p에 봉이 없다(-1)
+  const pIdx = pre.stocks.map((st) => {
+    const i = lowerBound(st.d, d) - 1;
+    return i >= 0 && st.d[i] === prevDay ? i : -1;
+  });
+  const mcap = (j: number): number => pre.stocks[j].close[pIdx[j]] * pre.stocks[j].shares;
+
+  const k = c.conditions;
+  const leaderRank = k.leader.on ? rankLeaders(pre.stocks, pIdx, mcap, k.leader.level) : null;
+  const pool = { ...c.pool, ...poolOverride };
+  const returnDays = k.returnRange.on ? k.returnRange.days : RANK_RETURN_DAYS;
+  const ret = (st: StockSeries, p: number): number | null => (p - returnDays >= 0 ? (st.close[p] / st.close[p - returnDays] - 1) * 100 : null);
+
+  const passed: { symbol: string; key: number | null; values: Selection['picked'][number]['values'] }[] = [];
+  pre.stocks.forEach((st, j) => {
+    const p = pIdx[j];
+    if (p < 0) return;
+    // 후보 범위
+    if (!SELECTABLE.includes(st.t) || !pool.markets.includes(st.m) || !pool.types.includes(st.t as 'STOCK' | 'ETF')) return;
+    if (pool.excludeManaged && (st.managed || st.halted)) return;
+    if (pool.sectors.length > 0 && !pool.sectors.some((x) => x !== '' && (st.sec[0] === x || st.sec[1] === x))) return;
+
+    // 조건(AND)
+    const values: Selection['picked'][number]['values'] = {};
+    const cp = st.close[p];
+    if (k.marketCap.on) {
+      const v = mcap(j);
+      if (!(v >= k.marketCap.minEok * EOK)) return;
+      values.marketCap = v;
+    }
+    if (k.tradingValue.on) {
+      const v = st.tvAvg[p];
+      if (v == null || !(v >= k.tradingValue.minEok * EOK)) return;
+      values.tradingValue = v;
+    }
+    if (k.leader.on) {
+      const v = leaderRank![j];
+      if (v == null || v > k.leader.maxRank) return;
+      values.leaderRank = v;
+    }
+    if (k.returnRange.on) {
+      const v = ret(st, p);
+      if (v == null || v < k.returnRange.minPct || v > k.returnRange.maxPct) return;
+      values.return = v;
+    }
+    if (k.vsMa.on) {
+      const v = st.ma[p];
+      if (v == null || (k.vsMa.side === 'above' ? !(cp > v) : !(cp < v))) return;
+      values.ma = v;
+    }
+    if (k.fromHigh.on) {
+      const hi = st.high[p];
+      if (hi == null) return;
+      const v = (1 - cp / hi) * 100;
+      if (v < k.fromHigh.minPct || v > k.fromHigh.maxPct) return;
+      values.fromHigh = v;
+    }
+    if (k.volatility.on) {
+      const v = st.vol[p];
+      if (v == null || v > k.volatility.maxPct) return;
+      values.volatility = v;
+    }
+    if (k.rebound.on) {
+      if (!(st.lastSignal[p] >= 0 && st.lastSignal[p] >= p - k.rebound.withinDays + 1)) return;
+      values.rebound = true;
+    }
+
+    // 정렬 값
+    let key: number | null;
+    switch (c.rank.by) {
+      case 'marketCap':
+        key = values.marketCap = mcap(j);
+        break;
+      case 'tradingValue':
+        key = values.tradingValue = st.tvAvg[p];
+        break;
+      case 'return':
+        key = values.return = ret(st, p);
+        break;
+      case 'lowVolatility':
+        key = st.vol[p];
+        values.volatility = key;
+        if (key != null) key = -key; // 낮을수록 앞
+        break;
+    }
+    passed.push({ symbol: st.s, key, values });
+  });
+
+  // 내림차순, 값이 없으면 뒤, 동률은 종목코드 오름차순
+  passed.sort((a, b) => {
+    if (a.key == null || b.key == null) return a.key == null && b.key == null ? byCode(a.symbol, b.symbol) : a.key == null ? 1 : -1;
+    return b.key - a.key || byCode(a.symbol, b.symbol);
+  });
+  return {
+    date: d,
+    passed: passed.length,
+    picked: passed.slice(0, c.rank.take).map(({ symbol, values }) => ({ symbol, values })),
+  };
+}
+
+// 같은 업종(레벨 1·2) 안 시가총액 순위. p에 봉이 있고 그 레벨 코드가 있는 전체 종목 기준
+function rankLeaders(stocks: StockSeries[], pIdx: number[], mcap: (j: number) => number, level: 1 | 2): (number | null)[] {
+  const groups = new Map<string, number[]>();
+  stocks.forEach((st, j) => {
+    const code = st.sec[level - 1];
+    if (pIdx[j] < 0 || !code) return;
+    const g = groups.get(code);
+    if (g) g.push(j);
+    else groups.set(code, [j]);
+  });
+  const rank: (number | null)[] = stocks.map(() => null);
+  for (const g of groups.values()) {
+    g.sort((a, b) => mcap(b) - mcap(a) || byCode(stocks[a].s, stocks[b].s));
+    g.forEach((j, r) => (rank[j] = r + 1));
+  }
+  return rank;
+}
