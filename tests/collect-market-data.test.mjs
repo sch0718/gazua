@@ -75,7 +75,7 @@ const indexRows = (n) =>
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 /** data: { symbols: {code: rows}, indices: {'0001': rows, '1001': rows} }. 페이지는 최대 100행, 요청 DATE_2 이하만 최신순 */
-function fakeKis(data, { onGet, flowFail = [], flowPage = 100, flowThrow = null } = {}) {
+function fakeKis(data, { onGet, flowFail = [], flowPage = 100, flowThrow = null, flowStatus = 500 } = {}) {
   const calls = { token: 0, get: [], flow: [] };
   const fetchImpl = async (url, init) => {
     const u = new URL(url);
@@ -96,7 +96,7 @@ function fakeKis(data, { onGet, flowFail = [], flowPage = 100, flowThrow = null 
       assert.equal(init.headers.tr_id, FLOW_API.trId);
       calls.flow.push({ url: String(url), symbol: q.FID_INPUT_ISCD, date: q.FID_INPUT_DATE_1 });
       if (flowThrow) throw flowThrow;
-      if (flowFail === true || flowFail.includes(q.FID_INPUT_ISCD)) return json({ rt_cd: '1', msg_cd: 'EGW00123' }, 500);
+      if (flowFail === true || flowFail.includes(q.FID_INPUT_ISCD)) return json({ rt_cd: '1', msg_cd: 'EGW00123' }, flowStatus);
       const rows = (data.flow?.[q.FID_INPUT_ISCD] ?? [])
         .filter((r) => r[FLOW_API.fields.date] <= q.FID_INPUT_DATE_1)
         .sort((a, b) => (a[FLOW_API.fields.date] < b[FLOW_API.fields.date] ? 1 : -1))
@@ -1309,6 +1309,131 @@ test('(S11) 수급 경로의 요청 URL·로그·오류·출력 파일에도 키
     assert.ok(logs2.some((l) => l.includes('수급 받기 실패')));
     for (const needle of secrets) for (const t of texts) assert.ok(!t.includes(needle), `${needle} 노출`);
     for (const t of texts) assert.ok(!/Bearer\s+(?!\*\*\*)\S/.test(t), 'Bearer 값 노출');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Task 2 수정 1차: 수급 실패는 수집을 멈추지 않는다 ─────────────────────
+const manyMaster = (n) => ({
+  stocks: Array.from({ length: n }, (_, k) => stk(String(300000 + k), 'KOSPI', ['0027', '0013', '0000'])),
+  idxcode: IDX,
+});
+const manyData = (n, bars = 40) => ({
+  symbols: Object.fromEntries(Array.from({ length: n }, (_, k) => [String(300000 + k), stockRows(bars)])),
+  indices: { '0001': indexRows(bars), '1001': indexRows(bars) },
+});
+
+test('(R1) 수급 요청이 모두 500이어도(연속 20종목 넘게) 파일을 쓴다: 나머지는 실패로 세고 경고한다', async () => {
+  const dir = tmpDir();
+  try {
+    const n = 25;
+    const logs = [];
+    const fake = fakeKis(manyData(n), { flowFail: true });
+    const { file, summary } = await collect({ years: 2, out: join(dir, 'o'), client: clientFor(fake), master: manyMaster(n), now: () => WINDOW, log: (l) => logs.push(l), repoRoot: join(dir, 'repo'), secrets: [KEY, SECRET, TOKEN] });
+    assert.equal(file.version, 3);
+    assert.equal(file.stocks.length, n);
+    assert.ok(file.stocks.every((x) => !('flow' in x)));
+    assertValidFile(file);
+    assert.equal(summary.flowFailed.length, n);
+    assert.equal(fake.calls.flow.length, 20); // 연속 20번 실패에서 멈춘다
+    assert.ok(logs.some((l) => l.includes('연속 실패로 매매동향 받기를 멈췄어요 (5종목 남음)')));
+    assert.ok(logs.some((l) => l.includes('수급 받기 실패 25종목')));
+    assert.equal(logs.filter((l) => l.includes('수급 받기 실패가 절반을 넘었어요')).length, 1);
+    assert.ok(existsSync(summary.path));
+    for (const l of logs) for (const needle of [KEY, SECRET, TOKEN]) assert.ok(!l.includes(needle));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(R2) 수급 요청이 401(치명)이면 그대로 멈추고 .partial을 남긴다', async () => {
+  const dir = tmpDir();
+  try {
+    const out = join(dir, 'o');
+    await assert.rejects(
+      collect({ years: 2, out, client: clientFor(fakeKis(flowDataFor(40), { flowFail: true, flowStatus: 401 })), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') }),
+    );
+    assert.ok(readdirSync(out).some((f) => f.endsWith('.partial')));
+    assert.ok(!readdirSync(out).some((f) => f.endsWith('.json.gz')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 000030의 수급에서 401로 멈춰 일봉 3종목 + 수급 2종목(000010·000020)이 .partial에 남은 상태를 만든다
+async function interrupted(dir) {
+  const out = join(dir, 'o');
+  const opts = { years: 2, out, master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+  await assert.rejects(collect({ ...opts, client: clientFor(fakeKis(flowDataFor(40), { flowFail: ['000030'], flowStatus: 401 })) }));
+  assert.equal(readdirSync(out).filter((f) => f.endsWith('.partial')).length, 1);
+  return opts;
+}
+
+test('(R3) .partial의 수급 줄에서 이어 받는다: 일봉은 다시 요청하지 않고 빠진 종목의 수급만 받는다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = await interrupted(dir);
+    const fake = fakeKis(flowDataFor(40));
+    const { file } = await collect({ ...opts, client: clientFor(fake) });
+    assert.equal(fake.calls.get.length, 0, '일봉·지수를 다시 요청했어요');
+    assert.ok(fake.calls.flow.length >= 1 && fake.calls.flow.every((c) => c.symbol === '000030'));
+    for (const code of ['000010', '000020', '000030']) {
+      const fl = byS(file, code).flow;
+      assert.equal(fl.from, dateStr(0));
+      assert.equal(fl.f.length, 40);
+      assert.deepEqual([fl.f[5], fl.i[5], fl.p[5]], [51, 52, 53]);
+    }
+    assertValidFile(file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(R4) 경고의 분모는 전체 종목이다: 이어 받은 2종목 + 실패 1종목이면 절반 경고가 없다', async () => {
+  const dir = tmpDir();
+  try {
+    const opts = await interrupted(dir);
+    const logs = [];
+    const { file, summary } = await collect({ ...opts, log: (l) => logs.push(l), client: clientFor(fakeKis(flowDataFor(40), { flowFail: ['000030'] })) });
+    assert.deepEqual(summary.flowFailed, ['000030']);
+    assert.equal(byS(file, '000030').flow, undefined);
+    assert.ok(byS(file, '000010').flow && byS(file, '000020').flow);
+    assert.ok(logs.some((l) => l.includes('매매동향 2종목') && l.includes('수급 받기 실패 1종목')));
+    assert.ok(!logs.some((l) => l.includes('절반을 넘었어요')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(R5) 요청이 없었던 종목(수급 끝이 기준일 이후)은 시도 수에 넣지 않고, 일봉 실패로 남긴 종목은 수급 실패가 아니다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    // 일봉 요청이 000030에서만 실패 → 이전 값을 그대로 두고, 수급은 요청하지 않으며 실패로 세지 않는다
+    const data = flowDataFor(62);
+    const bad = fakeKis(data, { onGet: (_, q) => (q.FID_INPUT_ISCD === '000030' ? json({ rt_cd: '1', msg_cd: 'X' }, 500) : null) });
+    const logs = [];
+    const r = await runF(dir, data, { fake: bad, update: first.file, out: join(dir, 'b'), log: (l) => logs.push(l) });
+    assert.deepEqual(r.summary.failed, ['000030']);
+    assert.deepEqual(r.summary.flowFailed, []);
+    assert.ok(!r.fake.calls.flow.some((c) => c.symbol === '000030'));
+    assert.deepEqual(byS(r.file, '000030').flow, byS(first.file, '000030').flow);
+    assertValidFile(r.file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(R6) --update --no-flows는 이전 수급을 지키고 유지한 종목 수를 알린다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    const logs = [];
+    const r = await runF(dir, flowDataFor(60), { flows: false, update: first.file, out: join(dir, 'b'), log: (l) => logs.push(l) });
+    assert.equal(r.fake.calls.flow.length, 0);
+    assert.deepEqual(byS(r.file, '000010').flow, byS(first.file, '000010').flow);
+    assert.ok(logs.some((l) => l.includes('매매동향은 새로 받지 않았어요 (--no-flows) · 이전 수급 3종목 유지')));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

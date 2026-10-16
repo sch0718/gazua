@@ -10,6 +10,7 @@ const OUT = process.argv[2] ?? 'tests/fixtures/market-data-demo.json.gz';
 // 코드는 아래 종목 생성 규칙의 결과다(KOSPI 100000 + k*1111, KOSDAQ 200000 + k*2222). 만들 때 실제로 있는지 확인한다.
 export const FLOW_FOREIGN_CODES = ['106666', '108888', '206666']; // 외국인 순매수 비율 약 +5% (전 기간)
 export const FLOW_INST_CODES = ['109999', '208888']; // 기관 최근 10일 연속 순매수(재선정일 이틀 전 기준으로도 8일)
+// 주의: FLOW_BOTH_CODE도 마지막 10일 기관 순매수가 연속이라 기관 연속 순매수 조건에 함께 걸린다.
 export const FLOW_BOTH_CODE = '111110'; // 외국인 약 +5%, 기관 약 +4%
 export const FLOW_LATE_CODE = '113332'; // 수급 시작일이 기간 중간 (순매수 비율은 0 주변)
 export const FLOW_NONE_CODE = '069500'; // KODEX 200은 수급을 받지 못한 종목(flow 없음)

@@ -329,20 +329,26 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   });
 
   // 수급: 일봉 다음에 종목마다 받는다. 한 종목이 실패하면 그 종목만 비우고(--update면 이전 값을 지키고) 계속한다.
+  // 수급 실패는 수집을 멈추지 않는다(치명 오류인 401·403 등만 멈춘다). 연속 20번 실패하면 남은 종목은 받지 않고 실패로 센다.
   const flowFailed = [];
-  let flowTried = 0;
   let flowFails = 0;
-  for (const st of stocks) {
+  let flowStopped = false;
+  for (let idx = 0; idx < stocks.length; idx++) {
+    const st = stocks[idx];
     const oldRec = oldStock.get(st.s);
     const prevRows = flowToRows(oldRec?.flow, oldRec?.d ?? []);
     const keep = () => alignFlow(st.d, prevRows) ?? undefined; // 이전 flow를 새 일봉에 다시 맞춘다(일봉이 그대로면 같은 값)
     let flow;
     if (!flows || keptOld.includes(st.s)) {
-      flow = keep(); // 받지 않는다: 이전 값만 지킨다
+      // 받지 않는다: 이전 값만 지킨다. keptOld(--update에서 일봉 받기가 실패해 옛 일봉을 그대로 둔 종목)는
+      // 일봉이 이전 파일과 같아 받을 새 수급이 없고, 일봉 실패로 이미 알렸으니 수급 실패로 세지 않는다.
+      flow = keep();
     } else if (done.flows.has(st.s)) {
       flow = done.flows.get(st.s).flow ?? undefined;
+    } else if (flowStopped) {
+      flowFailed.push(st.s);
+      flow = keep();
     } else {
-      flowTried++;
       // 이전 flow가 있으면 수급 끝 다음 날부터(일봉의 끝이 아니다), 없으면 기간 처음부터 받는다
       const lastFlowDate = prevRows.at(-1)?.d;
       const start = lastFlowDate ? nextDay(lastFlowDate) : flowFloor > st.d[0] ? flowFloor : st.d[0];
@@ -352,20 +358,26 @@ export async function collect({ years = 5, out, update, client, master, flows = 
         flowFails = 0;
         appendFileSync(partialPath, `${JSON.stringify({ kind: 'flow', s: st.s, flow: flow ?? null })}\n`);
       } catch (e) {
-        if (e?.fatal || ++flowFails >= MAX_CONSECUTIVE_FAILS) {
+        if (e?.fatal) {
           log(`중단했어요: ${errText(e)} (진행분은 ${partialPath} 에 남겼어요)`);
           throw e;
         }
         flowFailed.push(st.s);
         log(`수급 실패 ${st.s}: ${errText(e)}`);
         flow = keep();
+        if (++flowFails >= MAX_CONSECUTIVE_FAILS) {
+          flowStopped = true;
+          const left = stocks.slice(idx + 1).filter((x) => !keptOld.includes(x.s) && !done.flows.has(x.s)).length;
+          log(`연속 실패로 매매동향 받기를 멈췄어요 (${left}종목 남음)`);
+        }
       }
     }
     if (flow) st.flow = flow;
   }
   const flowStocks = stocks.filter((x) => x.flow).length;
   const flowFirst = stocks.reduce((m, x) => (x.flow && (m === '' || x.flow.from < m) ? x.flow.from : m), '');
-  if (flowFailed.length * 2 > flowTried) log(`경고: 수급 받기 실패가 절반을 넘었어요 (${flowFailed.length}/${flowTried}종목). 수급 TR·권한을 확인해 주세요`);
+  // 분모는 이 파일의 전체 종목이다(이어 받은 종목·이전 값을 지킨 종목 포함)
+  if (flowFailed.length * 2 > stocks.length) log(`경고: 수급 받기 실패가 절반을 넘었어요 (${flowFailed.length}/${stocks.length}종목). 수급 TR·권한을 확인해 주세요`);
 
   // 환율·유가: 일봉 시작 1년 전부터(β 워밍업). 실패해도 수집은 계속하고 그 계열만 비운다.
   // 윤일(2월 29일)도 유효한 날짜가 되도록 Date.UTC로 계산한다(2024-02-29 → 2023-03-01)
@@ -441,7 +453,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   log(`환율 ${summary.macroDays.usdkrw}일 · 유가 ${summary.macroDays.wti}일 · 테마 ${themes.length}개`);
   if (flows) {
     log(`매매동향 ${flowStocks}종목${flowStocks ? ` · 최초 ${summary.flowFirst}` : ''}${flowFailed.length ? ` · 수급 받기 실패 ${flowFailed.length}종목` : ''}`);
-  } else log('매매동향은 받지 않았어요 (--no-flows)');
+  } else log(`매매동향은 새로 받지 않았어요 (--no-flows)${flowStocks ? ` · 이전 수급 ${flowStocks}종목 유지` : ''}`);
   if (summary.themeDropped) log(`테마 파일에서 형식이 맞지 않는 행 ${summary.themeDropped}개를 뺐어요`);
   return { file, summary };
 }
