@@ -1241,6 +1241,38 @@ describe('createApp — lock while switching profiles', () => {
   });
 });
 
+describe('criteria route', () => {
+  function withCriteria() {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    const app = make(backing);
+    app.setCriteria([{ ...newCriteria(1, null), id: 'c1' }]);
+    return app;
+  }
+
+  it('keeps the list, an existing criteria and its result', () => {
+    const app = withCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria' });
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria' });
+    expect(location.hash).toBe('#/simulate/criteria');
+    fireHash('#/simulate/criteria/c1');
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c1' });
+    fireHash('#/simulate/criteria/c1/result');
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c1', view: 'result' });
+    expect(location.hash).toBe('#/simulate/criteria/c1/result');
+  });
+
+  it('an unknown criteria becomes the criteria list with a notice', () => {
+    const app = withCriteria();
+    fireHash('#/simulate/criteria/nope');
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria' });
+    expect(location.hash).toBe('#/simulate/criteria');
+    expect(app.routeNotice).toBe('선정 기준을 찾을 수 없어요');
+  });
+});
+
 describe('simulate route', () => {
   function withStrategy() {
     const backing = memoryBacking();

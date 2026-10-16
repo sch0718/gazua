@@ -19,6 +19,8 @@
     format,
     toggle,
     namePrefixId,
+    oninvalid,
+    keepInvalid = false,
   }: {
     label: string;
     value: number;
@@ -36,6 +38,10 @@
     toggle?: { checked: boolean; onchange: (v: boolean) => void };
     /** 입력 이름 앞에 붙일 요소 id(예: 익절 `1단계` 제목 → `1단계 목표`). 보이는 라벨은 그대로 */
     namePrefixId?: string;
+    /** 틀린 입력 상태가 바뀔 때(처음 포함) 알린다. 화면이 실행을 막는 데 쓴다 */
+    oninvalid?: (bad: boolean) => void;
+    /** true면 칸을 떠나도 틀린 입력과 오류를 그대로 둔다(고칠 때까지 실행을 막는 화면용). 기본은 저장값으로 되돌린다 */
+    keepInvalid?: boolean;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
@@ -95,9 +101,16 @@
 
   function onblur() {
     focused = false;
+    if (keepInvalid && bad) return;
     bad = false;
     text = show(value);
   }
+
+  $effect(() => {
+    const b = bad;
+    untrack(() => oninvalid?.(b));
+    return () => untrack(() => oninvalid?.(false));
+  });
 </script>
 
 <div class="field" class:muted class:won class:has-toggle={!!toggle}>

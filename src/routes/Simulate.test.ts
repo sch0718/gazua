@@ -7,6 +7,7 @@ import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { newStrategy } from '../lib/sim/defaults';
+import { newCriteria } from '../lib/screen/defaults';
 import { simulate } from '../lib/sim/simulate';
 import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
 import { kstEpoch } from '../lib/time/kst';
@@ -730,5 +731,136 @@ describe('Simulate app bar', () => {
     stubWidth(false, false);
     setup();
     expect(screen.getByTestId('chip')).toBeTruthy();
+  });
+});
+
+describe('Simulate 선정 기준 탭', () => {
+  const RANGE = { from: '2024-10-16', to: '2026-10-11' };
+  const FRESH = { collectedAt: '2026-10-10T09:00:00+09:00', stocks: 30, range: RANGE };
+  const OLD = { collectedAt: '2026-08-01T09:00:00+09:00', stocks: 30, range: RANGE };
+  const SECTORS = [{ code: '00013', name: '전기·전자', level: 1 as const }];
+
+  function fakeWorker() {
+    const w = {
+      posted: [] as { type: string }[],
+      terminated: false,
+      onmessage: null as ((e: { data: unknown }) => void) | null,
+      onerror: null as ((e: unknown) => void) | null,
+      postMessage(m: { type: string }) {
+        w.posted.push(m);
+      },
+      terminate() {
+        w.terminated = true;
+      },
+    };
+    return w;
+  }
+
+  function setupCriteria(o: { info?: typeof FRESH | null; hash?: string; names?: string[] } = {}) {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(['005930']) }], now: NOW });
+    apps.push(app);
+    app.setStrategies([{ ...newStrategy(NOW, 'g1', '눌림목'), id: 's0' }]);
+    app.setCriteria((o.names ?? ['반등 기준']).map((n, i) => ({ ...newCriteria(NOW - i, RANGE, n), id: `c${i}` })));
+    const worker = fakeWorker();
+    app.navigate({ name: 'simulate', tab: 'criteria' });
+    render(Simulate, {
+      app,
+      barEnd,
+      marketData: { info: async () => (o.info === undefined ? FRESH : o.info), sectors: async () => SECTORS },
+      makeWorker: () => worker,
+      now: () => NOW,
+    });
+    return { app, worker };
+  }
+
+  it('shows the two tabs; 선정 기준 lists the criteria and 매매 규칙 shows the existing strategy list unchanged', async () => {
+    const { app } = setupCriteria();
+    expect(screen.getByRole('tab', { name: '선정 기준' }).getAttribute('aria-selected')).toBe('true');
+    expect(await screen.findByText('반등 기준')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: '매매 규칙' }));
+    expect(app.route).toEqual({ name: 'simulate' });
+    expect(location.hash).toBe('#/simulate');
+    expect(screen.getByText('눌림목')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '＋ 새 전략' })).toBeTruthy();
+    expect(screen.queryByText('반등 기준')).toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: '선정 기준' }));
+    expect(location.hash).toBe('#/simulate/criteria');
+    expect(await screen.findByText('반등 기준')).toBeTruthy();
+  });
+
+  it('tab arrows move focus without switching; Enter (click) switches', async () => {
+    const { app } = setupCriteria();
+    const tabs = screen.getAllByRole('tab');
+    tabs[1].focus();
+    await fireEvent.keyDown(tabs[1], { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(tabs[0]);
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria' });
+    await fireEvent.click(tabs[0]);
+    expect(app.route).toEqual({ name: 'simulate' });
+    expect(document.activeElement).toBe(tabs[0]); // 탭을 눌러도 포커스가 남는다
+  });
+
+  it('without market data: the notice card shows and 데이터 가져오기 goes to settings › 데이터', async () => {
+    const { app } = setupCriteria({ info: null });
+    expect(await screen.findByText('시장 데이터가 없어요. 수집 스크립트로 만든 파일을 가져와 주세요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '데이터 가져오기' }));
+    expect(app.route).toEqual({ name: 'settings', section: 'data' });
+  });
+
+  it('data older than 30 days shows the stale text; closing hides it until the next run', async () => {
+    setupCriteria({ info: OLD });
+    expect(await screen.findByText('데이터가 72일 전 것이에요. 최근 기간은 검증에 빠져요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    expect(screen.queryByText(/데이터가 72일 전/)).toBeNull();
+  });
+
+  it('fresh data shows no notice', async () => {
+    setupCriteria();
+    await screen.findByText('반등 기준');
+    expect(screen.queryByText(/데이터가/)).toBeNull();
+  });
+
+  it('opening a criteria shows its editor; a missing one falls back to the list with a notice', async () => {
+    const { app } = setupCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    expect(((await screen.findByRole('textbox', { name: '기준 이름' })) as HTMLInputElement).value).toBe('반등 기준');
+    expect(screen.queryByRole('tab')).toBeNull(); // 편집 중에는 탭이 없다
+    await fireEvent.click(screen.getByRole('button', { name: '선정 기준 목록으로' }));
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria' });
+  });
+
+  it('running goes to the result route, starts the worker, and the list then shows the last result', async () => {
+    const { app, worker } = setupCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c0', view: 'result' });
+    expect(location.hash).toBe('#/simulate/criteria/c0/result');
+    const runMsg = worker.posted.find((m) => m.type === 'run') as unknown as { input: { criteria: { id: string }; strategies: unknown[] } };
+    expect(runMsg.input.criteria.id).toBe('c0');
+    expect(runMsg.input.strategies).toHaveLength(1);
+    expect(worker.posted.some((m) => m.type === 'run')).toBe(true);
+    const stats = (totalPct: number) => ({ totalPct, cagrPct: 0, mddPct: 0, volPct: 0 });
+    worker.onmessage?.({
+      data: { type: 'result', result: { hold: { stats: stats(12.34) }, indices: [{ id: 'KOSPI', curve: [], stats: stats(8.06) }] } },
+    });
+    await tick();
+    app.navigate({ name: 'simulate', tab: 'criteria' });
+    expect(await screen.findByText('① +12.3% vs KOSPI +8.1%')).toBeTruthy();
+  });
+
+  it('cancelling a run from the result placeholder returns to the editor and ends the worker', async () => {
+    const { app, worker } = setupCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0', view: 'result' });
+    await tick();
+    // 결과 없이 바로 연 주소는 편집으로 돌려보낸다
+    await waitFor(() => expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' }));
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    await fireEvent.click(await screen.findByRole('button', { name: '취소' }));
+    expect(worker.terminated).toBe(true);
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
   });
 });

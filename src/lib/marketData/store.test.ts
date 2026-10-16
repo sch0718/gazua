@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { openDB } from 'idb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateMarketData } from './format';
 import { openMarketData } from './store';
@@ -134,6 +135,28 @@ describe('market data store', () => {
     expect(res).toMatchObject({ ok: false, reason: 'quota' });
     if (!res.ok) expect(res.neededMb).toBe(Math.ceil((new TextEncoder().encode(text).byteLength * 1.2) / 1024 / 1024));
     expect((await store.info())?.stocks).toBe(30);
+  });
+
+  it('sectors() returns only the sector list, without loading the file body', async () => {
+    const store = openMarketData();
+    expect(await store.sectors()).toEqual([]);
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const expected = (await store.load())!.sectors;
+    expect(expected.length).toBeGreaterThan(0);
+    const getSpy = vi.spyOn(IDBObjectStore.prototype, 'get');
+    expect(await store.sectors()).toEqual(expected);
+    // 본문('current') 키는 읽지 않는다
+    expect(getSpy.mock.calls.map((c) => c[0])).not.toContain('current');
+  });
+
+  it('sectors() falls back to the file body for data imported before the sector summary existed', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const expected = (await store.load())!.sectors;
+    const db = await openDB('gazua-market-data', 1);
+    await db.delete('files', 'current-sectors');
+    db.close();
+    expect(await store.sectors()).toEqual(expected);
   });
 
   it('clears the data', async () => {

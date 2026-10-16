@@ -16,7 +16,7 @@
   let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
 
   // 비교 화면의 오류 배너(`진단 열기`·`키 다시 입력`)로 들어오면 그 구역으로 옮기고 제목에 초점을 둔다.
-  const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag' } as const;
+  const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag', data: 'set-data' } as const;
   $effect(() => {
     const section = app.route.section;
     if (!section) return;
@@ -105,7 +105,7 @@
         </section>
 
         <section aria-labelledby="set-data">
-          <h2 id="set-data">데이터</h2>
+          <h2 id="set-data" tabindex="-1">데이터</h2>
           <DataTools {app} />
         </section>
 

@@ -327,6 +327,14 @@ export function createApp(deps: AppDeps): App {
   }
 
   function normalize(r: Route): Route {
+    if (r.name === 'simulate' && r.tab === 'criteria') {
+      if (!r.criteriaId) return { name: 'simulate', tab: 'criteria' };
+      if (criteria.some((c) => c.id === r.criteriaId)) {
+        return { name: 'simulate', tab: 'criteria', criteriaId: r.criteriaId, ...(r.view === 'result' && { view: 'result' as const }) };
+      }
+      routeNotice = '선정 기준을 찾을 수 없어요';
+      return { name: 'simulate', tab: 'criteria' };
+    }
     if (r.name === 'simulate') {
       if (!r.strategyId) return { name: 'simulate' };
       if (strategies.some((s) => s.id === r.strategyId)) return { name: 'simulate', strategyId: r.strategyId };

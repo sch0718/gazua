@@ -2,6 +2,8 @@
 import { openDB, type DBSchema } from 'idb';
 import { validateMarketData, type MarketDataFile } from './format';
 
+export type MarketSector = MarketDataFile['sectors'][number];
+
 export interface MarketDataInfo {
   collectedAt: string;
   stocks: number;
@@ -23,6 +25,8 @@ export interface ImportDeps {
 export interface MarketDataStore {
   info(): Promise<MarketDataInfo | null>;
   load(): Promise<MarketDataFile | null>;
+  /** 업종 목록만. 수십 MB 본문을 읽지 않는다(없으면 빈 배열). */
+  sectors(): Promise<MarketSector[]>;
   importFile(file: Blob, deps?: ImportDeps): Promise<ImportResult>;
   clear(): Promise<void>;
 }
@@ -36,6 +40,8 @@ const STORE = 'files';
 const KEY = 'current';
 // 목록 표시용 요약. 수십 MB짜리 본문을 읽지 않고 info()만 부르려고 같은 트랜잭션에서 함께 쓴다.
 const INFO_KEY = 'current-info';
+// 업종 선택 화면용 목록. 본문을 풀지 않고 읽으려고 가져올 때 함께 쓴다.
+const SECTORS_KEY = 'current-sectors';
 const NEED_FACTOR = 1.2;
 
 const defaultDecompress = (file: Blob): Promise<string> =>
@@ -64,6 +70,18 @@ export function openMarketData(): MarketDataStore {
     const d = await db();
     try {
       return ((await d.get(STORE, KEY)) as MarketDataFile | undefined) ?? null;
+    } finally {
+      d.close();
+    }
+  }
+
+  async function sectors(): Promise<MarketSector[]> {
+    const d = await db();
+    try {
+      const own = (await d.get(STORE, SECTORS_KEY)) as MarketSector[] | undefined;
+      if (own) return own;
+      // 업종 요약이 생기기 전에 가져온 데이터: 본문에서 읽는다
+      return ((await d.get(STORE, KEY)) as MarketDataFile | undefined)?.sectors ?? [];
     } finally {
       d.close();
     }
@@ -104,7 +122,7 @@ export function openMarketData(): MarketDataStore {
       // 만든 즉시 처리기를 달아, 뒤의 put이 동기로 던져 취소될 때 앞 요청의 거부가 떠돌지 않게 한다
       const pending: Promise<unknown>[] = [tx.done];
       tx.done.catch(() => {});
-      for (const [v, k] of [[data, KEY], [next, INFO_KEY]] as const) {
+      for (const [v, k] of [[data, KEY], [next, INFO_KEY], [data.sectors, SECTORS_KEY]] as const) {
         const req = tx.store.put(v, k);
         req.catch(() => {});
         pending.push(req);
@@ -141,5 +159,5 @@ export function openMarketData(): MarketDataStore {
     }
   }
 
-  return { info, load, importFile, clear };
+  return { info, load, sectors, importFile, clear };
 }
