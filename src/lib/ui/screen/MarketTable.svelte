@@ -16,7 +16,9 @@
 
 <section class="mt" aria-labelledby="mt-h">
   <h3 id="mt-h">시장별 보기</h3>
-  <div class="scroll">
+  <!-- 좁은 화면에서 가로로 넘치면 키보드로도 스크롤할 수 있어야 해서 tabindex를 둔다. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="scroll" role="region" aria-label="시장별 표" tabindex="0">
     <table>
       <thead>
         <tr><th scope="col">시장</th><th scope="col">① 총수익률</th><th scope="col">최대 낙폭</th><th scope="col">평균 선정 수</th><th scope="col">지수 대비</th></tr>

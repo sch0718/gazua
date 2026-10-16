@@ -5,7 +5,7 @@
   import { NO_DATA_TEXT, STALE_DAYS, staleText } from './screenText';
 
   // 수집 방법은 README에 있다
-  const HOWTO_URL = 'https://github.com/sch0718/gazua#readme';
+  const HOWTO_URL = 'https://github.com/sch0718/gazua#시장-데이터-수집';
 
   let {
     info,
