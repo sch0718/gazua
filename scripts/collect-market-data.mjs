@@ -2,6 +2,7 @@
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 // 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않는다. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
+// v4(종목별 재무 fin): docs/superpowers/specs/2026-10-17-fundamental-criteria-design.md 2.2·5장
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -11,6 +12,7 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
 import { fetchFredSeries } from './fetch-fred.mjs';
+import { FIN_API, buildFin, fetchFundamentals } from './fetch-fundamentals.mjs';
 import { alignFlow, fetchInvestorFlow } from './fetch-investor-flow.mjs';
 import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
 import { parseIdxcode } from './parse-idxcode.mjs';
@@ -44,6 +46,27 @@ function flowToRows(flow, barDates) {
   const at = flow ? barDates.indexOf(flow.from) : -1;
   if (at < 0) return [];
   return flow.f.map((f, k) => ({ d: barDates[at + k], f, i: flow.i[k], p: flow.p[k] })).filter((r) => r.d !== undefined);
+}
+
+const FIN_KEYS = ['q', 'a', 'rev', 'op', 'ni', 'eq', 'debt'];
+const finMonth = (ym) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(4, 6)) - 1;
+// 분기말 YYYYMM → 'YYYY년 N분기'(달력 분기)
+const quarterLabel = (ym) => `${ym.slice(0, 4)}년 ${Math.ceil(Number(ym.slice(4, 6)) / 3)}분기`;
+
+/**
+ * --update의 재무 합치기(스펙 5장). 새로 받은 fin을 쓰고, 이전 fin에 새 첫 분기보다 앞선 분기가 있으면
+ * 새 첫 분기와 3개월 간격으로 이어질 때만 앞에 붙인다. 붙인 분기는 이전 파일의 값과 a를 그대로 쓴다.
+ * 새로 받은 것이 비면(null) 이전 fin을 지킨다.
+ * @param {any} prev 이전 파일의 fin(없으면 undefined)
+ * @param {any} fresh buildFin 결과(없으면 null)
+ */
+export function mergeFin(prev, fresh) {
+  if (!fresh) return prev ?? null;
+  if (!prev?.q?.length) return fresh;
+  const first = finMonth(fresh.q[0]);
+  const n = prev.q.filter((q) => finMonth(q) < first).length;
+  if (n === 0 || finMonth(prev.q[n - 1]) !== first - 3) return fresh;
+  return Object.fromEntries(FIN_KEYS.map((k) => [k, [...prev[k].slice(0, n), ...fresh[k]]]));
 }
 
 // ── 업종 코드 (ruling R3) ────────────────────────────────────────────
@@ -135,9 +158,9 @@ export async function mergeUpdate(old, fresh, refetch) {
 // ── 진행분(.partial): 한 줄에 한 JSON. 끝난 종목마다 덧붙인다 ───────────────
 // 온전한 줄만 돌려준다. 호출한 쪽이 그 줄들로 파일을 다시 써서, 끊긴 마지막 줄 뒤에 덧붙이는 일이 없게 한다.
 function readPartial(path, header) {
-  const empty = { stocks: new Map(), indices: new Map(), flows: new Map(), lines: [] };
+  const empty = { stocks: new Map(), indices: new Map(), flows: new Map(), fins: new Map(), lines: [] };
   if (!existsSync(path)) return empty;
-  const done = { stocks: new Map(), indices: new Map(), flows: new Map(), lines: [] };
+  const done = { stocks: new Map(), indices: new Map(), flows: new Map(), fins: new Map(), lines: [] };
   let ok = false;
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     if (!line) continue;
@@ -148,13 +171,20 @@ function readPartial(path, header) {
       break; // 쓰다 끊긴 줄
     }
     if (rec.kind === 'header') {
-      ok = rec.from === header.from && rec.to === header.to && rec.updateFrom === header.updateFrom && (rec.flowFrom ?? null) === (header.flowFrom ?? null);
+      ok =
+        rec.from === header.from &&
+        rec.to === header.to &&
+        rec.updateFrom === header.updateFrom &&
+        (rec.flowFrom ?? null) === (header.flowFrom ?? null) &&
+        // 재무 줄이 없는 예전 진행분(이 필드가 없음)은 그대로 이어 받는다
+        (rec.finCumulative === undefined || rec.finCumulative === header.finCumulative);
       if (!ok) return empty;
     } else if (!ok) {
       return empty;
     } else if (rec.kind === 'stock') done.stocks.set(rec.s, rec);
     else if (rec.kind === 'index') done.indices.set(rec.id, rec);
     else if (rec.kind === 'flow') done.flows.set(rec.s, rec);
+    else if (rec.kind === 'fin') done.fins.set(rec.s, rec);
     else continue;
     done.lines.push(line);
   }
@@ -184,12 +214,12 @@ export async function writeGzipJson(path, file, { sink } = {}) {
 }
 
 /**
- * @param {{ years?: number; flows?: boolean; flowsYears?: number | null; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
+ * @param {{ years?: number; flows?: boolean; fins?: boolean; flowsYears?: number | null; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
  *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number; themeFailed?: boolean };
  *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, flows = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep }) {
+export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep }) {
   // 로그에 나가는 모든 문구에서 키·토큰을 가린다.
   const clean = (msg) => {
     let t = client.scrub ? client.scrub(msg) : String(msg);
@@ -228,7 +258,8 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const updateFrom = prev ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
   // 수급 기간 하한: --flows-years N이면 오늘부터 N년 전, 아니면 일봉 시작
   const flowFloor = flowsYears ? (yearsBefore(today, flowsYears) > from ? yearsBefore(today, flowsYears) : from) : from;
-  const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null };
+  // 재무 누적 가정(FIN_API.cumulative)이 바뀌면 진행분의 재무 줄은 다른 규칙으로 만든 값이라 이어 받지 않는다
+  const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);
   else {
@@ -380,6 +411,52 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   // 분모는 이 파일의 전체 종목이다(이어 받은 종목·이전 값을 지킨 종목 포함)
   if (flowFailed.length * 2 > stocks.length) log(`경고: 수급 받기 실패가 절반을 넘었어요 (${flowFailed.length}/${stocks.length}종목). 수급 TR·권한을 확인해 주세요`);
 
+  // 재무: 수급 다음에 STOCK 종목마다 받는다(ETF·ETN 등은 재무제표가 없어 요청하지 않고 실패로도 세지 않는다).
+  // 실패 처리는 수급과 같다. 한 종목이 실패하면 그 종목만 비우고(--update면 이전 값을 지키고) 계속한다.
+  // 치명 오류(401·403 등)만 멈추고, 연속 20번 실패하면 남은 종목은 받지 않고 실패로 센다.
+  const finFailed = [];
+  let finFails = 0;
+  let finStopped = false;
+  const finTargets = stocks.filter((x) => x.t === 'STOCK');
+  for (let idx = 0; idx < finTargets.length; idx++) {
+    const st = finTargets[idx];
+    const prevFin = oldStock.get(st.s)?.fin;
+    let fin;
+    if (!fins || keptOld.includes(st.s)) {
+      // 받지 않는다: 이전 값만 지킨다. keptOld(일봉 받기가 실패해 옛 기록을 그대로 둔 종목)는 일봉 실패로 이미 알렸으니 재무 실패로 세지 않는다
+      fin = prevFin;
+    } else if (done.fins.has(st.s)) {
+      fin = done.fins.get(st.s).fin ?? undefined;
+    } else if (finStopped) {
+      finFailed.push(st.s);
+      fin = prevFin;
+    } else {
+      try {
+        fin = mergeFin(prevFin, buildFin(await fetchFundamentals(client, st.s))) ?? undefined;
+        finFails = 0;
+        appendFileSync(partialPath, `${JSON.stringify({ kind: 'fin', s: st.s, fin: fin ?? null })}\n`);
+      } catch (e) {
+        if (e?.fatal) {
+          log(`중단했어요: ${errText(e)} (진행분은 ${partialPath} 에 남겼어요)`);
+          throw e;
+        }
+        finFailed.push(st.s);
+        log(`재무 실패 ${st.s}: ${errText(e)}`);
+        fin = prevFin;
+        if (++finFails >= MAX_CONSECUTIVE_FAILS) {
+          finStopped = true;
+          const left = finTargets.slice(idx + 1).filter((x) => !keptOld.includes(x.s) && !done.fins.has(x.s)).length;
+          log(`연속 실패로 재무 받기를 멈췄어요 (${left}종목 남음)`);
+        }
+      }
+    }
+    if (fin) st.fin = fin;
+  }
+  const finStocks = stocks.filter((x) => x.fin).length;
+  const finFirst = stocks.reduce((m, x) => (x.fin && (m === '' || x.fin.q[0] < m) ? x.fin.q[0] : m), '');
+  // 분모는 이 파일의 STOCK 종목 수다(이어 받은 종목·이전 값을 지킨 종목 포함, 재무를 요청하지 않는 ETF·ETN 등은 뺀다)
+  if (finFailed.length * 2 > finTargets.length) log(`경고: 재무 받기 실패가 절반을 넘었어요 (${finFailed.length}/${finTargets.length}종목). 재무 TR·권한을 확인해 주세요`);
+
   // 환율·유가: 일봉 시작 1년 전부터(β 워밍업). 실패해도 수집은 계속하고 그 계열만 비운다.
   // 윤일(2월 29일)도 유효한 날짜가 되도록 Date.UTC로 계산한다(2024-02-29 → 2023-03-01)
   const macroFrom = new Date(Date.UTC(+from.slice(0, 4) - 1, +from.slice(4, 6) - 1, +from.slice(6, 8))).toISOString().slice(0, 10);
@@ -413,7 +490,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const range = { from: dashed(allDates[0] ?? from), to: dashed(allDates.at(-1) ?? to) };
   const file = {
     format: 'gazua-market-data',
-    version: 3,
+    version: 4,
     collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
     source: 'kis',
     adjusted: true,
@@ -445,6 +522,9 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     flowStocks,
     flowFailed,
     flowFirst: flowFirst ? dashed(flowFirst) : null,
+    finStocks,
+    finFailed,
+    finFirst: finFirst || null,
   };
   log(
     `완료: ${summary.stocks}종목 · ${range.from} ~ ${range.to} · 다시 받은 종목 ${refetched}개 · 실패 ${failed.length}개${
@@ -455,6 +535,9 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   if (flows) {
     log(`매매동향 ${flowStocks}종목${flowStocks ? ` · 최초 ${summary.flowFirst}` : ''}${flowFailed.length ? ` · 수급 받기 실패 ${flowFailed.length}종목` : ''}`);
   } else log(`매매동향은 새로 받지 않았어요 (--no-flows)${flowStocks ? ` · 이전 수급 ${flowStocks}종목 유지` : ''}`);
+  if (fins) {
+    log(`재무 ${finStocks}종목${finStocks ? ` · 최초 ${quarterLabel(finFirst)}` : ''}${finFailed.length ? ` · 재무 받기 실패 ${finFailed.length}종목` : ''}`);
+  } else log(`재무는 새로 받지 않았어요 (--no-fins)${finStocks ? ` · 이전 재무 ${finStocks}종목 유지` : ''}`);
   if (summary.themeDropped) log(`테마 파일에서 형식이 맞지 않는 행 ${summary.themeDropped}개를 뺐어요`);
   return { file, summary };
 }
@@ -491,12 +574,13 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
 }
 
 export function parseArgs(argv) {
-  const o = { years: 5, out: null, update: null, paper: false, flows: true, flowsYears: null };
+  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null };
   const args = argv.filter((a) => a !== '--');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--paper') o.paper = true;
     else if (a === '--no-flows') o.flows = false;
+    else if (a === '--no-fins') o.fins = false;
     else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update') {
       const v = args[++i];
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
@@ -526,7 +610,7 @@ async function main() {
   log('종목 마스터를 받아요');
   const master = await loadMaster();
   const client = createKisClient({ appKey, appSecret, paper: opts.paper });
-  await collect({ years: opts.years, flows: opts.flows, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log });
+  await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

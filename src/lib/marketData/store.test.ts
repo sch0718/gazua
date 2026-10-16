@@ -189,14 +189,14 @@ describe('market data store', () => {
     return JSON.stringify(j);
   };
 
-  it('v3 demo import: themes() lists code, name and symbol count; info() says version 3 with macro', async () => {
+  it('v4 demo import: themes() lists code, name and symbol count; info() says version 4 with macro', async () => {
     const store = openMarketData();
     await store.importFile(file(), { decompress, estimate: roomy });
     const body = (await store.load())!;
     if (body.version === 1) throw new Error('fixture is not v2 or later');
     expect(body.themes.length).toBeGreaterThan(0);
     expect(await store.themes()).toEqual(body.themes.map((t) => ({ code: t.code, name: t.name, count: t.symbols.length })));
-    expect(await store.info()).toMatchObject({ version: 3, hasMacro: true });
+    expect(await store.info()).toMatchObject({ version: 4, hasMacro: true });
   });
 
   it('info() carries themeCount, and reads 0 on old data without it', async () => {
@@ -215,8 +215,12 @@ describe('market data store', () => {
 
   it('v3 import: info() carries hasFlow and flowStocks', async () => {
     const store = openMarketData();
-    await store.importFile(file(), { decompress, estimate: roomy });
+    // 데모는 v4라 fin을 지운 v3로 만든다
     const body = JSON.parse(await decompress(file()));
+    body.version = 3;
+    body.stocks.forEach((s: any) => delete s.fin);
+    const text = JSON.stringify(body);
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
     const n = body.stocks.filter((s: any) => s.flow).length;
     expect(n).toBeGreaterThan(0);
     expect(await store.info()).toMatchObject({ version: 3, hasFlow: true, flowStocks: n });
@@ -234,7 +238,11 @@ describe('market data store', () => {
   it('v3 without any flow has hasFlow false', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
-    j.stocks.forEach((s: any) => delete s.flow);
+    j.version = 3;
+    j.stocks.forEach((s: any) => {
+      delete s.flow;
+      delete s.fin;
+    });
     const text = JSON.stringify(j);
     await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
     expect(await store.info()).toMatchObject({ version: 3, hasFlow: false, flowStocks: 0 });
@@ -265,6 +273,8 @@ describe('market data store', () => {
   it('hasMacro is false for a v3 file whose macro series are both empty', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
+    j.version = 3;
+    j.stocks.forEach((s: any) => delete s.fin);
     j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } };
     const text = JSON.stringify(j);
     await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
