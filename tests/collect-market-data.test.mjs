@@ -3,9 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import { test } from 'node:test';
+import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect, mergeUpdate, parseArgs, resolveSectors, validateCreds } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 
 const KEY = 'KEYSECRET-app-key-123';
@@ -434,6 +436,9 @@ test('CLI 옵션', () => {
   assert.equal(o.paper, true);
   assert.equal(parseArgs([]).years, 5);
   assert.throws(() => parseArgs(['--years', 'x']));
+  // 10년이 넘으면 앱이 가져올 때 V8 문자열 한도를 넘을 수 있다
+  assert.equal(parseArgs(['--years', '10']).years, 10);
+  assert.throws(() => parseArgs(['--years', '11']), /1~10/);
   assert.throws(() => parseArgs(['--nope']));
 });
 
@@ -683,3 +688,43 @@ test('(N2) 최종 파일을 쓰다 실패하면 처리되지 않은 거부 없�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── 마지막 수정 ───────────────────────────────────────────────────────
+test('(F1) 쓰는 도중 대상이 실패하면 멈추지 않고 거부한다(큰 본문, 백프레셔 중)', async () => {
+  const dir = tmpDir();
+  try {
+    // 압축이 안 되는 큰 본문이라 gzip 버퍼가 차서 drain을 기다리는 중에 실패가 난다
+    const stocks = Array.from({ length: 200 }, (_, i) => ({ s: String(i), blob: randomBytes(40_000).toString('base64') }));
+    let written = 0;
+    const sink = new Writable({
+      highWaterMark: 1024,
+      write(chunk, _enc, cb) {
+        written += chunk.length;
+        setImmediate(() => cb(written > 256 * 1024 ? new Error('disk gone') : null));
+      },
+    });
+    const path = join(dir, 'x.json.gz.tmp');
+    const hang = new Promise((r) => setTimeout(() => r('hang'), 5000).unref());
+    const res = await Promise.race([writeGzipJson(path, { a: 1, stocks, indices: [] }, { sink }).then(() => 'ok', (e) => e), hang]);
+    assert.ok(res instanceof Error, `거부되어야 해요: ${res}`);
+    assert.match(res.message, /disk gone/);
+    assert.ok(!existsSync(path));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(F2) 일봉 페이지 한도에 닿으면 자르지 않고 실패로 알린다(그 종목은 실패 목록으로)', async () => {
+  // 하루씩만 주는 서버: from에 닿기 전에 한도(80쪽)에 닿는다
+  let day = 0;
+  const fake = fakeKis({ symbols: {}, indices: {} }, {
+    onGet: (_n, q) => {
+      const d = prevDayStr(q.FID_INPUT_DATE_2);
+      day++;
+      return json({ rt_cd: '0', output2: [{ stck_bsop_date: q.FID_INPUT_DATE_2, stck_oprc: '100', stck_hgpr: '100', stck_lwpr: '100', stck_clpr: '100', acml_vol: '1', acml_tr_pbmn: '100', _: d }] });
+    },
+  });
+  await assert.rejects(clientFor(fake).dailyCandles('X', dateStr(0), dateStr(300)), (e) => e.name === 'KisError' && !e.fatal && /페이지/.test(e.message));
+  assert.ok(day <= 80);
+});
+const prevDayStr = (d) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) - 86_400_000).toISOString().slice(0, 10).replaceAll('-', '');

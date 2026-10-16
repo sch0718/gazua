@@ -200,7 +200,7 @@ describe('ValidationResult', () => {
     await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(4));
     const [hold, , a, b] = lwcCharts[0].series.map((s) => [s.options.color, s.options.lineWidth]);
     expect(a).toEqual(['#008300', 2]);
-    expect(b).toEqual(['#2a78d6', 2]);
+    expect(b).toEqual(['#4a3aa7', 2]); // 파랑(하락색)이 아닌 --s3
     expect([a, b]).not.toContainEqual(hold);
   });
 

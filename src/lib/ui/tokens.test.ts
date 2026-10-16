@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { BENCH_STYLES, INDEX_STYLES } from './screen/curveStyles';
 
 const css = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8');
 
@@ -75,6 +76,19 @@ describe('tokens.css', () => {
       ['dark (data-theme)', darkSet],
     ])('%s: the series slots used for thin comparison curves (s3, s6, s7) clear 3:1 on bg', (_, b) => {
       for (const slot of ['s3', 's6', 's7']) expect(ratio(token(b, slot), token(b, 'bg')), slot).toBeGreaterThanOrEqual(3);
+    });
+
+    it.each([
+      ['light', light],
+      ['dark (data-theme)', darkSet],
+    ])('%s: 선정 기준 결과의 지수·ETF 선은 bg 위 3:1이고, ETF 선은 등락색(한국 관례 빨강·파랑)을 쓰지 않는다', (_, b) => {
+      const name = (c: readonly [string, string]) => c[0].slice(2);
+      for (const c of [...INDEX_STYLES, ...BENCH_STYLES.map((x) => x.color)]) expect(ratio(token(b, name(c)), token(b, 'bg')), c[0]).toBeGreaterThanOrEqual(3);
+      for (const { color } of BENCH_STYLES) {
+        expect(['s7', 's8', 'up', 'down'], color[0]).not.toContain(name(color));
+        expect([token(b, 'up'), token(b, 'down'), token(b, 's7'), token(b, 's8')]).not.toContain(token(b, name(color)));
+        expect(token(light, name(color)), `${color[0]} fallback`).toBe(color[1]);
+      }
     });
 
     it.each([

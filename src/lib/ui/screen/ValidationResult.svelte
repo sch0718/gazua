@@ -4,6 +4,7 @@
   import type { App } from '../../state/app.svelte';
   import Banner from '../components/Banner.svelte';
   import EquityChart, { type CurveLine } from '../simulate/EquityChart.svelte';
+  import { BENCH_STYLES, INDEX_STYLES } from './curveStyles';
   import { fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';
   import MarketTable from './MarketTable.svelte';
   import SelectionHistory from './SelectionHistory.svelte';
@@ -49,14 +50,8 @@
     ...result.benchmarks.map((b) => ({ id: `etf-${b.symbol}`, label: b.name, stats: b.stats, reason: b.reason ?? '받지 못했어요' })),
   ]);
 
-  // 곡선 모양: 기존 자산 곡선의 팔레트. 가는 선도 배경 위 3:1이 나오는 슬롯만 쓴다(라이트·다크 모두: --s3 · --s6 · --s7, tokens.test).
-  // ①은 강조색 실선, ②는 지정 종목선(--line-bench 점선), 지수는 점선, ETF는 2px 실선으로 모양이 서로 다르다.
-  const INDEX_STYLES: CurveLine['color'][] = [['--t2', '#5b6069'], ['--s3', '#4a3aa7']];
-  const BENCH_STYLES: Pick<CurveLine, 'color' | 'width' | 'dashed'>[] = [
-    { color: ['--s6', '#008300'], width: 2, dashed: false },
-    { color: ['--s7', '#2a78d6'], width: 2, dashed: false },
-    { color: ['--t3', '#676d77'], width: 2, dashed: false },
-  ];
+  // 곡선 모양: ①은 강조색 실선, ②는 지정 종목선(--line-bench 점선), 지수는 점선, ETF는 2px 실선으로 모양이 서로 다르다.
+  // 지수·ETF 색은 curveStyles.ts(배경 위 3:1, ETF는 등락색 제외)
   const curves = $derived<CurveLine[]>([
     { id: 'hold', name: '① 선정만', color: ['--accent', '#5b47e0'], width: 2, dashed: false, points: result.hold.equity },
     ...(result.trading ? [{ id: 'trading', name: '② 선정 + 매매 규칙', color: ['--line-bench', '#d95926'] as CurveLine['color'], width: 2, dashed: true, points: result.trading.curve }] : []),

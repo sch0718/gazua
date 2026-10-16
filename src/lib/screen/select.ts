@@ -70,8 +70,12 @@ export function selectAt(
   const mcap = (j: number): number => pre.stocks[j].close[pIdx[j]] * pre.stocks[j].shares;
 
   const k = c.conditions;
-  const leaderRank = k.leader.on ? rankLeaders(pre.stocks, pIdx, mcap, k.leader.level) : null;
+  // 업종 코드를 (레벨, 이름) 묶음 키로 바꾼다. 목록에 없는 코드는 코드 그대로
+  const group = (code: string): string => pre.sectorKey.get(code) ?? `#${code}`;
+  const leaderRank = k.leader.on ? rankLeaders(pre.stocks, pIdx, mcap, k.leader.level, group) : null;
   const pool = { ...c.pool, ...poolOverride };
+  // 저장된 코드 하나가 그 묶음 전체를 고른다
+  const wanted = new Set(pool.sectors.filter((x) => x !== '').map(group));
   const returnDays = k.returnRange.on ? k.returnRange.days : RANK_RETURN_DAYS;
   const ret = (st: StockSeries, p: number): number | null => (p - returnDays >= 0 ? (st.close[p] / st.close[p - returnDays] - 1) * 100 : null);
 
@@ -82,7 +86,7 @@ export function selectAt(
     // 후보 범위
     if (!SELECTABLE.includes(st.t) || !pool.markets.includes(st.m) || !pool.types.includes(st.t as 'STOCK' | 'ETF')) return;
     if (pool.excludeManaged && (st.managed || st.halted)) return;
-    if (pool.sectors.length > 0 && !pool.sectors.some((x) => x !== '' && (st.sec[0] === x || st.sec[1] === x))) return;
+    if (pool.sectors.length > 0 && !((st.sec[0] !== '' && wanted.has(group(st.sec[0]))) || (st.sec[1] !== '' && wanted.has(group(st.sec[1]))))) return;
 
     // 조건(AND)
     const values: Selection['picked'][number]['values'] = {};
@@ -162,15 +166,23 @@ export function selectAt(
   };
 }
 
-// 같은 업종(레벨 1·2) 안 시가총액 순위. p에 봉이 있고 그 레벨 코드가 있는 전체 종목 기준
-function rankLeaders(stocks: StockSeries[], pIdx: number[], mcap: (j: number) => number, level: 1 | 2): (number | null)[] {
+// 같은 업종(레벨 1·2) 안 시가총액 순위. p에 봉이 있고 그 레벨 코드가 있는 전체 종목 기준.
+// 업종은 (레벨, 이름) 묶음이라 KOSPI·KOSDAQ을 합쳐 매긴다(R10)
+function rankLeaders(
+  stocks: StockSeries[],
+  pIdx: number[],
+  mcap: (j: number) => number,
+  level: 1 | 2,
+  group: (code: string) => string,
+): (number | null)[] {
   const groups = new Map<string, number[]>();
   stocks.forEach((st, j) => {
     const code = st.sec[level - 1];
     if (pIdx[j] < 0 || !code) return;
-    const g = groups.get(code);
+    const key = group(code);
+    const g = groups.get(key);
     if (g) g.push(j);
-    else groups.set(code, [j]);
+    else groups.set(key, [j]);
   });
   const rank: (number | null)[] = stocks.map(() => null);
   for (const g of groups.values()) {

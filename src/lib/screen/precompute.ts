@@ -46,6 +46,21 @@ export interface Precomputed {
   axis: string[];
   stocks: StockSeries[];
   params: PrecomputeParams;
+  sectorKey: Map<string, string>; // 업종 코드 → 묶음 키(R10). 목록에 없는 코드는 없다
+}
+
+/** 업종은 시장을 넘어 (레벨, 이름)으로 하나다(R10). KOSPI 00013과 KOSDAQ 11028 전기·전자가 같은 업종 */
+export const sectorGroupKey = (s: { level: number; name: string }): string => `${s.level}|${s.name}`;
+
+/** 고른 업종 코드를 (레벨, 이름) 줄 수로 센다. 목록에 없는 코드는 하나씩 */
+export function sectorGroupCount(codes: string[], sectors: MarketDataFile['sectors']): number {
+  const key = sectorKeys(sectors);
+  return new Set(codes.map((c) => key.get(c) ?? `#${c}`)).size;
+}
+
+/** 업종 코드 → 묶음 키 */
+export function sectorKeys(sectors: MarketDataFile['sectors']): Map<string, string> {
+  return new Map(sectors.map((s) => [s.code, sectorGroupKey(s)]));
 }
 
 /** 키를 정렬한 JSON. 같은 값이면 키 순서와 상관없이 같은 문자열 */
@@ -189,5 +204,5 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       lastSignal: sig.last,
     };
   });
-  return { axis: tradingAxis(data), stocks, params };
+  return { axis: tradingAxis(data), stocks, params, sectorKey: sectorKeys(data.sectors) };
 }

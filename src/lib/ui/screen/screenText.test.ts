@@ -24,6 +24,18 @@ describe('screenText', () => {
     expect(criteriaLine(c)).toBe('KOSDAQ 주식·ETF · 업종 2개 · 시총 1,000억↑ · 60일선 위 · 상위 5 · 분기');
   });
 
+  it('counts sectors by (level, name) row when the sector list is given (R10)', () => {
+    const c = newCriteria(NOW, null);
+    c.pool.sectors = ['00013', '11028', '00016'];
+    const sectors = [
+      { code: '00013', name: '전기·전자', level: 1 as const },
+      { code: '11028', name: '전기·전자', level: 1 as const },
+      { code: '00016', name: '금융', level: 1 as const },
+    ];
+    expect(criteriaLine(c, sectors)).toContain('업종 2개');
+    expect(criteriaLine(c)).toContain('업종 3개');
+  });
+
   it('no on conditions say so', () => {
     const c = newCriteria(NOW, null);
     c.conditions.tradingValue.on = false;

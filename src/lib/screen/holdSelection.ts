@@ -33,8 +33,19 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
   const start = selections[0].date;
   const days = axis.filter((d) => d >= start && d <= input.periodEnd);
 
-  const stocks = new Map<string, { st: Stock; at: Map<string, number> }>();
-  for (const st of data.stocks) stocks.set(st.s, { st, at: new Map(st.d.map((d, i) => [d, i])) });
+  // 날짜 → 봉 색인은 뽑힌 종목만, 처음 쓸 때 만든다(전 종목을 색인하면 실제 규모에서 수백 MB가 된다)
+  const bySymbol = new Map<string, Stock>();
+  for (const st of data.stocks) bySymbol.set(st.s, st);
+  const indexed = new Map<string, { st: Stock; at: Map<string, number> } | undefined>();
+  const stocks = {
+    get(symbol: string): { st: Stock; at: Map<string, number> } | undefined {
+      if (indexed.has(symbol)) return indexed.get(symbol);
+      const st = bySymbol.get(symbol);
+      const e = st && { st, at: new Map(st.d.map((d, i) => [d, i])) };
+      indexed.set(symbol, e);
+      return e;
+    },
+  };
 
   const selByDate = new Map(selections.map((s, i) => [s.date, i]));
   let cash = roundMoney(input.capital);

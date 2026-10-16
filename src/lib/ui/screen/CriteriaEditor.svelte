@@ -8,6 +8,7 @@
   import type { UniverseItem } from '../../data/universe';
   import type { MarketDataInfo, MarketSector } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
+  import { sectorGroupCount } from '../../screen/precompute';
   import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX } from '../../screen/defaults';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
@@ -232,7 +233,7 @@
     switch (key) {
       case 'pool': {
         const types = d.pool.types.map((t) => (t === 'STOCK' ? '주식' : 'ETF')).join('·');
-        return `${d.pool.markets.join('·')} ${types} · ${d.pool.sectors.length ? `업종 ${d.pool.sectors.length}개` : '전체 업종'}`;
+        return `${d.pool.markets.join('·')} ${types} · ${d.pool.sectors.length ? `업종 ${sectorGroupCount(d.pool.sectors, sectors)}개` : '전체 업종'}`;
       }
       case 'conditions': {
         const n = Object.values(d.conditions).filter((x) => x.on).length;

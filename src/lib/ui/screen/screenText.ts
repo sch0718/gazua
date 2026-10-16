@@ -1,5 +1,7 @@
 // 선정 기준 화면의 문구와 요약. 문구는 스펙 7.2·7.3·4장 그대로다.
+import { sectorGroupCount } from '../../screen/precompute';
 import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
+import type { MarketDataFile } from '../../marketData/format';
 import type { SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
@@ -48,11 +50,11 @@ const MINUS = '−';
 const signed = (n: number) => (n < 0 ? `${MINUS}${Math.abs(n)}` : String(n));
 
 /** 목록 행의 한 줄: `KOSPI·KOSDAQ 주식 · 거래대금 10억↑ · 반등 10일 · 상위 10 · 매월` */
-export function criteriaLine(c: SelectionCriteria): string {
+export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sectors'] = []): string {
   const k = c.conditions;
   const types = c.pool.types.map((t) => (t === 'STOCK' ? '주식' : 'ETF')).join('·');
   const parts = [`${c.pool.markets.join('·')} ${types}`];
-  if (c.pool.sectors.length) parts.push(`업종 ${c.pool.sectors.length}개`);
+  if (c.pool.sectors.length) parts.push(`업종 ${sectorGroupCount(c.pool.sectors, sectors)}개`);
   const on: string[] = [];
   if (k.marketCap.on) on.push(`시총 ${eok(k.marketCap.minEok)}↑`);
   if (k.tradingValue.on) on.push(`거래대금 ${eok(k.tradingValue.minEok)}↑`);

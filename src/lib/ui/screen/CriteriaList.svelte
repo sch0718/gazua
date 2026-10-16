@@ -9,18 +9,22 @@
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import { returnClass, trendReturn } from '../simulate/simText';
+  import type { MarketSector } from '../../marketData/store';
   import { criteriaLine, nextCriteriaName, type LastResult } from './screenText';
 
   let {
     app,
     dataRange,
     lastResults = {},
+    sectors = [],
   }: {
     app: App;
     /** 새 기준의 기본 기간을 정한다(데이터가 없으면 null) */
     dataRange: { from: string; to: string } | null;
     /** 기준 id → 마지막 결과. `① ▲ +12.3% vs KOSPI ▲ +8.1%`로 보인다 */
     lastResults?: Record<string, LastResult>;
+    /** 업종 줄 수를 세는 데 쓴다(R10). 없으면 코드 수 */
+    sectors?: MarketSector[];
   } = $props();
 
   const full = () => app.criteria.length >= MAX_CRITERIA;
@@ -110,7 +114,7 @@
         <li>
           <button type="button" class="row" data-criteria-row={c.id} onclick={() => app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id })}>
             <span class="name">{c.name}</span>
-            <span class="line">{criteriaLine(c)}</span>
+            <span class="line">{criteriaLine(c, sectors)}</span>
             {#if lastResults[c.id]}
               {@const r = lastResults[c.id]}
               <span class="last num" data-last-result>① <b class={returnClass(r.hold)}>{trendReturn(r.hold)}</b>{#if r.index}{' '}vs {r.index.id} {#if r.index.pct === null}{r.index.reason}{:else}<b class={returnClass(r.index.pct)}>{trendReturn(r.index.pct)}</b>{/if}{/if}</span>

@@ -6,6 +6,7 @@ import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync,
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
@@ -18,6 +19,8 @@ const MASTER_BASE = 'https://new.real.download.dws.co.kr/common/master';
 const OVERLAP_DAYS = 5; // 이어 받을 때 다시 받아 비교하는 거래일 수
 const MAX_CONSECUTIVE_FAILS = 20; // 연속으로 이만큼 실패하면 키·네트워크 문제로 보고 멈춘다
 const FLUSH_LOG_EVERY = 100;
+// 앱은 풀린 JSON을 문자열 하나로 읽는다. 전 종목 10년을 넘으면 V8 문자열 한도(약 512MB)에 닿을 수 있다
+const MAX_YEARS = 10;
 const STOCK_KEYS = ['d', 'o', 'h', 'l', 'c', 'v', 'tv'];
 const INDEX_KEYS = ['d', 'o', 'c'];
 const INDEX_IDS = ['KOSPI', 'KOSDAQ'];
@@ -144,10 +147,12 @@ function readPartial(path, header) {
 }
 
 // 최종 파일을 조각으로 나눠 gzip 스트림에 쓴다(수백 MB 문자열을 한 번에 만들지 않는다).
-async function writeGzipJson(path, file) {
+export async function writeGzipJson(path, file, { sink } = {}) {
   const gz = createGzip();
-  const done = pipeline(gz, createWriteStream(path)); // 쓰기 오류가 처음부터 처리되도록 먼저 연결한다
-  const put = (chunk) => (gz.write(chunk) ? undefined : new Promise((r) => gz.once('drain', r)));
+  const done = pipeline(gz, sink ?? createWriteStream(path)); // 쓰기 오류가 처음부터 처리되도록 먼저 연결한다
+  done.catch(() => {}); // 기다리기 전에 실패해도 처리되지 않은 거부가 되지 않게 한다
+  // drain을 기다리는 중에 대상이 실패하면 drain은 오지 않으므로 done의 거부로 빠져나온다
+  const put = (chunk) => (gz.write(chunk) ? undefined : Promise.race([once(gz, 'drain'), done]));
   try {
     const { stocks, indices, ...head } = file;
     await put(`${JSON.stringify(head).slice(0, -1)},"stocks":[`);
@@ -371,7 +376,7 @@ export function parseArgs(argv) {
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
       if (a === '--years') {
         o.years = Number(v);
-        if (!Number.isInteger(o.years) || o.years < 1 || o.years > 30) throw new Error('--years는 1~30 사이 정수예요');
+        if (!Number.isInteger(o.years) || o.years < 1 || o.years > MAX_YEARS) throw new Error(`--years는 1~${MAX_YEARS} 사이 정수예요`);
       } else o[a.slice(2)] = v;
     } else throw new Error(`알 수 없는 옵션: ${a}`);
   }

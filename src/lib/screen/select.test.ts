@@ -357,6 +357,47 @@ describe('selectAt: 후보 범위', () => {
   });
 });
 
+describe('selectAt: 같은 이름의 업종은 시장을 넘어 하나(R10)', () => {
+  // KOSPI 00013 전기·전자와 KOSDAQ 11028 전기·전자는 같은 업종이다
+  const file = (stocks: Stock[]) => {
+    const f = mkFile(stocks, N);
+    f.sectors = [
+      { code: '00013', name: '전기·전자', level: 1 },
+      { code: '11028', name: '전기·전자', level: 1 },
+      { code: '00016', name: '금융', level: 1 },
+      { code: '00027', name: '전기·전자', level: 2 }, // 이름이 같아도 레벨이 다르면 다른 업종
+    ];
+    return f;
+  };
+  const both = (): Stock[] => [
+    mkStock('K1', flat(), { m: 'KOSPI', sec: ['00013', '', ''], shares: 3 }),
+    mkStock('Q1', flat(), { m: 'KOSDAQ', sec: ['11028', '', ''], shares: 5 }),
+    mkStock('K2', flat(), { m: 'KOSPI', sec: ['00016', '', ''], shares: 4 }),
+    mkStock('K3', flat(), { m: 'KOSPI', sec: ['00016', '00027', ''], shares: 1 }),
+    mkStock('Q2', flat(), { m: 'KOSDAQ', sec: ['11028', '', ''], shares: 2 }),
+  ];
+  const runF = (c: SelectionCriteria) => selectAt(D, precompute(file(both()), c, null), c);
+
+  it('어느 시장 코드를 골라도 두 시장의 같은 이름 업종 종목이 모두 후보다', () => {
+    const c = offCriteria();
+    c.pool.sectors = ['00013'];
+    expect(symbols(runF(c))).toEqual(['Q1', 'K1', 'Q2']);
+    c.pool.sectors = ['11028'];
+    expect(symbols(runF(c))).toEqual(['Q1', 'K1', 'Q2']);
+    // 레벨이 다른 같은 이름(중분류 전기·전자)은 따로다
+    c.pool.sectors = ['00027'];
+    expect(symbols(runF(c))).toEqual(['K3']);
+  });
+
+  it('대장주 순위는 같은 (레벨, 이름) 안에서 KOSPI·KOSDAQ을 합쳐 매긴다', () => {
+    const c = offCriteria();
+    c.conditions.leader = { on: true, level: 1, maxRank: 3 };
+    const r = runF(c);
+    const rank = Object.fromEntries(r.picked.map((x) => [x.symbol, x.values.leaderRank]));
+    expect(rank).toEqual({ Q1: 1, K1: 2, Q2: 3, K2: 1, K3: 2 });
+  });
+});
+
 describe('selectAt: 미래 정보 누설 방지', () => {
   /** d의 봉 값(o, h, l, c, v, tv)만 factor배로 바꾼다 */
   const mutateAt = (f: MarketDataFile, d: string, factor: number): MarketDataFile => {

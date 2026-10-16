@@ -38,4 +38,22 @@ describe('SectorPicker', () => {
     render(SectorPicker, { sectors: [], selected: [], onchange: vi.fn() });
     expect(screen.getByText('업종 정보가 없어요')).toBeTruthy();
   });
+  it('같은 (레벨, 이름)의 업종은 시장이 달라도 한 줄이고, 고르면 그 코드를 모두 넣는다(R10)', async () => {
+    const dup = [
+      { code: '00013', name: '전기·전자', level: 1 as const },
+      { code: '11028', name: '전기·전자', level: 1 as const },
+      { code: '00016', name: '금융', level: 1 as const },
+    ];
+    const onchange = vi.fn();
+    const { rerender } = render(SectorPicker, { sectors: dup, selected: [], onchange });
+    expect(screen.getAllByRole('checkbox', { name: '전기·전자' })).toHaveLength(1);
+    await fireEvent.click(screen.getByRole('checkbox', { name: '전기·전자' }));
+    expect(onchange).toHaveBeenLastCalledWith(['00013', '11028']);
+    // 코드 하나만 저장돼 있어도 체크로 보이고, 요약은 줄 수로 센다
+    await rerender({ sectors: dup, selected: ['11028', '00016'], onchange });
+    expect((screen.getByRole('checkbox', { name: '전기·전자' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText('2개 선택')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('checkbox', { name: '전기·전자' }));
+    expect(onchange).toHaveBeenLastCalledWith(['00016']);
+  });
 });

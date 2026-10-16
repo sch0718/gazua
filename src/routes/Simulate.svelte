@@ -132,6 +132,12 @@
   // 검증은 Worker가 돌린다. 결과는 이 컨트롤러 메모리에만 있다(화면을 떠나면 버린다)
   const vctl = createValidationController({ makeWorker: untrack(() => makeWorker) });
   onDestroy(() => vctl.cancel());
+  // 선정 기준 탭을 떠나면 Worker(전 종목 데이터와 미리 계산을 쥐고 있다)를 끝낸다. 다음에 쓸 때 다시 만든다
+  $effect(() => {
+    if (!criteriaTab) untrack(() => vctl.cancel());
+  });
+  // 결과 화면은 실행할 때의 이름·자본을 쓴다(실행 뒤 기준이 바뀌어도 결과와 맞게)
+  let runSnap = $state.raw<{ name: string; capital: number } | null>(null);
   // undefined = 아직 읽는 중
   let info = $state.raw<MarketDataInfo | null | undefined>(undefined);
   let sectors = $state.raw<MarketSector[]>([]);
@@ -195,6 +201,7 @@
   }
   function runCriteria(c: SelectionCriteria) {
     runId = c.id;
+    runSnap = { name: c.name, capital: c.capital };
     staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
     vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[] });
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id, view: 'result' });
@@ -251,7 +258,7 @@
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
               <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              <ValidationResult {app} result={vctl.result} {names} criteriaName={crit.name} capital={crit.capital} theme={app.settings.theme} />
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}
@@ -308,7 +315,7 @@
                 <MarketDataNotice info={info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
               </div>
             {/if}
-            <CriteriaList {app} {dataRange} {lastResults} />
+            <CriteriaList {app} {dataRange} {lastResults} {sectors} />
           {:else}
             <StrategyList {app} />
           {/if}

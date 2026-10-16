@@ -152,6 +152,8 @@ export function runValidation(
   }
   if (isCancelled?.()) return { cancelled: true };
 
+  // ①은 결제일(T+2)을 전체 축(fullAxis)으로 정하고, ②(simulate)는 기간 축(days)으로 정한다.
+  // 기간 마지막 2거래일 안의 매도만 결제일이 축 밖이라 어림으로 정해져 두 방식의 세율이 다를 수 있다(세율이 바뀌는 해 경계에서만)
   const hold = (selections: Selection[]) =>
     holdSelection({ axis: fullAxis, selections, data, capital, feePct, periodEnd: criteria.period.to });
   const statsOf = (curve: CurvePoint[]) =>

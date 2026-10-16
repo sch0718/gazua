@@ -890,4 +890,52 @@ describe('Simulate 선정 기준 탭', () => {
     expect(worker.terminated).toBe(true);
     expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
   });
+  it('leaving the 선정 기준 tab ends the validation worker; coming back makes a new one on next use', async () => {
+    const workers: ReturnType<typeof fakeWorker>[] = [];
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(['005930']) }], now: NOW });
+    apps.push(app);
+    app.setCriteria([{ ...newCriteria(NOW, RANGE, '반등 기준'), id: 'c0' }]);
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    render(Simulate, {
+      app,
+      barEnd,
+      marketData: { info: async () => FRESH, sectors: async () => SECTORS },
+      makeWorker: () => {
+        const w = fakeWorker();
+        workers.push(w);
+        return w;
+      },
+      loadItems: async () => [],
+      now: () => NOW,
+    });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    expect(workers).toHaveLength(1);
+    workers[0].onmessage?.({ data: { type: 'result', result: validationResult() } });
+    await tick();
+    app.navigate({ name: 'simulate' });
+    await tick();
+    expect(workers[0].terminated).toBe(true);
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const again = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((again as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(again);
+    expect(workers).toHaveLength(2);
+    expect(workers[1].terminated).toBe(false);
+  });
+
+  it('the result keeps the name and capital the run used, even if the criteria changes afterwards', async () => {
+    const { app, worker } = setupCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    worker.onmessage?.({ data: { type: 'result', result: validationResult() } });
+    await waitFor(() => expect(screen.getByRole('button', { name: '관심 그룹으로 만들기' })).toBeTruthy());
+    app.setCriteria(app.criteria.map((c) => ({ ...c, name: '바뀐 이름', capital: 5_000_000 })));
+    await tick();
+    await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
+    expect(((await screen.findByRole('textbox', { name: '새 그룹 이름' })) as HTMLInputElement).value).toBe('반등 기준');
+  });
 });

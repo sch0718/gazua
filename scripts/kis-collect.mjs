@@ -162,6 +162,7 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
     const rows = new Map();
     const seen = new Set();
     let cursor = compact(to);
+    let finished = false;
     for (let page = 0; page < MAX_PAGES; page++) {
       const json = await get(path, trId, { ...baseQuery, FID_INPUT_DATE_1: f, FID_INPUT_DATE_2: cursor }, { expectArray: 'output2' });
       const out = Array.isArray(json?.output2) ? json.output2 : [];
@@ -180,9 +181,14 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
         const r = mapRow(raw);
         if (r && !rows.has(r.d)) rows.set(r.d, r);
       }
-      if (added === 0 || oldest <= f) break;
+      if (added === 0 || oldest <= f) {
+        finished = true;
+        break;
+      }
       cursor = prevDay(oldest);
     }
+    // 한도에 닿았는데 from까지 못 받았으면 앞 기록을 조용히 자르지 않고 그 종목을 실패로 둔다
+    if (!finished) throw new KisError(`일봉 페이지 한도(${MAX_PAGES})에 닿았어요`);
     return [...rows.values()].filter((r) => r.d >= f && r.d <= compact(to)).sort((a, b) => (a.d < b.d ? -1 : 1));
   }
 

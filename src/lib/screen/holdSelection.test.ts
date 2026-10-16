@@ -12,6 +12,23 @@ const A = [100, 100, 100, 110, 110, 110, 120, 120, 120, 130];
 const B = [200, 200, 200, 190, 190, 190, 190, 190, 190, 190];
 
 describe('holdSelection', () => {
+  it('날짜 색인은 뽑힌 종목만 만든다(전 종목의 날짜를 훑지 않는다)', () => {
+    // 날짜 배열을 읽으면 센다. 뽑히지 않은 종목의 d는 읽지 않아야 한다
+    const reads: Record<string, number> = {};
+    const watch = (st: ReturnType<typeof mkStock>) => {
+      const d = st.d;
+      Object.defineProperty(st, 'd', { get: () => ((reads[st.s] = (reads[st.s] ?? 0) + 1), d), enumerable: true });
+      return st;
+    };
+    const others = Array.from({ length: 50 }, (_, i) => watch(mkStock(`X${i}`, A)));
+    const r = run([watch(mkStock('A', A)), watch(mkStock('B', B)), ...others], [sel(0, 'A'), sel(3, 'A'), sel(6, 'B')], 1_000_000, 0.1, 9);
+    expect(r.equity).toHaveLength(10);
+    expect(Object.keys(reads).sort()).toEqual(['A', 'B']);
+    // 한 번 만든 색인은 다시 쓴다
+    expect(reads.A).toBe(1);
+    expect(reads.B).toBe(1);
+  });
+
   it('재선정 3회 손계산과 자산 값이 같다', () => {
     const r = run([mkStock('A', A), mkStock('B', B)], [sel(0, 'A', 'B'), sel(3, 'A'), sel(6)], 1_000_000, 0.1, 9);
     // 0일: A 4995주(499,999.5) B 2497주(499,899.4) 현금 101.1 → 종가 평가 999,001.1

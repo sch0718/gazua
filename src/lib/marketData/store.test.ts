@@ -54,6 +54,26 @@ describe('market data store', () => {
     });
   }
 
+  it('counts the decompressed bytes while streaming instead of re-encoding the text', async () => {
+    const store = openMarketData();
+    const enc = vi.spyOn(TextEncoder.prototype, 'encode');
+    const res = await store.importFile(file(), { estimate: roomy });
+    expect(enc).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ ok: true, info: { bytes: gunzipSync(gz).byteLength } });
+  });
+
+  it('takes the byte count from the decompress dependency when it gives one, and counts UTF-8 bytes of a plain string', async () => {
+    const store = openMarketData();
+    const text = await decompress(file());
+    const given = await store.importFile(new Blob(['x']), { decompress: async () => ({ text, bytes: 1234 }), estimate: roomy });
+    expect(given).toMatchObject({ ok: true, info: { bytes: 1234 } });
+    const blob = new Blob(['x']); // Blob 생성자도 encode를 부르므로 감시 전에 만든다
+    const enc = vi.spyOn(TextEncoder.prototype, 'encode');
+    const counted = await store.importFile(blob, { decompress: async () => text, estimate: roomy });
+    expect(enc).not.toHaveBeenCalled();
+    expect(counted).toMatchObject({ ok: true, info: { bytes: Buffer.byteLength(text, 'utf8') } });
+  });
+
   it('mid-write failure: result is not ok and info() and load() still return A', async () => {
     const store = openMarketData();
     await store.importFile(file(), { decompress, estimate: roomy });

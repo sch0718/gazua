@@ -18,8 +18,8 @@ export type ImportResult =
 
 export interface ImportDeps {
   estimate?: () => Promise<{ quota?: number; usage?: number }>;
-  /** gzip을 풀어 JSON 텍스트를 돌려준다. 기본값은 브라우저의 DecompressionStream. */
-  decompress?: (file: Blob) => Promise<string>;
+  /** gzip을 풀어 JSON 텍스트를 돌려준다. 풀린 바이트 수를 함께 주면 그 값을 쓴다. 기본값은 브라우저의 DecompressionStream. */
+  decompress?: (file: Blob) => Promise<string | { text: string; bytes: number }>;
 }
 
 export interface MarketDataStore {
@@ -44,8 +44,33 @@ const INFO_KEY = 'current-info';
 const SECTORS_KEY = 'current-sectors';
 const NEED_FACTOR = 1.2;
 
-const defaultDecompress = (file: Blob): Promise<string> =>
-  new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+// 풀리는 바이트를 흘려보내며 센다. 본문을 다시 인코딩하면 실제 규모에서 수백 MB를 한 번 더 잡는다
+async function defaultDecompress(file: Blob): Promise<{ text: string; bytes: number }> {
+  let bytes = 0;
+  const count = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, ctl) {
+      bytes += chunk.byteLength;
+      ctl.enqueue(chunk);
+    },
+  });
+  const text = await new Response(file.stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(count)).text();
+  return { text, bytes };
+}
+
+// 문자열의 UTF-8 바이트 수. 새 버퍼를 만들지 않는다
+function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
 
 const defaultEstimate = async () => (await navigator.storage?.estimate?.()) ?? {};
 
@@ -91,8 +116,9 @@ export function openMarketData(): MarketDataStore {
     let parsed: unknown;
     let rawBytes: number;
     try {
-      const text = await (deps.decompress ?? defaultDecompress)(file);
-      rawBytes = new TextEncoder().encode(text).byteLength;
+      const out = await (deps.decompress ?? defaultDecompress)(file);
+      const text = typeof out === 'string' ? out : out.text;
+      rawBytes = typeof out === 'string' ? utf8Length(out) : out.bytes;
       parsed = JSON.parse(text); // text는 여기서 범위를 벗어나 풀려난다
     } catch {
       return { ok: false, reason: 'corrupt' };
