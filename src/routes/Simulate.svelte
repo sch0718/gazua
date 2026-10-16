@@ -8,7 +8,7 @@
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
   import type { Basket } from '../lib/screen/baskets';
-  import { rankFlowOf, usesMacro } from '../lib/screen/precompute';
+  import { usesMacro } from '../lib/screen/precompute';
   import type { MacroSeriesKey, SelectionCriteria } from '../lib/screen/types';
   import { createValidationController, type WorkerLike } from '../lib/screen/validationController.svelte';
   import type { Strategy } from '../lib/sim/types';
@@ -22,7 +22,7 @@
   import CriteriaEditor from '../lib/ui/screen/CriteriaEditor.svelte';
   import CriteriaList from '../lib/ui/screen/CriteriaList.svelte';
   import MarketDataNotice from '../lib/ui/screen/MarketDataNotice.svelte';
-  import { dataAgeDays, lastResultSummary, type FlowRunSnap, type LastResult } from '../lib/ui/screen/screenText';
+  import { dataAgeDays, flowRunSnap, lastResultSummary, type FlowRunSnap, type LastResult } from '../lib/ui/screen/screenText';
   import ValidationResult from '../lib/ui/screen/ValidationResult.svelte';
   import ValidationRun from '../lib/ui/screen/ValidationRun.svelte';
   import SimulateTabs, { type SimulateTab } from '../lib/ui/screen/SimulateTabs.svelte';
@@ -217,12 +217,11 @@
   function runCriteria(c: SelectionCriteria) {
     runId = c.id;
     const fx = c.conditions.macro;
-    const fl = c.conditions.flow;
     runSnap = {
       name: c.name,
       capital: c.capital,
       macro: { used: usesMacro(c), lookback: { usdkrw: fx.usdkrw.trend.lookback, wti: fx.wti.trend.lookback } },
-      flow: { amount: { who: fl.amount.who, days: fl.amount.days }, streak: { who: fl.streak.who }, rank: { ...rankFlowOf(c) } },
+      flow: flowRunSnap(c),
     };
     staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
     vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[], baskets: $state.snapshot(app.baskets) as Basket[] });
@@ -280,7 +279,7 @@
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
               <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow} />
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}

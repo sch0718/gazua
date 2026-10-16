@@ -12,11 +12,12 @@ import ValidationResult from './ValidationResult.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
 
+const DEFAULT_FLOW: FlowRunSnap = { amount: { who: 'foreign', days: 20 }, streak: { who: 'inst' }, rank: { who: 'foreign', days: 20 } };
 let apps: App[] = [];
 function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } }; flow?: FlowRunSnap } = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
   apps.push(app);
-  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, ...extra });
+  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, ...extra });
   return app;
 }
 beforeEach(() => {

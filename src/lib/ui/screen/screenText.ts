@@ -1,5 +1,5 @@
 // 선정 기준 화면의 문구와 요약. 문구는 스펙 7.2·7.3·4장 그대로다.
-import { sectorGroupCount } from '../../screen/precompute';
+import { rankFlowOf, sectorGroupCount } from '../../screen/precompute';
 import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
 import type { MarketDataFile } from '../../marketData/format';
 import type { FlowWho, MacroSeriesKey, SelectionCriteria } from '../../screen/types';
@@ -106,6 +106,10 @@ export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sect
     if (m.beta.on) on.push(`${SERIES_LABEL[key]} 민감도 ${signed(m.beta.min)}~${signed(m.beta.max)}`);
     if (m.trend.on) on.push(`${SERIES_LABEL[key]} 흐름 ${m.trend.lookback}일`);
   }
+  const fa = k.flow.amount;
+  const fs = k.flow.streak;
+  if (fa.on) on.push(`${FLOW_WHO_LABEL[fa.who]} 순매수 ${fa.days}일 ${signed(fa.minPct)}~${signed(fa.maxPct)}%`);
+  if (fs.on) on.push(`${FLOW_WHO_LABEL[fs.who]} 연속 ${fs.minDays}일↑`);
   parts.push(...(on.length ? on : ['조건 없음']));
   parts.push(`상위 ${c.rank.take}`, rebalanceLabel(c.rebalance));
   return parts.join(' · ');
@@ -215,7 +219,13 @@ export interface FlowRunSnap {
   rank: { who: FlowWho; days: number };
 }
 /** 선정 이력의 수급 값 키(일반 값 목록에는 따로 나오지 않는다) */
-export const FLOW_VALUE_KEYS = new Set(['flowRatio', 'flowRatioForeign', 'flowRatioInst', 'flowStreak', 'rankFlow']);
+export const FLOW_VALUE_KEYS = new Set(['flowRatio', 'flowRatioForeign', 'flowRatioInst', 'flowStreak', 'rankFlow', 'rankFlowForeign', 'rankFlowInst']);
+/** 실행할 때 기준에서 수급 주체·기간을 떼어 둔다(정렬 수급이 없는 옛 기준은 기본값) */
+export function flowRunSnap(c: SelectionCriteria): FlowRunSnap {
+  const { amount, streak } = c.conditions.flow;
+  const rank = rankFlowOf(c);
+  return { amount: { who: amount.who, days: amount.days }, streak: { who: streak.who }, rank: { who: rank.who, days: rank.days } };
+}
 /** 소수 한 자리 %, 음수는 `−`. 0으로 반올림되면 부호가 없다 */
 const pct1 = (v: number | boolean | null | undefined) => {
   if (typeof v !== 'number') return '—';
@@ -240,7 +250,12 @@ export function flowValueLines(values: Record<string, number | boolean | null>, 
   }
   if (parts.length) out.push(parts.join(' · '));
   const sameAsAmount = amountShown && snap.rank.who === snap.amount.who && snap.rank.days === snap.amount.days;
-  if (has('rankFlow') && !sameAsAmount) out.push(`${FLOW_WHO_LABEL[snap.rank.who]} 순매수 ${snap.rank.days}일 ${pct1(values.rankFlow)}`);
+  if (has('rankFlow') && !sameAsAmount)
+    out.push(
+      has('rankFlowForeign')
+        ? `외국인 ${pct1(values.rankFlowForeign)} · 기관 ${pct1(values.rankFlowInst)} (${snap.rank.days}일)`
+        : `${FLOW_WHO_LABEL[snap.rank.who]} 순매수 ${snap.rank.days}일 ${pct1(values.rankFlow)}`,
+    );
   return out;
 }
 

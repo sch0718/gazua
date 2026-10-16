@@ -1027,7 +1027,8 @@ describe("selectAt: 정렬 'flow'(스펙 3.3)", () => {
   it('both는 두 비율 중 작은 값으로 정렬한다', () => {
     const r = flowRun([flowStock('X', { f: pctFlow(6), i: pctFlow(1) }), flowStock('Y', { f: pctFlow(3), i: pctFlow(3) })], flowRank('both', 20));
     expect(symbols(r)).toEqual(['Y', 'X']);
-    expect(r.picked[1].values).toEqual({ rankFlow: expect.closeTo(1, 9) });
+    // 화면이 두 비율을 따로 보이도록 주체별 값도 남긴다
+    expect(r.picked[1].values).toEqual({ rankFlow: expect.closeTo(1, 9), rankFlowForeign: expect.closeTo(6, 9), rankFlowInst: expect.closeTo(1, 9) });
   });
 
   it('계산할 수 없는 종목은 정렬에서 빠진다(수급 없음, 창이 from 앞, 수급 끝이 e 앞)', () => {

@@ -295,9 +295,12 @@ export function selectAt(
       }
       case 'flow': {
         const rf = rankFlowOf(c);
-        const v = minRatio(flowRatio(pre, st, rf.who, rf.days, p));
+        const r = flowRatio(pre, st, rf.who, rf.days, p);
+        const v = minRatio(r);
         if (Number.isNaN(v)) return; // 계산 불가인 종목은 정렬에서 뺀다(스펙 3.3)
         key = values.rankFlow = v;
+        // both는 작은 쪽으로 정렬하지만(F4) 화면은 두 비율을 따로 보인다
+        if (Array.isArray(r)) [values.rankFlowForeign, values.rankFlowInst] = r;
         break;
       }
     }

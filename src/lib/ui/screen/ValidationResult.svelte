@@ -32,7 +32,7 @@
     /** 이 실행의 환율·유가 사용 여부와 흐름 기간(실행할 때의 기준). 없으면 쓰지 않은 것으로 본다 */
     macro?: { used: boolean; lookback?: Partial<Record<MacroSeriesKey, number>> };
     /** 이 실행의 수급 주체·기간(실행할 때의 기준). 선정 이력의 수급 값에 이름을 붙인다 */
-    flow?: FlowRunSnap;
+    flow: FlowRunSnap;
   } = $props();
 
   interface Card {

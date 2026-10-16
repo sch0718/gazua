@@ -15,8 +15,8 @@
     names: Record<string, string>;
     /** 실행할 때 기준의 흐름 기간(`최근 20일`). 없으면 `최근 흐름`으로 보인다 */
     lookback?: Partial<Record<MacroSeriesKey, number>>;
-    /** 실행할 때 기준의 수급 주체·기간. 없으면 수급 값 줄을 보이지 않는다 */
-    flow?: FlowRunSnap;
+    /** 실행할 때 기준의 수급 주체·기간. 수급 값 줄의 이름에 쓴다 */
+    flow: FlowRunSnap;
   } = $props();
 
   let open = $state<Record<string, boolean>>({});
@@ -71,11 +71,9 @@
                     {#each macroValueLines(p.values, lookback) as line (line)}
                       <p class="mv num" data-macro-value>{line}</p>
                     {/each}
-                    {#if flow}
-                      {#each flowValueLines(p.values, flow) as line (line)}
-                        <p class="mv num" data-flow-value>{line}</p>
-                      {/each}
-                    {/if}
+                    {#each flowValueLines(p.values, flow) as line (line)}
+                      <p class="mv num" data-flow-value>{line}</p>
+                    {/each}
                   {/if}
                 </li>
               {/each}

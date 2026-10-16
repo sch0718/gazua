@@ -156,6 +156,7 @@ describe('수급 없는 데이터(v2)', () => {
     expect(t.disabled).toBe(false);
     t.focus();
     await fireEvent.click(t);
+    expect(t.disabled).toBe(false); // jsdom은 disabled 요소에서 포커스를 옮기지 않으므로 따로 지킨다
     expect(document.activeElement).toBe(t);
     expect(t.getAttribute('aria-checked')).toBe('false');
     expect(t.getAttribute('aria-disabled')).toBe('true');
