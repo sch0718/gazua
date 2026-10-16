@@ -76,9 +76,11 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
     }
   }
 
+  // 본문 읽기가 끊기면(시간 초과 등) 그대로 던져 재시도 경로로 보낸다. 형식이 틀린 본문만 null이다.
   async function readJson(res) {
+    const text = await res.text();
     try {
-      return JSON.parse(await res.text());
+      return JSON.parse(text);
     } catch {
       return null;
     }
@@ -107,7 +109,7 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
   // 토큰은 실행당 한 번만 발급한다(KIS는 1분에 1회로 제한).
   const getToken = () => (tokenPromise ??= issueToken());
 
-  async function get(path, trId, query) {
+  async function get(path, trId, query, { expectArray = false } = {}) {
     const token = await getToken();
     const url = `${base}${path}?${new URLSearchParams(query)}`;
     for (let attempt = 1; ; attempt++) {
@@ -144,6 +146,12 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
       if (json && json.rt_cd !== undefined && String(json.rt_cd) !== '0') {
         throw new KisError(`KIS 오류 ${msgCd || json.rt_cd}`, { fatal: FATAL_MSG_CD.has(msgCd) });
       }
+      // 200인데 본문이 비었거나 목록이 없으면 빈 페이지로 오해하지 않고 다시 받는다.
+      if (expectArray && !Array.isArray(json?.[expectArray])) {
+        if (attempt >= MAX_ATTEMPTS) throw new KisError('응답 형식이 올바르지 않아요');
+        await wait(RATE_WAIT_MS);
+        continue;
+      }
       return json;
     }
   }
@@ -155,7 +163,7 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
     const seen = new Set();
     let cursor = compact(to);
     for (let page = 0; page < MAX_PAGES; page++) {
-      const json = await get(path, trId, { ...baseQuery, FID_INPUT_DATE_1: f, FID_INPUT_DATE_2: cursor });
+      const json = await get(path, trId, { ...baseQuery, FID_INPUT_DATE_1: f, FID_INPUT_DATE_2: cursor }, { expectArray: 'output2' });
       const out = Array.isArray(json?.output2) ? json.output2 : [];
       // 진행 여부와 다음 커서는 가격이 유효한지와 무관하게 받은 모든 행의 날짜로 정한다
       // (긴 거래정지로 가격 0인 행만 있는 페이지에서 멈추지 않게).

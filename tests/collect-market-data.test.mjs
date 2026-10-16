@@ -631,3 +631,55 @@ test('(M7b) 스트리밍으로 쓴 파일이 반환값과 같은 JSON이다', as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── 수정 2차 ──────────────────────────────────────────────────────────
+const bodyFail = () => ({ status: 200, ok: true, text: async () => { throw new DOMException('timed out', 'TimeoutError'); } });
+
+test('(N1) 두 번째 페이지 본문 읽기가 한 번 끊겨도 다시 받아 250행을 채운다', async () => {
+  let page = 0;
+  const fake = fakeKis({ symbols: { A: stockRows(250) }, indices: {} }, { onGet: () => (++page === 2 ? bodyFail() : undefined) });
+  const r = await clientFor(fake).dailyCandles('A', dateStr(0), dateStr(249));
+  assert.equal(r.d.length, 250);
+});
+
+test('(N1b) 본문 읽기가 계속 실패하면 잘라 내지 않고 실패로 알린다', async () => {
+  const dir = tmpDir();
+  try {
+    let page = 0;
+    const onGet = (n, q) => (q.FID_INPUT_ISCD === '000030' && ++page >= 2 ? bodyFail() : undefined);
+    const data = dataFor(250);
+    const fake = fakeKis(data, { onGet });
+    await assert.rejects(clientFor(fake).dailyCandles('000030', dateStr(0), dateStr(249)), (e) => e.name === 'KisError');
+    page = 0;
+    const { summary, file } = await collect({ years: 2, out: join(dir, 'o'), client: clientFor(fakeKis(data, { onGet })), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    assert.deepEqual(summary.failed, ['000030']);
+    assert.ok(!file.stocks.some((x) => x.s === '000030'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(N1c) 200인데 JSON이 아니거나 output2가 배열이 아니면 다시 시도하고, 끝까지 그러면 던진다', async () => {
+  const bad = [() => new Response('<html>', { status: 200 }), () => json({ rt_cd: '0', output2: null }), () => json({ rt_cd: '0' })];
+  for (const mk of bad) {
+    const fake = fakeKis({ symbols: {}, indices: {} }, { onGet: () => mk() });
+    await assert.rejects(clientFor(fake).dailyCandles('A', dateStr(0), dateStr(9)), (e) => e.name === 'KisError');
+    assert.equal(fake.calls.get.length, 4);
+  }
+  let n = 0;
+  const once = fakeKis({ symbols: { A: stockRows(5) }, indices: {} }, { onGet: () => (++n === 1 ? json({ rt_cd: '0' }) : undefined) });
+  assert.equal((await clientFor(once).dailyCandles('A', dateStr(0), dateStr(4))).d.length, 5);
+});
+
+test('(N2) 최종 파일을 쓰다 실패하면 처리되지 않은 거부 없이 던지고 .partial은 남긴다', async () => {
+  const dir = tmpDir();
+  try {
+    const out = join(dir, 'o');
+    mkdirSync(join(out, 'market-data-20261016.json.gz.tmp'), { recursive: true }); // 쓸 수 없는 자리
+    await assert.rejects(collect({ years: 2, out, client: clientFor(fakeKis(dataFor(20))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') }));
+    assert.ok(readdirSync(out).some((f) => f.endsWith('.partial')));
+    assert.ok(!readdirSync(out).some((f) => f.endsWith('.json.gz')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -6,6 +6,7 @@ import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync,
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pipeline } from 'node:stream/promises';
 import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
 import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
@@ -145,20 +146,21 @@ function readPartial(path, header) {
 // 최종 파일을 조각으로 나눠 gzip 스트림에 쓴다(수백 MB 문자열을 한 번에 만들지 않는다).
 async function writeGzipJson(path, file) {
   const gz = createGzip();
-  const sink = createWriteStream(path);
-  const finished = new Promise((resolveFn, reject) => {
-    sink.on('finish', resolveFn);
-    sink.on('error', reject);
-    gz.on('error', reject);
-  });
-  gz.pipe(sink);
+  const done = pipeline(gz, createWriteStream(path)); // 쓰기 오류가 처음부터 처리되도록 먼저 연결한다
   const put = (chunk) => (gz.write(chunk) ? undefined : new Promise((r) => gz.once('drain', r)));
-  const { stocks, indices, ...head } = file;
-  await put(`${JSON.stringify(head).slice(0, -1)},"stocks":[`);
-  for (let i = 0; i < stocks.length; i++) await put((i ? ',' : '') + JSON.stringify(stocks[i]));
-  await put(`],"indices":${JSON.stringify(indices)}}`);
-  gz.end();
-  await finished;
+  try {
+    const { stocks, indices, ...head } = file;
+    await put(`${JSON.stringify(head).slice(0, -1)},"stocks":[`);
+    for (let i = 0; i < stocks.length; i++) await put((i ? ',' : '') + JSON.stringify(stocks[i]));
+    await put(`],"indices":${JSON.stringify(indices)}}`);
+    gz.end();
+    await done;
+  } catch (e) {
+    gz.destroy();
+    await done.catch(() => {});
+    rmSync(path, { force: true, recursive: true });
+    throw e;
+  }
 }
 
 /**
