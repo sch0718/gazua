@@ -177,6 +177,13 @@ export function sanitizeStrategies(raw: unknown, now = Date.now()): { strategies
   return { strategies, repaired };
 }
 
+/** 매수 조건(entry) 하나만 같은 규칙으로 고친다. 선정 기준의 반등 패턴(직접 정하기)이 쓴다. */
+export function sanitizeEntry(raw: unknown, now: number): { entry: Strategy['entry']; repaired: boolean } {
+  const r = sanitizeOne({ id: 'x', name: 'x', entry: raw }, now, newStrategy(now, null));
+  // id·name을 고정했으니 null일 수 없다
+  return { entry: r!.strategy.entry, repaired: r!.repaired };
+}
+
 /** 그룹이면 지금 그룹의 종목 순서대로, 그룹이 없으면 []. */
 export function resolveSymbols(s: Strategy, w: Watchlists): string[] {
   if (s.universe.kind === 'symbols') return s.universe.symbols.slice(0, MAX_SYMBOLS);

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { newStrategy } from '../sim/defaults';
+import { newCriteria } from '../screen/defaults';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
@@ -935,6 +936,37 @@ describe('createApp — profiles management, passphrase check, export/import', (
     app.deleteProfile('p2');
     expect(backing.getItem('gazua:v1:p:p2:strategies')).toBeNull();
     expect(app.strategies).toEqual([a]);
+  });
+
+  it('setCriteria persists, switchProfile swaps the list, deleteProfile removes the key', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const a = { ...newCriteria(NOW, null, '가'), id: 'a' };
+    const b = { ...newCriteria(NOW, null, '나'), id: 'b' };
+    seed(backing, 'p:p2:criteria', { criteria: [b] });
+    const app = make(backing);
+    expect(app.criteria).toEqual([]);
+    app.setCriteria([a]);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:criteria')!)).toEqual({ criteria: [a] });
+    expect(app.criteria).toEqual([a]);
+    app.switchProfile('p2');
+    expect(app.criteria).toEqual([b]);
+    app.deleteProfile('p2');
+    expect(backing.getItem('gazua:v1:p:p2:criteria')).toBeNull();
+    expect(app.criteria).toEqual([a]);
+  });
+
+  it('setCriteria는 20개를 넘으면 던지고 저장하지 않는다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    const app = make(backing);
+    const many = Array.from({ length: 21 }, (_, i) => ({ ...newCriteria(NOW, null), id: `c${i}` }));
+    expect(() => app.setCriteria(many)).toThrow('선정 기준은 20개까지 저장할 수 있어요');
+    expect(app.criteria).toEqual([]);
+    expect(backing.getItem('gazua:v1:p:p1:criteria')).toBeNull();
   });
 
   it('verifyPassphrase checks the stored lock without changing state', async () => {

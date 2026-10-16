@@ -3,6 +3,8 @@ import { newStrategy } from '../sim/defaults';
 import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
 import { loadStrategies } from '../sim/strategyStore';
+import { newCriteria } from '../screen/defaults';
+import { loadCriteria } from '../screen/criteriaStore';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
 import { lockSecrets, type Secrets } from './secrets';
@@ -338,5 +340,56 @@ describe('importData — repaired flag', () => {
   it('맞지 않는 설정 필드를 기본값으로 바꾸면 repaired true', () => {
     const { st } = source();
     expect(importData(st, file({ settings: { provider: 'nope' } }))).toMatchObject({ ok: true, repaired: true });
+  });
+});
+
+describe('criteria in export files', () => {
+  const crit = { ...newCriteria(1_700_000_000_000, { from: '2021-03-02', to: '2026-10-15' }, '기준'), id: 'c1' };
+  const file = (extra: Record<string, unknown>) =>
+    JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: {}, watchlists: LISTS, ...extra });
+
+  it('내보낸 JSON에 criteria가 있고 가져온 새 프로필에 같은 기준이 저장된다(왕복)', () => {
+    const { st, backing } = source();
+    seed(backing, profileKeys.criteria('p1'), { criteria: [crit] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).criteria).toEqual([crit]);
+    const res = importData(st, json);
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.criteria(res.profileId)}`)!)).toEqual({ criteria: [crit] });
+    expect(loadCriteria(st, res.profileId)).toEqual([crit]);
+  });
+
+  it('criteria가 없는 옛 파일도 가져오고 목록은 [], repaired false', () => {
+    const { st, backing } = source();
+    const res = importData(st, file({}));
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.criteria(res.profileId)}`)!)).toEqual({ criteria: [] });
+  });
+
+  it('criteria가 배열이 아니면 형식 오류', () => {
+    const { st } = source();
+    expect(importData(st, file({ criteria: 'x' }))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
+  });
+
+  it('범위 밖 take·빈 id는 고쳐 저장하고 repaired true', () => {
+    const { st } = source();
+    const bad = { ...crit, rank: { by: 'marketCap', take: 31 } };
+    const res = importData(st, file({ criteria: [bad, { ...crit, id: '' }] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    const saved = loadCriteria(st, res.profileId);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].rank.take).toBe(10);
+  });
+
+  it('20개를 넘으면 20개까지만 저장하고 repaired true', () => {
+    const { st } = source();
+    const many = Array.from({ length: 21 }, (_, i) => ({ ...crit, id: `c${i}` }));
+    const res = importData(st, file({ criteria: many }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadCriteria(st, res.profileId)).toHaveLength(20);
   });
 });
