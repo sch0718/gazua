@@ -120,7 +120,16 @@ describe('validateMarketData v2', () => {
   });
 
   it('WTI 음수는 ok다', () => {
-    expect(validateMarketData(sampleV2()).ok).toBe(true);
+    const x = sampleV2();
+    expect(x.macro.wti.v[0]).toBe(-36.98);
+    expect(validateMarketData(x).ok).toBe(true);
+  });
+
+  it('빈 macro 계열은 ok다', () => {
+    const x = sampleV2();
+    x.macro.usdkrw = { d: [], v: [] };
+    x.macro.wti = { d: [], v: [] };
+    expect(validateMarketData(x).ok).toBe(true);
   });
 
   it('macro 길이가 맞지 않으면 corrupt다', () => {

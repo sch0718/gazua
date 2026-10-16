@@ -7,8 +7,34 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect as collectReal, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { createKisClient } from '../scripts/kis-collect.mjs';
+
+// FRED 가짜 fetch: 주 5일 관측(2024-01-01부터), 환율 > 0, 유가는 음수 한 번 포함
+function fakeFredFetch({ fail = false, calls = [] } = {}) {
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    calls.push({ url: String(url), headers: undefined });
+    if (fail) throw new Error('fred down');
+    const id = u.searchParams.get('id');
+    const rows = [`observation_date,${id}`];
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(Date.UTC(2024, 0, 1) + i * 86_400_000).toISOString().slice(0, 10);
+      if (u.searchParams.get('cosd') && date < u.searchParams.get('cosd')) continue;
+      rows.push(`${date},${id === 'DEXKOUS' ? 1300 + i : i === 5 ? -36.98 : 70 + i}`);
+    }
+    return new Response(rows.join('\n'), { status: 200 });
+  };
+  return { fetchImpl, calls };
+}
+const THEMES = [
+  { code: '001', name: '혼합', symbols: ['000010', '000020', '999999'] },
+  { code: '002', name: '없는 종목만', symbols: ['888888'] },
+  { code: '003', name: '코스피만', symbols: ['000030'] },
+];
+// 기본값으로 가짜 FRED·테마를 넣는다(실제 네트워크 금지)
+const collect = (o) =>
+  collectReal({ fredFetch: fakeFredFetch().fetchImpl, sleep: async () => {}, ...o, master: o.master && { themes: THEMES, ...o.master } });
 
 const KEY = 'KEYSECRET-app-key-123';
 const SECRET = 'SECRETVALUE-app-secret-456';
@@ -105,7 +131,16 @@ const WINDOW = Date.UTC(2026, 9, 16, 3, 0, 0);
 // 앱의 validateMarketData와 같은 규칙을 손으로 확인한다(TS라 여기서는 못 부른다)
 function assertValidFile(f) {
   assert.equal(f.format, 'gazua-market-data');
-  assert.equal(f.version, 1);
+  assert.ok(f.version === 1 || f.version === 2);
+  if (f.version === 2) {
+    const ascD = (d) => d.every((x, i) => /^\d{8}$/.test(x) && (i === 0 || d[i - 1] < x));
+    for (const [k, pos] of [['usdkrw', true], ['wti', false]]) {
+      const m = f.macro[k];
+      assert.ok(ascD(m.d) && m.v.length === m.d.length);
+      assert.ok(m.v.every((x) => Number.isFinite(x) && (!pos || x > 0)));
+    }
+    for (const t of f.themes) assert.ok(typeof t.code === 'string' && typeof t.name === 'string' && t.symbols.every((x) => typeof x === 'string'));
+  }
   assert.equal(f.source, 'kis');
   assert.equal(f.adjusted, true);
   assert.match(f.collectedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -818,6 +853,121 @@ test('(W1c) 진짜 빈 페이지(최근 상장)는 실패가 아니다', async (
     const run = await collect({ years: 2, out: join(dir, 'a'), client: clientFor(fakeKis(data)), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
     assert.deepEqual(run.summary.failed, []);
     assert.equal(run.file.stocks.find((s) => s.s === '000020').d.length, 30);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Task 2: v2 (macro·themes) ─────────────────────────────────────────
+const run2 = (dir, extra = {}) =>
+  collect({ years: 2, out: join(dir, 'o'), client: clientFor(fakeKis(dataFor(60))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo'), ...extra });
+
+test('(V1) v2 파일을 쓰고 검증 규칙을 통과한다, 유가 음수는 그대로 둔다', async () => {
+  const dir = tmpDir();
+  try {
+    const logs = [];
+    const { file, summary } = await run2(dir, { log: (l) => logs.push(l) });
+    assert.equal(file.version, 2);
+    assertValidFile(file);
+    assert.equal(file.macro.usdkrw.d[0], '20240101');
+    assert.ok(file.macro.wti.v.includes(-36.98));
+    assert.equal(summary.macroDays.usdkrw, 30);
+    assert.ok(logs.some((l) => l.includes('환율 30일 · 유가 30일 · 테마 2개')));
+    // 디스크 파일도 같다
+    assert.deepEqual(readGz(summary.path).macro, file.macro);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(V2) macro 기간은 일봉 시작 1년 전부터 끝까지 요청한다', async () => {
+  const dir = tmpDir();
+  try {
+    const calls = [];
+    await run2(dir, { fredFetch: fakeFredFetch({ calls }).fetchImpl });
+    const q = calls.map((c) => new URL(c.url).searchParams);
+    assert.deepEqual(q.map((p) => p.get('id')).sort(), ['DCOILWTICO', 'DEXKOUS']);
+    // WINDOW = 2026-10-16, years 2 → 일봉 시작 2024-10-16 → macro 2023-10-16
+    for (const p of q) {
+      assert.equal(p.get('cosd'), '2023-10-16');
+      assert.ok(p.get('coed') >= '2026-10-15');
+    }
+    // FRED 요청에 키·인증 헤더 없음
+    for (const c of calls) assert.ok(!c.url.includes(KEY) && !c.url.includes('Bearer'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(V3) FRED가 3번 모두 실패하면 빈 계열로 두고 요약에 남기며 종목 수집은 정상이다', async () => {
+  const dir = tmpDir();
+  try {
+    const logs = [];
+    const { file, summary } = await run2(dir, { fredFetch: fakeFredFetch({ fail: true }).fetchImpl, log: (l) => logs.push(l) });
+    assert.deepEqual(file.macro, { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
+    assert.equal(file.stocks.length, 3);
+    assert.deepEqual(summary.failed, []);
+    assert.ok(logs.some((l) => l.includes('환율·유가를 받지 못했어요')));
+    assert.ok(logs.some((l) => l.includes('환율 0일 · 유가 0일')));
+    assertValidFile(file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(V4) 테마는 파일에 있는 종목만 남기고 빈 테마는 버린다', async () => {
+  const dir = tmpDir();
+  try {
+    const { file } = await run2(dir);
+    assert.deepEqual(file.themes, [
+      { code: '001', name: '혼합', symbols: ['000010', '000020'] },
+      { code: '003', name: '코스피만', symbols: ['000030'] },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(V5) v1 파일을 --update하면 결과가 v2다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await run2(dir);
+    const v1 = { ...first.file, version: 1 };
+    delete v1.macro;
+    delete v1.themes;
+    const r = await collect({ years: 2, out: join(dir, 'b'), update: v1, client: clientFor(fakeKis(dataFor(70))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    assert.equal(r.file.version, 2);
+    assert.equal(r.file.macro.usdkrw.d.length, 30);
+    assert.equal(r.file.themes.length, 2);
+    assert.equal(r.file.stocks[0].d.length, 70);
+    assertValidFile(r.file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(V6) 새 경로(FRED·테마)의 로그와 파일에도 키·토큰이 없다', async () => {
+  const dir = tmpDir();
+  try {
+    const logs = [];
+    // FRED 오류 메시지에 비밀이 섞여도 로그에서 가려진다
+    const leaky = async () => {
+      throw new Error(`down ${KEY} ${SECRET} Bearer ${TOKEN}`);
+    };
+    const { summary } = await run2(dir, { fredFetch: leaky, log: (l) => logs.push(l), secrets: [KEY, SECRET, TOKEN] });
+    const texts = [...logs, JSON.stringify(summary)];
+    for (const f of readdirSync(join(dir, 'o'))) {
+      const raw = readFileSync(join(dir, 'o', f));
+      texts.push(raw.toString('latin1'), gunzipSync(raw).toString('utf8'));
+    }
+    assert.ok(logs.some((l) => l.includes('환율·유가를 받지 못했어요')));
+    for (const needle of [KEY, SECRET, TOKEN]) for (const t of texts) assert.ok(!t.includes(needle), `${needle} 노출`);
+    // 가려진 'Bearer ***'만 허용한다
+    for (const t of texts) assert.ok(!/Bearer\s+(?!\*\*\*)\S/.test(t), 'Bearer 값 노출');
+    // 정상 경로의 요청 URL에도 없다
+    const calls = [];
+    await run2(dir, { out: join(dir, 'p'), fredFetch: fakeFredFetch({ calls }).fetchImpl });
+    for (const c of calls) for (const needle of [KEY, SECRET, TOKEN]) assert.ok(!c.url.includes(needle));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -7,12 +7,18 @@ const CR = 0x0d;
 const decoder = new TextDecoder('euc-kr');
 const ascii = new TextDecoder('ascii');
 
-/**
- * @param {Uint8Array} bytes
- * @returns {{ code: string; name: string; symbols: string[] }[]}
- */
 export function parseThemes(bytes) {
+  return parseThemesDetailed(bytes).themes;
+}
+
+/**
+ * 종목 코드 칸이 6자리(숫자·대문자)로 맞지 않는 행은 버리고 개수를 센다.
+ * @param {Uint8Array} bytes
+ * @returns {{ themes: { code: string; name: string; symbols: string[] }[]; dropped: number }}
+ */
+export function parseThemesDetailed(bytes) {
   const byCode = new Map();
+  let dropped = 0;
   let start = 0;
   while (start < bytes.length) {
     let end = bytes.indexOf(NL, start);
@@ -21,15 +27,22 @@ export function parseThemes(bytes) {
     if (lineEnd > start && bytes[lineEnd - 1] === CR) lineEnd -= 1;
     const line = bytes.subarray(start, lineEnd);
     start = end + 1;
-    if (line.length < 44) continue;
+    if (line.length < 44) {
+      if (line.some((b) => b !== 0x20)) dropped++;
+      continue;
+    }
     const code = ascii.decode(line.subarray(0, 3)).trim();
     const name = decoder.decode(line.subarray(3, 43)).trim();
-    // 앞의 A 같은 접두를 떼고 6자리만 남긴다
-    const symbol = ascii.decode(line.subarray(43)).trim().replace(/^[A-Za-z]/, '');
-    if (!code || !name || !/^\d{6}$/.test(symbol)) continue;
+    // 7자리면 앞의 A 같은 접두를 떼고, 영문자·숫자 6자리(ETF 0000D0 등)만 남긴다
+    let symbol = ascii.decode(line.subarray(43)).trim();
+    if (symbol.length === 7) symbol = symbol.slice(1);
+    if (!code || !name || !/^[0-9A-Z]{6}$/.test(symbol)) {
+      dropped++;
+      continue;
+    }
     let t = byCode.get(code);
     if (!t) byCode.set(code, (t = { code, name, symbols: [] }));
     if (!t.symbols.includes(symbol)) t.symbols.push(symbol);
   }
-  return [...byCode.values()];
+  return { themes: [...byCode.values()], dropped };
 }
