@@ -1421,6 +1421,82 @@ describe('selectAt: 재무 미리 계산과 finMissingAt', () => {
   });
 });
 
+describe('selectAt: 재무 미래 정보 누설 방지(손으로 만든 데이터, p = 공시일 당일)', () => {
+  // 데모의 p는 공시일과 겹치지 않아 `<` → `<=`를 잡지 못한다. 여기서는 p가 어떤 분기의 공시일과 같은 재선정일만 본다
+  const NF = DATES.length;
+  const rng = lcg(5);
+  const quarters = (start: string, n: number): string[] =>
+    Array.from({ length: n }, (_, i) => {
+      const m = +start.slice(0, 4) * 12 + +start.slice(4, 6) - 1 + i * 3;
+      return `${Math.floor(m / 12)}${String((m % 12) + 1).padStart(2, '0')}`;
+    });
+  // q는 종목마다 복사한다(structuredClone은 공유한 배열을 공유한 채로 복제해 잘라내기가 다른 종목에 번진다)
+  const series = (q: string[], annual: (q: string) => boolean): FinSeries => ({
+    q: [...q],
+    a: q.map((x) => (annual(x) ? 1 : 0)),
+    rev: q.map(() => 5 + rng() * 10),
+    op: q.map(() => 0.2 + rng()),
+    ni: q.map(() => 0.2 + rng()),
+    eq: q.map(() => 5 + rng() * 10),
+    debt: q.map(() => rng() * 10),
+  });
+  const qDec = quarters('202203', 16); // 202203 ~ 202512
+  const qNov = quarters('202202', 16); // 202202 ~ 202511
+  const stocks: FinStock[] = [
+    ['DEC', series(qDec, (q) => q.endsWith('12'))],
+    ['MAR', series(qDec, (q) => q.endsWith('03'))],
+    ['NOV', series(qNov, (q) => q.endsWith('11'))],
+    // 12월 결산 → 3월 결산: 202312(a = 1) 다음 202403(a = 1)인 3개월짜리 회계연도
+    ['SHORT', series(qDec, (q) => (q <= '202312' ? q.endsWith('12') : q.endsWith('03')))],
+  ].map(([s, fin], i) => ({ ...mkStock(s as string, DATES.map((_, k) => 80 + ((k * 7 + i * 13) % 40)), { shares: 1e7 }), fin: fin as FinSeries }));
+  const file = mkFileV4(stocks, NF);
+  // 검사 쪽 공시일(구현과 따로 계산)
+  const known = (q: string, a: number): string => {
+    const y = +q.slice(0, 4);
+    const m = +q.slice(4, 6);
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    return addDays(addDays(next, -1), a ? 100 : 60);
+  };
+  // p가 어떤 분기의 공시일인 재선정일 d(= p 다음 거래일)
+  const onKnown = DATES.slice(1, -1).flatMap((p, i) => {
+    const hits = stocks.flatMap((st) => st.fin!.q.filter((q, k) => known(q, st.fin!.a[k]) === p).map((q) => `${st.s}:${q}`));
+    return hits.length ? [{ p, d: DATES[i + 2], hits }] : [];
+  });
+  const mutated = (p: string, f: ((v: number) => number) | null): MarketDataFileV4 => {
+    const g = structuredClone(file);
+    for (const st of g.stocks) {
+      const fin = st.fin!;
+      const keep = fin.q.filter((q, k) => known(q, fin.a[k]) < p).length;
+      if (f == null) {
+        if (keep === 0) delete st.fin;
+        else for (const k of ['q', 'a', 'rev', 'op', 'ni', 'eq', 'debt'] as const) (fin[k] as unknown[]).splice(keep);
+      } else for (let k = keep; k < fin.q.length; k++) for (const key of ['rev', 'op', 'ni', 'eq', 'debt'] as const) fin[key][k] = f(fin[key][k]);
+    }
+    return g;
+  };
+  const per = finCond((f) => (f.per = { on: true, min: 0, max: 1000 }));
+  const roe = finRank('roe', 30);
+
+  it('공시일 당일이 p인 재선정일이 여럿이고, 연간 결산 분기와 짧은 회계연도 분기도 들어 있다', () => {
+    const all = onKnown.flatMap((x) => x.hits);
+    expect(onKnown.length).toBeGreaterThanOrEqual(6);
+    for (const want of ['DEC:202412', 'MAR:202503', 'NOV:202411', 'SHORT:202503']) expect(all).toContain(want);
+  });
+
+  it.each([
+    ['PER 0~1000', per],
+    ['정렬 ROE', roe],
+  ])('%s: 공시일 ≥ p인 분기를 ×1000·부호 반전·잘라내기로 바꿔도 선정이 같다', (_, c) => {
+    const pre = precompute(file, c, null);
+    for (const { p, d, hits } of onKnown) {
+      const base = selectAt(d, pre, c);
+      expect(base.passed, `${p} ${hits}`).toBeGreaterThan(0);
+      for (const f of [(v: number) => v * 1000, (v: number) => -v, null])
+        expect(selectAt(d, precompute(mutated(p, f), c, null), c), `${p} ${hits}`).toEqual(base);
+    }
+  });
+});
+
 // 설계 종목 코드는 scripts/make-demo-market-data.mjs의 FIN_* 상수와 같다
 const FIN_VALUE_CODES = ['114443', '115554', '213332'];
 const FIN_QUALITY_CODES = ['215554', '217776'];
