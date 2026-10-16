@@ -163,10 +163,22 @@ describe('DataTools', () => {
       await mount();
       expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
       await pick(demo());
-      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15')).toBeTruthy();
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
       await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
       expect(await marketData.info()).toBeNull();
+    });
+
+    it('a v1 file gets the re-collect hint instead', async () => {
+      const j = JSON.parse(await decompress(new Blob([gz])));
+      j.version = 1;
+      delete j.macro;
+      delete j.themes;
+      await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
+      await pick(demo());
+      expect(
+        await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 다시 수집하면 환율·유가·테마도 쓸 수 있어요'),
+      ).toBeTruthy();
     });
 
     it('shows the corrupt-file message and keeps what was there', async () => {

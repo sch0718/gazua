@@ -74,7 +74,8 @@
   });
 
   const marketLine = (i: MarketDataInfo) =>
-    `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}`;
+    `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}` +
+    (i.version === 2 ? ' · 환율·유가·테마 포함' : ' · 다시 수집하면 환율·유가·테마도 쓸 수 있어요');
 
   async function onMarketFile(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
