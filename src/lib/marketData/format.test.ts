@@ -75,4 +75,19 @@ describe('validateMarketData', () => {
     x.indices[0].o = [2500];
     expect(validateMarketData(x)).toEqual({ ok: false, reason: 'corrupt' });
   });
+
+  it.each([
+    ['range가 문자열 쌍이 아님', (x: any) => (x.range = { from: '2026-10-14' })],
+    ['collectedAt이 문자열이 아님', (x: any) => (x.collectedAt = 123)],
+    ['sectors level이 1~3 밖', (x: any) => (x.sectors[0].level = 4)],
+    ['sec가 문자열 3개가 아님', (x: any) => (x.stocks[0].sec = ['0013', ''])],
+    ['shares가 음수', (x: any) => (x.stocks[0].shares = -1)],
+    ['shares가 NaN', (x: any) => (x.stocks[0].shares = Number.NaN)],
+    ['m이 허용값이 아님', (x: any) => (x.stocks[0].m = 'NASDAQ')],
+    ['t가 허용값이 아님', (x: any) => (x.stocks[0].t = 'FUND')],
+  ])('%s이면 format이다', (_name, mutate) => {
+    const x = sample();
+    mutate(x);
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+  });
 });

@@ -60,6 +60,34 @@ function indexCorrupt(i: Record<string, unknown>): boolean {
   return !(isNumArray(i.o, i.d.length, true) && isNumArray(i.c, i.d.length, true));
 }
 
+const MARKETS = ['KOSPI', 'KOSDAQ'];
+const TYPES = ['STOCK', 'ETF', 'ETN', 'REIT', 'OTHER'];
+
+// 최상위·종목 메타 필드의 모양을 본다(배열 내용은 corrupt 검사가 맡는다).
+function metaOk(x: Record<string, unknown>): boolean {
+  const range = x.range;
+  if (!isObj(range) || typeof range.from !== 'string' || typeof range.to !== 'string') return false;
+  if (typeof x.collectedAt !== 'string') return false;
+  const sectorsOk = (x.sectors as unknown[]).every(
+    (s) => isObj(s) && typeof s.code === 'string' && typeof s.name === 'string' && (s.level === 1 || s.level === 2 || s.level === 3),
+  );
+  if (!sectorsOk) return false;
+  return (x.stocks as unknown[]).every(
+    (s) =>
+      isObj(s) &&
+      typeof s.s === 'string' &&
+      typeof s.n === 'string' &&
+      MARKETS.includes(s.m as string) &&
+      TYPES.includes(s.t as string) &&
+      Array.isArray(s.sec) &&
+      s.sec.length === 3 &&
+      s.sec.every((c) => typeof c === 'string') &&
+      typeof s.shares === 'number' &&
+      Number.isFinite(s.shares) &&
+      s.shares >= 0,
+  );
+}
+
 export function validateMarketData(x: unknown): MarketDataCheck {
   if (!isObj(x) || x.format !== 'gazua-market-data') return { ok: false, reason: 'format' };
   if (typeof x.version !== 'number') return { ok: false, reason: 'format' };
@@ -68,6 +96,7 @@ export function validateMarketData(x: unknown): MarketDataCheck {
   if (!Array.isArray(x.stocks) || !Array.isArray(x.indices) || !Array.isArray(x.sectors)) {
     return { ok: false, reason: 'format' };
   }
+  if (!metaOk(x)) return { ok: false, reason: 'format' };
   for (const s of x.stocks) if (!isObj(s) || stockCorrupt(s)) return { ok: false, reason: 'corrupt' };
   for (const i of x.indices) if (!isObj(i) || indexCorrupt(i)) return { ok: false, reason: 'corrupt' };
   return { ok: true, data: x as unknown as MarketDataFile };
