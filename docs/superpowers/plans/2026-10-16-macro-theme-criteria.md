@@ -23,7 +23,10 @@
 
 **미래 정보 차단**
 - 재선정일 d의 전 거래일 p까지의 봉만 쓴다.
-- FRED 값은 **날짜 < 봉 날짜**인 마지막 값만 쓴다.
+- FRED 값은 공개 시점 규칙 `macroKnownFrom(series, t) ≤ 봉 날짜`인 값 중 관측일이 가장 늦은 값만 쓴다(스펙 2.3).
+  - 원/달러: 관측일이 속한 주 월요일 + 9일.
+  - WTI: 관측 다음 날 이후 첫 수요일 + 2일.
+- 변화율은 두 값이 모두 0보다 클 때만 계산한다(스펙 3.1·3.2). 0 이하이거나 유한하지 않은 쌍은 뺀다.
 
 **기본값과 범위**
 
@@ -51,11 +54,12 @@
 - `corepack pnpm test`, `check`, `check:e2e`, `build`, `e2e`(먼저 4173 포트가 비어 있는지 확인), `test:scripts`.
 
 ## Review Focus
-1. **FRED 날짜 누설.** 봉 날짜와 같은 날의 FRED 값을 쓰면 하루 미래 정보가 섞인다. 같은 날짜 값을 극단값으로 바꿔도 결과가 같아야 한다(Task 4).
+1. **FRED 공개 시점 누설.** 두 계열은 주 단위로 공개된다. 관측일이 p보다 앞서도 p까지 공개되지 않은 값(`knownFrom > p`)을 쓰면 미래 정보가 섞인다. 그런 값을 극단값으로 바꿔도 결과가 같아야 한다(Task 4).
 2. **β 롤링 정확도.** 누적합 방식은 뺄셈 오차와 창 경계 실수가 나기 쉽다. 직접 계산한 값과 창마다 비교해야 한다(Task 4).
 3. **합집합 회귀.** 업종만 고른 기존 기준의 결과가 바뀌면 안 된다(Task 4).
 4. **v1 데이터 사용자.** 다시 수집하지 않은 사용자의 기존 검증이 막히면 안 되고, 새 조건만 꺼져야 한다(Task 3, 6).
 5. **FRED 실패.** 네트워크 실패로 수집 전체가 멈추면 안 된다. macro는 빈 계열로 두고 요약에 남긴다(Task 2).
+6. **0 이하 계열 값.** WTI 2020-04-20(−36.98)처럼 0 이하 값이 끼면 변화율의 방향이 뒤집히거나 무한대가 된다. 그 쌍은 빼고 β는 유한해야 한다(Task 4).
 
 ---
 
@@ -76,7 +80,7 @@
   - `isV2(f): f is MarketDataFileV2`
   - `validateMarketData`는 v1과 v2를 모두 받는다. v2 검사는 스펙 2.2를 따른다.
   - `fetchFredSeries(id: string, { fetchImpl, from?: 'YYYY-MM-DD', to?, now?, sleep? }) → Promise<{ d: string[]; v: number[] }>`
-    - CSV는 `DATE,<ID>` 헤더, `YYYY-MM-DD,값` 행, `.` 값은 버린다.
+    - CSV 헤더는 `observation_date,<ID>`다(2026-10-16 실제 응답 확인). 예전 형식 `DATE,<ID>`도 받는다. 행은 `YYYY-MM-DD,값`이고 `.` 값은 버린다.
     - 20초 시간 제한, 최대 3번 시도.
   - `parseThemes(bytes: Uint8Array) → { code: string; name: string; symbols: string[] }[]`
     - 행 폭은 실제 파일로 확인해 정한다.
@@ -89,7 +93,7 @@
   - WTI 음수는 ok다.
   - version 3은 `version-newer`다.
   - v1은 여전히 ok다.
-  - FRED CSV: `.` 값을 버리는지, 기간 필터, 재시도 뒤 성공, 3번 모두 실패하면 throw하는지.
+  - FRED CSV: `observation_date` 헤더와 `DATE` 헤더 둘 다, `.` 값을 버리는지, 기간 필터, 재시도 뒤 성공, 3번 모두 실패하면 throw하는지. fixture는 실제 응답 첫 줄 형식 그대로 쓴다.
   - 테마 fixture 파싱, `A` 접두 정규화.
 - [ ] **Step 2:** RED를 확인하고, 구현한 뒤 GREEN을 확인한다. 테마 행 폭은 실제 `theme_code.mst.zip`을 scratchpad에서 받아 확인하고, 그 결과를 스펙 2.1에 적는다.
 - [ ] **Step 3:** 커밋한다. `feat(data): market-data v2 format with macro series and themes; FRED and theme parsers`
@@ -153,7 +157,7 @@
 - Produces:
   - **types** (Task 5에서 이미 바뀌어 있음): `pool.themes`, `pool.baskets`, `conditions.macro`, `rank.by`의 `'macroBeta'`와 `rank.series`
   - **precompute**
-    - `precompute(data, criteria, reboundEntry)`가 계열별 lag 정렬 배열과 종목별 `beta: { usdkrw: Float64Array; wti: Float64Array }`를 만든다. NaN은 계산 불가를 뜻한다.
+    - `precompute(data, criteria, reboundEntry)`가 계열별 공개 시점(`macroKnownFrom`) 정렬 배열과 종목별 `beta: { usdkrw: Float64Array; wti: Float64Array }`를 만든다. NaN은 계산 불가를 뜻한다.
     - `params.betaDays`를 더하고, 기준과 다르면 `PrecomputeMismatchError`다.
     - 롤링은 누적합 방식이다.
     - v1 데이터면 β는 모두 NaN이다.
@@ -170,7 +174,14 @@
 
 - [ ] **Step 1:** 실패하는 테스트를 쓴다.
   - **β 손계산.** 합성 계열에서 환율이 매일 ±1%이고 종목이 정확히 2배로 움직이면 β = 2다. 창 경계에서는 betaDays번째 봉부터 값이 있다. 쌍이 80%보다 적으면 NaN, 분산이 0이면 NaN이다. **임의 데이터 200일에서 롤링 β가 창마다 직접 계산한 값과 1e-9 안에서 같다.**
-  - **FRED 누설.** 봉 날짜와 같은 날짜, 그리고 그 이후의 FRED 값을 극단값으로 바꿔도 `selectAt(d)` 결과가 같다. p 이후의 FRED와 봉을 모두 잘라도 같다.
+  - **공개 시점 규칙.** `macroKnownFrom` 표 테스트를 쓴다.
+    - 원/달러는 월~금 관측 각각과 일요일 경계.
+    - WTI는 수요일 관측과 목요일 관측.
+  - **공개 전 값 누설.** `knownFrom > p`인 관측값을 극단값으로 바꿔도 `selectAt(d)` 결과가 같다. 관측일이 p보다 앞선 값도 포함한다. p 이후의 FRED와 봉을 모두 잘라도 같다.
+  - **0 이하 값.**
+    - WTI 계열에 −36.98 → 8.91 쌍과 0 → 10 쌍을 넣는다. 그 쌍은 β 계산에서 빠지고 결과는 유한하다.
+    - 롤링 창이 그 쌍을 지나간 뒤에도 NaN이 남지 않는다.
+    - 흐름의 끝값이 음수면 흐름을 계산하지 않고(통과 0) `macroGap`이다.
   - **흐름 따라가기.** 오름이면 + 민감 종목만, 내림이면 − 민감 종목만, 약함이면 `pass`일 때 조건 무시, `none`일 때 통과 0개다.
   - **합집합.**
     - 업종만, 테마만, 묶음만, 섞은 경우.
