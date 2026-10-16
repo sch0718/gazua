@@ -68,8 +68,10 @@
 ### 3.1 실행
 
 ```bash
-KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
-KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
+read -rs KIS_APP_KEY && export KIS_APP_KEY        # 명령줄에 쓰면 셸 기록에 남으므로 입력으로 받는다
+read -rs KIS_APP_SECRET && export KIS_APP_SECRET
+pnpm collect -- --years 5 --out ~/gazua-data/
+pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 ```
 
 - 파일은 `scripts/collect-market-data.mjs`다. Node 22에서 돌고, 런타임 의존성은 새로 넣지 않는다(내장 `fetch`, `zlib`). 마스터 zip을 푸는 데는 기존 devDependency인 `fflate`를 쓰므로 `pnpm install`이 된 저장소에서 돌린다.

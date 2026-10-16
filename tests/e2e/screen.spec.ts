@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { enterDemo, expectNoHorizontalScroll, leaderboardRows, loadExampleGroup, openApp } from './helpers';
+import { enterDemo, expectNoHorizontalScroll, isWide, leaderboardRows, openApp } from './helpers';
 
 const FIXTURE = 'tests/fixtures/market-data-demo.json.gz';
 
@@ -22,12 +22,14 @@ async function expectNoSeriousViolations(page: Page, state: string): Promise<voi
 }
 
 test('선정 기준 검증: 가져오기 → 새 기준 → 미리 보기 → 검증 실행 → 결과 → 관심 그룹 → 비교 화면', async ({ page }) => {
+  // 결과를 최대 60초까지 기다리므로 기본 30초로는 모자라다
+  test.setTimeout(180_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
   await openApp(page);
+  // 예시 그룹을 만들지 않는다: 비교 화면에 보이는 종목은 모두 새 그룹에서 온 것이다
   await enterDemo(page);
-  await loadExampleGroup(page);
 
   // 설정 › 데이터 › 시장 데이터 가져오기
   await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
@@ -81,9 +83,21 @@ test('선정 기준 검증: 가져오기 → 새 기준 → 미리 보기 → �
   await sheet.getByRole('button', { name: '새 그룹으로 만들기' }).click();
   const status = page.getByRole('status').filter({ hasText: '를 넣었어요' });
   await expect(status).toBeVisible();
+  const m = /^'(.+)'에 (\d+)개를 넣었어요/.exec((await status.innerText()).trim());
+  expect(m, '상태 문구가 `\'그룹\'에 N개를 넣었어요` 모양이다').not.toBeNull();
+  const [groupName, added] = [m![1], Number(m![2])];
+  expect(added).toBeGreaterThan(0);
   await status.getByRole('button', { name: '비교 화면에서 보기' }).click();
-  await expect(leaderboardRows(page).first()).toBeVisible();
-  await expect(leaderboardRows(page)).not.toHaveCount(0);
+
+  // 방금 만든 그룹이 선택돼 있고, 넣은 개수만큼의 행이 있다
+  // 좁은 화면은 그룹 탭, 넓은 화면은 왼쪽 레일의 그룹 버튼(aria-current)으로 선택을 본다
+  const escaped = groupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (isWide(page)) {
+    await expect(page.getByRole('navigation', { name: '탐색' }).getByRole('button', { name: new RegExp(`^${escaped} \\d+$`) })).toHaveAttribute('aria-current', 'page');
+  } else {
+    await expect(page.getByRole('tab', { name: groupName, selected: true })).toBeVisible();
+  }
+  await expect(leaderboardRows(page)).toHaveCount(added);
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });

@@ -40,19 +40,21 @@
 선정 기준 검증(시뮬레이션 › 선정 기준)은 전 종목 일봉이 든 파일 하나를 읽어요. 이 파일은 직접 모아요. 앱은 파일만 읽고 증권사에는 따로 묻지 않아요.
 
 ```bash
-# 키는 환경변수로만 넣어요. 둘 다 필요해요.
-KIS_APP_KEY=... KIS_APP_SECRET=... corepack pnpm collect -- --years 5 --out ~/gazua-data/
+# 키는 환경변수로만 넣어요. 명령줄에 쓰면 셸 기록에 남으니 입력을 받아 내보내요(화면에 보이지 않아요).
+read -rs KIS_APP_KEY && export KIS_APP_KEY
+read -rs KIS_APP_SECRET && export KIS_APP_SECRET
+corepack pnpm collect -- --years 5 --out ~/gazua-data/
 # 이어 받기: 마지막 날짜 이후만 받아 합쳐요.
-KIS_APP_KEY=... KIS_APP_SECRET=... corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
+corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 ```
 
 - 결과는 `market-data-YYYYMMDD.json.gz`예요. 기본 출력 폴더는 `~/gazua-data/`이고, 저장소 안이면 `.gitignore`에 있는 `data/`만 허용해요.
-- **파일을 커밋하지 마세요.** `data/`는 `.gitignore`에 들어 있어요. 앱 키와 시크릿은 파일·로그·명령 기록에 남기지 않도록 환경변수로만 넘겨요.
+- **파일을 커밋하지 마세요.** `data/`는 `.gitignore`에 들어 있어요. 앱 키와 시크릿은 파일·로그·셸 기록에 남지 않도록 환경변수로만 넘겨요.
 - `--update <파일>`은 종목마다 마지막 날짜 다음부터 받아요. 겹치는 마지막 5거래일이 기존 값과 다르면(액면분할 등) 그 종목만 전체를 다시 받아요.
 - `--paper`는 모의투자 서버를 써요. 기본은 실전 서버예요.
 - **받는 끝 날짜.** 평일 KST 18시 전이면 아직 끝나지 않은 오늘 봉을 받지 않고 전날까지 받아요. 18시 이후에는 오늘까지 받아요.
 - 중간에 끊기면 `<출력 파일>.partial`에 진행분이 남고, 같은 날 다시 실행하면 이어서 받아요.
-- 예상 시간과 크기(추정이며 첫 실제 수집에서 재서 고쳐요): 5년 전 종목은 요청 속도 한도(초당 18건) 때문에 수십 분에서 한두 시간 걸리고, 압축 후 수십 MB로 봐요. 실측값은 [live-check ⑱](docs/live-check.md)에 적어요.
+- 예상 시간과 크기(추정이며 첫 실제 수집에서 재서 고쳐요): 5년 전 종목은 (종목 수 × 종목당 일봉 요청 수 ≈ 5년 ÷ 100거래일씩) ÷ 초당 18건으로 어림하면 수십 분에서 한두 시간 걸리고, 압축 후 수십 MB로 봐요. 실측값은 [live-check ⑱](docs/live-check.md)에 적어요.
 - 앱에서는 설정 › 데이터 › `시장 데이터 가져오기`로 파일을 골라요. 파일은 이 기기의 IndexedDB에만 저장돼요.
 - 한계: 지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 업종·상장주식수는 수집일 기준이에요.
 
