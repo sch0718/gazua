@@ -6,7 +6,7 @@ import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
 import { lastUsablePair, macroKnownFrom, rollingBeta } from './macro';
-import { DATES, lcg, mkFile, mkFileV2, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, ymd } from './testData';
+import { DATES, lcg, mkFile, mkFileV2, mkFileV3, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, withFlow, ymd } from './testData';
 
 describe('tradingAxis', () => {
   it('지수 날짜 ∪ 종목 날짜를 YYYY-MM-DD 오름차순으로 낸다', () => {
@@ -173,13 +173,13 @@ describe('precompute', () => {
     const c = offCriteria();
     c.conditions.tradingValue.days = 7;
     const f = mkFile([mkStock('A', [1, 2, 3])], 3);
-    expect(precompute(f, c, null).params).toEqual({ tvDays: 7, maPeriod: null, volDays: 20, reboundEntryKey: null, betaDays: null });
+    expect(precompute(f, c, null).params).toEqual({ tvDays: 7, maPeriod: null, volDays: 20, reboundEntryKey: null, betaDays: null, flow: null });
     c.conditions.vsMa = { on: true, period: 9, side: 'below' };
     c.conditions.volatility = { on: true, days: 4, maxPct: 1 };
     const e = reboundEntry();
     const reordered = Object.fromEntries(Object.entries(e).reverse()) as typeof e;
     const params = precompute(f, c, e).params;
-    expect(params).toEqual({ tvDays: 7, maPeriod: 9, volDays: 4, reboundEntryKey: stableJson(e), betaDays: null });
+    expect(params).toEqual({ tvDays: 7, maPeriod: 9, volDays: 4, reboundEntryKey: stableJson(e), betaDays: null, flow: null });
     expect(stableJson(reordered)).toBe(params.reboundEntryKey);
     expect(JSON.parse(params.reboundEntryKey!)).toEqual(e);
   });
@@ -394,5 +394,68 @@ describe('lastUsablePair: 봉의 쌍은 그다음 관측값이 공개된 뒤에�
   });
   it('hi(p의 봉)를 넘지 않는다', () => {
     expect(lastUsablePair(idx, known, '2026-12-31', 3)).toBe(3);
+  });
+});
+
+describe('precompute: 투자자 수급(스펙 3.5)', () => {
+  const n = 40;
+  const f = Array.from({ length: 30 }, (_, j) => j - 10);
+  const i = Array.from({ length: 30 }, (_, j) => 5 - j);
+  const p = Array.from({ length: 30 }, (_, j) => (j % 2 ? 3 : -3));
+  const tv = Array.from({ length: n }, (_, j) => 1e9 + j);
+  const file = () => mkFileV3([withFlow(mkStock('A', Array(n).fill(100), { tv }), 5, { f, i, p }), mkStock('N', Array(n).fill(100))], n);
+
+  it('수급 조건·정렬을 쓰지 않으면 수급 배열을 만들지 않는다(params.flow null)', () => {
+    const pre = precompute(file(), offCriteria(), null);
+    expect(pre.params.flow).toBeNull();
+    expect(pre.stocks.map((s) => s.flow)).toEqual([null, null]);
+  });
+
+  it('쓰는 주체만 누적합을 만들고, 거래대금 누적합은 수급 구간(from..수급 끝)에 맞춘다', () => {
+    const c = offCriteria();
+    c.conditions.flow.amount = { on: true, who: 'foreign', days: 5, minPct: 1, maxPct: 100 };
+    const pre = precompute(file(), c, null);
+    expect(pre.params.flow).toEqual({ whos: ['foreign'], streakWho: null });
+    const fl = pre.stocks[0].flow!;
+    expect(fl.from).toBe(5);
+    expect(fl.len).toBe(30);
+    expect(Object.keys(fl.net)).toEqual(['f']);
+    expect(fl.net.f!.length).toBe(31);
+    expect(fl.net.f![30]).toBe(f.reduce((a, b) => a + b, 0));
+    expect(fl.tv.length).toBe(31);
+    expect(fl.tv[30]).toBe(tv.slice(5, 35).reduce((a, b) => a + b, 0));
+    expect(fl.streak.length).toBe(0);
+    expect(pre.stocks[1].flow).toBeNull(); // 수급이 없는 종목
+  });
+
+  it('both는 외국인·기관 누적합, 정렬 주체도 더한다. 연속 순매수는 켰을 때만 그 주체의 연속 일수 배열', () => {
+    const c = offCriteria();
+    c.conditions.flow.amount = { on: true, who: 'both', days: 5, minPct: 1, maxPct: 100 };
+    c.conditions.flow.streak = { on: true, who: 'indiv', minDays: 1 };
+    c.rank = { by: 'flow', take: 5, flow: { who: 'inst', days: 20 } };
+    const pre = precompute(file(), c, null);
+    expect(pre.params.flow).toEqual({ whos: ['inst', 'both'], streakWho: 'indiv' });
+    const fl = pre.stocks[0].flow!;
+    expect(Object.keys(fl.net).sort()).toEqual(['f', 'i']);
+    expect(fl.streak).toBeInstanceOf(Int32Array);
+    expect([...fl.streak.slice(0, 4)]).toEqual([0, 1, 0, 1]);
+  });
+
+  it('연속 순매수만 켜면 누적합은 없고 연속 일수만 있다', () => {
+    const c = offCriteria();
+    c.conditions.flow.streak = { on: true, who: 'inst', minDays: 1 };
+    const pre = precompute(file(), c, null);
+    expect(pre.params.flow).toEqual({ whos: [], streakWho: 'inst' });
+    const fl = pre.stocks[0].flow!;
+    expect(fl.net).toEqual({});
+    expect(fl.tv.length).toBe(0);
+    expect([...fl.streak.slice(0, 7)]).toEqual([1, 2, 3, 4, 5, 0, 0]);
+  });
+
+  it('v1·v2 데이터면 수급 배열이 없다', () => {
+    const c = offCriteria();
+    c.conditions.flow.amount.on = true;
+    expect(precompute(mkFileV2([mkStock('A', [1, 2, 3])], 3), c, null).stocks[0].flow).toBeNull();
+    expect(precompute(mkFile([mkStock('A', [1, 2, 3])], 3), c, null).stocks[0].flow).toBeNull();
   });
 });

@@ -1,12 +1,13 @@
 import type { Candle } from '../data/metrics';
-import { hasMacroFormat, type MarketDataFile } from '../marketData/format';
+import { hasMacroFormat, isV3, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import type { Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
+import { flowPrefix, flowStreak, subjectsOf, type FlowSubject, type StockFlow } from './flow';
 import { alignSeries, pairIndices, rollingBeta, type AlignedSeries } from './macro';
-import type { MacroSeriesKey, Rebalance, SelectionCriteria } from './types';
-import { macroOn } from './validate';
+import type { FlowWho, MacroSeriesKey, Rebalance, SelectionCriteria } from './types';
+import { macroOn, usesFlow } from './validate';
 
 type FileStock = MarketDataFile['stocks'][number];
 
@@ -38,6 +39,8 @@ export interface StockSeries {
   beta: Record<MacroSeriesKey, Float64Array>;
   /** 계열별로 i번 봉의 쌍에 쓴 관측값 a(t_i)의 인덱스(관측일 기준 짝짓기), 없으면 -1. 그 knownFrom은 macro[key].known[idx] */
   macroIdx: Record<MacroSeriesKey, Int32Array>;
+  /** 투자자 수급 누적합·연속 일수. 수급 조건·정렬을 쓰지 않거나 그 종목에 수급이 없으면 null */
+  flow: StockFlow | null;
 }
 
 /** 미리 계산에 쓴 기준 값. selectAt이 다른 기준으로 고르지 못하게 한다 */
@@ -47,6 +50,8 @@ export interface PrecomputeParams {
   volDays: number;
   reboundEntryKey: string | null; // entry의 안정 JSON, 없으면 null
   betaDays: number | null; // 환율·유가 조건·정렬을 쓰지 않으면 null(β를 계산하지 않음)
+  /** 수급 조건·정렬을 쓰지 않으면 null. whos는 비율(누적합)을 쓰는 주체, streakWho는 연속 순매수를 켠 주체 */
+  flow: { whos: FlowWho[]; streakWho: FlowWho | null } | null;
 }
 
 export interface Precomputed {
@@ -62,6 +67,21 @@ export interface Precomputed {
 
 /** 이 기준이 β를 쓰는가: 환율·유가 조건이 켜져 있거나 정렬이 macroBeta */
 export const usesMacro = (c: SelectionCriteria): boolean => macroOn(c.conditions.macro) || c.rank.by === 'macroBeta';
+
+/** 수급 순 정렬의 주체·기간. 기존 프로필에 없으면 기본값(스펙 3.3) */
+export const rankFlowOf = (c: SelectionCriteria): { who: FlowWho; days: number } => c.rank.flow ?? { who: 'foreign', days: 20 };
+
+const FLOW_WHOS: readonly FlowWho[] = ['foreign', 'inst', 'indiv', 'both'];
+
+/** 이 기준이 쓰는 수급 값. 쓰지 않으면 null. 같은 기준이면 같은 값(주체는 정해진 순서) */
+export function flowParams(c: SelectionCriteria): PrecomputeParams['flow'] {
+  if (!usesFlow(c)) return null;
+  const fl = c.conditions.flow;
+  const used = new Set<FlowWho>();
+  if (fl.amount.on) used.add(fl.amount.who);
+  if (c.rank.by === 'flow') used.add(rankFlowOf(c).who);
+  return { whos: FLOW_WHOS.filter((w) => used.has(w)), streakWho: fl.streak.on ? fl.streak.who : null };
+}
 
 /** 업종은 시장을 넘어 (레벨, 이름)으로 하나다(R10). KOSPI 00013과 KOSDAQ 11028 전기·전자가 같은 업종 */
 export const sectorGroupKey = (s: { level: number; name: string }): string => `${s.level}|${s.name}`;
@@ -97,6 +117,7 @@ export function precomputeParams(criteria: SelectionCriteria, reboundEntry: Stra
     volDays: k.volatility.on ? k.volatility.days : RANK_VOL_DAYS,
     reboundEntryKey: reboundEntry ? stableJson(reboundEntry) : null,
     betaDays: usesMacro(criteria) ? k.macro.betaDays : null,
+    flow: flowParams(criteria),
   };
 }
 
@@ -193,16 +214,35 @@ function signals(d: string[], st: FileStock, entry: Strategy['entry'] | null): {
   return { days, last };
 }
 
+/** 종목 하나의 수급 미리 계산. 쓰는 주체의 누적합과, 켠 연속 순매수 주체의 연속 일수만 만든다(스펙 3.5) */
+function stockFlow(st: MarketDataFileV3['stocks'][number], params: NonNullable<PrecomputeParams['flow']>): StockFlow | null {
+  const fs = st.flow;
+  if (!fs) return null;
+  const from = st.d.indexOf(fs.from);
+  const len = fs.f.length;
+  const raw: Record<FlowSubject, number[]> = { f: fs.f, i: fs.i, p: fs.p };
+  const net: StockFlow['net'] = {};
+  for (const w of params.whos) for (const k of subjectsOf(w)) net[k] ??= flowPrefix(raw[k]);
+  return {
+    from,
+    len,
+    net,
+    tv: params.whos.length ? flowPrefix(st.tv.slice(from, from + len)) : new Float64Array(0),
+    streak: params.streakWho ? flowStreak(...subjectsOf(params.streakWho).map((k) => raw[k])) : new Int32Array(0),
+  };
+}
+
 /** 종목마다 날짜순으로 지표를 한 번 계산한다(스펙 6.1). */
 export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): Precomputed {
   const k = criteria.conditions;
   const params = precomputeParams(criteria, reboundEntry);
   const v2 = hasMacroFormat(data) ? data : null;
+  const v3 = isV3(data) ? data : null;
   const macro: Precomputed['macro'] = {
     usdkrw: alignSeries('usdkrw', v2?.macro.usdkrw),
     wti: alignSeries('wti', v2?.macro.wti),
   };
-  const stocks = data.stocks.map((st): StockSeries => {
+  const stocks = data.stocks.map((st, j): StockSeries => {
     const d = st.d.map(isoDate);
     const close = st.c.slice();
     const sig = signals(d, st, reboundEntry);
@@ -234,6 +274,7 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       lastSignal: sig.last,
       beta: { usdkrw: fx.beta, wti: oil.beta },
       macroIdx: { usdkrw: fx.idx, wti: oil.idx },
+      flow: v3 && params.flow ? stockFlow(v3.stocks[j], params.flow) : null,
     };
   });
   const themes = new Map((v2?.themes ?? []).map((t) => [t.code, t.symbols]));
