@@ -23,7 +23,9 @@
 
 **미래 정보 차단**
 - 재선정일 d의 전 거래일 p까지의 봉만 쓴다.
-- FRED 값은 공개 시점 규칙 `macroKnownFrom(series, t) ≤ 봉 날짜`인 값 중 관측일이 가장 늦은 값만 쓴다(스펙 2.3).
+- FRED 값은 두 규칙을 나눠 쓴다(스펙 2.3).
+  - **짝짓기:** 주가 수익률과 짝지을 계열 값은 관측일 기준이다. 봉 날짜보다 앞선 마지막 관측값을 쓴다.
+  - **사용 가능 여부:** p에서는 쓰인 관측값의 `macroKnownFrom(series, t) ≤ p`인 쌍만 쓴다(`i*(p)`까지). 공개일로 값을 옮겨 짝짓지 않는다.
   - 원/달러: 관측일이 속한 주 월요일 + 9일.
   - WTI: 관측 다음 날 이후 첫 수요일 + 2일.
 - 변화율은 두 값이 모두 0보다 클 때만 계산한다(스펙 3.1·3.2). 0 이하이거나 유한하지 않은 쌍은 뺀다.
@@ -157,7 +159,7 @@
 - Produces:
   - **types** (Task 5에서 이미 바뀌어 있음): `pool.themes`, `pool.baskets`, `conditions.macro`, `rank.by`의 `'macroBeta'`와 `rank.series`
   - **precompute**
-    - `precompute(data, criteria, reboundEntry)`가 계열별 공개 시점(`macroKnownFrom`) 정렬 배열과 종목별 `beta: { usdkrw: Float64Array; wti: Float64Array }`를 만든다. NaN은 계산 불가를 뜻한다.
+    - `precompute(data, criteria, reboundEntry)`가 계열별 관측일 기준 짝짓기 배열, 봉마다 쓰인 관측값의 `knownFrom`, 공개 시점(`macroKnownFrom`) 정렬 배열과 종목별 `beta: { usdkrw: Float64Array; wti: Float64Array }`를 만든다. NaN은 계산 불가를 뜻한다.
     - `params.betaDays`를 더하고, 기준과 다르면 `PrecomputeMismatchError`다.
     - 롤링은 누적합 방식이다.
     - v1 데이터면 β는 모두 NaN이다.
@@ -174,6 +176,9 @@
 
 - [ ] **Step 1:** 실패하는 테스트를 쓴다.
   - **β 손계산.** 합성 계열에서 환율이 매일 ±1%이고 종목이 정확히 2배로 움직이면 β = 2다. 창 경계에서는 betaDays번째 봉부터 값이 있다. 쌍이 80%보다 적으면 NaN, 분산이 0이면 NaN이다. **임의 데이터 200일에서 롤링 β가 창마다 직접 계산한 값과 1e-9 안에서 같다.**
+  - **기간 맞추기(리뷰 재현).** 환율이 한 주는 매일 +1%, 다음 주는 매일 −1%를 반복하고 주가가 관측 기간 기준 변화율의 2배로 움직이는 120쌍에서, p를 충분히 뒤에 두면 β = +2.0(1e-9)이다. 공개일로 옮겨 짝지은 구현이라면 약 −0.40이 되므로 이 테스트가 실패해야 한다.
+  - **`i*(p)`.** p를 바꾸면 β 창의 끝이 `knownFrom ≤ p`인 마지막 쌍으로 정해진다.
+  - **흐름.** `knownFrom ≤ p`인 마지막 관측값과 그보다 lookback개 앞선 관측값으로 계산한다.
   - **공개 시점 규칙.** `macroKnownFrom` 표 테스트를 쓴다.
     - 원/달러는 월~금 관측 각각과 일요일 경계.
     - WTI는 수요일 관측과 목요일 관측.
