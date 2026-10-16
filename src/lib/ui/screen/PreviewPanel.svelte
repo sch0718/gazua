@@ -20,6 +20,7 @@
     names: Record<string, string>;
   } = $props();
 
+  const countText = (s: Selection) => `통과 ${s.passed}개 · 상위 ${s.picked.length}개`;
   const titleId = `preview-${Math.random().toString(36).slice(2, 9)}`;
 </script>
 
@@ -29,11 +30,14 @@
     <p class="muted">시장 데이터를 가져오면 미리 볼 수 있어요</p>
   {:else}
     {#if asOf}<p class="muted">{asOf} 기준</p>{/if}
-    <p class="state" role="status">{pending ? '계산하는 중이에요' : ''}</p>
+    <!-- 끝난 결과도 이 라이브 영역에 넣어 화면 낭독기가 읽게 한다. 계산 중에는 옛 결과를 그대로 보인다 -->
+    <p class="state" class:count={!pending && !!selection && !failed} role="status">
+      {pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
+    </p>
     {#if failed}
       <p class="err">미리 보기를 계산하지 못했어요</p>
     {:else if selection}
-      <p class="count">통과 {selection.passed}개 · 상위 {selection.picked.length}개</p>
+      {#if pending}<p class="count">{countText(selection)}</p>{/if}
       <ol>
         {#each selection.picked as p (p.symbol)}
           <li><span class="n">{names[p.symbol] ?? p.symbol}</span><span class="c num">{p.symbol}</span></li>

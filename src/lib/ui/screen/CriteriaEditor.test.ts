@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { UniverseItem } from '../../data/universe';
@@ -59,7 +59,9 @@ const open = async (title: string) => {
 };
 const runBtn = () => screen.getByRole('button', { name: '검증 실행' });
 
-beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+// 시계는 전부 가짜다(실제 시간에 기대지 않는다). 비동기 결과는 advanceTimersByTimeAsync로 흘려보낸 뒤 동기로 확인한다
+beforeEach(() => vi.useFakeTimers());
+const settle = () => vi.advanceTimersByTimeAsync(0);
 afterEach(() => {
   vi.useRealTimers();
   for (const a of apps) a.destroy();
@@ -262,7 +264,8 @@ describe('오늘 기준 미리 보기', () => {
     expect(preview).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(300);
     expect(preview).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('통과 25개 · 상위 10개')).toBeTruthy();
+    await settle();
+    expect(screen.getByText('통과 25개 · 상위 10개')).toBeTruthy();
     expect(screen.getByText('가온전자')).toBeTruthy();
     expect(screen.getByText('2026-10-15 기준')).toBeTruthy();
   });
@@ -273,13 +276,14 @@ describe('오늘 기준 미리 보기', () => {
     preview.mockClear();
     preview.mockResolvedValue({ ...selection(3), passed: 4 });
     await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' }));
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(200);
     await fireEvent.click(screen.getByRole('switch', { name: '변동성 사용' }));
-    await vi.advanceTimersByTimeAsync(250); // 첫 편집 기준으로는 400ms지만 둘째 편집이 시계를 다시 맞춘다
+    await vi.advanceTimersByTimeAsync(299);
     expect(preview).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(1);
     expect(preview).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('통과 4개 · 상위 3개')).toBeTruthy();
+    await settle();
+    expect(screen.getByText('통과 4개 · 상위 3개')).toBeTruthy();
     const sent = preview.mock.calls[0][0];
     expect(sent.criteria.conditions.marketCap.on).toBe(true);
     expect(sent.criteria.conditions.volatility.on).toBe(true);
@@ -304,7 +308,8 @@ describe('오늘 기준 미리 보기', () => {
     await vi.advanceTimersByTimeAsync(300);
     await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' }));
     await vi.advanceTimersByTimeAsync(300);
-    expect(await screen.findByText('통과 7개 · 상위 2개')).toBeTruthy();
+    await settle();
+    expect(screen.getByText('통과 7개 · 상위 2개')).toBeTruthy();
     first({ ...selection(1), passed: 99 });
     await vi.advanceTimersByTimeAsync(10);
     expect(screen.queryByText('통과 99개 · 상위 1개')).toBeNull();
@@ -315,7 +320,8 @@ describe('오늘 기준 미리 보기', () => {
     const preview = vi.fn().mockRejectedValueOnce(new PreviewError('crash')).mockRejectedValue(new PreviewError('cancelled'));
     setup({ preview });
     await vi.advanceTimersByTimeAsync(300);
-    expect(await screen.findByText('미리 보기를 계산하지 못했어요')).toBeTruthy();
+    await settle();
+    expect(screen.getByText('미리 보기를 계산하지 못했어요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' }));
     await vi.advanceTimersByTimeAsync(300);
     await vi.advanceTimersByTimeAsync(10);
@@ -347,6 +353,95 @@ describe('저장', () => {
     expect(app.criteria[0].name).toBe('내 기준');
     await fireEvent.input(name, { target: { value: '새 이름' } });
     await vi.advanceTimersByTimeAsync(500);
-    await waitFor(() => expect(app.criteria[0].name).toBe('새 이름'));
+    expect(app.criteria[0].name).toBe('새 이름');
   });
 });
+
+describe('접어도 틀린 값은 실행을 막는다', () => {
+  it('고를 개수에 31을 적고 구역을 접어도 실행은 막히고, 실행하면 구역을 열어 그 칸으로 간다', async () => {
+    const { onRun } = setup();
+    await open('고를 개수·정렬');
+    await fireEvent.input(screen.getByRole('textbox', { name: '고를 개수' }), { target: { value: '31' } });
+    await fireEvent.click(section('고를 개수·정렬')); // 접힘: 칸이 사라진다
+    expect(screen.queryByRole('textbox', { name: '고를 개수' })).toBeNull();
+    await fireEvent.click(runBtn());
+    expect(onRun).not.toHaveBeenCalled();
+    expect(section('고를 개수·정렬').getAttribute('aria-expanded')).toBe('true');
+    const take = screen.getByRole('textbox', { name: '고를 개수' }) as HTMLInputElement;
+    expect(take.value).toBe('31');
+    expect(take.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByRole('alert').textContent).toBe('1~30 사이로 적어 주세요');
+    expect(document.activeElement).toBe(take);
+  });
+
+  it('고치면 다시 실행된다(다시 펼친 칸에도 틀린 글이 남아 있다가 고치면 풀린다)', async () => {
+    const { onRun } = setup();
+    await open('고를 개수·정렬');
+    await fireEvent.input(screen.getByRole('textbox', { name: '고를 개수' }), { target: { value: '31' } });
+    await fireEvent.click(section('고를 개수·정렬'));
+    await fireEvent.click(section('고를 개수·정렬'));
+    const take = screen.getByRole('textbox', { name: '고를 개수' }) as HTMLInputElement;
+    expect(take.value).toBe('31');
+    await fireEvent.input(take, { target: { value: '9' } });
+    await fireEvent.click(section('고를 개수·정렬'));
+    await fireEvent.click(runBtn());
+    expect(onRun).toHaveBeenCalledTimes(1);
+    expect(onRun.mock.calls[0][0].rank.take).toBe(9);
+  });
+
+  it('직접 정하기 매수 칸의 틀린 값도 같은 방식으로 막는다', async () => {
+    const { onRun } = setup();
+    const drop = screen.getByRole('textbox', { name: '고점 대비 하락폭' });
+    await fireEvent.input(drop, { target: { value: '95' } });
+    await fireEvent.click(section('조건')); // 조건 구역 전체가 접힌다
+    await fireEvent.click(runBtn());
+    expect(onRun).not.toHaveBeenCalled();
+    const back = screen.getByRole('textbox', { name: '고점 대비 하락폭' }) as HTMLInputElement;
+    expect(back.value).toBe('95');
+    expect(document.activeElement).toBe(back);
+  });
+
+  it('전략에서 불러오기로 바꾸면 숨은 매수 칸의 틀린 값은 더 막지 않는다', async () => {
+    const { onRun } = setup({ strategies: ['눌림목'] });
+    await fireEvent.input(screen.getByRole('textbox', { name: '고점 대비 하락폭' }), { target: { value: '95' } });
+    await fireEvent.click(screen.getByRole('radio', { name: '전략에서 불러오기' }));
+    await fireEvent.click(runBtn());
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('미리 보기 옛 답', () => {
+  it('편집한 직후(0.3초 전)에 도착한 옛 답도 버린다', async () => {
+    let first!: (s: Selection) => void;
+    const preview = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<Selection>((r) => (first = r)))
+      .mockResolvedValue(selection(2));
+    setup({ preview });
+    await vi.advanceTimersByTimeAsync(300);
+    await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' })); // 타이머가 돌기 전
+    first({ ...selection(1), passed: 99 });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(screen.queryByText('통과 99개 · 상위 1개')).toBeNull();
+  });
+
+  it('끝난 결과 문구는 role=status 안에 있다', async () => {
+    setup();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(screen.getByRole('status').textContent).toBe('통과 25개 · 상위 10개');
+  });
+});
+
+describe('프로필 전환', () => {
+  it('저장 대기분은 다른 프로필에 쓰이지 않는다', async () => {
+    const { app } = setup();
+    await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' }));
+    const other = app.addProfile('다른');
+    app.switchProfile(other.id);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(app.criteria).toEqual([]);
+    app.switchProfile('p1');
+    expect(app.criteria[0].conditions.marketCap.on).toBe(false);
+  });
+});
+

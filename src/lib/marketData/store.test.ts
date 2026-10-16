@@ -137,6 +137,36 @@ describe('market data store', () => {
     expect((await store.info())?.stocks).toBe(30);
   });
 
+  it('failing the third put (sectors) rolls back all three keys', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const infoA = await store.info();
+    const dataA = await store.load();
+    const sectorsA = await store.sectors();
+    const real = IDBObjectStore.prototype.put;
+    let calls = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...a: [unknown, IDBValidKey?]) {
+      if (++calls === 3) throw new Error('boom');
+      return real.apply(this, a);
+    });
+    const j = JSON.parse(await decompress(file()));
+    j.collectedAt = '2026-11-01T09:00:00+09:00';
+    j.sectors = [...j.sectors].reverse();
+    const text = JSON.stringify(j);
+    await expect(store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy })).rejects.toThrow('boom');
+    vi.restoreAllMocks();
+    expect(await store.info()).toEqual(infoA);
+    expect(await store.load()).toEqual(dataA);
+    expect(await store.sectors()).toEqual(sectorsA);
+  });
+
+  it('clear() makes sectors() return an empty list', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    await store.clear();
+    expect(await store.sectors()).toEqual([]);
+  });
+
   it('sectors() returns only the sector list, without loading the file body', async () => {
     const store = openMarketData();
     expect(await store.sectors()).toEqual([]);

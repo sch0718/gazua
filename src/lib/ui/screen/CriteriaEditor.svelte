@@ -2,7 +2,7 @@
   // 선정 기준 편집(스펙 7.3): 접힌 6개 구역(조건만 처음부터 열림) + 미리 보기 + 맨 아래 실행 버튼.
   // 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다. 미리 보기는 0.3초 쉬면 다시 계산한다(Worker).
   import { onDestroy, onMount, tick, untrack } from 'svelte';
-  import { SvelteSet } from 'svelte/reactivity';
+  import { SvelteMap } from 'svelte/reactivity';
   import AddStockSheet from '../../../sheets/AddStockSheet.svelte';
   import { sharedUniverse } from '../../../sheets/universeSource';
   import type { UniverseItem } from '../../data/universe';
@@ -112,11 +112,17 @@
   const names = $derived(universe ? Object.fromEntries(universe.map((u) => [u.s, u.n])) : {});
 
   // ── 틀린 숫자 입력: 고칠 때까지 실행을 막는다 ──
-  const invalid = new SvelteSet<string>();
-  const inv = (key: string) => (bad: boolean) => {
-    if (bad) invalid.add(key);
-    else invalid.delete(key);
-  };
+  // 칸이 사라져도(구역이 접혀도) 틀린 글은 여기에 남는다. 칸은 다시 만들어질 때 이 글로 시작한다.
+  const invalid = new SvelteMap<string, string>();
+  const nf = (key: string) => ({
+    keepInvalid: true,
+    invalidText: invalid.get(key),
+    oninvalid: (bad: boolean, text: string) => {
+      if (bad) invalid.set(key, text);
+      else if (invalid.has(key)) invalid.delete(key);
+    },
+  });
+  const sectionOfInvalid = (key: string): Key => (key.startsWith('take') ? 'rank' : key === 'cap' || key === 'fee' ? 'period' : 'conditions');
 
   // ── 경고 ──
   const issues = $derived(criteriaIssues(draft, app.strategies));
@@ -157,6 +163,8 @@
     const has = info !== null;
     untrack(() => {
       clearTimeout(previewTimer);
+      previewSeq++; // 이미 나간 계산의 답은 이 편집보다 옛것이다
+      previewPending = has;
       if (has) previewTimer = setTimeout(runPreview, PREVIEW_MS);
     });
     return () => clearTimeout(previewTimer);
@@ -176,8 +184,11 @@
 
   async function run() {
     if (!info) return;
-    // 1) 틀린 숫자가 남은 칸: 그 칸으로
+    // 1) 틀린 숫자가 남은 칸: 구역을 열고 그 칸으로(접혀서 칸이 없어도 막는다)
     if (invalid.size > 0) {
+      const key = invalid.keys().next().value as string;
+      openKeys[sectionOfInvalid(key)] = true;
+      await tick();
       root.querySelector<HTMLElement>('input[aria-invalid="true"]')?.focus();
       return;
     }
@@ -272,6 +283,7 @@
       const first = app.strategies[0];
       if (!first) return;
       if (pattern.from === 'custom') customMemo = $state.snapshot(pattern.entry) as Strategy['entry'];
+      for (const k of [...invalid.keys()]) if (k.startsWith('entry-')) invalid.delete(k); // 숨는 매수 칸의 틀린 글은 버린다
       update((c) => {
         c.conditions.rebound.pattern = { from: 'strategy', strategyId: first.id };
       });
@@ -354,11 +366,11 @@
       {:else if key === 'conditions'}
         {@const k = draft.conditions}
         <ConditionRow label={CONDITION_LABEL.marketCap} help={CONDITION_HELP.marketCap} on={k.marketCap.on} ontoggle={(v) => update((c) => (c.conditions.marketCap.on = v))}>
-          <NumberField label="최소 시가총액" value={k.marketCap.minEok} min={0} max={EOK_MAX} suffix="억 원 이상" muted={!k.marketCap.on} keepInvalid oninvalid={inv('mc')} onchange={(v) => update((c) => (c.conditions.marketCap.minEok = v))} />
+          <NumberField label="최소 시가총액" value={k.marketCap.minEok} min={0} max={EOK_MAX} suffix="억 원 이상" muted={!k.marketCap.on} {...nf('mc')} onchange={(v) => update((c) => (c.conditions.marketCap.minEok = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.tradingValue} help={CONDITION_HELP.tradingValue} on={k.tradingValue.on} ontoggle={(v) => update((c) => (c.conditions.tradingValue.on = v))}>
-          <NumberField label="평균 거래대금 기간" value={k.tradingValue.days} min={1} max={250} step={1} suffix="일 평균" muted={!k.tradingValue.on} keepInvalid oninvalid={inv('tv-d')} onchange={(v) => update((c) => (c.conditions.tradingValue.days = v))} />
-          <NumberField label="최소 평균 거래대금" value={k.tradingValue.minEok} min={0} max={EOK_MAX} suffix="억 원 이상" muted={!k.tradingValue.on} keepInvalid oninvalid={inv('tv-m')} onchange={(v) => update((c) => (c.conditions.tradingValue.minEok = v))} />
+          <NumberField label="평균 거래대금 기간" value={k.tradingValue.days} min={1} max={250} step={1} suffix="일 평균" muted={!k.tradingValue.on} {...nf('tv-d')} onchange={(v) => update((c) => (c.conditions.tradingValue.days = v))} />
+          <NumberField label="최소 평균 거래대금" value={k.tradingValue.minEok} min={0} max={EOK_MAX} suffix="억 원 이상" muted={!k.tradingValue.on} {...nf('tv-m')} onchange={(v) => update((c) => (c.conditions.tradingValue.minEok = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.leader} help={CONDITION_HELP.leader} on={k.leader.on} ontoggle={(v) => update((c) => (c.conditions.leader.on = v))}>
           <Segmented
@@ -371,15 +383,15 @@
               { value: '2', label: '중분류' },
             ]}
           />
-          <NumberField label="최대 순위" value={k.leader.maxRank} min={1} max={100} step={1} suffix="위 이내" muted={!k.leader.on} keepInvalid oninvalid={inv('ld')} onchange={(v) => update((c) => (c.conditions.leader.maxRank = v))} />
+          <NumberField label="최대 순위" value={k.leader.maxRank} min={1} max={100} step={1} suffix="위 이내" muted={!k.leader.on} {...nf('ld')} onchange={(v) => update((c) => (c.conditions.leader.maxRank = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.returnRange} help={CONDITION_HELP.returnRange} on={k.returnRange.on} ontoggle={(v) => update((c) => (c.conditions.returnRange.on = v))}>
-          <NumberField label="수익률 기간" value={k.returnRange.days} min={1} max={250} step={1} suffix="일" muted={!k.returnRange.on} keepInvalid oninvalid={inv('rr-d')} onchange={(v) => update((c) => (c.conditions.returnRange.days = v))} />
-          <NumberField label="최소 수익률" value={k.returnRange.minPct} min={-100} max={1000} suffix="% 이상" muted={!k.returnRange.on} keepInvalid oninvalid={inv('rr-a')} onchange={(v) => update((c) => (c.conditions.returnRange.minPct = v))} />
-          <NumberField label="최대 수익률" value={k.returnRange.maxPct} min={-100} max={1000} suffix="% 이하" muted={!k.returnRange.on} keepInvalid oninvalid={inv('rr-b')} onchange={(v) => update((c) => (c.conditions.returnRange.maxPct = v))} />
+          <NumberField label="수익률 기간" value={k.returnRange.days} min={1} max={250} step={1} suffix="일" muted={!k.returnRange.on} {...nf('rr-d')} onchange={(v) => update((c) => (c.conditions.returnRange.days = v))} />
+          <NumberField label="최소 수익률" value={k.returnRange.minPct} min={-100} max={1000} suffix="% 이상" muted={!k.returnRange.on} {...nf('rr-a')} onchange={(v) => update((c) => (c.conditions.returnRange.minPct = v))} />
+          <NumberField label="최대 수익률" value={k.returnRange.maxPct} min={-100} max={1000} suffix="% 이하" muted={!k.returnRange.on} {...nf('rr-b')} onchange={(v) => update((c) => (c.conditions.returnRange.maxPct = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.vsMa} help={CONDITION_HELP.vsMa} on={k.vsMa.on} ontoggle={(v) => update((c) => (c.conditions.vsMa.on = v))}>
-          <NumberField label="이동평균 기간" value={k.vsMa.period} min={2} max={250} step={1} suffix="일선" muted={!k.vsMa.on} keepInvalid oninvalid={inv('ma')} onchange={(v) => update((c) => (c.conditions.vsMa.period = v))} />
+          <NumberField label="이동평균 기간" value={k.vsMa.period} min={2} max={250} step={1} suffix="일선" muted={!k.vsMa.on} {...nf('ma')} onchange={(v) => update((c) => (c.conditions.vsMa.period = v))} />
           <Segmented
             onSurface
             label="이동평균 기준"
@@ -392,15 +404,15 @@
           />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.fromHigh} help={CONDITION_HELP.fromHigh} on={k.fromHigh.on} ontoggle={(v) => update((c) => (c.conditions.fromHigh.on = v))}>
-          <NumberField label="최소 하락폭" value={k.fromHigh.minPct} min={0} max={100} suffix="% 이상" muted={!k.fromHigh.on} keepInvalid oninvalid={inv('fh-a')} onchange={(v) => update((c) => (c.conditions.fromHigh.minPct = v))} />
-          <NumberField label="최대 하락폭" value={k.fromHigh.maxPct} min={0} max={100} suffix="% 이하" muted={!k.fromHigh.on} keepInvalid oninvalid={inv('fh-b')} onchange={(v) => update((c) => (c.conditions.fromHigh.maxPct = v))} />
+          <NumberField label="최소 하락폭" value={k.fromHigh.minPct} min={0} max={100} suffix="% 이상" muted={!k.fromHigh.on} {...nf('fh-a')} onchange={(v) => update((c) => (c.conditions.fromHigh.minPct = v))} />
+          <NumberField label="최대 하락폭" value={k.fromHigh.maxPct} min={0} max={100} suffix="% 이하" muted={!k.fromHigh.on} {...nf('fh-b')} onchange={(v) => update((c) => (c.conditions.fromHigh.maxPct = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.volatility} help={CONDITION_HELP.volatility} on={k.volatility.on} ontoggle={(v) => update((c) => (c.conditions.volatility.on = v))}>
-          <NumberField label="변동성 기간" value={k.volatility.days} min={2} max={250} step={1} suffix="일" muted={!k.volatility.on} keepInvalid oninvalid={inv('vo-d')} onchange={(v) => update((c) => (c.conditions.volatility.days = v))} />
-          <NumberField label="최대 변동성" value={k.volatility.maxPct} min={0} max={100} suffix="% 이하" muted={!k.volatility.on} keepInvalid oninvalid={inv('vo-m')} onchange={(v) => update((c) => (c.conditions.volatility.maxPct = v))} />
+          <NumberField label="변동성 기간" value={k.volatility.days} min={2} max={250} step={1} suffix="일" muted={!k.volatility.on} {...nf('vo-d')} onchange={(v) => update((c) => (c.conditions.volatility.days = v))} />
+          <NumberField label="최대 변동성" value={k.volatility.maxPct} min={0} max={100} suffix="% 이하" muted={!k.volatility.on} {...nf('vo-m')} onchange={(v) => update((c) => (c.conditions.volatility.maxPct = v))} />
         </ConditionRow>
         <ConditionRow label={CONDITION_LABEL.rebound} help={CONDITION_HELP.rebound} on={k.rebound.on} ontoggle={(v) => update((c) => (c.conditions.rebound.on = v))}>
-          <NumberField label="반등 확인 기간" value={k.rebound.withinDays} min={1} max={60} step={1} suffix="거래일 이내" muted={!k.rebound.on} keepInvalid oninvalid={inv('rb')} onchange={(v) => update((c) => (c.conditions.rebound.withinDays = v))} />
+          <NumberField label="반등 확인 기간" value={k.rebound.withinDays} min={1} max={60} step={1} suffix="거래일 이내" muted={!k.rebound.on} {...nf('rb')} onchange={(v) => update((c) => (c.conditions.rebound.withinDays = v))} />
           <Segmented
             wide
             onSurface
@@ -430,7 +442,7 @@
               {/each}
             </select>
           {:else if entryHost}
-            <EntrySection s={entryHost} update={updateEntry} />
+            <EntrySection s={entryHost} update={updateEntry} nf={(k) => nf(`entry-${k}`)} />
           {/if}
         </ConditionRow>
       {:else if key === 'rank'}
@@ -449,7 +461,7 @@
         />
         <p class="hint">조건을 통과한 종목을 이 순서로 줄 세워 위에서부터 골라요. 같으면 종목코드 순이에요.</p>
         <div class="row">
-          <NumberField label="고를 개수" value={draft.rank.take} min={1} max={TAKE_MAX} step={1} suffix="개" keepInvalid oninvalid={inv('take')} onchange={(v) => update((c) => (c.rank.take = v))} />
+          <NumberField label="고를 개수" value={draft.rank.take} min={1} max={TAKE_MAX} step={1} suffix="개" {...nf('take')} onchange={(v) => update((c) => (c.rank.take = v))} />
         </div>
       {:else if key === 'period'}
         <Segmented
@@ -475,10 +487,10 @@
           </label>
         </div>
         <div class="row">
-          <NumberField label="처음 자금" value={draft.capital} min={1} max={MAX_INITIAL} step={1} suffix="원" format="won" keepInvalid oninvalid={inv('cap')} onchange={(v) => update((c) => (c.capital = v))} />
+          <NumberField label="처음 자금" value={draft.capital} min={1} max={MAX_INITIAL} step={1} suffix="원" format="won" {...nf('cap')} onchange={(v) => update((c) => (c.capital = v))} />
         </div>
         <div class="row">
-          <NumberField label="수수료" value={draft.costs.feePct} min={0} max={1} suffix="% (사고팔 때 각각)" keepInvalid oninvalid={inv('fee')} onchange={(v) => update((c) => (c.costs.feePct = v))} />
+          <NumberField label="수수료" value={draft.costs.feePct} min={0} max={1} suffix="% (사고팔 때 각각)" {...nf('fee')} onchange={(v) => update((c) => (c.costs.feePct = v))} />
         </div>
       {:else if key === 'benchmarks'}
         <p class="hint">① 선정만 보유한 결과를 아래 지수·종목과 견줘요.</p>

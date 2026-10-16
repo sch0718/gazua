@@ -21,6 +21,7 @@
     namePrefixId,
     oninvalid,
     keepInvalid = false,
+    invalidText,
   }: {
     label: string;
     value: number;
@@ -39,9 +40,11 @@
     /** 입력 이름 앞에 붙일 요소 id(예: 익절 `1단계` 제목 → `1단계 목표`). 보이는 라벨은 그대로 */
     namePrefixId?: string;
     /** 틀린 입력 상태가 바뀔 때(처음 포함) 알린다. 화면이 실행을 막는 데 쓴다 */
-    oninvalid?: (bad: boolean) => void;
+    oninvalid?: (bad: boolean, text: string) => void;
     /** true면 칸을 떠나도 틀린 입력과 오류를 그대로 둔다(고칠 때까지 실행을 막는 화면용). 기본은 저장값으로 되돌린다 */
     keepInvalid?: boolean;
+    /** 처음 보일 틀린 입력(칸이 다시 만들어질 때 화면이 들고 있던 글을 되살린다). 오류와 함께 보인다 */
+    invalidText?: string;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
@@ -52,8 +55,8 @@
 
   let focused = $state(false);
   const show = (v: number) => (won && !focused ? fmtWon(v) : String(v));
-  let text = $state(untrack(() => show(value)));
-  let bad = $state(false);
+  let text = $state(untrack(() => invalidText ?? show(value)));
+  let bad = $state(untrack(() => invalidText !== undefined));
   let inputEl: HTMLInputElement;
   // 금액 힌트(`= 1억 2,000만 원`)는 만 원 단위일 때만. 아니면 값과 같은 글이라 숨긴다
   const showMoney = $derived(won && !bad && value % 10_000 === 0);
@@ -106,10 +109,12 @@
     text = show(value);
   }
 
+  // keepInvalid면 칸이 사라져도(구역이 접혀도) 틀린 상태는 화면이 들고 있어야 하므로 지우지 않는다
   $effect(() => {
     const b = bad;
-    untrack(() => oninvalid?.(b));
-    return () => untrack(() => oninvalid?.(false));
+    const t = text;
+    untrack(() => oninvalid?.(b, t));
+    if (!keepInvalid) return () => untrack(() => oninvalid?.(false, ''));
   });
 </script>
 
