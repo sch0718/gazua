@@ -388,4 +388,30 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
     expect(rn.notes).toContain('macroGap');
     expect(rn.rebalances[5].passed).toBe(0);
   });
+
+  it("정렬이 macroBeta인데 그 계열이 비었으면 'macroGap'", () => {
+    const rank = crit((c) => (c.rank = { by: 'macroBeta', take: 5, series: 'wti' }));
+    expect(run(rank).notes).not.toContain('macroGap');
+    const empty = structuredClone(v2);
+    empty.macro.wti = { d: [], v: [] };
+    expect(run(rank, [], empty).notes).toContain('macroGap');
+    // 다른 계열이 빈 것은 상관없다
+    const other = structuredClone(v2);
+    other.macro.usdkrw = { d: [], v: [] };
+    expect(run(rank, [], other).notes).not.toContain('macroGap');
+  });
+
+  it("민감도를 켰는데 계열은 있어도 후보 전체의 β가 없는 재선정일(워밍업)이 있으면 'macroGap'", () => {
+    // 봉은 2024-10-16부터라 2025-06 재선정일에는 공개된 쌍이 250개에 못 미친다
+    const warm = crit((c) => {
+      c.period = { from: '2025-06-02', to: '2026-10-15' };
+      c.conditions.tradingValue.on = false;
+      c.conditions.macro.betaDays = 250;
+      c.conditions.macro.usdkrw.beta = { on: true, min: -20, max: 20 };
+    });
+    const r = run(warm);
+    expect(r.rebalances[0].passed).toBe(0);
+    expect(r.rebalances.at(-1)!.passed).toBeGreaterThan(0);
+    expect(r.notes).toContain('macroGap');
+  });
 });

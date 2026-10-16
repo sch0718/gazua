@@ -10,7 +10,7 @@ import { holdSelection, type HoldSegment } from './holdSelection';
 import { lastKnown, trendAt } from './macro';
 import { beatCount, curveStats } from './metrics';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
-import { selectAt, type Selection } from './select';
+import { betaMissingAt, selectAt, type Selection } from './select';
 import type { MacroSeriesKey, Market, SelectionCriteria } from './types';
 import { strategyRuleIssues } from './validate';
 
@@ -120,14 +120,21 @@ function todaySelection(pre: Precomputed, criteria: SelectionCriteria, baskets: 
 
 const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
 
-// 켠 환율·유가 조건의 계열 값이 p에 없는가: 계열이 비었거나 p까지 공개된 값이 없거나, 흐름을 켰는데 계산할 수 없다
-function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, p: string): boolean {
+/**
+ * 재선정일 d(전 거래일 p)에 쓰는 환율·유가 값이 없는가.
+ * - 조건을 켰거나 정렬에 쓰는 계열이 비었거나 p까지 공개된 값이 없다
+ * - 흐름을 켰는데 계산할 수 없다
+ * - 민감도를 켰는데 계열은 있어도 후보 전체의 β가 없다(앞부분 워밍업·구멍)
+ */
+function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, d: string, p: string, baskets: Basket[]): boolean {
   return MACRO_KEYS.some((key) => {
     const m = criteria.conditions.macro[key];
-    if (!m.beta.on && !m.trend.on) return false;
+    const ranked = criteria.rank.by === 'macroBeta' && (criteria.rank.series ?? 'usdkrw') === key;
+    if (!m.beta.on && !m.trend.on && !ranked) return false;
     const s = pre.macro[key];
     if (s.d.length === 0 || lastKnown(s.known, p) < 0) return true;
-    return m.trend.on && Number.isNaN(trendAt(s, p, m.trend.lookback));
+    if (m.trend.on && Number.isNaN(trendAt(s, p, m.trend.lookback))) return true;
+    return m.beta.on && betaMissingAt(d, pre, criteria, key, baskets);
   });
 }
 
@@ -183,7 +190,7 @@ export function runValidation(
     MARKET_POOLS.forEach((m, k) => byPool[k].push(selectAt(d, pre, criteria, m.pool, baskets)));
     const ai = fullAxis.indexOf(d);
     if (ai > 0 && sparseAt(pre, criteria, fullAxis[ai - 1])) sparse = true;
-    if (ai > 0 && macroGapAt(pre, criteria, fullAxis[ai - 1])) macroGap = true;
+    if (ai > 0 && !macroGap && macroGapAt(pre, criteria, d, fullAxis[ai - 1], baskets)) macroGap = true;
     onProgress?.(i + 1, dates.length);
   }
   if (isCancelled?.()) return { cancelled: true };

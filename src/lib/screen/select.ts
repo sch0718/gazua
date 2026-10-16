@@ -60,6 +60,59 @@ function lowerBound(a: string[], x: string): number {
 
 const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
+type PoolOverride = Pick<SelectionCriteria['pool'], 'markets' | 'types'>;
+type BasketRef = Pick<Basket, 'id' | 'symbols'>;
+
+/** d의 전 거래일 p와 종목별 p 봉 인덱스. 그 종목의 d 전 마지막 봉이 축의 전 거래일이 아니면 -1 */
+function barsAt(d: string, pre: Precomputed): { prevDay: string; pIdx: number[] } | null {
+  const ai = lowerBound(pre.axis, d);
+  if (ai === 0) return null;
+  const prevDay = pre.axis[ai - 1];
+  const pIdx = pre.stocks.map((st) => {
+    const i = lowerBound(st.d, d) - 1;
+    return i >= 0 && st.d[i] === prevDay ? i : -1;
+  });
+  return { prevDay, pIdx };
+}
+
+/** 후보 범위(스펙 4.1): 시장·종류·관리종목 AND (업종 ∪ 테마 종목 ∪ 묶음 종목). 데이터에 없는 테마·지워진 묶음은 빈 것 */
+function poolFilter(pre: Precomputed, c: SelectionCriteria, poolOverride: PoolOverride | undefined, baskets: BasketRef[]) {
+  const pool = { ...c.pool, ...poolOverride };
+  // 업종 코드를 (레벨, 이름) 묶음 키로 바꾼다. 목록에 없는 코드는 코드 그대로. 저장된 코드 하나가 그 묶음 전체를 고른다
+  const group = (code: string): string => pre.sectorKey.get(code) ?? `#${code}`;
+  const wanted = new Set(pool.sectors.filter((x) => x !== '').map(group));
+  const restricted = pool.sectors.length > 0 || pool.themes.length > 0 || pool.baskets.length > 0;
+  const listed = new Set<string>();
+  for (const t of pool.themes) for (const x of pre.themes.get(t) ?? []) listed.add(x);
+  for (const id of pool.baskets) for (const x of baskets.find((b) => b.id === id)?.symbols ?? []) listed.add(x);
+  const inSector = (st: StockSeries): boolean =>
+    (st.sec[0] !== '' && wanted.has(group(st.sec[0]))) || (st.sec[1] !== '' && wanted.has(group(st.sec[1])));
+  return {
+    group,
+    has: (st: StockSeries): boolean =>
+      SELECTABLE.includes(st.t) &&
+      pool.markets.includes(st.m) &&
+      pool.types.includes(st.t as 'STOCK' | 'ETF') &&
+      !(pool.excludeManaged && (st.managed || st.halted)) &&
+      (!restricted || inSector(st) || listed.has(st.s)),
+  };
+}
+
+/** 재선정일 d에 후보 범위의 종목(p에 봉이 있는)이 있는데 모두 그 계열 β가 없는가. 후보가 없으면 false */
+export function betaMissingAt(d: string, pre: Precomputed, c: SelectionCriteria, key: MacroSeriesKey, baskets: BasketRef[] = []): boolean {
+  const at = barsAt(d, pre);
+  if (!at || pre.params.betaDays == null) return false;
+  const { has } = poolFilter(pre, c, undefined, baskets);
+  let any = false;
+  for (let j = 0; j < pre.stocks.length; j++) {
+    const st = pre.stocks[j];
+    if (at.pIdx[j] < 0 || !has(st)) continue;
+    if (!Number.isNaN(betaAt(pre, st, key, at.prevDay, at.pIdx[j]))) return false;
+    any = true;
+  }
+  return any;
+}
+
 /**
  * 재선정일 d의 선별(스펙 6.1). 모든 값은 축의 전 거래일 p의 봉까지만 쓴다.
  * 순서: 후보 범위 → 조건 → 정렬 → 상위 take
@@ -68,35 +121,18 @@ export function selectAt(
   d: string,
   pre: Precomputed,
   c: SelectionCriteria,
-  poolOverride?: Pick<SelectionCriteria['pool'], 'markets' | 'types'>,
-  baskets: Pick<Basket, 'id' | 'symbols'>[] = [],
+  poolOverride?: PoolOverride,
+  baskets: BasketRef[] = [],
 ): Selection {
   assertMatches(pre, c);
-  const ai = lowerBound(pre.axis, d);
-  if (ai === 0) return { date: d, passed: 0, picked: [] };
-  const prevDay = pre.axis[ai - 1];
-
-  // 종목별 p: 그 종목의 d 전 마지막 봉. 그 봉이 축의 전 거래일이 아니면 p에 봉이 없다(-1)
-  const pIdx = pre.stocks.map((st) => {
-    const i = lowerBound(st.d, d) - 1;
-    return i >= 0 && st.d[i] === prevDay ? i : -1;
-  });
+  const at = barsAt(d, pre);
+  if (!at) return { date: d, passed: 0, picked: [] };
+  const { prevDay, pIdx } = at;
   const mcap = (j: number): number => pre.stocks[j].close[pIdx[j]] * pre.stocks[j].shares;
 
   const k = c.conditions;
-  // 업종 코드를 (레벨, 이름) 묶음 키로 바꾼다. 목록에 없는 코드는 코드 그대로
-  const group = (code: string): string => pre.sectorKey.get(code) ?? `#${code}`;
+  const { group, has: inPool } = poolFilter(pre, c, poolOverride, baskets);
   const leaderRank = k.leader.on ? rankLeaders(pre.stocks, pIdx, mcap, k.leader.level, group) : null;
-  const pool = { ...c.pool, ...poolOverride };
-  // 저장된 코드 하나가 그 묶음 전체를 고른다
-  const wanted = new Set(pool.sectors.filter((x) => x !== '').map(group));
-  // 합집합 후보 범위(스펙 4.1): 업종 ∪ 테마 종목 ∪ 묶음 종목. 데이터에 없는 테마·지워진 묶음은 빈 것
-  const restricted = pool.sectors.length > 0 || pool.themes.length > 0 || pool.baskets.length > 0;
-  const listed = new Set<string>();
-  for (const t of pool.themes) for (const x of pre.themes.get(t) ?? []) listed.add(x);
-  for (const id of pool.baskets) for (const x of baskets.find((b) => b.id === id)?.symbols ?? []) listed.add(x);
-  const inSector = (st: StockSeries): boolean =>
-    (st.sec[0] !== '' && wanted.has(group(st.sec[0]))) || (st.sec[1] !== '' && wanted.has(group(st.sec[1])));
   // 계열 흐름은 종목과 무관하다. p에서 공개된 관측값끼리 한 번 계산한다(스펙 3.2)
   const trend: Record<MacroSeriesKey, number> = { usdkrw: NaN, wti: NaN };
   for (const key of MACRO_KEYS) {
@@ -110,10 +146,7 @@ export function selectAt(
   pre.stocks.forEach((st, j) => {
     const p = pIdx[j];
     if (p < 0) return;
-    // 후보 범위
-    if (!SELECTABLE.includes(st.t) || !pool.markets.includes(st.m) || !pool.types.includes(st.t as 'STOCK' | 'ETF')) return;
-    if (pool.excludeManaged && (st.managed || st.halted)) return;
-    if (restricted && !(inSector(st) || listed.has(st.s))) return;
+    if (!inPool(st)) return;
 
     // 조건(AND)
     const values: Selection['picked'][number]['values'] = {};

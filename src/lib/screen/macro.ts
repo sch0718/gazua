@@ -53,7 +53,7 @@ const VAR_EPS = 1e-12;
  * 롤링 β. i번 값은 i번 봉에서 끝나는 창(쌍 i−betaDays+1..i)의 OLS 기울기 cov(r, x) / var(x).
  * 쌍 i는 r = c_i / c_{i−1} − 1, x = a_i / a_{i−1} − 1. a는 봉마다 짝지은 계열 값(없으면 NaN).
  * 두 계열 값이 모두 0보다 크고 변화율이 유한한 쌍만 쓴다. 창이 다 차기 전(i < betaDays),
- * 쓸 수 있는 쌍이 betaDays × 0.8개보다 적거나 분산이 0이면 NaN.
+ * 쓸 수 있는 쌍이 betaDays × 0.8개보다 적거나, x ≠ 0인 쌍이 2개보다 적거나, 분산이 0이면 NaN.
  */
 export function rollingBeta(close: number[], a: ArrayLike<number>, betaDays: number): Float64Array {
   const n = close.length;
@@ -70,6 +70,7 @@ export function rollingBeta(close: number[], a: ArrayLike<number>, betaDays: num
   }
   const min = betaDays * 0.8;
   let cnt = 0;
+  let moving = 0; // 창 안에서 x ≠ 0인 쌍 수
   let sx = 0;
   let sr = 0;
   let sxr = 0;
@@ -77,6 +78,7 @@ export function rollingBeta(close: number[], a: ArrayLike<number>, betaDays: num
   for (let i = 0; i < n; i++) {
     if (!Number.isNaN(xs[i])) {
       cnt++;
+      if (xs[i] !== 0) moving++;
       sx += xs[i];
       sr += rs[i];
       sxr += xs[i] * rs[i];
@@ -85,14 +87,16 @@ export function rollingBeta(close: number[], a: ArrayLike<number>, betaDays: num
     const o = i - betaDays;
     if (o >= 1 && !Number.isNaN(xs[o])) {
       cnt--;
+      if (xs[o] !== 0) moving--;
       sx -= xs[o];
       sr -= rs[o];
       sxr -= xs[o] * rs[o];
       sxx -= xs[o] * xs[o];
     }
-    // 창이 비면 쌓인 오차를 버린다
+    // 창이 비면 쌓인 오차를 버린다. x가 모두 0이면 x가 든 합은 정확히 0이다
     if (cnt === 0) sx = sr = sxr = sxx = 0;
-    if (i < betaDays || cnt < min) continue;
+    if (moving === 0) sx = sxr = sxx = 0;
+    if (i < betaDays || cnt < min || moving < 2) continue;
     const vx = sxx - (sx * sx) / cnt;
     if (!(sxx > 0) || !(vx > sxx * VAR_EPS)) continue;
     out[i] = (sxr - (sx * sr) / cnt) / vx;
@@ -113,15 +117,19 @@ export function lastKnown(known: string[], p: string): number {
 }
 
 /**
- * i*(p): 0..hi 봉 가운데 쌍에 쓴 관측값 a(t_i)의 knownFrom이 p 이하인 마지막 봉. 없으면 -1.
- * 짝지은 관측값이 없는 앞부분(-1)은 β가 없으므로 쓸 수 있는 쪽으로 센다(앞에서부터 이어진 구간).
+ * i*(p): 0..hi 봉 가운데 p에서 쌍이 확정된 마지막 봉. 없으면 -1.
+ * 봉 i의 a(t_i)는 "t_i보다 앞선 마지막 관측값"이라, 그다음 관측값(idx[i] + 1)이 공개돼야
+ * 그 사이에 다른 관측값이 없다는 것까지 안다. 그래서 다음 관측값의 knownFrom ≤ p여야 쓴다.
+ * 계열이 봉보다 일찍 끝나면 마지막 관측값과 짝지은 봉은 끝내 쓰지 않는다.
+ * idx와 knownFrom이 비내림차순이라 조건은 앞에서부터 이어진 구간이다.
  */
 export function lastUsablePair(idx: Int32Array, known: string[], p: string, hi: number): number {
   let lo = 0;
   let h = hi + 1;
   while (lo < h) {
     const mid = (lo + h) >> 1;
-    if (idx[mid] < 0 || known[idx[mid]] <= p) lo = mid + 1;
+    const next = idx[mid] + 1;
+    if (next < known.length && known[next] <= p) lo = mid + 1;
     else h = mid;
   }
   return lo - 1;

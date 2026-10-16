@@ -534,7 +534,7 @@ describe('selectAt: 환율 β는 관측일로 짝짓고 공개 시점으로 자�
     expect(olsSlope(rs, xs)).toBeLessThan(0);
   });
 
-  it('i*(p): β 창의 끝은 a(t_i)의 knownFrom ≤ p인 마지막 봉이다(p의 봉이 아니다)', () => {
+  it('i*(p): β 창의 끝은 a(t_i) 다음 관측값의 knownFrom ≤ p인 마지막 봉이다(p의 봉이 아니다)', () => {
     const r = lcg(3);
     const obs = usWeekdays('2024-11-01', 400);
     let x = 1300;
@@ -551,8 +551,9 @@ describe('selectAt: 환율 β는 관측일로 짝짓고 공개 시점으로 자�
       const p = j - 1;
       let iStar = -1;
       for (let i = 0; i <= p; i++) {
+        // a(t_i)가 확정되려면 그다음 관측값까지 공개돼야 한다
         const k = obsBefore(obs, ymd(DATES[i]));
-        if (k < 0 || macroKnownFrom('usdkrw', obs[k]) <= DATES[p]) iStar = i;
+        if (k + 1 < obs.length && macroKnownFrom('usdkrw', obs[k + 1]) <= DATES[p]) iStar = i;
       }
       expect(iStar).toBeLessThan(p);
       const got = selectAt(DATES[j], pre, c).picked[0].values.usdkrwBeta;
@@ -773,6 +774,7 @@ describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
     expect(selectAt(D, precompute(mkFile(stocks(), N), c, null), c).passed).toBe(0);
   });
 
+  // 기대값은 4단계 전 코드(fb4f0f8)로 만들었다
   it('회귀: 업종만 고른 기존 기준은 이 단계 전 결과와 같다(데모 데이터)', () => {
     const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile;
     const baseline = JSON.parse(readFileSync('tests/fixtures/select-sector-baseline.json', 'utf8')) as Record<string, unknown>;
@@ -786,6 +788,8 @@ describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
         (c) => ((c.pool.sectors = ['00005', '11027']), (c.rank.by = 'return'), (c.conditions.returnRange = { on: true, days: 20, minPct: -10, maxPct: 10 })),
       ],
       ['sectors with ETF', (c) => ((c.pool.types = ['STOCK', 'ETF']), (c.pool.sectors = ['00013', '11027']), (c.rank.by = 'tradingValue'))],
+      ['sectors leader level 2', (c) => ((c.pool.sectors = ['00013', '11028']), (c.conditions.leader = { on: true, level: 2, maxRank: 3 }))],
+      ['sectors keep managed', (c) => ((c.pool.sectors = ['00013', '00005', '11028']), (c.pool.excludeManaged = false))],
     ];
     const pools = [undefined, { markets: ['KOSPI'], types: ['STOCK'] }, { markets: ['KOSDAQ'], types: ['STOCK'] }, { markets: ['KOSPI', 'KOSDAQ'], types: ['ETF'] }] as const;
     expect(Object.keys(baseline)).toEqual(cases.map((x) => x[0]));
@@ -841,6 +845,17 @@ describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터
     return g;
   };
 
+  /** p 이후 봉을 자르고, 계열은 p까지 공개된 관측값(knownFrom ≤ p)만 남긴다. 그날 실제로 알 수 있던 것 전부다 */
+  const truncatePublished = (p: string): MarketDataFileV2 => {
+    const g = truncate(p);
+    for (const key of KEYS) {
+      const s = fixture.macro[key];
+      const n = s.d.filter((o) => macroKnownFrom(key, o) <= p).length;
+      g.macro[key] = { d: s.d.slice(0, n), v: s.v.slice(0, n) };
+    }
+    return g;
+  };
+
   const variants: [string, (c: SelectionCriteria) => void][] = [
     ['원/달러 β 수혜', (c) => betaOn(c, 'usdkrw', 0.3, 5)],
     ['원/달러 β 피해', (c) => betaOn(c, 'usdkrw', -5, -0.3)],
@@ -851,7 +866,7 @@ describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터
     ['정렬 WTI β', (c) => (c.rank = { by: 'macroBeta', take: 5, series: 'wti' })],
   ];
 
-  it.each(variants)('%s: knownFrom > p인 관측값을 극단값으로 바꾸거나 p 이후를 잘라도 결과가 같다', (name, patch) => {
+  it.each(variants)('%s: knownFrom > p인 관측값을 극단값으로 바꾸거나, p 이후를 자르거나, 공개된 관측값만 남겨도 결과가 같다', (name, patch) => {
     const c = offCriteria();
     c.pool.types = ['STOCK', 'ETF'];
     patch(c);
@@ -870,6 +885,7 @@ describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터
         expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
       }
       expect(selectAt(d, precompute(truncate(p), c, null), c), `${d} 자름`).toEqual(base);
+      expect(selectAt(d, precompute(truncatePublished(p), c, null), c), `${d} 공개분만`).toEqual(base);
     }
     // 관측일은 p보다 앞서지만 아직 공개되지 않은 값도 바꿨다
     expect(earlier).toBeGreaterThan(dates.length);

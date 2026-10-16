@@ -5,7 +5,7 @@ import { createPatternTracker } from '../sim/pattern';
 import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
-import { macroKnownFrom, rollingBeta } from './macro';
+import { lastUsablePair, macroKnownFrom, rollingBeta } from './macro';
 import { DATES, lcg, mkFile, mkFileV2, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, ymd } from './testData';
 
 describe('tradingAxis', () => {
@@ -246,15 +246,38 @@ describe('rollingBeta: 누적합 롤링 β(스펙 3.1·3.4)', () => {
     expect(b[34]).toBeCloseTo(2, 9);
   });
 
+  it('움직이다가 betaDays 이상 평평하면(창 안 x가 모두 0) NaN. 누적합 찌꺼기로 β를 만들지 않는다', () => {
+    const r = lcg(1);
+    const n = 600;
+    const a: number[] = [];
+    const c: number[] = [];
+    let x = 1300;
+    let y = 1e4;
+    for (let i = 0; i < n; i++) {
+      if (i < 300) x *= 1 + (r() - 0.5) * 0.02;
+      y *= 1 + (r() - 0.5) * 0.06;
+      a.push(x);
+      c.push(y);
+    }
+    for (const days of [30, 60, 120, 250]) {
+      const b = rollingBeta(c, a, days);
+      expect(Number.isFinite(b[299]), `${days}일 평평하기 전`).toBe(true);
+      for (let i = 300 + days; i < n; i++) expect(b[i], `${days}일 봉 ${i}`).toBeNaN();
+    }
+    // 창 안에 움직인 쌍이 하나뿐이어도 NaN(기울기를 정할 수 없다)
+    const one = rollingBeta(c, a, 30);
+    expect(one[300 + 28]).toBeNaN();
+  });
+
   it('계열 변화가 모두 0이면(분산 0) NaN', () => {
     const a = Array(50).fill(1000);
     const b = rollingBeta(follow(altSeries(50), 2), a, 30);
     expect([...b].every(Number.isNaN)).toBe(true);
   });
 
-  it('임의 데이터 200일: 롤링 β가 창마다 직접 계산한 값과 1e-9 안에서 같다', () => {
+  it('임의 데이터 260일(betaDays보다 긴 구멍 포함): 롤링 β가 창마다 직접 계산한 값과 1e-9 안에서 같다', () => {
     const r = lcg(42);
-    const n = 200;
+    const n = 260;
     const a: number[] = [];
     const c: number[] = [];
     let x = 1300;
@@ -262,7 +285,8 @@ describe('rollingBeta: 누적합 롤링 β(스펙 3.1·3.4)', () => {
     for (let i = 0; i < n; i++) {
       x *= 1 + (r() - 0.5) * 0.02;
       y *= 1 + (r() - 0.5) * 0.06;
-      a.push(i >= 100 && i <= 108 ? NaN : i === 150 ? -5 : i === 170 ? 0 : x);
+      // 100~108: 짧은 구멍(쌍 부족), 180~220: betaDays보다 긴 구멍(창이 완전히 비었다가 다시 찬다)
+      a.push((i >= 100 && i <= 108) || (i >= 180 && i <= 220) ? NaN : i === 150 ? -5 : i === 170 ? 0 : x);
       c.push(y);
     }
     const days = 30;
@@ -352,5 +376,23 @@ describe('precompute: 환율·유가 β', () => {
     const s = precompute(mkFile([mkStock('A', DATES.map((_, i) => 100 + i))], 300), c, null).stocks[0];
     expect(s.beta.usdkrw.length).toBe(300);
     expect([...s.beta.usdkrw, ...s.beta.wti].every(Number.isNaN)).toBe(true);
+  });
+});
+
+describe('lastUsablePair: 봉의 쌍은 그다음 관측값이 공개된 뒤에야 확정된다(스펙 2.3)', () => {
+  // 관측값 0·1·2의 knownFrom. 봉 0은 짝 없음, 봉 1·2는 관측값 0, 봉 3·4는 1, 봉 5·6은 2(마지막 관측값)
+  const known = ['2026-01-10', '2026-01-20', '2026-01-30'];
+  const idx = Int32Array.from([-1, 0, 0, 1, 1, 2, 2]);
+  it.each([
+    ['2026-01-09', -1], // 관측값 0도 공개 전: 봉 0조차 짝이 없는지 알 수 없다
+    ['2026-01-10', 0], // 관측값 0이 공개됐다: 봉 0은 짝이 없다고 확정
+    ['2026-01-20', 2], // 관측값 1이 공개됐다: 관측값 0과 짝지은 봉 1·2가 확정
+    ['2026-01-30', 4],
+    ['2026-12-31', 4], // 마지막 관측값과 짝지은 봉 5·6은 다음 관측값이 없어 끝내 확정되지 않는다
+  ] as const)('p = %s → i* = %i', (p, want) => {
+    expect(lastUsablePair(idx, known, p, 6)).toBe(want);
+  });
+  it('hi(p의 봉)를 넘지 않는다', () => {
+    expect(lastUsablePair(idx, known, '2026-12-31', 3)).toBe(3);
   });
 });
