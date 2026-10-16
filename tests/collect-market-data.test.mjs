@@ -1203,7 +1203,7 @@ test('(S6) --no-flows는 수급을 받지 않고, 파일은 v3이며 flow가 없
   }
 });
 
-test('(S7) --update: 이전 flow 뒤로 이어 붙인다(수급 끝 다음 날부터만 받는다)', async () => {
+test('(S7) --update: 이전 flow 뒤로 이어 붙인다(수급 끝에서 5번째 날부터 받는다)', async () => {
   const dir = tmpDir();
   try {
     const first = await runF(dir, flowDataFor(60));
@@ -1214,8 +1214,28 @@ test('(S7) --update: 이전 flow 뒤로 이어 붙인다(수급 끝 다음 날�
     assert.equal(fl.f.length, 62);
     assert.deepEqual(fl.f.slice(58), [581, 591, 601, 611]);
     assert.equal(byS(r.file, '000010').d.length, 62);
-    // 3행씩 받는 서버에서 새 2일(60·61)만 필요하니 종목당 1쪽이면 된다
-    assert.equal(fake.calls.flow.length, 3);
+    // 겹친 5일(55~59)과 새 2일(60·61), 모두 7행이라 3행씩 받는 서버에서 종목당 3쪽
+    assert.equal(fake.calls.flow.length, 9);
+    assertValidFile(r.file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(S7b) --update: 수급 끝의 마지막 5일은 새로 받은 값으로 덮어쓰고 그 앞 날은 건드리지 않는다(ruling P8)', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    // 두 번째 수집에서 55일(마지막 5일 안)과 50일(그 밖)의 외국인 값이 달라졌다
+    const changed = (n) => flowRows(n).map((r, i) => (i === 57 || i === 50 ? { ...r, [FLOW_API.fields.f]: i === 57 ? '9999' : '8888' } : r));
+    const data2 = flowDataFor(62, { '000010': changed(62), '000020': changed(62), '000030': changed(62) });
+    const r = await runF(dir, data2, { update: first.file, out: join(dir, 'b') });
+    const fl = byS(r.file, '000010').flow;
+    assert.equal(fl.from, dateStr(0));
+    assert.equal(fl.f.length, 62);
+    assert.equal(fl.f[57], 9999); // 겹친 날은 새 값
+    assert.equal(fl.f[50], 501); // 받지 않은 날은 이전 값 그대로
+    assert.equal(fl.f[61], 611);
     assertValidFile(r.file);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1240,7 +1260,7 @@ test('(S8) --update에서 수급만 실패해도 이전 flow를 그대로 두고
     // 디스크에서 읽은 파일도 같다
     assertValidFile(readGz(r.summary.path));
 
-    // 그다음 --update가 성공하면 수급 끝(60번째 날) 다음 날부터 받아 메운다. 3행씩 받는 서버라 2쪽이 필요하다
+    // 그다음 --update가 성공하면 수급 끝에서 5번째 날(55)부터 받아 메운다. 55~63 9행이라 3행씩 받는 서버에서 종목당 3쪽
     const fake = fakeKis(flowDataFor(64), { flowPage: 3 });
     const r3 = await runF(dir, null, { fake, update: r.file, out: join(dir, 'c') });
     const fl = byS(r3.file, '000010').flow;
@@ -1248,7 +1268,7 @@ test('(S8) --update에서 수급만 실패해도 이전 flow를 그대로 두고
     assert.equal(fl.from, dateStr(0));
     assert.equal(fl.f.length, 64);
     assert.deepEqual(fl.f.slice(59), [591, 601, 611, 621, 631]);
-    assert.equal(fake.calls.flow.length, 6);
+    assert.equal(fake.calls.flow.length, 9);
     assertValidFile(r3.file);
   } finally {
     rmSync(dir, { recursive: true, force: true });

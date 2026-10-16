@@ -64,7 +64,6 @@ export interface MarketDataFileV3 extends Omit<MarketDataFileV2, 'version' | 'st
 
 export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2 | MarketDataFileV3;
 
-export const isV2 = (f: MarketDataFile): f is MarketDataFileV2 => f.version === 2;
 export const isV3 = (f: MarketDataFile): f is MarketDataFileV3 => f.version === 3;
 // v2 이상이면 macro와 themes가 있다.
 export const hasMacroFormat = (f: MarketDataFile): f is MarketDataFileV2 | MarketDataFileV3 => f.version >= 2;

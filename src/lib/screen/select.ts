@@ -141,8 +141,9 @@ export function betaMissingAt(d: string, pre: Precomputed, c: SelectionCriteria,
 
 /** 재선정일 d에 후보 범위의 종목(p에 봉이 있는)이 있는데 모두 수급 값을 계산할 수 없는가. 수급을 쓰지 않거나 후보가 없으면 false */
 export function flowMissingAt(d: string, pre: Precomputed, c: SelectionCriteria, baskets: BasketRef[] = []): boolean {
+  if (!usesFlow(c) || pre.params.flow == null) return false;
   const at = barsAt(d, pre);
-  if (!at || !usesFlow(c) || pre.params.flow == null) return false;
+  if (!at) return false;
   const { has } = poolFilter(pre, c, undefined, baskets);
   let any = false;
   for (let j = 0; j < pre.stocks.length; j++) {

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { FLOW_BOTH_CODE, FLOW_FOREIGN_CODES } from '../../scripts/make-demo-market-data.mjs';
 import { enterDemo, expectNoHorizontalScroll, isWide, leaderboardRows, openApp } from './helpers';
 
 const FIXTURE = 'tests/fixtures/market-data-demo.json.gz';
@@ -231,11 +232,11 @@ test('투자자 매매동향 기준: v3 데이터 → 외국인 순매수 규모
   // 이력 행을 펼치면 순매수 값 줄이 보인다
   const hist = page.getByRole('region', { name: '선정 이력' });
   await hist.getByRole('button', { expanded: false }).first().click();
-  await expect(hist.getByText(/^외국인 순매수 20일 -?\d+(\.\d+)?%/).first()).toBeVisible();
+  await expect(hist.getByText(/^외국인 순매수 20일 [−-]?\d+(\.\d+)?%/).first()).toBeVisible();
 
   // 뽑힌 종목은 모두 설계한 외국인 순매수 종목이다
   // (외국인 +5% 3종목 + 외국인·기관이 함께 사는 111110. 데모의 FLOW_FOREIGN_CODES·FLOW_BOTH_CODE)
-  const FOREIGN_SYMBOLS = ['106666', '108888', '206666', '111110'];
+  const FOREIGN_SYMBOLS = [...FLOW_FOREIGN_CODES, FLOW_BOTH_CODE];
   const picked = await hist.locator('.picks .nm small').allInnerTexts();
   expect(picked.length, '뽑힌 종목이 있다').toBeGreaterThan(0);
   for (const sym of picked) expect(FOREIGN_SYMBOLS, `${sym}은 설계한 외국인 순매수 종목이다`).toContain(sym.trim());

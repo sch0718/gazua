@@ -36,7 +36,7 @@ const KST_MS = 9 * 3_600_000;
 const kstCompact = (ms) => new Date(ms + KST_MS).toISOString().slice(0, 10).replaceAll('-', '');
 const dashed = (d) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
 const compactDate = (d) => d.replaceAll('-', '');
-const nextDay = (d) => kstCompact(Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) + 86_400_000 - KST_MS);
+const FLOW_OVERLAP_DAYS = 5; // --update에서 수급을 다시 받는 마지막 날 수
 const yearsBefore = (d, n) => new Date(Date.UTC(+d.slice(0, 4) - n, +d.slice(4, 6) - 1, +d.slice(6, 8))).toISOString().slice(0, 10).replaceAll('-', '');
 
 // 파일의 flow(from·길이·세 열)를 날짜가 붙은 행으로 되돌린다. barDates는 그 종목의 일봉 날짜.
@@ -349,9 +349,10 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       flowFailed.push(st.s);
       flow = keep();
     } else {
-      // 이전 flow가 있으면 수급 끝 다음 날부터(일봉의 끝이 아니다), 없으면 기간 처음부터 받는다
-      const lastFlowDate = prevRows.at(-1)?.d;
-      const start = lastFlowDate ? nextDay(lastFlowDate) : flowFloor > st.d[0] ? flowFloor : st.d[0];
+      // 이전 flow가 있으면 수급 끝에서 5번째 날부터(일봉처럼 5일 겹쳐 받아 잠정값을 바로잡는다. 일봉의 끝이 아니다),
+      // 없으면 기간 처음부터 받는다. 겹친 날은 새로 받은 행이 이전 행을 덮어쓴다(alignFlow의 Map이 뒤의 행을 남긴다)
+      const overlapFrom = prevRows.length ? prevRows[Math.max(0, prevRows.length - FLOW_OVERLAP_DAYS)].d : undefined;
+      const start = overlapFrom ?? (flowFloor > st.d[0] ? flowFloor : st.d[0]);
       try {
         const fresh = start <= to ? await fetchInvestorFlow(client, st.s, { from: start, to }) : [];
         flow = alignFlow(st.d, [...prevRows, ...fresh]) ?? undefined;

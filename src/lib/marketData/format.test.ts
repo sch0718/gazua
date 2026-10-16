@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasMacroFormat, isV2, isV3, validateMarketData } from './format';
+import { hasMacroFormat, isV3, validateMarketData } from './format';
 
 function sample() {
   return {
@@ -105,18 +105,19 @@ function sampleV2() {
 }
 
 describe('validateMarketData v2', () => {
-  it('정상 v2 파일은 ok이고 isV2가 참이다', () => {
+  it('정상 v2 파일은 ok이고 hasMacroFormat이 참, isV3는 거짓이다', () => {
     const r = validateMarketData(sampleV2());
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(isV2(r.data)).toBe(true);
+      expect(hasMacroFormat(r.data)).toBe(true);
+      expect(isV3(r.data)).toBe(false);
     }
   });
 
-  it('v1은 여전히 ok이고 isV2가 거짓이다', () => {
+  it('v1은 여전히 ok이고 hasMacroFormat이 거짓이다', () => {
     const r = validateMarketData(sample());
     expect(r.ok).toBe(true);
-    if (r.ok) expect(isV2(r.data)).toBe(false);
+    if (r.ok) expect(hasMacroFormat(r.data)).toBe(false);
   });
 
   it('WTI 음수는 ok다', () => {
@@ -180,13 +181,12 @@ function sampleV3(flow?: unknown) {
 }
 
 describe('validateMarketData v3', () => {
-  it('정상 v3 파일은 ok이고 isV3·hasMacroFormat이 참, isV2는 거짓이다', () => {
+  it('정상 v3 파일은 ok이고 isV3·hasMacroFormat이 참이다', () => {
     const r = validateMarketData(sampleV3({ from: '20261014', f: [1, -2], i: [3, 4], p: [-4, -2] }));
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(isV3(r.data)).toBe(true);
       expect(hasMacroFormat(r.data)).toBe(true);
-      expect(isV2(r.data)).toBe(false);
     }
   });
 
