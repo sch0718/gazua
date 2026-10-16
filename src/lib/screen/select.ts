@@ -1,5 +1,7 @@
-import { RANK_RETURN_DAYS, RANK_VOL_DAYS, stableJson, type Precomputed, type StockSeries } from './precompute';
-import type { SelectionCriteria } from './types';
+import type { Basket } from './baskets';
+import { lastUsablePair, trendAt } from './macro';
+import { RANK_RETURN_DAYS, RANK_VOL_DAYS, stableJson, usesMacro, type Precomputed, type StockSeries } from './precompute';
+import type { MacroSeriesKey, SelectionCriteria } from './types';
 
 export interface Selection {
   date: string;
@@ -28,7 +30,18 @@ function assertMatches(pre: Precomputed, c: SelectionCriteria): void {
     if (k.rebound.pattern.from === 'custom' && stableJson(k.rebound.pattern.entry) !== p.reboundEntryKey)
       throw new PrecomputeMismatchError('반등 패턴');
   }
+  if (usesMacro(c) && k.macro.betaDays !== p.betaDays) throw new PrecomputeMismatchError('민감도 계산 기간');
 }
+
+const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
+
+/** p에서 쓸 수 있는 마지막 쌍 i*(p)의 β. pIdx는 그 종목의 p 봉 인덱스. 없으면 NaN */
+export function betaAt(pre: Precomputed, st: StockSeries, key: MacroSeriesKey, p: string, pIdx: number): number {
+  const i = lastUsablePair(st.macroIdx[key], pre.macro[key].known, p, pIdx);
+  return i < 0 ? NaN : st.beta[key][i];
+}
+
+const orNull = (x: number): number | null => (Number.isNaN(x) ? null : x);
 
 const EOK = 1e8;
 const SELECTABLE = ['STOCK', 'ETF'];
@@ -56,6 +69,7 @@ export function selectAt(
   pre: Precomputed,
   c: SelectionCriteria,
   poolOverride?: Pick<SelectionCriteria['pool'], 'markets' | 'types'>,
+  baskets: Pick<Basket, 'id' | 'symbols'>[] = [],
 ): Selection {
   assertMatches(pre, c);
   const ai = lowerBound(pre.axis, d);
@@ -76,6 +90,19 @@ export function selectAt(
   const pool = { ...c.pool, ...poolOverride };
   // 저장된 코드 하나가 그 묶음 전체를 고른다
   const wanted = new Set(pool.sectors.filter((x) => x !== '').map(group));
+  // 합집합 후보 범위(스펙 4.1): 업종 ∪ 테마 종목 ∪ 묶음 종목. 데이터에 없는 테마·지워진 묶음은 빈 것
+  const restricted = pool.sectors.length > 0 || pool.themes.length > 0 || pool.baskets.length > 0;
+  const listed = new Set<string>();
+  for (const t of pool.themes) for (const x of pre.themes.get(t) ?? []) listed.add(x);
+  for (const id of pool.baskets) for (const x of baskets.find((b) => b.id === id)?.symbols ?? []) listed.add(x);
+  const inSector = (st: StockSeries): boolean =>
+    (st.sec[0] !== '' && wanted.has(group(st.sec[0]))) || (st.sec[1] !== '' && wanted.has(group(st.sec[1])));
+  // 계열 흐름은 종목과 무관하다. p에서 공개된 관측값끼리 한 번 계산한다(스펙 3.2)
+  const trend: Record<MacroSeriesKey, number> = { usdkrw: NaN, wti: NaN };
+  for (const key of MACRO_KEYS) {
+    const t = k.macro[key].trend;
+    if (t.on) trend[key] = trendAt(pre.macro[key], prevDay, t.lookback);
+  }
   const returnDays = k.returnRange.on ? k.returnRange.days : RANK_RETURN_DAYS;
   const ret = (st: StockSeries, p: number): number | null => (p - returnDays >= 0 ? (st.close[p] / st.close[p - returnDays] - 1) * 100 : null);
 
@@ -86,7 +113,7 @@ export function selectAt(
     // 후보 범위
     if (!SELECTABLE.includes(st.t) || !pool.markets.includes(st.m) || !pool.types.includes(st.t as 'STOCK' | 'ETF')) return;
     if (pool.excludeManaged && (st.managed || st.halted)) return;
-    if (pool.sectors.length > 0 && !((st.sec[0] !== '' && wanted.has(group(st.sec[0]))) || (st.sec[1] !== '' && wanted.has(group(st.sec[1]))))) return;
+    if (restricted && !(inSector(st) || listed.has(st.s))) return;
 
     // 조건(AND)
     const values: Selection['picked'][number]['values'] = {};
@@ -132,6 +159,24 @@ export function selectAt(
       if (!(st.lastSignal[p] >= 0 && st.lastSignal[p] >= p - k.rebound.withinDays + 1)) return;
       values.rebound = true;
     }
+    for (const key of MACRO_KEYS) {
+      const m = k.macro[key];
+      if (!m.beta.on && !m.trend.on) continue;
+      const b = betaAt(pre, st, key, prevDay, p);
+      if (m.beta.on && !(b >= m.beta.min && b <= m.beta.max)) return;
+      if (m.trend.on) {
+        const t = trend[key];
+        if (Number.isNaN(t)) return;
+        const thr = m.trend.thresholdPct / 100;
+        if (t >= thr) {
+          if (!(b >= m.trend.minAbsBeta)) return;
+        } else if (t <= -thr) {
+          if (!(b <= -m.trend.minAbsBeta)) return;
+        } else if (m.trend.whenFlat === 'none') return;
+        values[`${key}Trend`] = t * 100;
+      }
+      values[`${key}Beta`] = orNull(b);
+    }
 
     // 정렬 값
     let key: number | null;
@@ -150,9 +195,11 @@ export function selectAt(
         values.volatility = key;
         if (key != null) key = -key; // 낮을수록 앞
         break;
-      case 'macroBeta':
-        key = null; // 계산은 Task 4
+      case 'macroBeta': {
+        const series = c.rank.series ?? 'usdkrw';
+        key = values[`${series}Beta`] = orNull(betaAt(pre, st, series, prevDay, p));
         break;
+      }
     }
     passed.push({ symbol: st.s, key, values });
   });

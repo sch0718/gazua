@@ -170,6 +170,8 @@ interface MacroSeriesCond {
 - `precompute`에 계열별 정렬 배열(날짜, 값)과 종목별 롤링 β 배열(i번 = i번 봉까지의 창)을 더한다.
 - 롤링은 누적합(Σx, Σr, Σxr, Σx²)을 빼고 더하는 방식으로 O(n)에 계산한다.
 - `Precomputed.params`에 `betaDays`를 더해, 기준이 다르면 `PrecomputeMismatchError`를 낸다(1단계 규칙과 같음).
+- β는 환율·유가 조건을 켰거나 정렬이 `macroBeta`일 때만 계산한다. 쓰지 않으면 `params.betaDays`는 `null`이다(1단계 `maPeriod`와 같은 방식).
+- 봉마다 쌍에 쓴 관측값의 인덱스(`Int32Array`, 없으면 −1)를 두고, 그 `knownFrom`은 계열의 정렬 배열에서 읽는다. `selectAt`은 이 둘로 `i*(p)`를 이분 탐색한다.
 - 메모리 영향은 종목당 β 배열 2개다. Float64Array에 NaN을 센티널로 써서 null 박싱을 피한다. 449만 봉 × 2 × 8B ≈ 72MB다.
 
 ---

@@ -52,12 +52,12 @@ export function createWorkerHandler({ store, post }: WorkerHandlerDeps): (msg: W
       }
       const { data } = loaded;
       const opts = loaded.key !== null ? { precompute: cachedPrecompute(loaded.key) } : {};
-      const { criteria, strategies } = msg.input;
+      const { criteria, strategies, baskets = [] } = msg.input;
       if (msg.type === 'preview') {
-        post({ type: 'preview', id: msg.id, selection: preview(data, criteria, strategies, opts) });
+        post({ type: 'preview', id: msg.id, selection: preview(data, criteria, strategies, { ...opts, baskets }) });
         return;
       }
-      const r = runValidation({ data, criteria, strategies }, (done, total) => post({ type: 'progress', done, total }), undefined, opts);
+      const r = runValidation({ data, criteria, strategies, baskets }, (done, total) => post({ type: 'progress', done, total }), undefined, opts);
       if (!('cancelled' in r)) post({ type: 'result', result: r });
     } catch (err) {
       const code = errorCode(err);

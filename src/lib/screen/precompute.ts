@@ -1,10 +1,12 @@
 import type { Candle } from '../data/metrics';
-import type { MarketDataFile } from '../marketData/format';
+import { isV2, type MarketDataFile } from '../marketData/format';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import type { Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
-import type { Rebalance, SelectionCriteria } from './types';
+import { alignSeries, pairIndices, rollingBeta, type AlignedSeries } from './macro';
+import type { MacroSeriesKey, Rebalance, SelectionCriteria } from './types';
+import { macroOn } from './validate';
 
 type FileStock = MarketDataFile['stocks'][number];
 
@@ -32,6 +34,10 @@ export interface StockSeries {
   vol: (number | null)[]; // 최근 volDays개 일간 수익률의 표본 표준편차(%)
   signalDays: string[]; // 반등 신호일(오름차순)
   lastSignal: number[]; // i번 봉까지 마지막 신호 봉 인덱스, 없으면 -1
+  /** 계열별 롤링 β(i번 = i번 봉에서 끝나는 창). NaN은 계산 불가. β를 쓰지 않는 기준이면 빈 배열 */
+  beta: Record<MacroSeriesKey, Float64Array>;
+  /** 계열별로 i번 봉의 쌍에 쓴 관측값 a(t_i)의 인덱스(관측일 기준 짝짓기), 없으면 -1. 그 knownFrom은 macro[key].known[idx] */
+  macroIdx: Record<MacroSeriesKey, Int32Array>;
 }
 
 /** 미리 계산에 쓴 기준 값. selectAt이 다른 기준으로 고르지 못하게 한다 */
@@ -40,6 +46,7 @@ export interface PrecomputeParams {
   maPeriod: number | null; // vsMa가 꺼져 있었으면 null
   volDays: number;
   reboundEntryKey: string | null; // entry의 안정 JSON, 없으면 null
+  betaDays: number | null; // 환율·유가 조건·정렬을 쓰지 않으면 null(β를 계산하지 않음)
 }
 
 export interface Precomputed {
@@ -47,7 +54,14 @@ export interface Precomputed {
   stocks: StockSeries[];
   params: PrecomputeParams;
   sectorKey: Map<string, string>; // 업종 코드 → 묶음 키(R10). 목록에 없는 코드는 없다
+  /** 계열별 관측값(관측일 오름차순)과 knownFrom. v1이면 빈 계열 */
+  macro: Record<MacroSeriesKey, AlignedSeries>;
+  /** 테마 코드 → 종목(파일에 있는 종목만). v1이면 비어 있다 */
+  themes: Map<string, string[]>;
 }
+
+/** 이 기준이 β를 쓰는가: 환율·유가 조건이 켜져 있거나 정렬이 macroBeta */
+export const usesMacro = (c: SelectionCriteria): boolean => macroOn(c.conditions.macro) || c.rank.by === 'macroBeta';
 
 /** 업종은 시장을 넘어 (레벨, 이름)으로 하나다(R10). KOSPI 00013과 KOSDAQ 11028 전기·전자가 같은 업종 */
 export const sectorGroupKey = (s: { level: number; name: string }): string => `${s.level}|${s.name}`;
@@ -82,6 +96,7 @@ export function precomputeParams(criteria: SelectionCriteria, reboundEntry: Stra
     maPeriod: k.vsMa.on ? k.vsMa.period : null,
     volDays: k.volatility.on ? k.volatility.days : RANK_VOL_DAYS,
     reboundEntryKey: reboundEntry ? stableJson(reboundEntry) : null,
+    betaDays: usesMacro(criteria) ? k.macro.betaDays : null,
   };
 }
 
@@ -182,10 +197,25 @@ function signals(d: string[], st: FileStock, entry: Strategy['entry'] | null): {
 export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): Precomputed {
   const k = criteria.conditions;
   const params = precomputeParams(criteria, reboundEntry);
+  const v2 = isV2(data) ? data : null;
+  const macro: Precomputed['macro'] = {
+    usdkrw: alignSeries('usdkrw', v2?.macro.usdkrw),
+    wti: alignSeries('wti', v2?.macro.wti),
+  };
   const stocks = data.stocks.map((st): StockSeries => {
     const d = st.d.map(isoDate);
     const close = st.c.slice();
     const sig = signals(d, st, reboundEntry);
+    // 관측일 기준으로 짝지은 값으로 롤링 β를 한 번 계산한다. 공개 시점은 selectAt이 i*(p)로 자른다
+    const macroOf = (key: MacroSeriesKey) => {
+      if (params.betaDays == null) return { beta: new Float64Array(0), idx: new Int32Array(0) };
+      const s = macro[key];
+      const idx = pairIndices(d, s.d);
+      const a = Float64Array.from(idx, (j) => (j < 0 ? NaN : s.v[j]));
+      return { beta: rollingBeta(close, a, params.betaDays), idx };
+    };
+    const fx = macroOf('usdkrw');
+    const oil = macroOf('wti');
     return {
       s: st.s,
       m: st.m,
@@ -202,7 +232,10 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       vol: rollingVol(close, params.volDays),
       signalDays: sig.days,
       lastSignal: sig.last,
+      beta: { usdkrw: fx.beta, wti: oil.beta },
+      macroIdx: { usdkrw: fx.idx, wti: oil.idx },
     };
   });
-  return { axis: tradingAxis(data), stocks, params, sectorKey: sectorKeys(data.sectors) };
+  const themes = new Map((v2?.themes ?? []).map((t) => [t.code, t.symbols]));
+  return { axis: tradingAxis(data), stocks, params, sectorKey: sectorKeys(data.sectors), macro, themes };
 }

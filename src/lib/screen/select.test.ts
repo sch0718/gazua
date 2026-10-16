@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import type { MarketDataFile } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV2 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { precompute, rebalanceDates, tradingAxis } from './precompute';
+import { addDays } from '../time/kst';
+import type { Basket } from './baskets';
+import { macroKnownFrom } from './macro';
 import { PrecomputeMismatchError, selectAt } from './select';
-import { DATES, mkFile, mkStock, NOW, offCriteria, reboundAt, reboundEntry, sampleStdPct, type Stock } from './testData';
-import type { RankBy, SelectionCriteria } from './types';
+import { DATES, lcg, mkFile, mkFileV2, mkStock, NOW, obsBefore, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, ymd, type Stock } from './testData';
+import type { MacroSeriesKey, RankBy, SelectionCriteria } from './types';
 
 // 기본 데이터: 30거래일, 재선정일 d = DATES[25], 전 거래일 p = 24번 봉
 const N = 30;
@@ -470,3 +473,417 @@ function offCriteriaLike(c: SelectionCriteria): SelectionCriteria {
   o.rank = { by: 'marketCap', take: 30 };
   return o;
 }
+
+// ── 4단계: 환율·유가, 테마·내 묶음 ──
+
+/** 봉마다 관측일 기준으로 짝지은 계열 값(스펙 2.3). 짝이 없으면 NaN */
+const paired = (series: { d: string[]; v: number[] }, n = DATES.length): number[] =>
+  DATES.slice(0, n).map((t) => {
+    const k = obsBefore(series.d, ymd(t));
+    return k < 0 ? NaN : series.v[k];
+  });
+/** 짝지은 계열 변화율의 m배로 움직이는 종가 */
+const follow = (a: number[], m: number): number[] => {
+  const c = [10000];
+  // 0 이하이거나 짝이 없는 쌍에서는 움직이지 않는다
+  for (let i = 1; i < a.length; i++) c.push(c[i - 1] * (1 + (a[i] > 0 && a[i - 1] > 0 ? m * (a[i] / a[i - 1] - 1) : 0)));
+  return c;
+};
+/** obs 가운데 knownFrom ≤ p인 마지막 인덱스 */
+const lastKnown = (key: MacroSeriesKey, obs: string[], p: string): number => {
+  let k = -1;
+  obs.forEach((o, i) => macroKnownFrom(key, o) <= p && (k = i));
+  return k;
+};
+const betaOn = (c: SelectionCriteria, key: MacroSeriesKey, min = -20, max = 20) => (c.conditions.macro[key].beta = { on: true, min, max });
+
+describe('selectAt: 환율 β는 관측일로 짝짓고 공개 시점으로 자른다(스펙 2.3·3.1)', () => {
+  it('기간 맞추기(리뷰 재현): 한 주 +1%·다음 주 −1% 환율, 주가는 관측 기간 변화율의 2배 → β = +2.0', () => {
+    const obs = usWeekdays('2024-11-01', 400);
+    const monday0 = Date.UTC(2024, 9, 28);
+    const v: number[] = [];
+    obs.forEach((o, k) => {
+      const week = Math.floor((Date.UTC(+o.slice(0, 4), +o.slice(4, 6) - 1, +o.slice(6, 8)) - monday0) / (7 * 86400000));
+      v.push(k === 0 ? 1000 : v[k - 1] * (week % 2 === 0 ? 1.01 : 0.99));
+    });
+    const fx = { d: obs, v };
+    const a = paired(fx);
+    const close = follow(a, 2);
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 120;
+    betaOn(c, 'usdkrw');
+    const j = 290;
+    const r = selectAt(DATES[j], precompute(mkFileV2([mkStock('A', close)], 300, { usdkrw: fx }), c, null), c);
+    expect(r.picked).toHaveLength(1);
+    expect(r.picked[0].values.usdkrwBeta as number).toBeCloseTo(2, 9);
+
+    // 공개일로 옮겨 짝지은 구현이라면 β의 부호가 뒤집힌다(이 테스트가 그 구현을 잡는지 확인)
+    const p = DATES[j - 1];
+    const published = DATES.map((t) => {
+      let k = -1;
+      obs.forEach((o, i) => macroKnownFrom('usdkrw', o) <= t && (k = i));
+      return k < 0 ? NaN : v[k];
+    });
+    const rs: number[] = [];
+    const xs: number[] = [];
+    for (let i = j - 120; i < j; i++) {
+      rs.push(close[i] / close[i - 1] - 1);
+      xs.push(published[i] / published[i - 1] - 1);
+    }
+    expect(DATES[j - 1]).toBe(p);
+    expect(olsSlope(rs, xs)).toBeLessThan(0);
+  });
+
+  it('i*(p): β 창의 끝은 a(t_i)의 knownFrom ≤ p인 마지막 봉이다(p의 봉이 아니다)', () => {
+    const r = lcg(3);
+    const obs = usWeekdays('2024-11-01', 400);
+    let x = 1300;
+    const fx = { d: obs, v: obs.map(() => (x *= 1 + (r() - 0.5) * 0.02)) };
+    let y = 50000;
+    const close = DATES.map(() => (y *= 1 + (r() - 0.5) * 0.05));
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 30;
+    betaOn(c, 'usdkrw');
+    const pre = precompute(mkFileV2([mkStock('A', close)], 300, { usdkrw: fx }), c, null);
+    const beta = pre.stocks[0].beta.usdkrw;
+    let differs = 0;
+    for (let j = 120; j < 300; j += 7) {
+      const p = j - 1;
+      let iStar = -1;
+      for (let i = 0; i <= p; i++) {
+        const k = obsBefore(obs, ymd(DATES[i]));
+        if (k < 0 || macroKnownFrom('usdkrw', obs[k]) <= DATES[p]) iStar = i;
+      }
+      expect(iStar).toBeLessThan(p);
+      const got = selectAt(DATES[j], pre, c).picked[0].values.usdkrwBeta;
+      expect(got, `d = ${DATES[j]}`).toBe(beta[iStar]);
+      if (beta[iStar] !== beta[p]) differs++;
+    }
+    expect(differs).toBeGreaterThan(10);
+  });
+
+  it('β가 범위 [min, max] 안이면 통과(양 끝 포함), β가 없으면 탈락', () => {
+    const obs = usWeekdays('2024-11-01', 400);
+    const fx = { d: obs, v: obs.map((_, i) => 1000 * (i % 2 ? 1.01 : 0.99) ** (i % 3)) };
+    const a = paired(fx);
+    const stocks = [mkStock('P', follow(a, 2)), mkStock('M', follow(a, -1)), mkStock('S', follow(a, 2).map((v, i) => (i < 280 ? null : v)))];
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 30;
+    const at = (min: number, max: number) => {
+      betaOn(c, 'usdkrw', min, max);
+      return symbols(selectAt(DATES[290], precompute(mkFileV2(stocks, 300, { usdkrw: fx }), c, null), c));
+    };
+    expect(at(-20, 20)).toEqual(['M', 'P']);
+    expect(at(0.3, 5)).toEqual(['P']);
+    // 양 끝 포함: 계산된 β 그 값으로 min = max
+    const b = selectAt(DATES[290], precompute(mkFileV2(stocks, 300, { usdkrw: fx }), c, null), c).picked.find((x) => x.symbol === 'P')!.values
+      .usdkrwBeta as number;
+    expect(b).toBeCloseTo(2, 9);
+    expect(at(b, b)).toEqual(['P']);
+    expect(at(-5, -0.3)).toEqual(['M']);
+    expect(at(-0.2, 0.2)).toEqual([]);
+  });
+
+  it('미리 계산의 betaDays와 다르거나 β 없이 계산했으면 거부한다', () => {
+    const c = offCriteria();
+    betaOn(c, 'usdkrw');
+    const f = mkFileV2([mkStock('A', flat())], N);
+    const pre = precompute(f, c, null);
+    const other = structuredClone(c);
+    other.conditions.macro.betaDays = 60;
+    expect(() => selectAt(D, pre, other)).toThrow(PrecomputeMismatchError);
+    const off = offCriteria();
+    const preOff = precompute(f, off, null);
+    expect(() => selectAt(D, preOff, c)).toThrow(PrecomputeMismatchError);
+    off.rank = { by: 'macroBeta', take: 5, series: 'usdkrw' };
+    expect(() => selectAt(D, preOff, off)).toThrow(PrecomputeMismatchError);
+  });
+});
+
+describe('selectAt: 계열 흐름(스펙 3.2)과 흐름 따라가기(3.3)', () => {
+  const obs = usWeekdays('2024-11-01', 400);
+  // k < 150: ±1% 번갈아, 150~174: 매일 +0.5%, 175~199: ±0.5% 번갈아, 200~224: 매일 −0.5%, 그 뒤 ±1%
+  const step = (k: number): number =>
+    k < 150 || k >= 225 ? (k % 2 ? 0.01 : -0.01) : k < 175 ? 0.005 : k < 200 ? (k % 2 ? 0.005 : -0.005) : -0.005;
+  const v: number[] = [];
+  obs.forEach((_, k) => v.push(k === 0 ? 1000 : v[k - 1] * (1 + step(k))));
+  const fx = { d: obs, v };
+  const a = paired(fx);
+  const stocks = [mkStock('P', follow(a, 2)), mkStock('M', follow(a, -1)), mkStock('Z', follow(a, 0.1))];
+  const pre = (c: SelectionCriteria) => precompute(mkFileV2(stocks, 300, { usdkrw: fx }), c, null);
+  /** 마지막 공개 관측 k가 [lo, hi) 안인 첫 재선정일 후보 */
+  const dateWhere = (lo: number, hi: number): string => {
+    for (let j = 31; j < 300; j++) {
+      const k = lastKnown('usdkrw', obs, DATES[j - 1]);
+      if (k >= lo && k < hi) return DATES[j];
+    }
+    throw new Error('날짜 없음');
+  };
+  const trendCrit = (whenFlat: 'pass' | 'none', patch: Partial<SelectionCriteria['conditions']['macro']['usdkrw']['trend']> = {}) => {
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 30;
+    c.conditions.macro.usdkrw.trend = { on: true, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat, ...patch };
+    return c;
+  };
+
+  it('흐름 = knownFrom ≤ p인 마지막 관측값 / 그보다 lookback개 앞선 관측값 − 1', () => {
+    const c = trendCrit('pass', { lookback: 5, thresholdPct: 50 });
+    for (const j of [60, 130, 211, 299]) {
+      const k = lastKnown('usdkrw', obs, DATES[j - 1]);
+      const r = selectAt(DATES[j], pre(c), c);
+      expect(r.passed).toBe(3);
+      expect(r.picked[0].values.usdkrwTrend as number).toBeCloseTo((v[k] / v[k - 5] - 1) * 100, 9);
+    }
+    // 앞선 관측값이 모자라면 흐름이 없고 통과 0개
+    const long = trendCrit('pass', { lookback: 120, thresholdPct: 50 });
+    const j = DATES.findIndex((t, i) => i > 0 && lastKnown('usdkrw', obs, DATES[i - 1]) >= 0 && lastKnown('usdkrw', obs, DATES[i - 1]) < 120 && t > DATES[30]);
+    expect(selectAt(DATES[j], pre(long), long).passed).toBe(0);
+  });
+
+  it('오름이면 + 민감 종목만, 내림이면 − 민감 종목만', () => {
+    const c = trendCrit('pass');
+    const up = selectAt(dateWhere(170, 175), pre(c), c);
+    expect(symbols(up)).toEqual(['P']);
+    expect(up.picked[0].values.usdkrwTrend as number).toBeGreaterThan(3);
+    expect(up.picked[0].values.usdkrwBeta as number).toBeCloseTo(2, 9);
+    const down = selectAt(dateWhere(220, 225), pre(c), c);
+    expect(symbols(down)).toEqual(['M']);
+    expect(down.picked[0].values.usdkrwTrend as number).toBeLessThan(-3);
+  });
+
+  it("약함이면 'pass'는 이 조건을 건너뛰고, 'none'은 통과 0개", () => {
+    const d = dateWhere(195, 200);
+    const pass = trendCrit('pass');
+    expect(symbols(selectAt(d, pre(pass), pass)).sort()).toEqual(['M', 'P', 'Z']);
+    const none = trendCrit('none');
+    expect(selectAt(d, pre(none), none).passed).toBe(0);
+  });
+
+  it('β 범위와 흐름을 같은 계열에서 켜면 둘 다 만족해야 한다', () => {
+    const c = trendCrit('pass');
+    betaOn(c, 'usdkrw', 0, 1);
+    expect(selectAt(dateWhere(170, 175), pre(c), c).passed).toBe(0); // 오름 → P(β 2)뿐인데 범위 밖
+    expect(symbols(selectAt(dateWhere(195, 200), pre(c), c))).toEqual(['Z']);
+  });
+
+  it('흐름의 끝값이 0 이하이면 흐름을 계산하지 않는다(통과 0개). WTI 음수 구간', () => {
+    const r = lcg(11);
+    const wobs = usWeekdays('2024-11-01', 400);
+    let x = 60;
+    const wv = wobs.map(() => (x *= 1 + (r() - 0.5) * 0.04));
+    // 화요일 관측 하나를 −36.98로, 다음 날을 8.91로 둔다
+    const t0 = wobs.findIndex((o, i) => i > 200 && new Date(`${o.slice(0, 4)}-${o.slice(4, 6)}-${o.slice(6, 8)}T00:00:00Z`).getUTCDay() === 2);
+    wv[t0] = -36.98;
+    wv[t0 + 1] = 8.91;
+    const wti = { d: wobs, v: wv };
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 30;
+    c.conditions.macro.wti.trend = { on: true, lookback: 5, thresholdPct: 50, minAbsBeta: 0, whenFlat: 'pass' };
+    const s = [mkStock('A', follow(paired(wti), 1))];
+    const p0 = precompute(mkFileV2(s, 300, { wti }), c, null);
+    let hit = 0;
+    let ok = 0;
+    for (let j = 31; j < 300; j++) {
+      const k = lastKnown('wti', wobs, DATES[j - 1]);
+      const sel = selectAt(DATES[j], p0, c);
+      if (k === t0) {
+        hit++;
+        expect(sel.passed).toBe(0);
+      } else if (k > t0 + 5) ok += sel.passed;
+    }
+    expect(hit).toBeGreaterThan(0);
+    expect(ok).toBeGreaterThan(0);
+    // β는 그 쌍을 빼고 유한하다
+    expect(Number.isFinite(p0.stocks[0].beta.wti[299])).toBe(true);
+  });
+});
+
+describe('selectAt: 정렬 macroBeta', () => {
+  const obs = usWeekdays('2024-11-01', 400);
+  const r = lcg(5);
+  let x = 1300;
+  const fx = { d: obs, v: obs.map(() => (x *= 1 + (r() - 0.5) * 0.02)) };
+  const wti = { d: obs, v: fx.v.map((v) => 1e6 / v) }; // 환율의 역수: 민감도 부호가 반대
+  const a = paired(fx);
+  const stocks = [
+    mkStock('000001', follow(a, -1), { shares: 9 }),
+    mkStock('000002', follow(a, 0.5), { shares: 1 }),
+    mkStock('000003', follow(a, 2), { shares: 1 }),
+    mkStock('000004', follow(a, 2).map((v, i) => (i < 290 ? null : v)), { shares: 99 }), // 봉이 모자라 β 없음
+  ];
+  const rank = (series: MacroSeriesKey) => {
+    const c = offCriteria();
+    c.conditions.macro.betaDays = 30;
+    c.rank = { by: 'macroBeta', take: 10, series };
+    return selectAt(DATES[295], precompute(mkFileV2(stocks, 300, { usdkrw: fx, wti }), c, null), c);
+  };
+
+  it('고른 계열의 β 내림차순, β가 없으면 뒤. values에 그 계열 β', () => {
+    const u = rank('usdkrw');
+    expect(symbols(u)).toEqual(['000003', '000002', '000001', '000004']);
+    expect(u.picked[0].values).toEqual({ usdkrwBeta: expect.closeTo(2, 9) });
+    expect(u.picked[3].values).toEqual({ usdkrwBeta: null });
+    const w = rank('wti');
+    expect(symbols(w)).toEqual(['000001', '000002', '000003', '000004']);
+    expect(Object.keys(w.picked[0].values)).toEqual(['wtiBeta']);
+  });
+});
+
+describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
+  const stocks = (): Stock[] => [
+    mkStock('K1', flat(), { m: 'KOSPI', sec: ['00013', '', ''], shares: 6 }),
+    mkStock('K2', flat(), { m: 'KOSPI', sec: ['00016', '', ''], shares: 5 }),
+    mkStock('Q1', flat(), { m: 'KOSDAQ', sec: ['11027', '', ''], shares: 4 }),
+    mkStock('Q2', flat(), { m: 'KOSDAQ', sec: ['11027', '', ''], shares: 3 }),
+    mkStock('Q3', flat(), { m: 'KOSDAQ', sec: ['11027', '', ''], shares: 2 }),
+  ];
+  const themes = [
+    { code: 'T01', name: '테마1', symbols: ['K2', 'Q1'] },
+    { code: 'T02', name: '테마2', symbols: ['Q1', 'Q3'] },
+  ];
+  const baskets: Basket[] = [{ id: 'b1', name: '묶음', updatedAt: NOW, symbols: ['Q2', 'K1'] }];
+  const pick = (pool: Partial<SelectionCriteria['pool']>, bs: Basket[] = baskets) => {
+    const c = offCriteria();
+    c.pool = { ...c.pool, ...pool };
+    return symbols(selectAt(D, precompute(mkFileV2(stocks(), N, {}, themes), c, null), c, undefined, bs));
+  };
+
+  it('아무것도 고르지 않으면 전체', () => {
+    expect(pick({})).toEqual(['K1', 'K2', 'Q1', 'Q2', 'Q3']);
+  });
+  it('업종만, 테마만, 묶음만', () => {
+    expect(pick({ sectors: ['00013'] })).toEqual(['K1']);
+    expect(pick({ themes: ['T01'] })).toEqual(['K2', 'Q1']);
+    expect(pick({ baskets: ['b1'] })).toEqual(['K1', 'Q2']);
+  });
+  it('섞으면 합집합이고, 시장·종류 필터는 그 위에 AND', () => {
+    expect(pick({ sectors: ['00016'], themes: ['T02'], baskets: ['b1'] })).toEqual(['K1', 'K2', 'Q1', 'Q2', 'Q3']);
+    expect(pick({ themes: ['T01', 'T02'] })).toEqual(['K2', 'Q1', 'Q3']);
+    expect(pick({ markets: ['KOSPI'], themes: ['T02'], baskets: ['b1'] })).toEqual(['K1']);
+  });
+  it('지워진 묶음 id와 데이터에 없는 테마는 빈 것으로 본다(합집합이 0이면 통과 0개)', () => {
+    expect(pick({ baskets: ['gone'] })).toEqual([]);
+    expect(pick({ themes: ['T99'] })).toEqual([]);
+    expect(pick({ baskets: ['gone'], themes: ['T01'] })).toEqual(['K2', 'Q1']);
+    expect(pick({ baskets: ['b1'] }, [])).toEqual([]);
+  });
+  it('v1 데이터에서 테마를 고르면 빈 테마', () => {
+    const c = offCriteria();
+    c.pool.themes = ['T01'];
+    expect(selectAt(D, precompute(mkFile(stocks(), N), c, null), c).passed).toBe(0);
+  });
+
+  it('회귀: 업종만 고른 기존 기준은 이 단계 전 결과와 같다(데모 데이터)', () => {
+    const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile;
+    const baseline = JSON.parse(readFileSync('tests/fixtures/select-sector-baseline.json', 'utf8')) as Record<string, unknown>;
+    const axis = tradingAxis(fixture);
+    const dates = [...rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly'), addDays(axis[axis.length - 1], 1)];
+    const cases: [string, (c: SelectionCriteria) => void][] = [
+      ['sector 00013', (c) => (c.pool.sectors = ['00013'])],
+      ['sectors 11028+00016 leader', (c) => ((c.pool.sectors = ['11028', '00016']), (c.conditions.leader = { on: true, level: 1, maxRank: 2 }))],
+      [
+        'sector 00005 return rank',
+        (c) => ((c.pool.sectors = ['00005', '11027']), (c.rank.by = 'return'), (c.conditions.returnRange = { on: true, days: 20, minPct: -10, maxPct: 10 })),
+      ],
+      ['sectors with ETF', (c) => ((c.pool.types = ['STOCK', 'ETF']), (c.pool.sectors = ['00013', '11027']), (c.rank.by = 'tradingValue'))],
+    ];
+    const pools = [undefined, { markets: ['KOSPI'], types: ['STOCK'] }, { markets: ['KOSDAQ'], types: ['STOCK'] }, { markets: ['KOSPI', 'KOSDAQ'], types: ['ETF'] }] as const;
+    expect(Object.keys(baseline)).toEqual(cases.map((x) => x[0]));
+    for (const [name, patch] of cases) {
+      const c = offCriteria();
+      c.rank.take = 10;
+      patch(c);
+      const pre = precompute(fixture, c, null);
+      const got = dates.map((d) => pools.map((p) => selectAt(d, pre, c, p as never, [{ id: 'x', symbols: ['100000'] }])));
+      expect(JSON.parse(JSON.stringify(got)), name).toEqual(baseline[name]);
+    }
+  });
+});
+
+describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터)', () => {
+  const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV2;
+  const axis = tradingAxis(fixture);
+  const dates = rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
+  const KEYS: MacroSeriesKey[] = ['usdkrw', 'wti'];
+  const iso = (o: string) => `${o.slice(0, 4)}-${o.slice(4, 6)}-${o.slice(6, 8)}`;
+
+  /** knownFrom > p인 관측값만 바꾼다. 바꾼 값 가운데 관측일이 p 이전인 것의 수를 돌려준다 */
+  const mutateUnknown = (p: string, f: (v: number) => number): { file: MarketDataFileV2; earlier: number } => {
+    const g = structuredClone(fixture);
+    let earlier = 0;
+    for (const key of KEYS) {
+      const s = g.macro[key];
+      s.d.forEach((o, i) => {
+        if (macroKnownFrom(key, o) <= p) return;
+        s.v[i] = f(s.v[i]);
+        if (iso(o) <= p) earlier++;
+      });
+    }
+    return { file: g, earlier };
+  };
+  /** p 이후의 관측값과 봉을 모두 자른다 */
+  const truncate = (p: string): MarketDataFileV2 => {
+    const g = structuredClone(fixture);
+    const cut = ymd(p);
+    for (const key of KEYS) {
+      const s = g.macro[key];
+      const n = s.d.filter((o) => o <= cut).length;
+      g.macro[key] = { d: s.d.slice(0, n), v: s.v.slice(0, n) };
+    }
+    for (const st of g.stocks) {
+      const n = st.d.filter((x) => x <= cut).length;
+      for (const k of ['d', 'o', 'h', 'l', 'c', 'v', 'tv'] as const) (st[k] as unknown[]).splice(n);
+    }
+    for (const ix of g.indices) {
+      const n = ix.d.filter((x) => x <= cut).length;
+      for (const k of ['d', 'o', 'c'] as const) (ix[k] as unknown[]).splice(n);
+    }
+    return g;
+  };
+
+  const variants: [string, (c: SelectionCriteria) => void][] = [
+    ['원/달러 β 수혜', (c) => betaOn(c, 'usdkrw', 0.3, 5)],
+    ['원/달러 β 피해', (c) => betaOn(c, 'usdkrw', -5, -0.3)],
+    ['원/달러 흐름', (c) => (c.conditions.macro.usdkrw.trend = { on: true, lookback: 20, thresholdPct: 0.5, minAbsBeta: 0.3, whenFlat: 'none' })],
+    ['WTI β', (c) => betaOn(c, 'wti', -0.2, 0.2)],
+    ['WTI 흐름', (c) => (c.conditions.macro.wti.trend = { on: true, lookback: 10, thresholdPct: 1, minAbsBeta: 0, whenFlat: 'pass' })],
+    ['정렬 원/달러 β', (c) => (c.rank = { by: 'macroBeta', take: 5, series: 'usdkrw' })],
+    ['정렬 WTI β', (c) => (c.rank = { by: 'macroBeta', take: 5, series: 'wti' })],
+  ];
+
+  it.each(variants)('%s: knownFrom > p인 관측값을 극단값으로 바꾸거나 p 이후를 잘라도 결과가 같다', (name, patch) => {
+    const c = offCriteria();
+    c.pool.types = ['STOCK', 'ETF'];
+    patch(c);
+    const pre = precompute(fixture, c, null);
+    let passed = 0;
+    let poolSize = 0;
+    let earlier = 0;
+    for (const d of dates) {
+      const p = axis[axis.indexOf(d) - 1];
+      const base = selectAt(d, pre, c);
+      passed += base.passed;
+      poolSize += selectAt(d, pre, offCriteriaLike(c)).passed;
+      for (const f of [(v: number) => v * 1000, (v: number) => -v, (v: number) => v / 1000]) {
+        const m = mutateUnknown(p, f);
+        earlier += m.earlier;
+        expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
+      }
+      expect(selectAt(d, precompute(truncate(p), c, null), c), `${d} 자름`).toEqual(base);
+    }
+    // 관측일은 p보다 앞서지만 아직 공개되지 않은 값도 바꿨다
+    expect(earlier).toBeGreaterThan(dates.length);
+    expect(passed).toBeGreaterThan(0);
+    if (!name.startsWith('정렬')) expect(passed).toBeLessThan(poolSize);
+  });
+
+  it('설계한 종목의 원/달러 β: +1.5 종목과 −1.0 종목', () => {
+    const c = offCriteria();
+    c.pool.markets = ['KOSPI', 'KOSDAQ'];
+    c.rank = { by: 'macroBeta', take: 30, series: 'usdkrw' };
+    const sel = selectAt(dates[dates.length - 1], precompute(fixture, c, null), c);
+    const beta = Object.fromEntries(sel.picked.map((x) => [x.symbol, x.values.usdkrwBeta as number]));
+    for (const s of ['100000', '101111', '102222', '200000', '202222']) expect(Math.abs(beta[s] - 1.5), s).toBeLessThan(0.25);
+    for (const s of ['104444', '105555', '204444']) expect(Math.abs(beta[s] + 1), s).toBeLessThan(0.25);
+  });
+});

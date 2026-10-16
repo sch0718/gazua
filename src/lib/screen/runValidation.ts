@@ -1,20 +1,31 @@
 // 선정 기준 검증 묶음(스펙 6장): ① 동일 비중 보유, ② 매매 규칙, 비교 기준, 시장별 보기. Worker에서 돈다.
 import type { Candle } from '../data/metrics';
-import type { MarketDataFile } from '../marketData/format';
+import { isV2, type MarketDataFile } from '../marketData/format';
 import { indexCurve, singleCurve } from '../sim/benchmarks';
 import { simulate } from '../sim/simulate';
 import type { SimInput, Skip, Strategy } from '../sim/types';
 import { addDays, kstEpoch } from '../time/kst';
+import type { Basket } from './baskets';
 import { holdSelection, type HoldSegment } from './holdSelection';
+import { lastKnown, trendAt } from './macro';
 import { beatCount, curveStats } from './metrics';
-import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, type Precomputed } from './precompute';
+import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
 import { selectAt, type Selection } from './select';
-import type { Market, SelectionCriteria } from './types';
+import type { MacroSeriesKey, Market, SelectionCriteria } from './types';
 import { strategyRuleIssues } from './validate';
 
 export type CurveStats = ReturnType<typeof curveStats>;
 export type CurvePoint = { date: string; value: number };
-export type ValidationNote = 'survivorship' | 'snapshot' | 'dividend' | 'fewSegments' | 'warmup' | 'allEmpty' | 'sparseAxis';
+export type ValidationNote =
+  | 'survivorship'
+  | 'snapshot'
+  | 'dividend'
+  | 'fewSegments'
+  | 'warmup'
+  | 'allEmpty'
+  | 'sparseAxis'
+  | 'themeSnapshot'
+  | 'macroGap';
 export type MissingReason = '받지 못했어요' | '기간 일부만 받았어요';
 export type ByMarketKey = 'KOSPI' | 'KOSDAQ' | 'ETF';
 
@@ -33,13 +44,14 @@ export interface ValidationResult {
   notes: ValidationNote[];
 }
 
-export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy';
+export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy' | 'no-macro';
 
 export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'no-rebalance': '기간 안에 재선정일이 없어요',
   'invalid-number': '계산 중 잘못된 숫자가 나왔어요',
   'missing-strategy': '매매 규칙 전략이 지워졌어요',
   'invalid-strategy': '매매 규칙 전략에 고칠 곳이 있어요',
+  'no-macro': '이 데이터에는 환율·유가가 없어요',
 };
 
 export class ValidationError extends Error {
@@ -56,6 +68,8 @@ export interface ValidationInput {
   data: MarketDataFile;
   criteria: SelectionCriteria;
   strategies: Strategy[];
+  /** 지금 프로필의 내 묶음. 기준이 가리키는 묶음이 없으면 빈 묶음으로 본다. 생략하면 없음 */
+  baskets?: Basket[];
 }
 
 /** 시장별 보기의 후보 범위(스펙 6.5) */
@@ -94,14 +108,27 @@ export function preview(
   data: MarketDataFile,
   criteria: SelectionCriteria,
   strategies: Strategy[],
-  opts: { precompute?: PrecomputeFn } = {},
+  opts: { precompute?: PrecomputeFn; baskets?: Basket[] } = {},
 ): Selection {
   const pre = (opts.precompute ?? precompute)(data, criteria, resolveReboundEntry(criteria, strategies));
-  return todaySelection(pre, criteria);
+  return todaySelection(pre, criteria, opts.baskets ?? []);
 }
 
-function todaySelection(pre: Precomputed, criteria: SelectionCriteria): Selection {
-  return selectAt(addDays(pre.axis[pre.axis.length - 1], 1), pre, criteria);
+function todaySelection(pre: Precomputed, criteria: SelectionCriteria, baskets: Basket[]): Selection {
+  return selectAt(addDays(pre.axis[pre.axis.length - 1], 1), pre, criteria, undefined, baskets);
+}
+
+const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
+
+// 켠 환율·유가 조건의 계열 값이 p에 없는가: 계열이 비었거나 p까지 공개된 값이 없거나, 흐름을 켰는데 계산할 수 없다
+function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, p: string): boolean {
+  return MACRO_KEYS.some((key) => {
+    const m = criteria.conditions.macro[key];
+    if (!m.beta.on && !m.trend.on) return false;
+    const s = pre.macro[key];
+    if (s.d.length === 0 || lastKnown(s.known, p) < 0) return true;
+    return m.trend.on && Number.isNaN(trendAt(s, p, m.trend.lookback));
+  });
 }
 
 // 전 거래일 p에 봉이 있는 후보가, 그날을 기간 안에 둔 후보의 절반 미만인가(축이 날짜 합집합이라 일부만 거래한 날이 p가 될 수 있다)
@@ -124,6 +151,9 @@ export function runValidation(
   opts: { precompute?: PrecomputeFn } = {},
 ): ValidationResult | { cancelled: true } {
   const { data, criteria, strategies } = input;
+  const baskets = input.baskets ?? [];
+  // 다시 수집하지 않은 v1 파일에는 환율·유가가 없다(편집 화면이 막는 경우를 거치지 않은 실행도 막는다)
+  if (!isV2(data) && usesMacro(criteria)) throw new ValidationError('no-macro');
   const capital = criteria.capital;
   const feePct = criteria.costs.feePct;
   const fullAxis = tradingAxis(data);
@@ -145,13 +175,15 @@ export function runValidation(
   const rebalances: Selection[] = [];
   const byPool: Selection[][] = MARKET_POOLS.map(() => []);
   let sparse = false;
+  let macroGap = false;
   for (let i = 0; i < dates.length; i++) {
     if (isCancelled?.()) return { cancelled: true };
     const d = dates[i];
-    rebalances.push(selectAt(d, pre, criteria));
-    MARKET_POOLS.forEach((m, k) => byPool[k].push(selectAt(d, pre, criteria, m.pool)));
+    rebalances.push(selectAt(d, pre, criteria, undefined, baskets));
+    MARKET_POOLS.forEach((m, k) => byPool[k].push(selectAt(d, pre, criteria, m.pool, baskets)));
     const ai = fullAxis.indexOf(d);
     if (ai > 0 && sparseAt(pre, criteria, fullAxis[ai - 1])) sparse = true;
+    if (ai > 0 && macroGapAt(pre, criteria, fullAxis[ai - 1])) macroGap = true;
     onProgress?.(i + 1, dates.length);
   }
   if (isCancelled?.()) return { cancelled: true };
@@ -227,11 +259,13 @@ export function runValidation(
   if (lowerBound(fullAxis, dates[0]) < WARMUP_DAYS) notes.push('warmup');
   if (rebalances.every((s) => s.passed === 0)) notes.push('allEmpty');
   if (sparse) notes.push('sparseAxis');
+  if (criteria.pool.themes.length > 0 || criteria.pool.baskets.length > 0) notes.push('themeSnapshot');
+  if (macroGap) notes.push('macroGap');
 
   const result: ValidationResult = {
     axis: days,
     rebalances,
-    today: todaySelection(pre, criteria),
+    today: todaySelection(pre, criteria, baskets),
     hold: holdResult,
     trading,
     indices,

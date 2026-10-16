@@ -5,7 +5,7 @@ import type { MarketDataFile } from '../marketData/format';
 import type { MarketDataInfo } from '../marketData/store';
 import { newCriteria } from './defaults';
 import { precompute } from './precompute';
-import type { WorkerResponse } from './runValidation';
+import { preview, type WorkerResponse } from './runValidation';
 import { NOW } from './testData';
 import { createWorkerHandler } from './workerHandler';
 
@@ -71,6 +71,24 @@ describe('createWorkerHandler', () => {
     c3.conditions.tradingValue.days = 5;
     await handle({ type: 'preview', id: 3, input: { criteria: c3, strategies: [] } });
     expect(precompute).toHaveBeenCalledTimes(2);
+    expect(posted.filter((m) => m.type === 'error')).toEqual([]);
+  });
+
+  it('내 묶음을 미리 보기와 실행에 넘기고, betaDays가 바뀌면 β를 다시 계산한다', async () => {
+    const { posted, handle, release } = setup();
+    release();
+    const c = crit();
+    c.pool.baskets = ['b1'];
+    c.conditions.macro.usdkrw.beta = { on: true, min: -20, max: 20 };
+    const baskets = [{ id: 'b1', name: '묶음', updatedAt: NOW, symbols: ['100000', '200000'] }];
+    await handle({ type: 'preview', id: 1, input: { criteria: c, strategies: [], baskets } });
+    const sel = posted.find((m) => m.type === 'preview')!;
+    expect(sel.type === 'preview' && sel.selection).toEqual(preview(fixture, c, [], { baskets }));
+    expect(sel.type === 'preview' && sel.selection.picked.map((p) => p.symbol).sort()).toEqual(['100000', '200000']);
+    const c2 = structuredClone(c);
+    c2.conditions.macro.betaDays = 60;
+    await handle({ type: 'run', input: { criteria: c2, strategies: [], baskets } });
+    expect(precompute).toHaveBeenCalledTimes(3); // 미리 보기 1 + 비교용 preview 1 + betaDays가 다른 실행 1
     expect(posted.filter((m) => m.type === 'error')).toEqual([]);
   });
 });

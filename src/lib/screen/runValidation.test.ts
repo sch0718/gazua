@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MarketDataFile } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { roundMoney } from '../sim/money';
 import { simulate } from '../sim/simulate';
@@ -10,6 +10,8 @@ import { addDays } from '../time/kst';
 import { newCriteria } from './defaults';
 import { rebalanceDates, tradingAxis } from './precompute';
 import { errorCode, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
+import type { Basket } from './baskets';
+import { macroKnownFrom } from './macro';
 import { NOW } from './testData';
 import type { SelectionCriteria } from './types';
 
@@ -29,8 +31,8 @@ function crit(patch: (c: SelectionCriteria) => void = () => {}): SelectionCriter
   return c;
 }
 
-function run(c: SelectionCriteria, strategies: Strategy[] = [], data = fixture): ValidationResult {
-  const r = runValidation({ data, criteria: c, strategies });
+function run(c: SelectionCriteria, strategies: Strategy[] = [], data = fixture, baskets: Basket[] = []): ValidationResult {
+  const r = runValidation({ data, criteria: c, strategies, baskets });
   if ('cancelled' in r) throw new Error('cancelled');
   return r;
 }
@@ -327,5 +329,63 @@ describe('runValidation', () => {
   it('preview는 마지막 거래일 다음 날의 선별이고 runValidation의 today와 같다', () => {
     const c = crit();
     expect(preview(fixture, c, [])).toEqual(run(c).today);
+  });
+});
+
+describe('runValidation: 환율·유가와 테마·내 묶음', () => {
+  const v2 = fixture as MarketDataFileV2;
+  const basket: Basket = { id: 'b1', name: '묶음', updatedAt: NOW, symbols: ['100000', '200000'] };
+
+  it("테마나 내 묶음을 쓰면 'themeSnapshot' 메모", () => {
+    expect(run(crit()).notes).not.toContain('themeSnapshot');
+    expect(run(crit((c) => (c.pool.themes = ['001']))).notes).toContain('themeSnapshot');
+    expect(run(crit((c) => (c.pool.baskets = ['b1'])), [], fixture, [basket]).notes).toContain('themeSnapshot');
+  });
+
+  it('내 묶음을 입력으로 받아 후보 범위에 쓴다(지워진 묶음은 빈 묶음)', () => {
+    const c = crit((c) => ((c.pool.baskets = ['b1']), (c.conditions.tradingValue.on = false)));
+    const r = run(c, [], fixture, [basket]);
+    const picked = new Set(r.rebalances.flatMap((s) => s.picked.map((p) => p.symbol)));
+    expect([...picked].sort()).toEqual(['100000', '200000']);
+    expect(run(c, [], fixture, []).rebalances.every((s) => s.passed === 0)).toBe(true);
+    expect(preview(fixture, c, [], { baskets: [basket] })).toEqual(r.today);
+  });
+
+  it("v1 데이터인데 환율·유가 조건이 켜져 있으면 'no-macro' 오류. 꺼져 있으면 그대로 돈다", () => {
+    const { macro: _m, themes: _t, ...rest } = structuredClone(v2);
+    const v1: MarketDataFileV1 = { ...rest, version: 1 };
+    const c = crit((c) => (c.conditions.macro.usdkrw.beta.on = true));
+    expect(() => run(c, [], v1)).toThrow(ValidationError);
+    expect(() => run(c, [], v1)).toThrow('이 데이터에는 환율·유가가 없어요');
+    try {
+      run(c, [], v1);
+    } catch (e) {
+      expect(errorCode(e)).toBe('no-macro');
+    }
+    expect(run(crit(), [], v1).rebalances.length).toBe(DATES.length);
+  });
+
+  it("macro 조건이 켜져 있는데 계열 값이 없거나 흐름을 계산할 수 없는 재선정일이 있으면 'macroGap'", () => {
+    const beta = crit((c) => (c.conditions.macro.usdkrw.beta = { on: true, min: 0.3, max: 5 }));
+    expect(run(beta).notes).not.toContain('macroGap');
+    // 계열이 비어 있다
+    const empty = structuredClone(v2);
+    empty.macro.usdkrw = { d: [], v: [] };
+    const r = run(beta, [], empty);
+    expect(r.notes).toContain('macroGap');
+    expect(r.rebalances.every((s) => s.passed === 0)).toBe(true);
+    // 흐름의 끝값이 음수인 재선정일이 있다
+    const trend = crit((c) => (c.conditions.macro.wti.trend = { on: true, lookback: 10, thresholdPct: 1, minAbsBeta: 0, whenFlat: 'pass' }));
+    expect(run(trend).notes).not.toContain('macroGap');
+    const neg = structuredClone(v2);
+    const d = DATES[5];
+    const p = tradingAxis(fixture)[tradingAxis(fixture).indexOf(d) - 1];
+    // p에서 공개된 마지막 관측값과 그 앞 몇 개를 음수로
+    let k = -1;
+    neg.macro.wti.d.forEach((o, i) => macroKnownFrom('wti', o) <= p && (k = i));
+    for (let i = k - 3; i <= k; i++) neg.macro.wti.v[i] = -10;
+    const rn = run(trend, [], neg);
+    expect(rn.notes).toContain('macroGap');
+    expect(rn.rebalances[5].passed).toBe(0);
   });
 });

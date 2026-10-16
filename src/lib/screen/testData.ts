@@ -1,5 +1,5 @@
 // 테스트 전용: 손으로 만든 시장 데이터
-import type { MarketDataFile } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV2 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { tradingDates } from '../sim/testBars';
 import type { Strategy } from '../sim/types';
@@ -88,4 +88,50 @@ export function sampleStdPct(closes: number[]): number {
   const r = closes.slice(1).map((c, i) => c / closes[i] - 1);
   const mean = r.reduce((a, b) => a + b, 0) / r.length;
   return Math.sqrt(r.reduce((a, b) => a + (b - mean) ** 2, 0) / (r.length - 1)) * 100;
+}
+
+/** v1 파일에 macro·themes를 더한 v2 파일 */
+export function mkFileV2(
+  stocks: Stock[],
+  n: number,
+  macro: Partial<MarketDataFileV2['macro']> = {},
+  themes: MarketDataFileV2['themes'] = [],
+): MarketDataFileV2 {
+  const empty = { d: [], v: [] };
+  return { ...mkFile(stocks, n), version: 2, macro: { usdkrw: macro.usdkrw ?? empty, wti: macro.wti ?? empty }, themes };
+}
+
+/** from부터 미국 평일(토·일 제외) count개, YYYYMMDD */
+export function usWeekdays(from: string, count: number): string[] {
+  return tradingDates(from, count).map(ymd);
+}
+
+/** 재현 가능한 의사 난수 [0, 1) */
+export function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
+/** 관측일 기준 짝짓기(스펙 2.3): 봉 날짜보다 앞선 마지막 관측값의 인덱스, 없으면 -1 */
+export function obsBefore(obs: string[], barYmd: string): number {
+  let k = -1;
+  for (let i = 0; i < obs.length && obs[i] < barYmd; i++) k = i;
+  return k;
+}
+
+/** 직접 계산한 OLS 기울기 cov(r, x) / var(x). 두 번 훑는 방식 */
+export function olsSlope(r: number[], x: number[]): number {
+  const n = r.length;
+  const mr = r.reduce((a, b) => a + b, 0) / n;
+  const mx = x.reduce((a, b) => a + b, 0) / n;
+  let cov = 0;
+  let vx = 0;
+  for (let i = 0; i < n; i++) {
+    cov += (r[i] - mr) * (x[i] - mx);
+    vx += (x[i] - mx) ** 2;
+  }
+  return cov / vx;
 }
