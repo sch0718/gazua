@@ -6,6 +6,8 @@ export interface MarketDataInfo {
   collectedAt: string;
   stocks: number;
   range: { from: string; to: string };
+  /** 저장된 파일이 풀린 크기(바이트). 교체할 때 여유 공간에 되돌려 셈한다. */
+  bytes?: number;
 }
 
 export type ImportResult =
@@ -68,41 +70,46 @@ export function openMarketData(): MarketDataStore {
   }
 
   async function importFile(file: Blob, deps: ImportDeps = {}): Promise<ImportResult> {
-    let text: string;
     let parsed: unknown;
+    let rawBytes: number;
     try {
-      text = await (deps.decompress ?? defaultDecompress)(file);
-      parsed = JSON.parse(text);
+      const text = await (deps.decompress ?? defaultDecompress)(file);
+      rawBytes = new TextEncoder().encode(text).byteLength;
+      parsed = JSON.parse(text); // text는 여기서 범위를 벗어나 풀려난다
     } catch {
       return { ok: false, reason: 'corrupt' };
     }
     const check = validateMarketData(parsed);
     if (!check.ok) return { ok: false, reason: check.reason };
 
-    // 풀린 크기의 1.2배가 여유 공간보다 크면 쓰기 전에 거절한다
-    const needed = new Blob([text]).size * NEED_FACTOR;
+    // 풀린 크기의 1.2배가 여유 공간보다 크면 쓰기 전에 거절한다. 지금 저장된 파일은 교체되니 그 크기는 되돌려 셈한다.
+    const needed = rawBytes * NEED_FACTOR;
+    const neededMb = Math.ceil(needed / 1024 / 1024);
     try {
       const { quota, usage } = await (deps.estimate ?? defaultEstimate)();
-      if (typeof quota === 'number' && quota - (usage ?? 0) < needed) {
-        return { ok: false, reason: 'quota', neededMb: Math.ceil(needed / 1024 / 1024) };
+      if (typeof quota === 'number') {
+        const stored = ((await info())?.bytes ?? 0) * NEED_FACTOR;
+        if (quota - (usage ?? 0) + stored < needed) return { ok: false, reason: 'quota', neededMb };
       }
     } catch {
       // 추정이 안 되면 그냥 시도한다. 실제 쓰기 실패는 아래에서 잡는다.
     }
 
     const data = check.data;
-    const next: MarketDataInfo = { collectedAt: data.collectedAt, stocks: data.stocks.length, range: data.range };
+    const next: MarketDataInfo = { collectedAt: data.collectedAt, stocks: data.stocks.length, range: data.range, bytes: rawBytes };
     const d = await db();
+    const tx = d.transaction(STORE, 'readwrite');
     try {
-      // 한 트랜잭션에서 바꿔치기한다. 실패하면 트랜잭션이 취소되어 이전 값이 남는다.
-      const tx = d.transaction(STORE, 'readwrite');
-      void tx.store.put(data, KEY);
-      void tx.store.put(next, INFO_KEY);
-      await tx.done;
+      // 한 트랜잭션에서 바꿔치기한다. 요청과 완료를 함께 기다려 거부가 떠돌지 않게 한다.
+      await Promise.all([tx.store.put(data, KEY), tx.store.put(next, INFO_KEY), tx.done]);
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        return { ok: false, reason: 'quota', neededMb: Math.ceil(needed / 1024 / 1024) };
+      // 동기로 던져진 경우 트랜잭션이 남아 앞의 put만 커밋되지 않도록 취소한다
+      try {
+        tx.abort();
+      } catch {
+        // 이미 끝난 트랜잭션
       }
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') return { ok: false, reason: 'quota', neededMb };
       throw e;
     } finally {
       d.close();

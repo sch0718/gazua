@@ -70,11 +70,14 @@ describe('market data store', () => {
   it('rejects when free space is short, with the needed MB, and keeps the previous data', async () => {
     const store = openMarketData();
     await store.importFile(file(), { decompress, estimate: roomy });
-    const raw = (await decompress(file())).length;
-    const res = await store.importFile(file(), { decompress, estimate: async () => ({ quota: 1000, usage: 10 }) });
+    // A보다 5MB 큰 파일. 교체로 돌려받는 A의 크기를 더해도 모자란다
+    const j = JSON.parse(await decompress(file()));
+    j.stocks[0].n = 'x'.repeat(5 * 1024 * 1024);
+    const text = JSON.stringify(j);
+    const res = await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: async () => ({ quota: 1010, usage: 1000 }) });
     expect(res).toMatchObject({ ok: false, reason: 'quota' });
-    if (!res.ok) expect(res.neededMb).toBe(Math.ceil((raw * 1.2) / 1024 / 1024));
-    expect(await store.info()).not.toBeNull();
+    if (!res.ok) expect(res.neededMb).toBe(Math.ceil((new TextEncoder().encode(text).byteLength * 1.2) / 1024 / 1024));
+    expect((await store.info())?.stocks).toBe(30);
   });
 
   it('clears the data', async () => {

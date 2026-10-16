@@ -202,7 +202,7 @@
 
   <div class="row">
     <div class="text">
-      <b>시장 데이터 가져오기</b>
+      <b>시장 데이터</b>
       <p class="num">{marketBusy ? '가져오는 중…' : marketInfo ? marketLine(marketInfo) : '수집한 .json.gz 파일을 가져와요.'}</p>
     </div>
     {#if marketInfo}
@@ -211,10 +211,9 @@
     <button
       type="button"
       class="btn"
-      aria-label="시장 데이터 가져오기"
       disabled={marketBusy}
       onclick={() => marketInput?.click()}
-    >가져오기</button>
+    >시장 데이터 가져오기</button>
     <input
       bind:this={marketInput}
       class="sr-only"
