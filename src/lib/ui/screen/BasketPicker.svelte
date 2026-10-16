@@ -24,6 +24,7 @@
   } = $props();
 
   let managing = $state(false);
+  let manageBtn = $state<HTMLButtonElement>();
   const baskets = $derived(app.baskets);
   // 지워진 묶음을 가리키는 id는 해제할 수 있게 줄로 남긴다(편집 화면 경고와 짝)
   const gone = $derived(selected.filter((id) => !baskets.some((b) => b.id === id)));
@@ -36,7 +37,7 @@
 <div class="picker">
   <div class="top">
     <span class="sum">{selected.length === 0 ? '고른 묶음 없음' : `${selected.length}개 선택`}</span>
-    <button type="button" class="act" onclick={() => (managing = true)}>묶음 관리</button>
+    <button type="button" class="act" bind:this={manageBtn} onclick={() => (managing = true)}>묶음 관리</button>
   </div>
   {#if baskets.length === 0 && gone.length === 0}
     <p class="hint">만든 묶음이 없어요</p>
@@ -59,7 +60,7 @@
   {/if}
 </div>
 
-<BasketSheet open={managing} {app} {names} {loadItems} {themes} {loadThemeSymbols} onclose={() => (managing = false)} />
+<BasketSheet open={managing} {app} {names} {loadItems} {themes} {loadThemeSymbols} returnTo={() => manageBtn} onclose={() => (managing = false)} />
 
 <style>
   .picker {

@@ -135,6 +135,42 @@ describe('BasketSheet', () => {
     expect(within(dlg).getByRole('button', { name: 'NAVER 빼기' })).toBeTruthy();
   });
 
+  it('import over 300 gives one combined message, not two', async () => {
+    const full = Array.from({ length: 299 }, (_, i) => String(100000 + i));
+    const { app } = setup({ baskets: [mk('b1', '큰 묶음', full)], themeSymbols: ['005930', '000660', '035420'] });
+    await fireEvent.click(screen.getByRole('button', { name: '큰 묶음 편집' }));
+    await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
+    await vi.waitFor(() => expect(app.baskets[0].symbols).toHaveLength(300));
+    expect(currentSnackbar()?.message).toBe('종목 1개를 가져왔어요. 300개를 넘는 2개는 뺐어요');
+  });
+
+  it('undo is refused across a profile switch', async () => {
+    const { app } = setup({ baskets: [mk('b1', '하나', ['005930'])] });
+    await fireEvent.click(screen.getByRole('button', { name: '하나 삭제' }));
+    const other = app.addProfile('다른');
+    app.switchProfile(other.id);
+    runSnackbarAction();
+    expect(currentSnackbar()?.message).toBe('다른 프로필에서는 되돌릴 수 없어요');
+    expect(app.baskets).toEqual([]);
+  });
+
+  it('undo is refused when 30 baskets already exist', async () => {
+    const { app } = setup({ baskets: [mk('b1', '하나', ['005930'])] });
+    await fireEvent.click(screen.getByRole('button', { name: '하나 삭제' }));
+    app.setBaskets(Array.from({ length: MAX_BASKETS }, (_, i) => mk(`x${i}`, `다른${i}`, ['005930'])));
+    runSnackbarAction();
+    expect(currentSnackbar()?.message).toBe(BASKET_CAP_MESSAGE);
+    expect(app.baskets).toHaveLength(MAX_BASKETS);
+    expect(app.baskets.some((b) => b.id === 'b1')).toBe(false);
+  });
+
+  it('after undo, focus lands on the restored basket delete button', async () => {
+    setup({ baskets: [mk('b1', '하나', ['005930']), mk('b2', '둘', ['000660'])] });
+    await fireEvent.click(screen.getByRole('button', { name: '하나 삭제' }));
+    runSnackbarAction();
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '하나 삭제' })));
+  });
+
   it('stops at the cap of 30 baskets', async () => {
     const many = Array.from({ length: MAX_BASKETS }, (_, i) => mk(`b${i}`, `묶음${i}`, ['005930']));
     setup({ baskets: many });

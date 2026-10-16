@@ -117,7 +117,7 @@ describe('환율·유가 소구역', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(screen.getByText('유가 민감도 범위의 최소가 최대보다 커요')).toBeTruthy();
     expect(preview).not.toHaveBeenCalled();
-    expect(screen.getByText('고칠 곳을 고치면 미리 볼 수 있어요')).toBeTruthy();
+    expect(screen.getByText('고칠 곳을 고치면 미리 볼 수 있어요').getAttribute('role')).toBe('status'); // 기존 상태 영역의 글만 바뀐다
     await fireEvent.click(runBtn());
     expect(onRun).not.toHaveBeenCalled();
     await fireEvent.input(field('유가 최소 민감도'), { target: { value: '1' } });
@@ -138,7 +138,7 @@ describe('v1 데이터(환율·유가·테마 없음)', () => {
     setup({ info: V1 });
     await open('후보 범위');
     expect(screen.getAllByText('다시 수집하면 쓸 수 있어요')).toHaveLength(2); // 환율·유가 + 테마
-    expect(sw('원/달러 민감도 사용').disabled).toBe(true);
+    expect(sw('원/달러 민감도 사용').getAttribute('aria-disabled')).toBe('true');
     expect(field('원/달러 최소 민감도').matches(':disabled')).toBe(true); // 비활성 fieldset 안
     expect((screen.getByRole('searchbox', { name: '테마 검색' }) as HTMLInputElement).disabled).toBe(true);
   });
@@ -155,10 +155,32 @@ describe('v1 데이터(환율·유가·테마 없음)', () => {
     expect(onRun).toHaveBeenCalledTimes(1);
   });
 
+  it('turning an already-on condition off keeps keyboard focus on its toggle, and turning one on stays refused', async () => {
+    const { app } = setup({ info: V1, crit: (c) => (c.conditions.macro.wti.beta.on = true) });
+    const on = sw('유가 민감도 사용');
+    on.focus();
+    await fireEvent.click(on);
+    expect(document.activeElement).toBe(on);
+    expect(on.getAttribute('aria-checked')).toBe('false');
+    expect(on.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(on.getAttribute('aria-describedby')!)!.textContent).toBe('다시 수집하면 쓸 수 있어요');
+    await fireEvent.click(on); // 다시 켜려 해도 막힌다
+    expect(on.getAttribute('aria-checked')).toBe('false');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(app.criteria[0].conditions.macro.wti.beta.on).toBe(false);
+  });
+
   it('sorting by 민감도 큰 순 is blocked in the sort section with the same copy', async () => {
-    setup({ info: V1, crit: (c) => (c.rank.by = 'macroBeta') });
+    const { onRun } = setup({ info: V1, crit: (c) => (c.rank.by = 'macroBeta') });
     await open('고를 개수·정렬');
-    expect(within(document.querySelector('.editor')!).getAllByText('이 데이터에는 환율·유가가 없어요')).toHaveLength(1);
+    const msg = within(document.querySelector('.editor')!).getAllByText('이 데이터에는 환율·유가가 없어요');
+    expect(msg).toHaveLength(1);
+    // 정렬 구역 안에 있고, 실제로 실행을 막는다
+    const sortBody = section('고를 개수·정렬').closest('section')!;
+    expect(sortBody.contains(msg[0])).toBe(true);
+    await fireEvent.click(runBtn());
+    expect(onRun).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(msg[0].closest('[id]'));
   });
 });
 

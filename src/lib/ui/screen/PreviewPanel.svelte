@@ -31,15 +31,15 @@
   <h3 id={titleId}>오늘 기준 미리 보기</h3>
   {#if !hasData}
     <p class="muted">시장 데이터를 가져오면 미리 볼 수 있어요</p>
-  {:else if blocked}
-    <p class="muted" role="status">고칠 곳을 고치면 미리 볼 수 있어요</p>
   {:else}
     {#if asOf}<p class="muted">{asOf} 기준</p>{/if}
     <!-- 끝난 결과도 이 라이브 영역에 넣어 화면 낭독기가 읽게 한다. 계산 중에는 옛 결과를 그대로 보인다 -->
-    <p class="state" class:count={!pending && !!selection && !failed} role="status">
-      {pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
+    <p class="state" class:count={!blocked && !pending && !!selection && !failed} role="status">
+      {blocked ? '고칠 곳을 고치면 미리 볼 수 있어요' : pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
     </p>
-    {#if failed}
+    {#if blocked}
+      <!-- 막는 경고가 있으면 옛 결과를 보이지 않는다 -->
+    {:else if failed}
       <p class="err">미리 보기를 계산하지 못했어요</p>
     {:else if selection}
       {#if pending}<p class="count">{countText(selection)}</p>{/if}

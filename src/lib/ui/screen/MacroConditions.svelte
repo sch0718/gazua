@@ -23,13 +23,20 @@
     unavailable?: boolean;
   } = $props();
 
+  const uid = Math.random().toString(36).slice(2, 9);
+  const offId = `macro-off-${uid}`;
+  // 데이터에 없으면 새로 켜는 것만 막는다. 이미 켜진 조건은 끌 수 있고, 끈 뒤에도 토글이 포커스를 지킨다
+  const gate = (turn: (v: boolean) => void) => (v: boolean) => {
+    if (unavailable && v) return;
+    turn(v);
+  };
   const lab = (k: MacroSeriesKey) => SERIES_LABEL[k];
 </script>
 
 <div class="macro">
   <p class="group-title">환율·유가</p>
-  {#if unavailable}<p class="hint" id="macro-off">{NEED_RECOLLECT_TEXT}</p>{/if}
-  <fieldset class="fs" disabled={unavailable} aria-describedby={unavailable ? 'macro-off' : undefined}>
+  {#if unavailable}<p class="hint" id={offId}>{NEED_RECOLLECT_TEXT}</p>{/if}
+  <fieldset class="fs" disabled={unavailable} aria-describedby={unavailable ? offId : undefined}>
     <NumberField
       label="민감도 계산 기간"
       value={macro.betaDays}
@@ -43,13 +50,13 @@
   </fieldset>
   {#each SERIES_ORDER as key (key)}
     {@const m = macro[key]}
-    <ConditionRow label="{lab(key)} 민감도" help={macroBetaHelp(key)} on={m.beta.on} disabled={unavailable && !m.beta.on} ontoggle={(v) => update((x) => (x[key].beta.on = v))}>
+    <ConditionRow label="{lab(key)} 민감도" help={macroBetaHelp(key)} on={m.beta.on} softDisabled={unavailable && !m.beta.on} describedby={unavailable ? offId : undefined} ontoggle={gate((v) => update((x) => (x[key].beta.on = v)))}>
       <fieldset class="fs" disabled={unavailable}>
         <NumberField label="{lab(key)} 최소 민감도" value={m.beta.min} min={-20} max={20} suffix="이상" muted={!m.beta.on} {...nf(`fx-${key}-bmin`)} onchange={(v) => update((x) => (x[key].beta.min = v))} />
         <NumberField label="{lab(key)} 최대 민감도" value={m.beta.max} min={-20} max={20} suffix="이하" muted={!m.beta.on} {...nf(`fx-${key}-bmax`)} onchange={(v) => update((x) => (x[key].beta.max = v))} />
       </fieldset>
     </ConditionRow>
-    <ConditionRow label="{lab(key)} 흐름 따라가기" help={macroTrendHelp(key)} on={m.trend.on} disabled={unavailable && !m.trend.on} ontoggle={(v) => update((x) => (x[key].trend.on = v))}>
+    <ConditionRow label="{lab(key)} 흐름 따라가기" help={macroTrendHelp(key)} on={m.trend.on} softDisabled={unavailable && !m.trend.on} describedby={unavailable ? offId : undefined} ontoggle={gate((v) => update((x) => (x[key].trend.on = v)))}>
       <fieldset class="fs" disabled={unavailable}>
         <NumberField label="{lab(key)} 흐름 기간" value={m.trend.lookback} min={5} max={120} step={1} suffix="일" muted={!m.trend.on} {...nf(`fx-${key}-tlb`)} onchange={(v) => update((x) => (x[key].trend.lookback = v))} />
         <NumberField label="{lab(key)} 흐름 기준" value={m.trend.thresholdPct} min={0.5} max={50} suffix="% 이상 움직이면" muted={!m.trend.on} {...nf(`fx-${key}-tth`)} onchange={(v) => update((x) => (x[key].trend.thresholdPct = v))} />

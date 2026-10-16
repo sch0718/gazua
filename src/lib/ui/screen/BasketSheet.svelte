@@ -21,6 +21,7 @@
     loadItems,
     themes,
     loadThemeSymbols,
+    returnTo,
   }: {
     open: boolean;
     app: App;
@@ -32,6 +33,8 @@
     themes?: MarketThemeSummary[];
     /** 테마 코드 → 그 테마의 종목 코드. 파일 본문을 읽으므로 가져올 때만 부른다 */
     loadThemeSymbols?: (code: string) => Promise<string[]>;
+    /** 시트를 완전히 닫은 뒤 포커스를 돌려줄 요소(`묶음 관리` 버튼) */
+    returnTo?: () => HTMLElement | null | undefined;
   } = $props();
 
   const SYMBOL_RE = /^[0-9A-Z]{6}$/;
@@ -160,17 +163,25 @@
     void focusList(index);
   }
 
-  /** 종목을 더한다(중복은 건너뛰고 300개에서 멈춘다). 더한 개수를 돌려준다 */
-  function addSymbols(syms: string[]): number {
+  /** 종목을 더한다(중복은 건너뛰고 300개에서 멈춘다). 안내는 부르는 쪽이 한 번에 한다 */
+  function addSymbols(syms: string[]): { added: number; truncated: number; failed: boolean } {
     const b = current;
-    if (!b) return 0;
+    if (!b) return { added: 0, truncated: 0, failed: false };
     const have = new Set(b.symbols);
     const fresh = [...new Set(syms)].filter((s) => SYMBOL_RE.test(s) && !have.has(s));
     const room = BASKET_SYMBOLS_MAX - b.symbols.length;
     const take = fresh.slice(0, Math.max(0, room));
-    if (fresh.length > take.length) showSnackbar(SYMBOLS_FULL);
-    if (take.length === 0) return 0;
-    return put({ ...b, symbols: [...b.symbols, ...take] }) ? take.length : 0;
+    const truncated = fresh.length - take.length;
+    if (take.length === 0) return { added: 0, truncated, failed: false };
+    const ok = put({ ...b, symbols: [...b.symbols, ...take] });
+    return { added: ok ? take.length : 0, truncated, failed: !ok };
+  }
+
+  /** 가져오기 결과를 안내 하나로 합친다. 저장이 실패했으면 저장소의 오류 안내만 남긴다 */
+  function report(r: { added: number; truncated: number; failed: boolean }) {
+    if (r.failed) return;
+    if (r.added === 0) return void showSnackbar(r.truncated > 0 ? SYMBOLS_FULL : '새로 넣을 종목이 없어요');
+    showSnackbar(`종목 ${r.added}개를 가져왔어요${r.truncated > 0 ? `. ${BASKET_SYMBOLS_MAX}개를 넘는 ${r.truncated}개는 뺐어요` : ''}`);
   }
 
   async function removeSymbol(sym: string) {
@@ -212,16 +223,14 @@
   function fromGroup() {
     const g = groups.find((x) => x.id === groupId);
     if (!g) return;
-    const n = addSymbols(g.items.map((i) => i.symbol));
-    showSnackbar(n > 0 ? `종목 ${n}개를 가져왔어요` : '새로 넣을 종목이 없어요');
+    report(addSymbols(g.items.map((i) => i.symbol)));
   }
 
   async function fromTheme() {
     if (!themeCode || !loadThemeSymbols || importing) return;
     importing = true;
     try {
-      const n = addSymbols(await loadThemeSymbols(themeCode));
-      showSnackbar(n > 0 ? `종목 ${n}개를 가져왔어요` : '새로 넣을 종목이 없어요');
+      report(addSymbols(await loadThemeSymbols(themeCode)));
     } catch {
       showSnackbar('테마 종목을 불러오지 못했어요');
     } finally {
@@ -229,10 +238,26 @@
     }
   }
 
+  // 종목 추가 시트가 닫히면 이 시트가 다시 열린다. 두 시트의 포커스 복원이 끝난 뒤 `종목 추가`로 돌려놓는다
+  async function endAdding() {
+    adding = false;
+    await tick();
+    await tick();
+    bodyEl?.querySelector<HTMLElement>('[data-add-stocks]')?.focus();
+  }
+  // 완전히 닫을 때는 시트가 기억한 요소가 이미 사라졌을 수 있어 부른 버튼으로 돌린다
+  async function close() {
+    onclose();
+    await tick();
+    await tick();
+    const el = returnTo?.();
+    if (el?.isConnected) el.focus();
+  }
+
   const themeOff = $derived(themeList.length === 0 || !loadThemeSymbols);
 </script>
 
-<Sheet open={open && !adding} title="묶음 관리" {onclose}>
+<Sheet open={open && !adding} title="묶음 관리" onclose={close}>
   {#if view === null || !current}
     <div class="wrap" bind:this={listEl}>
       {#if rows.length === 0}
@@ -311,8 +336,11 @@
   picked={current?.symbols ?? []}
   max={BASKET_SYMBOLS_MAX}
   limitMessage={SYMBOLS_FULL}
-  onpick={(item) => void addSymbols([item.s])}
-  onclose={() => (adding = false)}
+  onpick={(item) => {
+    const r = addSymbols([item.s]);
+    if (r.truncated > 0) showSnackbar(SYMBOLS_FULL);
+  }}
+  onclose={endAdding}
 />
 
 <style>
