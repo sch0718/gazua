@@ -101,7 +101,15 @@ export function openMarketData(): MarketDataStore {
     const tx = d.transaction(STORE, 'readwrite');
     try {
       // 한 트랜잭션에서 바꿔치기한다. 요청과 완료를 함께 기다려 거부가 떠돌지 않게 한다.
-      await Promise.all([tx.store.put(data, KEY), tx.store.put(next, INFO_KEY), tx.done]);
+      // 만든 즉시 처리기를 달아, 뒤의 put이 동기로 던져 취소될 때 앞 요청의 거부가 떠돌지 않게 한다
+      const pending: Promise<unknown>[] = [tx.done];
+      tx.done.catch(() => {});
+      for (const [v, k] of [[data, KEY], [next, INFO_KEY]] as const) {
+        const req = tx.store.put(v, k);
+        req.catch(() => {});
+        pending.push(req);
+      }
+      await Promise.all(pending);
     } catch (e) {
       // 동기로 던져진 경우 트랜잭션이 남아 앞의 put만 커밋되지 않도록 취소한다
       try {
