@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { HoldSegment } from './holdSelection';
+import { holdSelection, type HoldSegment } from './holdSelection';
 import { beatCount, curveStats } from './metrics';
+import { DATES, mkFile, mkStock } from './testData';
 
 describe('curveStats', () => {
   const days = ['2025-01-01', '2025-01-02', '2025-01-03', '2026-01-01'];
@@ -21,16 +22,27 @@ describe('curveStats', () => {
 
 describe('beatCount', () => {
   const axis = ['2025-01-02', '2025-01-03', '2025-01-06', '2025-01-07'];
-  const seg = (from: string, to: string, rets: (number | null)[]): HoldSegment => ({
-    from,
-    to,
-    picked: rets.map((retPct, i) => ({ symbol: `S${i}`, retPct, soldAtLastClose: false, notBought: retPct === null })),
+  const seg = (from: string, to: string): HoldSegment => ({ from, to, picked: [] });
+  const eq = (...v: number[]) => v.map((value, i) => ({ date: axis[i], value }));
+  it('구간마다 순자산 수익률이 지수보다 엄격히 크면 센다(첫 구간은 initial에서 시작)', () => {
+    const idx = [100, 105, 105, 100];
+    const segs = [seg(axis[0], axis[1]), seg(axis[1], axis[2]), seg(axis[2], axis[3])];
+    // 1구간 108/100 > 105/100 이김, 2구간 105/108 < 1 짐, 3구간 105/105 = 1 > 100/105 이김
+    expect(beatCount(segs, eq(102, 108, 105, 105), idx, axis, 100)).toEqual({ beat: 2, total: 3 });
   });
-  it('구간별로 ① 수익률(평균, 못 산 몫은 0%)이 지수보다 크면 센다', () => {
-    const idx = [100, 105, 105, 100]; // 구간 +5%, 0%, −4.76%
-    const segs = [seg(axis[0], axis[1], [10, 2]), seg(axis[1], axis[2], [null, 4]), seg(axis[2], axis[3], [])];
-    // 6% > 5% 이김, (0+4)/2=2% > 0% 이김, 빈 구간 0% > −4.76% 이김
-    expect(beatCount(segs, idx, axis)).toEqual({ beat: 3, total: 3 });
-    expect(beatCount([seg(axis[0], axis[1], [4])], idx, axis)).toEqual({ beat: 0, total: 1 });
+  it('같으면 세지 않고, 날짜가 축에 없는 구간은 합계에서도 뺀다', () => {
+    const idx = [100, 100, 100, 100];
+    const segs = [seg(axis[0], axis[1]), seg('2030-01-01', '2030-02-01')];
+    expect(beatCount(segs, eq(100, 100, 100, 100), idx, axis, 100)).toEqual({ beat: 0, total: 1 });
+  });
+  it('고른 종목의 총수익 평균이 지수를 넘어도 수수료·세금을 뺀 순자산이 못 넘으면 세지 않는다', () => {
+    const A = [100, 100, 100, 100.2, 100.2, 100.2, 100.2, 100.2, 100.2, 100.2];
+    const n = 10;
+    const selections = [0, 3].map((i) => ({ date: DATES[i], passed: i ? 0 : 1, picked: i ? [] : [{ symbol: 'A', values: {} }] }));
+    const axis10 = DATES.slice(0, n);
+    const r = holdSelection({ axis: axis10, selections, data: mkFile([mkStock('A', A)], n), capital: 1_000_000, feePct: 0.1, periodEnd: DATES[9] });
+    expect(r.segments[0].picked[0].retPct).toBeCloseTo(0.2, 9); // 총수익은 지수(+0.1%)보다 큼
+    const idx = axis10.map((_, i) => (i < 3 ? 1_000_000 : 1_001_000));
+    expect(beatCount(r.segments, r.equity, idx, axis10, 1_000_000)).toEqual({ beat: 0, total: 2 });
   });
 });

@@ -84,7 +84,10 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
       for (const symbol of picks) {
         const p = openPx(symbol);
         entries.set(symbol, p);
-        if (p !== null) targetQty.set(symbol, maxShares(target, p, feePct));
+        const q = p === null ? 0 : maxShares(target, p, feePct);
+        // 배정 금액으로 1주도 못 사면 봉이 없는 것과 같이 못 산 것으로 둔다
+        if (q === 0) entries.set(symbol, null);
+        else targetQty.set(symbol, q);
       }
 
       // 매도 먼저: 고르지 않았거나 봉이 없는 종목은 전부, 다시 뽑힌 종목은 초과분만
@@ -108,7 +111,10 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
         if (p == null) continue;
         let need = (targetQty.get(symbol) ?? 0) - (qty.get(symbol) ?? 0);
         while (need > 0 && costOf(need, p, feePct) > cash) need--;
-        if (need <= 0) continue;
+        if (need <= 0) {
+          if (!qty.has(symbol)) entries.set(symbol, null);
+          continue;
+        }
         cash = roundMoney(cash - costOf(need, p, feePct));
         qty.set(symbol, (qty.get(symbol) ?? 0) + need);
       }

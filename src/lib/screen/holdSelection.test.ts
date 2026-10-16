@@ -80,4 +80,36 @@ describe('holdSelection', () => {
     expect(r.equity[9].value).toBe(1_000_000 * 1.3);
     expect(r.segments[0].picked[0].retPct).toBeCloseTo(30, 9);
   });
+
+  it('배정 금액으로 1주도 못 사면 사지 않고 notBought로 표시한다', () => {
+    const r = run([mkStock('B', Array(10).fill(999))], [sel(0, 'B')], 500, 0, 5, 6);
+    expect(r.equity.every((e) => e.value === 500)).toBe(true);
+    expect(r.segments[0].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true }]);
+  });
+
+  it('다시 뽑혔어도 재선정일에 봉이 없으면 마지막 종가로 팔고 notBought다', () => {
+    const X = [10, 10, 10, null, null, null, null, null];
+    const r = run([mkStock('X', X)], [sel(0, 'X'), sel(3, 'X')], 1000, 0, 6, 8);
+    expect(r.equity[3].value).toBe(998.5); // 1,000 − 세금 1.5
+    expect(r.segments[0].picked).toEqual([{ symbol: 'X', retPct: 0, soldAtLastClose: true, notBought: false }]);
+    expect(r.segments[1].picked).toEqual([{ symbol: 'X', retPct: null, soldAtLastClose: false, notBought: true }]);
+  });
+
+  it('마지막 종가 매도의 세율은 재선정일의 결제일 기준이다(연도가 다를 때)', () => {
+    const axis = ['2024-12-26', '2024-12-27', '2024-12-30', '2025-01-02', '2025-01-03', '2025-01-06'];
+    const x = mkStock('X', [10]);
+    x.d = ['20241226'];
+    const data = { ...mkFile([x], 6), range: { from: axis[0], to: axis[5] } };
+    const mk = (d: string, ...symbols: string[]): Selection => ({ date: d, passed: symbols.length, picked: symbols.map((symbol) => ({ symbol, values: {} })) });
+    const r = holdSelection({ axis, selections: [mk(axis[0], 'X'), mk(axis[3])], data, capital: 1000, feePct: 0, periodEnd: axis[5] });
+    // 결제일 2025-01-06 → 0.15%(2024년 0.18%였다면 998.2)
+    expect(r.equity[3].value).toBe(998.5);
+  });
+
+  it('매도 비용으로 현금이 모자라 살 수 있는 주수가 0이 되면 notBought다', () => {
+    const r = run([mkStock('A', Array(10).fill(10)), mkStock('B', Array(10).fill(999))], [sel(0, 'A'), sel(3, 'B')], 1000, 0, 5, 6);
+    // 3일: A 100주 전량 매도 1,000 − 1.5 = 998.5 < B 1주 999 → 0주
+    expect(r.equity[3].value).toBe(998.5);
+    expect(r.segments[1].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true }]);
+  });
 });

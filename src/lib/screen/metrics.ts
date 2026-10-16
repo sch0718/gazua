@@ -27,17 +27,30 @@ export function curveStats(curve: number[], days: string[], initial: number): { 
 }
 
 /**
- * 구간별로 ①의 수익률(고른 종목 retPct의 평균, 못 산 몫과 빈 구간은 현금이라 0%)이
- * 같은 구간의 지수 수익률보다 크면 이긴 것으로 센다.
+ * 구간마다 ①의 순자산 수익률(수수료·세금 포함)이 같은 두 날짜의 지수 수익률보다 엄격히 크면 센다.
+ * 첫 구간은 둘 다 initial에서 시작한다(지수는 첫날 시가). 축이나 자산 곡선에 없는 날짜의 구간은 합계에서도 뺀다.
  */
-export function beatCount(segments: HoldSegment[], indexCurve: number[], axis: string[]): { beat: number; total: number } {
+export function beatCount(
+  segments: HoldSegment[],
+  equity: { date: string; value: number }[],
+  indexCurve: number[],
+  axis: string[],
+  initial: number,
+): { beat: number; total: number } {
+  const at = new Map(equity.map((e, i) => [e.date, i]));
   let beat = 0;
+  let total = 0;
   for (const s of segments) {
-    const a = axis.indexOf(s.from);
-    const b = axis.indexOf(s.to);
-    if (a < 0 || b < 0) continue;
-    const hold = s.picked.length ? s.picked.reduce((sum, p) => sum + (p.retPct ?? 0), 0) / s.picked.length : 0;
-    if (hold > (indexCurve[b] / indexCurve[a] - 1) * 100) beat++;
+    const ef = at.get(s.from);
+    const et = at.get(s.to);
+    const xf = axis.indexOf(s.from);
+    const xt = axis.indexOf(s.to);
+    if (ef === undefined || et === undefined || xf < 0 || xt < 0) continue;
+    total++;
+    const first = ef === 0;
+    const hold = equity[et].value / (first ? initial : equity[ef].value);
+    const index = indexCurve[xt] / (first ? initial : indexCurve[xf]);
+    if (hold > index) beat++;
   }
-  return { beat, total: segments.length };
+  return { beat, total };
 }
