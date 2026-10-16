@@ -47,6 +47,9 @@ export class ValidationError extends Error {
   }
 }
 
+/** 미리 계산 함수. Worker는 같은 기준 값이면 결과를 재사용하는 함수를 넣는다 */
+export type PrecomputeFn = typeof precompute;
+
 export interface ValidationInput {
   data: MarketDataFile;
   criteria: SelectionCriteria;
@@ -61,6 +64,7 @@ const MARKET_POOLS: { key: ByMarketKey; pool: Pick<SelectionCriteria['pool'], 'm
 ];
 
 const FEW_SEGMENTS = 12;
+const SIM_NON_FINITE = '평가액 계산 실패';
 const WARMUP_DAYS = 250;
 
 const ymd = (d: string): string => d.replaceAll('-', '');
@@ -84,8 +88,13 @@ function lowerBound(a: string[], x: string): number {
 }
 
 /** 편집 화면 미리 보기: 마지막 거래일 다음 날의 선별 */
-export function preview(data: MarketDataFile, criteria: SelectionCriteria, strategies: Strategy[]): Selection {
-  const pre = precompute(data, criteria, resolveReboundEntry(criteria, strategies));
+export function preview(
+  data: MarketDataFile,
+  criteria: SelectionCriteria,
+  strategies: Strategy[],
+  opts: { precompute?: PrecomputeFn } = {},
+): Selection {
+  const pre = (opts.precompute ?? precompute)(data, criteria, resolveReboundEntry(criteria, strategies));
   return todaySelection(pre, criteria);
 }
 
@@ -110,6 +119,7 @@ export function runValidation(
   input: ValidationInput,
   onProgress?: (done: number, total: number) => void,
   isCancelled?: () => boolean,
+  opts: { precompute?: PrecomputeFn } = {},
 ): ValidationResult | { cancelled: true } {
   const { data, criteria, strategies } = input;
   const capital = criteria.capital;
@@ -125,7 +135,7 @@ export function runValidation(
   }
 
   // 미리 계산과 모든 selectAt은 같은 해석된 entry를 쓴다
-  const pre = precompute(data, criteria, resolveReboundEntry(criteria, strategies));
+  const pre = (opts.precompute ?? precompute)(data, criteria, resolveReboundEntry(criteria, strategies));
   const days = fullAxis.filter((d) => d >= dates[0] && d <= criteria.period.to);
 
   const rebalances: Selection[] = [];
@@ -190,7 +200,7 @@ export function runValidation(
     const sels = byPool[k];
     const inPool =
       m.key === 'ETF'
-        ? criteria.pool.types.includes('ETF')
+        ? criteria.pool.types.includes('ETF') && criteria.pool.markets.includes('KOSPI') && criteria.pool.markets.includes('KOSDAQ')
         : criteria.pool.markets.includes(m.key) && criteria.pool.types.includes('STOCK');
     return {
       key: m.key,
@@ -269,13 +279,20 @@ function runTrading(
     });
   }
   const candles = firstIndex ? indexCandles(firstIndex) : null;
-  const res = simulate({
-    strategy,
-    days,
-    stocks,
-    index: firstIndex && candles ? { id: firstIndex, candles } : null,
-    benchmarkStock: null,
-  });
+  let res: ReturnType<typeof simulate>;
+  try {
+    res = simulate({
+      strategy,
+      days,
+      stocks,
+      index: firstIndex && candles ? { id: firstIndex, candles } : null,
+      benchmarkStock: null,
+    });
+  } catch (e) {
+    // 엔진은 평가액이 NaN·Infinity면 이 문구로 던진다(simulate.ts)
+    if (e instanceof Error && e.message.startsWith(SIM_NON_FINITE)) throw new ValidationError('invalid-number');
+    throw e;
+  }
 
   const curve = res.equity.map((e) => ({ date: e.date, value: e.strategy }));
   const skipCounts: Partial<Record<Skip['reason'], number>> = {};

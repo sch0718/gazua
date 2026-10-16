@@ -9,7 +9,7 @@ import type { SimResult, Strategy } from '../sim/types';
 import { addDays } from '../time/kst';
 import { newCriteria } from './defaults';
 import { rebalanceDates, tradingAxis } from './precompute';
-import { preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
+import { errorCode, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
 import { NOW } from './testData';
 import type { SelectionCriteria } from './types';
 
@@ -144,6 +144,51 @@ describe('runValidation', () => {
     expect(b.rebalances).not.toEqual(a.rebalances);
   });
 
+  it('②의 매수·추가 매수는 모두 그 종목의 buyWindows 안에서만 체결된다', () => {
+    const s = newStrategy(NOW, null);
+    s.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+    const r = run(crit((c) => (c.trading.strategyId = s.id)), [s]);
+    const sim = vi.mocked(simulate).mock.results[0].value as SimResult;
+    // 창은 결과의 재선정 이력에서 직접 만든다: 뽑힌 구간 [d, 다음 재선정일 전 거래일]
+    const inWindow = (symbol: string, date: string) =>
+      r.rebalances.some((sel, i) => {
+        const to = i + 1 < DATES.length ? r.axis[r.axis.indexOf(DATES[i + 1]) - 1] : r.axis[r.axis.length - 1];
+        return sel.picked.some((p) => p.symbol === symbol) && sel.date <= date && date <= to;
+      });
+    const buys = sim.trades.filter((t) => t.kind === 'buy' || t.kind === 'add');
+    expect(buys.length).toBeGreaterThan(0);
+    for (const t of buys) expect({ ...t, inWindow: inWindow(t.symbol, t.date) }).toMatchObject({ inWindow: true });
+    // 창 밖 신호가 실제로 있었다(창이 아무것도 막지 않으면 이 검사는 무의미하다)
+    expect(sim.skipped.some((k) => k.reason === '선정 기간이 아니에요')).toBe(true);
+  });
+
+  it("②에서 평가액이 NaN·Infinity로 실패하면 'invalid-number' 오류", () => {
+    const s = newStrategy(NOW, null);
+    vi.mocked(simulate).mockImplementationOnce(() => {
+      throw new Error('평가액 계산 실패: 2025-11-03');
+    });
+    let err: unknown;
+    try {
+      run(crit((c) => (c.trading.strategyId = s.id)), [s]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(errorCode(err)).toBe('invalid-number');
+  });
+
+  it("반등 패턴의 전략이 지워졌으면 errorCode가 'missing-strategy'", () => {
+    const c = crit((c) => (c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 'gone' } }));
+    let err: unknown;
+    try {
+      run(c, [newStrategy(NOW, null)]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect(errorCode(err)).toBe('missing-strategy');
+  });
+
   it('② 없음이면 trading은 null이고 simulate를 부르지 않는다', () => {
     const r = run(crit((c) => (c.trading.strategyId = null)));
     expect(r.trading).toBeNull();
@@ -177,6 +222,9 @@ describe('runValidation', () => {
     expect(etfOnly.byMarket.map((x) => x.inPool)).toEqual([false, false, true]);
     const kosdaq = run(crit((c) => (c.pool.markets = ['KOSDAQ'])));
     expect(kosdaq.byMarket.map((x) => x.inPool)).toEqual([false, true, false]);
+    // ETF 행은 두 시장의 ETF를 계산하므로 한 시장만 고른 범위와는 다르다
+    const kosdaqEtf = run(crit((c) => (c.pool = { ...c.pool, markets: ['KOSDAQ'], types: ['ETF'] })));
+    expect(kosdaqEtf.byMarket.map((x) => x.inPool)).toEqual([false, false, false]);
   });
 
   it("비교 종목이 데이터에 없으면 '받지 못했어요', 기간 일부만 있으면 '기간 일부만 받았어요'", () => {
