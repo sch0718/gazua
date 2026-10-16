@@ -108,7 +108,7 @@
     - 토큰은 첫 호출 때 한 번 발급한다(`POST /oauth2/tokenP`).
     - 초당 18건을 넘지 않는다. 429나 `msg_cd === 'EGW00201'`이면 1초 쉬고 다시 시도하며, 최대 4번 시도한다.
     - 일봉 TR: `/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`, `tr_id` `FHKST03010100`, `FID_COND_MRKT_DIV_CODE: 'J'`, `FID_PERIOD_DIV_CODE: 'D'`, `FID_ORG_ADJ_PRC: '0'`, `FID_INPUT_DATE_1`·`FID_INPUT_DATE_2`. 응답 `output2`의 `stck_bsop_date`, `stck_oprc`, `stck_hgpr`, `stck_lwpr`, `stck_clpr`, `acml_vol`, `acml_tr_pbmn`을 쓴다.
-    - 지수 일봉: `inquire-daily-indexchartprice`, `FHKUP03500100`, `U`, `0001`(KOSPI)·`1001`(KOSDAQ).
+    - 지수 일봉: `inquire-daily-indexchartprice`, `FHKUP03500100`, `U`, `0001`(KOSPI)·`1001`(KOSDAQ). 응답의 `bstp_nmix_oprc`(시가)·`bstp_nmix_prpr`(종가)를 `indices[].o`·`c`로 저장한다(`kis.ts`의 `mapDailyRow`와 같은 필드).
     - 페이징: 받은 가장 오래된 날짜 전날로 `FID_INPUT_DATE_2`를 옮겨 `from`에 닿을 때까지 받는다.
   - `collect({ years, out, update, client, master, now, log }) → { file: MarketDataFile; summary }`
   - `mergeUpdate(old, fresh5, refetch)`: 이어 받기와 수정주가 변경 감지
@@ -125,6 +125,7 @@
   - (f) 마스터에서 빠진 종목은 결과에서 빠진다.
   - (g) `.partial`이 있으면 이어서 받는다(끝난 종목은 다시 요청하지 않음).
   - (h) 저장소 안 경로(`src/out`)를 거부한다.
+  - (i) 지수 파일에 `o`·`c`가 같은 길이로 들어간다.
 - [ ] **Step 2:** RED를 확인한다. 실행: `node --test tests/collect-market-data.test.mjs`
 - [ ] **Step 3:** 구현한다. 압축은 `zlib.gzipSync`다. 숫자 배열은 정수 그대로 둔다.
 - [ ] **Step 4:** GREEN을 확인한다. `pnpm test:scripts`도 통과해야 한다.
@@ -204,7 +205,8 @@
 - Produces:
   - `tradingAxis(data: MarketDataFile): string[]`: 지수 날짜 ∪ 종목 날짜, `YYYY-MM-DD`, 오름차순
   - `rebalanceDates(axis: string[], period, every: 'monthly' | 'quarterly' | 'semiannual'): string[]`. 기간 안의 월·분기(1·4·7·10월)·반기(1·7월) 첫 거래일이다. 기간 시작이 거래일이 아니면 그 뒤 첫 거래일부터다.
-  - `precompute(data, criteria): Precomputed`
+  - `resolveReboundEntry(criteria, strategies): Strategy['entry'] | null` — `rebound.on`이 꺼져 있으면 null, `from: 'strategy'`면 그 전략의 `entry`(없으면 `MissingStrategyError`), `'custom'`이면 그 값
+  - `precompute(data, criteria, reboundEntry: Strategy['entry'] | null): Precomputed`
     - 종목마다 다음을 날짜 인덱스로 갖는다: `close`, 거래대금 이동평균, `sma(period)`, 250일 롤링 최대(최소 120개), 일간 수익률 표본 표준편차, 반등 신호일 집합.
     - 반등 신호일은 `createPatternTracker`로 종목마다 날짜순 `signal(i)` → `update(i)`를 돌려, 신호가 난 i의 날짜를 모은 것이다. 매수 뒤 reset은 하지 않는다. 신호 발생만 본다.
   - `selectAt(d: string, pre: Precomputed, c: SelectionCriteria, poolOverride?: Pick<SelectionCriteria['pool'], 'markets' | 'types'>): Selection`(스펙 6.1의 타입)
@@ -234,10 +236,11 @@
 **Interfaces:**
 - Consumes: `Selection[]`, `MarketDataFile`, `maxShares`, `costOf`(position.ts), `roundMoney`, `sellTaxPct`, `settlementDate`(tax.ts). 세금 시장은 종목 `m`이고, `isEtf = t === 'ETF'`다.
 - Produces:
-  - `holdSelection(input: { axis: string[]; selections: Selection[]; data: MarketDataFile; capital: number; feePct: number; periodEnd: string }): { equity: { date: string; value: number }[]; segments: { from: string; to: string; picked: { symbol: string; retPct: number | null; soldAtLastClose: boolean }[] }[] }`
+  - `holdSelection(input: { axis: string[]; selections: Selection[]; data: MarketDataFile; capital: number; feePct: number; periodEnd: string }): { equity: { date: string; value: number }[]; segments: { from: string; to: string; picked: { symbol: string; retPct: number | null; soldAtLastClose: boolean; notBought: boolean }[] }[] }`
     - 재선정일 시가에 그 시점 자산 ÷ 고른 수로 금액을 나눈다. 수량은 `maxShares`다.
     - 이미 들고 있는 종목은 목표 수량과의 차이만 사고판다.
     - 다음 재선정일에 봉이 없으면 마지막 종가로 판 것으로 계산하고 `soldAtLastClose: true`로 둔다.
+    - 재선정일 d에 봉이 없는 선정 종목은 사지 않고, 배정 금액을 그 구간 동안 현금으로 둔다(다른 종목에 다시 나누지 않음). `picked[]`에 `notBought: true`를 둔다.
     - 평가는 매 거래일 종가이고, 봉이 없으면 직전 종가다.
   - `curveStats(curve: number[], days: string[], initial: number): { totalPct; cagrPct; mddPct; volPct }`. CAGR은 달력일 기준 `(end/initial)^(365/일수) − 1`이다. 변동성은 일간 수익률 표준편차 × √252다.
   - `beatCount(segments, indexCurve, axis): { beat: number; total: number }`
@@ -246,6 +249,7 @@
   - 수수료·세금(결제일 기준)을 포함한 자산 값이 손계산과 같다.
   - 다시 뽑힌 종목은 차이만 거래하고, 수수료가 그 차이에만 붙는다.
   - 통과 0개 구간은 현금이다.
+  - 재선정일 d에 봉이 없는 선정 종목: 그 몫은 현금으로 남고 나머지 종목 수량은 늘지 않는다, `notBought: true`.
   - 구간 중 봉이 끊기면 직전 종가로 평가한다.
   - 다음 재선정일에 봉이 없으면 `soldAtLastClose`다.
   - `curveStats`·`beatCount` 값을 확인한다.
@@ -279,7 +283,7 @@
 - Test: `runValidation.test.ts`, `validationController.test.ts`
 
 **Interfaces:**
-- Consumes: Task 5·6·7, `simulate`, `indexCurve`·`singleCurve`(benchmarks.ts), `Strategy`(②와 반등 패턴)
+- Consumes: Task 5·6·7(`resolveReboundEntry`, `precompute(data, criteria, entry)`), `simulate`, `indexCurve`·`singleCurve`(benchmarks.ts), `Strategy`(②와 반등 패턴)
 - Produces:
   - `runValidation(input: { data: MarketDataFile; criteria: SelectionCriteria; strategies: Strategy[] }, onProgress?: (done: number, total: number) => void, isCancelled?: () => boolean): ValidationResult | { cancelled: true }`
   - `ValidationResult`의 필드:
@@ -292,7 +296,7 @@
     - `benchmarks`: `{ symbol; name; curve | null; reason?: '받지 못했어요' | '기간 일부만 받았어요'; stats }[]`
     - `byMarket`: `{ key: 'KOSPI' | 'KOSDAQ' | 'ETF'; inPool: boolean; stats; avgPicked }[]`
     - `notes`: `('survivorship' | 'snapshot' | 'dividend' | 'fewSegments' | 'warmup' | 'allEmpty')[]`
-  - ②의 `SimInput`: 전략의 `period`·`benchmarks`를 기준의 기간·첫 지수로 바꾼다. `stocks`는 한 번이라도 뽑힌 종목, 그 `buyWindows`는 뽑힌 구간들이다. 시장 표기는 수집 파일의 `m`, `isEtf`는 `t === 'ETF'`로 만든다.
+  - ②의 `SimInput`: 참조 전략에서 `entry`·`scaleIn`·`exit`·`capital.perBuyPct`만 쓰고, `period` ← 기준 기간, `capital.initial` ← `criteria.capital`, `costs.feePct` ← `criteria.costs.feePct`, `benchmarks` ← 기준의 첫 지수로 바꾼다(①과 같은 자본·비용). `stocks`는 한 번이라도 뽑힌 종목, 그 `buyWindows`는 뽑힌 구간들이다. 시장 표기는 수집 파일의 `m`, `isEtf`는 `t === 'ETF'`로 만든다.
   - `byMarket`: `poolOverride`를 `{markets:['KOSPI'],types:['STOCK']}`, `{markets:['KOSDAQ'],types:['STOCK']}`, `{markets:['KOSPI','KOSDAQ'],types:['ETF']}`로 바꿔 ①만 돌린다.
   - `notes` 조건
     - `fewSegments`: 재선정 구간이 12개 미만
@@ -307,6 +311,9 @@
 
 - [ ] **Step 1:** 실패하는 테스트를 쓴다. 데모 fixture(Task 3)를 풀어 쓴다.
   - 결과 모양이 맞다.
+  - 전략의 자본(100만 원)·수수료(0%)가 기준의 자본(1,000만 원)·수수료(0.015%)와 달라도, ②의 첫 자산이 1,000만 원이고 첫 매수에 0.015% 수수료가 붙는다.
+  - 지수 곡선이 유한하고 첫 값이 자본과 같다(시가 기준).
+  - `rebound.pattern.from: 'strategy'`가 가리키는 전략의 `entry`로 precompute된다(그 전략의 반등 일수를 바꾸면 선별이 바뀐다).
   - ② 없음이면 `trading === null`이다.
   - `byMarket` 3행이 있고, `inPool`이 맞다.
   - 비교 종목이 데이터에 없으면 `reason: '받지 못했어요'`다.
@@ -359,7 +366,7 @@
   - 요약 카드: ①·②·지수·ETF, `지수보다 나은 구간 m/n`
   - ②가 없으면 `매매 규칙을 고르면 함께 볼 수 있어요`
   - 시장별 표 3행과 원래 범위 표시
-  - 선정 이력: 펼치면 조건값이 보이고, `통과 0개 · 현금`, `soldAtLastClose` 표시
+  - 선정 이력: 펼치면 조건값이 보이고, `통과 0개 · 현금`, `soldAtLastClose`·`notBought`(`매수 못 함(재선정일 거래 없음)`) 표시
   - 해석 도움말 문구(스펙 7.4 그대로)
   - 오늘 기준 선별 → `관심 그룹으로 만들기`: 10개 중 상위 8개를 넣고 `상위 8개만 넣었어요`를 보인다. 기존 그룹에 더하면 빈자리만큼만 넣는다.
   - NaN이면 실패 화면이 보인다.
