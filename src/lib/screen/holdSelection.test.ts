@@ -51,7 +51,7 @@ describe('holdSelection', () => {
     expect(r.equity[6].value).toBe(1_149_175);
     expect(r.segments[1].picked).toEqual([
       { symbol: 'A', retPct: expect.closeTo((120 / 110 - 1) * 100, 9), soldAtLastClose: false, notBought: false },
-      { symbol: 'C', retPct: null, soldAtLastClose: false, notBought: true },
+      { symbol: 'C', retPct: null, soldAtLastClose: false, notBought: true, notBoughtReason: 'noBar' },
     ]);
   });
 
@@ -84,7 +84,7 @@ describe('holdSelection', () => {
   it('배정 금액으로 1주도 못 사면 사지 않고 notBought로 표시한다', () => {
     const r = run([mkStock('B', Array(10).fill(999))], [sel(0, 'B')], 500, 0, 5, 6);
     expect(r.equity.every((e) => e.value === 500)).toBe(true);
-    expect(r.segments[0].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true }]);
+    expect(r.segments[0].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true, notBoughtReason: 'tooExpensive' }]);
   });
 
   it('다시 뽑혔어도 재선정일에 봉이 없으면 마지막 종가로 팔고 notBought다', () => {
@@ -92,7 +92,7 @@ describe('holdSelection', () => {
     const r = run([mkStock('X', X)], [sel(0, 'X'), sel(3, 'X')], 1000, 0, 6, 8);
     expect(r.equity[3].value).toBe(998.5); // 1,000 − 세금 1.5
     expect(r.segments[0].picked).toEqual([{ symbol: 'X', retPct: 0, soldAtLastClose: true, notBought: false }]);
-    expect(r.segments[1].picked).toEqual([{ symbol: 'X', retPct: null, soldAtLastClose: false, notBought: true }]);
+    expect(r.segments[1].picked).toEqual([{ symbol: 'X', retPct: null, soldAtLastClose: false, notBought: true, notBoughtReason: 'noBar' }]);
   });
 
   it('마지막 종가 매도의 세율은 재선정일의 결제일 기준이다(연도가 다를 때)', () => {
@@ -110,6 +110,6 @@ describe('holdSelection', () => {
     const r = run([mkStock('A', Array(10).fill(10)), mkStock('B', Array(10).fill(999))], [sel(0, 'A'), sel(3, 'B')], 1000, 0, 5, 6);
     // 3일: A 100주 전량 매도 1,000 − 1.5 = 998.5 < B 1주 999 → 0주
     expect(r.equity[3].value).toBe(998.5);
-    expect(r.segments[1].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true }]);
+    expect(r.segments[1].picked).toEqual([{ symbol: 'B', retPct: null, soldAtLastClose: false, notBought: true, notBoughtReason: 'cash' }]);
   });
 });

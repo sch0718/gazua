@@ -18,11 +18,19 @@
       {@const seg = segmentOf(r.date)}
       {@const isOpen = !!open[r.date]}
       <li>
-        <button type="button" class="head" aria-expanded={isOpen} aria-controls="hist-{r.date}" onclick={() => (open[r.date] = !isOpen)}>
-          <span class="date num">{dotDate(r.date)}</span>
-          <span class="sum">{r.picked.length === 0 ? '통과 0개 · 현금' : `통과 ${r.passed}개 · ${r.picked.length}종목 선정`}</span>
-          <span class="chev" aria-hidden="true">{isOpen ? '▴' : '▾'}</span>
-        </button>
+        {#if r.picked.length === 0}
+          <!-- 펼칠 내용이 없는 행은 버튼이 아니다 -->
+          <div class="head">
+            <span class="date num">{dotDate(r.date)}</span>
+            <span class="sum">통과 0개 · 현금</span>
+          </div>
+        {:else}
+          <button type="button" class="head" aria-expanded={isOpen} aria-controls="hist-{r.date}" onclick={() => (open[r.date] = !isOpen)}>
+            <span class="date num">{dotDate(r.date)}</span>
+            <span class="sum">통과 {r.passed}개 · {r.picked.length}종목 선정</span>
+            <span class="chev" aria-hidden="true">{isOpen ? '▴' : '▾'}</span>
+          </button>
+        {/if}
         <div id="hist-{r.date}">
           {#if r.picked.length > 0}
             <ul class="picks">
@@ -32,7 +40,7 @@
                   <div class="line">
                     <span class="nm">{nameOf(p.symbol)} <small>{p.symbol}</small></span>
                     {#if sp?.notBought}
-                      <span class="flag">{NOT_BOUGHT_TEXT}</span>
+                      <span class="flag">{NOT_BOUGHT_TEXT[sp.notBoughtReason ?? 'noBar']}</span>
                     {:else if sp && sp.retPct !== null}
                       <b class="num {returnClass(sp.retPct)}">{trendReturn(sp.retPct)}</b>
                     {:else}

@@ -4,13 +4,14 @@
   import type { ValidationResult } from '../../screen/runValidation';
   import Badge from '../components/Badge.svelte';
   import { fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';
-  import { trendPp } from './screenText';
+  import { trendPp, vsIndex } from './screenText';
 
   let { result }: { result: ValidationResult } = $props();
 
   const LABEL = { KOSPI: 'KOSPI 주식', KOSDAQ: 'KOSDAQ 주식', ETF: 'ETF' } as const;
-  // 지수 대비는 첫 비교 지수 기준이다(① 요약과 같다)
-  const index = $derived(result.indices.find((i) => i.stats)?.stats ?? null);
+  // 지수 대비는 첫 비교 지수(`indices[0]`) 기준이다. ① 요약·지수보다 나은 구간 수와 같다
+  const v = $derived(vsIndex(result));
+  const index = $derived(v?.stats ?? null);
 </script>
 
 <section class="mt" aria-labelledby="mt-h">
@@ -34,12 +35,18 @@
       </tbody>
     </table>
   </div>
+  <p class="cap">{v === null ? '비교 지수가 없어 지수 대비는 보이지 않아요' : index ? `지수 대비는 ${v.id} 기준이에요` : `지수 대비: ${v.id} ${v.reason}`}</p>
 </section>
 
 <style>
   h3 {
     margin: 0 0 8px;
     font-size: var(--fs-title);
+  }
+  .cap {
+    margin: 6px 0 0;
+    font-size: var(--fs-sub);
+    color: var(--t3);
   }
   .scroll {
     overflow-x: auto;

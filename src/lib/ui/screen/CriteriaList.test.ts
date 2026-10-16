@@ -41,6 +41,11 @@ describe('CriteriaList', () => {
     expect(last[0].textContent!.replace(/\s+/g, ' ').trim()).toBe('① ▲ +12.3% vs KOSPI ▲ +8.1%');
   });
 
+  it('when the first index has no curve the reason replaces its number', () => {
+    setup(['가'], { c0: { hold: 2, index: { id: 'KOSPI', pct: null, reason: '받지 못했어요' } } });
+    expect(document.querySelector('[data-last-result]')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('① ▲ +2.0% vs KOSPI 받지 못했어요');
+  });
+
   it('the last result carries the arrows and trend colours; a loss reads ▼ and no index leaves ① alone', () => {
     setup(['가', '나'], { c0: { hold: -3.24, index: { id: 'KOSPI', pct: 8.06 } }, c1: { hold: 1, index: null } });
     const [a, b] = document.querySelectorAll('[data-last-result]');

@@ -8,7 +8,7 @@
   import MarketTable from './MarketTable.svelte';
   import SelectionHistory from './SelectionHistory.svelte';
   import TodayPicks from './TodayPicks.svelte';
-  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, HELP_ALWAYS, SPARSE_TEXT, trendPp, WARMUP_TEXT } from './screenText';
+  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, HELP_ALWAYS, SPARSE_TEXT, trendPp, vsIndex, WARMUP_TEXT } from './screenText';
 
   let {
     app,
@@ -34,23 +34,28 @@
     /** 곡선이 없을 때의 사유 */
     reason?: string;
     beat?: ValidationResult['hold']['beat'];
-    main?: boolean;
   }
 
-  const first = $derived(result.indices.find((i) => i.stats)?.stats ?? null);
+  // 지수 대비는 모두 첫 비교 지수(`indices[0]`) 기준이다. 지수보다 나은 구간 수와 같다
+  const vs = $derived(vsIndex(result));
+  const first = $derived(vs?.stats ?? null);
+  // 카드 순서: ①, ②(없으면 안내), 지수, ETF
   const cards = $derived<Card[]>([
-    { id: 'hold', label: '① 선정만', stats: result.hold.stats, beat: result.hold.beat, main: true },
-    ...(result.trading ? [{ id: 'trading', label: '② 선정 + 매매 규칙', stats: result.trading.stats } as Card] : []),
+    { id: 'hold', label: '① 선정만', stats: result.hold.stats, beat: result.hold.beat },
+    result.trading
+      ? { id: 'trading', label: '② 선정 + 매매 규칙', stats: result.trading.stats }
+      : { id: 'trading', label: '② 선정 + 매매 규칙', stats: null, reason: '매매 규칙을 고르면 함께 볼 수 있어요' },
     ...result.indices.map((i) => ({ id: `idx-${i.id}`, label: i.id, stats: i.stats, reason: i.reason ?? '받지 못했어요' })),
     ...result.benchmarks.map((b) => ({ id: `etf-${b.symbol}`, label: b.name, stats: b.stats, reason: b.reason ?? '받지 못했어요' })),
   ]);
 
-  // 곡선 모양: 기존 자산 곡선의 팔레트(강조 · 지정 종목 · 지수 점선 · 보유 회색)를 재사용한다
-  const INDEX_STYLES: CurveLine['color'][] = [['--t2', '#5b6069'], ['--s4', '#eda100']];
+  // 곡선 모양: 기존 자산 곡선의 팔레트. 가는 선도 배경 위 3:1이 나오는 슬롯만 쓴다(라이트·다크 모두: --s3 · --s6 · --s7, tokens.test).
+  // ①은 강조색 실선, ②는 지정 종목선(--line-bench 점선), 지수는 점선, ETF는 2px 실선으로 모양이 서로 다르다.
+  const INDEX_STYLES: CurveLine['color'][] = [['--t2', '#5b6069'], ['--s3', '#4a3aa7']];
   const BENCH_STYLES: Pick<CurveLine, 'color' | 'width' | 'dashed'>[] = [
-    { color: ['--t3', '#676d77'], width: 1, dashed: false },
-    { color: ['--s2', '#1baf7a'], width: 1, dashed: false },
-    { color: ['--s5', '#e87ba4'], width: 1, dashed: false },
+    { color: ['--s6', '#008300'], width: 2, dashed: false },
+    { color: ['--s7', '#2a78d6'], width: 2, dashed: false },
+    { color: ['--t3', '#676d77'], width: 2, dashed: false },
   ];
   const curves = $derived<CurveLine[]>([
     { id: 'hold', name: '① 선정만', color: ['--accent', '#5b47e0'], width: 2, dashed: false, points: result.hold.equity },
@@ -64,7 +69,10 @@
 </script>
 
 <div class="vr">
+  <!-- 경고는 맨 위에 -->
   {#if note('allEmpty')}<Banner tone="warn" message={ALL_EMPTY_TEXT} />{/if}
+  {#if note('warmup')}<Banner tone="warn" message={WARMUP_TEXT} />{/if}
+  {#if note('sparseAxis')}<Banner tone="warn" message={SPARSE_TEXT} />{/if}
 
   <TodayPicks {app} selection={result.today} {names} {criteriaName} />
 
@@ -78,9 +86,15 @@
             {@const s = c.stats}
             <b class="num value {returnClass(s.totalPct)}">{trendReturn(s.totalPct)}</b>
             <small class="num">연환산 {fmtReturnPct(s.cagrPct, true)} · 최대 낙폭 {fmtReturnPct(s.mddPct)}</small>
-            {#if c.id.startsWith('idx-') === false}
-              {@const vs = first ? s.totalPct - first.totalPct : null}
-              <small class="num">지수 대비 <b class={vs === null ? '' : returnClass(vs)}>{vs === null ? '—' : trendPp(vs)}</b></small>
+            {#if !c.id.startsWith('idx-')}
+              {#if vs === null}
+                <small class="num">지수 대비 —</small>
+              {:else if first}
+                {@const d = s.totalPct - first.totalPct}
+                <small class="num">지수 대비 <b class={returnClass(d)}>{trendPp(d)}</b></small>
+              {:else}
+                <small>지수 대비: {vs.id} {vs.reason}</small>
+              {/if}
             {/if}
             {#if c.beat}<small class="num">지수보다 나은 구간 {c.beat.beat}/{c.beat.total}</small>{/if}
           {:else}
@@ -88,9 +102,6 @@
           {/if}
         </li>
       {/each}
-      {#if !result.trading}
-        <li class="card" data-card="trading"><span class="label">② 선정 + 매매 규칙</span><span class="miss">매매 규칙을 고르면 함께 볼 수 있어요</span></li>
-      {/if}
     </ul>
   </section>
 
@@ -108,8 +119,6 @@
   <ul class="help" aria-label="결과 해석 도움말">
     {#each HELP_ALWAYS as line (line)}<li>{line}</li>{/each}
     {#if note('fewSegments')}<li>{FEW_SEGMENTS_TEXT}</li>{/if}
-    {#if note('warmup')}<li>{WARMUP_TEXT}</li>{/if}
-    {#if note('sparseAxis')}<li>{SPARSE_TEXT}</li>{/if}
   </ul>
 </div>
 

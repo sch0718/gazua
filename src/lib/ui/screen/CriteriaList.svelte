@@ -113,7 +113,7 @@
             <span class="line">{criteriaLine(c)}</span>
             {#if lastResults[c.id]}
               {@const r = lastResults[c.id]}
-              <span class="last num" data-last-result>① <b class={returnClass(r.hold)}>{trendReturn(r.hold)}</b>{#if r.index}{' '}vs {r.index.id} <b class={returnClass(r.index.pct)}>{trendReturn(r.index.pct)}</b>{/if}</span>
+              <span class="last num" data-last-result>① <b class={returnClass(r.hold)}>{trendReturn(r.hold)}</b>{#if r.index}{' '}vs {r.index.id} {#if r.index.pct === null}{r.index.reason}{:else}<b class={returnClass(r.index.pct)}>{trendReturn(r.index.pct)}</b>{/if}{/if}</span>
             {/if}
           </button>
           <button type="button" class="more" aria-label="{c.name} 메뉴" onclick={() => (menuId = c.id)}>

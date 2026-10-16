@@ -2,6 +2,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import { itemsOf, makeTestApp } from '../../../sheets/testApp';
+import { NAME_MAX } from '../../screen/defaults';
 import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
 import { MAX_ITEMS } from '../../state/watchlist';
@@ -68,7 +69,22 @@ describe('TodayPicks', () => {
     await fireEvent.click(screen.getByRole('button', { name: /일부/ }));
     const g = app.watchlists.groups.find((x) => x.id === 'part')!;
     expect(g.items.map((i) => i.symbol)).toEqual([symbols[0], '200000', ...symbols.slice(1, 7)]);
-    expect(screen.getByText(/이미 있는 1종목/)).toBeTruthy();
+    expect(screen.getByText(/'일부'에 6개를 넣었어요\(이미 있던 1개는 건너뛰었어요\)/)).toBeTruthy();
+  });
+
+  it('an empty name falls back to the criteria name', async () => {
+    const app = setup();
+    await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
+    await fireEvent.input(screen.getByRole('textbox', { name: '새 그룹 이름' }), { target: { value: '   ' } });
+    await fireEvent.click(screen.getByRole('button', { name: '새 그룹으로 만들기' }));
+    expect(app.watchlists.groups.at(-1)!.name).toBe('반등 기준');
+  });
+
+  it('the name field is capped at NAME_MAX and the sheet subheading is an h3', async () => {
+    setup();
+    await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
+    expect((screen.getByRole('textbox', { name: '새 그룹 이름' }) as HTMLInputElement).maxLength).toBe(NAME_MAX);
+    expect(screen.getByRole('heading', { name: '기존 그룹에 더하기' }).tagName).toBe('H3');
   });
 
   it('after creating, a button goes to the compare screen with that group selected', async () => {

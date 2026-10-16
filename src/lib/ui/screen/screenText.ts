@@ -78,11 +78,20 @@ export function dataAgeDays(collectedAt: string, now: number): number | null {
 /** 목록 행의 마지막 결과: `① +12.3% vs KOSPI +8.1%`의 숫자들. 화면이 ▲▼와 색을 입힌다 */
 export interface LastResult {
   hold: number;
-  index: { id: string; pct: number } | null;
+  /** 첫 비교 지수(지수보다 나은 구간 수와 같은 지수). 곡선이 없으면 pct가 null이고 이유를 보인다 */
+  index: { id: string; pct: number | null; reason?: string } | null;
+}
+/** 지수 대비의 기준: `result.indices[0]`. 곡선이 없으면 stats가 null이라 이유를 보인다 */
+export function vsIndex(r: ValidationResult): { id: string; stats: ValidationResult['hold']['stats'] | null; reason: string } | null {
+  const i = r.indices[0];
+  return i ? { id: i.id, stats: i.stats, reason: i.reason ?? '받지 못했어요' } : null;
 }
 export function lastResultSummary(r: ValidationResult): LastResult {
-  const idx = r.indices.find((i) => i.stats);
-  return { hold: r.hold.stats.totalPct, index: idx?.stats ? { id: idx.id, pct: idx.stats.totalPct } : null };
+  const v = vsIndex(r);
+  return {
+    hold: r.hold.stats.totalPct,
+    index: v ? (v.stats ? { id: v.id, pct: v.stats.totalPct } : { id: v.id, pct: null, reason: v.reason }) : null,
+  };
 }
 
 /** 수익률 차이(%p)에 ▲▼: `▲ +3.2%p` */
@@ -108,7 +117,12 @@ export const HELP_ALWAYS = [
   '배당 제외 · 가격 수익률만이에요',
 ] as const;
 export const FEW_SEGMENTS_TEXT = '구간이 적어서 우연일 수 있어요';
-export const NOT_BOUGHT_TEXT = '매수 못 함(재선정일 거래 없음)';
+/** 못 산 이유별 문구(스펙 6.2·7.4) */
+export const NOT_BOUGHT_TEXT: Record<'noBar' | 'tooExpensive' | 'cash', string> = {
+  noBar: '매수 못 함(재선정일 거래 없음)',
+  tooExpensive: '매수 못 함(1주 값이 배정 금액보다 커요)',
+  cash: '매수 못 함(현금이 모자라요)',
+};
 export const SOLD_AT_LAST_CLOSE_TEXT = '거래가 멈춰 마지막 종가로 팔았어요';
 
 /** 선정 이력에서 펼치면 나오는 조건 계산값의 이름과 표시 */

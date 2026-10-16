@@ -56,7 +56,10 @@ describe('screenText', () => {
     const base = { hold: { stats: stats(12.34) }, indices: [{ id: 'KOSPI', curve: [], stats: stats(8.06) }] } as unknown as ValidationResult;
     expect(lastResultSummary(base)).toEqual({ hold: 12.34, index: { id: 'KOSPI', pct: 8.06 } });
     const none = { hold: { stats: stats(-3.2) }, indices: [{ id: 'KOSPI', curve: null, stats: null }] } as unknown as ValidationResult;
-    expect(lastResultSummary(none)).toEqual({ hold: -3.2, index: null });
+    expect(lastResultSummary(none)).toEqual({ hold: -3.2, index: { id: 'KOSPI', pct: null, reason: '받지 못했어요' } });
+    const later = { hold: { stats: stats(1) }, indices: [{ id: 'KOSPI', curve: null, reason: '기간 일부만 받았어요', stats: null }, { id: 'KOSDAQ', curve: [], stats: stats(5) }] } as unknown as ValidationResult;
+    expect(lastResultSummary(later).index).toEqual({ id: 'KOSPI', pct: null, reason: '기간 일부만 받았어요' });
+    expect(lastResultSummary({ hold: { stats: stats(1) }, indices: [] } as unknown as ValidationResult).index).toBeNull();
   });
 
   it('next name takes the smallest free number', () => {

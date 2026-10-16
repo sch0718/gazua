@@ -72,6 +72,13 @@ describe('tokens.css', () => {
 
     it.each([
       ['light', light],
+      ['dark (data-theme)', darkSet],
+    ])('%s: the series slots used for thin comparison curves (s3, s6, s7) clear 3:1 on bg', (_, b) => {
+      for (const slot of ['s3', 's6', 's7']) expect(ratio(token(b, slot), token(b, 'bg')), slot).toBeGreaterThanOrEqual(3);
+    });
+
+    it.each([
+      ['light', light],
       ['dark (system)', darkAuto],
       ['dark (data-theme)', darkSet],
     ])('%s: text tokens and kr up/down', (_, b) => {

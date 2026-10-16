@@ -28,7 +28,7 @@ export function validationResult(o: Partial<ValidationResult> = {}): ValidationR
         {
           from: '2026-01-05',
           to: '2026-02-02',
-          picked: picked.map((p, i) => ({ symbol: p.symbol, retPct: i === 0 ? 5.5 : i === 1 ? -3.2 : 1, soldAtLastClose: i === 2, notBought: i === 3 })),
+          picked: picked.map((p, i) => ({ symbol: p.symbol, retPct: i === 0 ? 5.5 : i === 1 ? -3.2 : i <= 5 && i >= 3 ? null : 1, soldAtLastClose: i === 2, ...(i >= 3 && i <= 5 ? { notBought: true, notBoughtReason: (['noBar', 'tooExpensive', 'cash'] as const)[i - 3] } : { notBought: false }) })),
         },
         { from: '2026-02-02', to: '2026-02-03', picked: [] },
       ],

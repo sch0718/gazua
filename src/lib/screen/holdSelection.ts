@@ -4,10 +4,13 @@ import { costOf, maxShares } from '../sim/position';
 import { sellTaxPct, settlementDate } from '../sim/tax';
 import type { Selection } from './select';
 
+/** 못 산 이유: 재선정일에 봉이 없음 · 1주 값이 배정 금액보다 큼 · 매도 비용으로 현금이 모자람 */
+export type NotBoughtReason = 'noBar' | 'tooExpensive' | 'cash';
+
 export interface HoldSegment {
   from: string;
   to: string;
-  picked: { symbol: string; retPct: number | null; soldAtLastClose: boolean; notBought: boolean }[];
+  picked: { symbol: string; retPct: number | null; soldAtLastClose: boolean; notBought: boolean; notBoughtReason?: NotBoughtReason }[];
 }
 
 export interface HoldInput {
@@ -40,7 +43,7 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
   const equity: { date: string; value: number }[] = [];
   const segments: HoldSegment[] = [];
   // 구간 중 종목별 진입 시가와 마지막 종가 기준 매도 여부
-  let open: { from: string; entries: Map<string, number | null>; order: string[] } | null = null;
+  let open: { from: string; entries: Map<string, number | null>; reasons: Map<string, NotBoughtReason>; order: string[] } | null = null;
 
   const barAt = (symbol: string, d: string): number | null => stocks.get(symbol)?.at.get(ymd(d)) ?? null;
 
@@ -49,7 +52,7 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
     if (!open) return;
     const picked = open.order.map((symbol) => {
       const entry = open!.entries.get(symbol) ?? null;
-      if (entry === null) return { symbol, retPct: null, soldAtLastClose: false, notBought: true };
+      if (entry === null) return { symbol, retPct: null, soldAtLastClose: false, notBought: true, notBoughtReason: open!.reasons.get(symbol) ?? 'noBar' };
       const { price, last } = exitPrice(symbol);
       return { symbol, retPct: (price / entry - 1) * 100, soldAtLastClose: last, notBought: false };
     });
@@ -81,13 +84,17 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
       const target = picks.length ? roundMoney(total / picks.length) : 0;
       const targetQty = new Map<string, number>();
       const entries = new Map<string, number | null>();
+      const reasons = new Map<string, NotBoughtReason>();
       for (const symbol of picks) {
         const p = openPx(symbol);
         entries.set(symbol, p);
+        if (p === null) reasons.set(symbol, 'noBar');
         const q = p === null ? 0 : maxShares(target, p, feePct);
         // 배정 금액으로 1주도 못 사면 봉이 없는 것과 같이 못 산 것으로 둔다
-        if (q === 0) entries.set(symbol, null);
-        else targetQty.set(symbol, q);
+        if (q === 0) {
+          entries.set(symbol, null);
+          if (p !== null) reasons.set(symbol, 'tooExpensive');
+        } else targetQty.set(symbol, q);
       }
 
       // 매도 먼저: 고르지 않았거나 봉이 없는 종목은 전부, 다시 뽑힌 종목은 초과분만
@@ -112,13 +119,16 @@ export function holdSelection(input: HoldInput): { equity: { date: string; value
         let need = (targetQty.get(symbol) ?? 0) - (qty.get(symbol) ?? 0);
         while (need > 0 && costOf(need, p, feePct) > cash) need--;
         if (need <= 0) {
-          if (!qty.has(symbol)) entries.set(symbol, null);
+          if (!qty.has(symbol)) {
+            entries.set(symbol, null);
+            reasons.set(symbol, 'cash');
+          }
           continue;
         }
         cash = roundMoney(cash - costOf(need, p, feePct));
         qty.set(symbol, (qty.get(symbol) ?? 0) + need);
       }
-      open = { from: d, entries, order: picks };
+      open = { from: d, entries, reasons, order: picks };
     }
 
     // 종가 평가: 봉이 없으면 직전 종가

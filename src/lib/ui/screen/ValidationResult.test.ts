@@ -58,6 +58,14 @@ describe('ValidationResult', () => {
     expect(card('hold').querySelector('b.up')).toBeTruthy();
   });
 
+  it('card order is ①, ② (or its notice), indices, ETFs', () => {
+    setup();
+    expect([...document.querySelectorAll('[data-card]')].map((c) => (c as HTMLElement).dataset.card)).toEqual(['hold', 'trading', 'idx-KOSPI', 'etf-069500']);
+    document.body.innerHTML = '';
+    setup(validationResult({ trading: { curve: [{ date: '2026-01-05', value: 1e7 }], stats: stats(-4), trades: 5, skipCounts: {} } }));
+    expect([...document.querySelectorAll('[data-card]')].map((c) => (c as HTMLElement).dataset.card)).toEqual(['hold', 'trading', 'idx-KOSPI', 'etf-069500']);
+  });
+
   it('without ② the card says 매매 규칙을 고르면 함께 볼 수 있어요', () => {
     setup();
     expect(squash(card('trading'))).toBe('② 선정 + 매매 규칙 매매 규칙을 고르면 함께 볼 수 있어요');
@@ -80,6 +88,26 @@ describe('ValidationResult', () => {
     expect(rows.map((r) => r.querySelector('th')!.textContent!.replace('원래 범위', '|원래 범위').trim())).toEqual(['KOSPI 주식|원래 범위', 'KOSDAQ 주식|원래 범위', 'ETF']);
     expect(squash(rows[0])).toBe('KOSPI 주식 원래 범위 ▲ +10.0% −10.0% 4.3개 ▲ +2.0%p');
     expect(squash(rows[1])).toContain('▼ −2.5%');
+  });
+
+  it('each not-bought reason has its own label on the stock row it belongs to', () => {
+    setup();
+    const rows = [...document.querySelectorAll('.picks li')].slice(0, 7);
+    const flag = (i: number) => squash(rows[i]);
+    expect(flag(3)).toContain('매수 못 함(재선정일 거래 없음)');
+    expect(flag(4)).toContain('매수 못 함(1주 값이 배정 금액보다 커요)');
+    expect(flag(5)).toContain('매수 못 함(현금이 모자라요)');
+    expect(flag(0)).not.toContain('매수 못 함');
+    expect(flag(6)).not.toContain('매수 못 함');
+    expect(flag(2)).toContain('거래가 멈춰 마지막 종가로 팔았어요');
+    expect(document.querySelectorAll('.hist').length).toBe(1);
+    expect(squash(document.querySelector('.hist')!).split('매수 못 함').length - 1).toBe(3);
+  });
+
+  it('a row with 0 passes has no expand button', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: /2026.02.02/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /2026.01.05/ })).toBeTruthy();
   });
 
   it('history: passed 0 reads 통과 0개 · 현금; names fall back to the code; flags show without expanding', () => {
@@ -129,6 +157,51 @@ describe('ValidationResult', () => {
     setup(validationResult({ notes: ['allEmpty'] }));
     expect(screen.getByText('기간 내내 조건을 통과한 종목이 없어요')).toBeTruthy();
     expect(squash(document.querySelector('.vr')!.firstElementChild!)).toBe('기간 내내 조건을 통과한 종목이 없어요');
+  });
+
+  it('warmup and sparse-axis notes are warning banners on top, not help text', () => {
+    setup(validationResult({ notes: ['warmup', 'sparseAxis'] }));
+    const top = [...document.querySelectorAll('.banner.warn')].map((b) => squash(b));
+    expect(top).toEqual(['앞부분은 지표 계산에 필요한 데이터가 모자라요', '일부 재선정일은 전날 거래한 종목이 적어서 선별이 덜 정확할 수 있어요']);
+    expect(document.querySelector('.vr')!.firstElementChild!.classList.contains('banner')).toBe(true);
+    expect(squash(document.querySelector('.help')!)).not.toContain('앞부분은');
+  });
+
+  it('no warning banners without those notes', () => {
+    setup();
+    expect(document.querySelector('.banner')).toBeNull();
+  });
+
+  it('an index without a curve says why on its card', () => {
+    setup(validationResult({ indices: [{ id: 'KOSPI', curve: null, reason: '기간 일부만 받았어요', stats: null }] }));
+    expect(squash(card('idx-KOSPI'))).toBe('KOSPI 기간 일부만 받았어요');
+  });
+
+  it('vs-index uses indices[0] everywhere; when it has no curve the reason shows instead of a silent drop', () => {
+    const other = { id: 'KOSDAQ' as const, curve: [], stats: stats(1) };
+    setup(validationResult({ indices: [{ id: 'KOSPI', curve: null, reason: '받지 못했어요', stats: null }, other], hold: { ...validationResult().hold, beat: null } }));
+    expect(squash(card('hold'))).toContain('지수 대비: KOSPI 받지 못했어요');
+    expect(squash(card('etf-069500'))).toContain('지수 대비: KOSPI 받지 못했어요');
+    expect(squash(document.querySelector('.mt')!)).toContain('지수 대비: KOSPI 받지 못했어요');
+    expect(squash(document.querySelector('.mt tbody tr')!)).toContain('—');
+  });
+
+  it('vs-index follows indices[0] even when a later index has stats', () => {
+    setup(validationResult({ indices: [{ id: 'KOSDAQ', curve: [], stats: stats(2) }, { id: 'KOSPI', curve: [], stats: stats(50) }] }));
+    expect(squash(card('hold'))).toContain('지수 대비 ▲ +10.3%p');
+    expect(squash(document.querySelector('.mt')!)).toContain('지수 대비는 KOSDAQ 기준이에요');
+  });
+
+  it('ETF curves do not reuse the hold line style, and use palette slots that clear 3:1 on both themes', async () => {
+    setup(validationResult({ benchmarks: [
+      { symbol: 'A', name: 'A', curve: [{ date: '2026-01-05', value: 1e7 }], stats: stats(1) },
+      { symbol: 'B', name: 'B', curve: [{ date: '2026-01-05', value: 1e7 }], stats: stats(1) },
+    ] }));
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(4));
+    const [hold, , a, b] = lwcCharts[0].series.map((s) => [s.options.color, s.options.lineWidth]);
+    expect(a).toEqual(['#008300', 2]);
+    expect(b).toEqual(['#2a78d6', 2]);
+    expect([a, b]).not.toContainEqual(hold);
   });
 
   it('chart gets one curve per available line and rebalance ticks', async () => {
