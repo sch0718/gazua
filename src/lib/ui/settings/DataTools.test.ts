@@ -163,7 +163,7 @@ describe('DataTools', () => {
       await mount();
       expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
       await pick(demo());
-      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함')).toBeTruthy();
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함 · 매매동향 포함')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
       await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
       expect(await marketData.info()).toBeNull();
@@ -188,20 +188,41 @@ describe('DataTools', () => {
       await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
       await pick(demo());
     }
+    const asV2 = (j: any) => {
+      j.version = 2;
+      j.stocks.forEach((st: any) => delete st.flow);
+    };
     const emptyMacro = (j: any) => (j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
 
+    it('v3 without any flow (--no-flows) keeps the plain macro/theme text', async () => {
+      await importVariant((j) => j.stocks.forEach((st: any) => delete st.flow));
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
+    });
+
+    it('v2 file keeps the plain macro/theme text', async () => {
+      await importVariant(asV2);
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
+    });
+
     it('v2 with empty macro names only themes', async () => {
-      await importVariant(emptyMacro);
+      await importVariant((j) => {
+        asV2(j);
+        emptyMacro(j);
+      });
       expect(await screen.findByText(`${base} · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
     });
 
     it('v2 with empty themes names only macro', async () => {
-      await importVariant((j) => (j.themes = []));
+      await importVariant((j) => {
+        asV2(j);
+        j.themes = [];
+      });
       expect(await screen.findByText(`${base} · 환율·유가 포함 · 테마는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
     });
 
     it('v2 with both empty gets the re-collect hint', async () => {
       await importVariant((j) => {
+        asV2(j);
         emptyMacro(j);
         j.themes = [];
       });
@@ -220,7 +241,7 @@ describe('DataTools', () => {
 
     it('shows the newer-version message', async () => {
       const j = JSON.parse(await decompress(new Blob([gz])));
-      await mount({ decompress: async () => JSON.stringify({ ...j, version: 3 }), estimate: roomy });
+      await mount({ decompress: async () => JSON.stringify({ ...j, version: 4 }), estimate: roomy });
       await pick(demo());
       expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
     });

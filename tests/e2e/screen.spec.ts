@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { FLOW_BOTH_CODE, FLOW_FOREIGN_CODES } from '../../scripts/make-demo-market-data.mjs';
 import { enterDemo, expectNoHorizontalScroll, isWide, leaderboardRows, openApp } from './helpers';
 
 const FIXTURE = 'tests/fixtures/market-data-demo.json.gz';
@@ -173,6 +174,76 @@ test('환율·테마 기준: v2 데이터 → 테마 1개 + 원/달러 민감도
   await expect(page.getByRole('list', { name: '결과 해석 도움말' })).toContainText('테마·내 묶음은 지금 구성을 과거에도 써요');
   await expectNoHorizontalScroll(page);
   await expectNoSeriousViolations(page, '환율·테마 검증 결과');
+
+  expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+test('투자자 매매동향 기준: v3 데이터 → 외국인 순매수 규모 ≥ 3% → 미리 보기 → 실행 → 이력 값 · 지연 메모', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await openApp(page);
+  await enterDemo(page);
+
+  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
+  await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: '비교로 돌아가기' }).click();
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('tab', { name: '선정 기준' }).click();
+  await page.getByRole('button', { name: '＋ 새 기준' }).first().click();
+  const run = page.getByRole('button', { name: '검증 실행' });
+  await expect(run).toBeEnabled();
+
+  // 기본으로 켜진 반등 신호는 끈다: 이 흐름은 외국인 순매수 규모만 본다
+  const previewStatus = page.getByRole('region', { name: '오늘 기준 미리 보기' }).getByRole('status');
+  await expect(previewStatus).toHaveText(/통과 \d+개 · 상위 \d+개/, { timeout: 30_000 });
+  const rebound = page.getByRole('switch', { name: '반등 신호 사용' });
+  await rebound.click();
+  await expect(rebound).not.toBeChecked();
+  await expect(previewStatus).toHaveText(/통과 \d+개 · 상위 \d+개/, { timeout: 30_000 });
+  const before = (await previewStatus.innerText()).trim();
+
+  // 조건 › 투자자 매매동향 › 순매수 규모: 외국인, 20일, 3% 이상
+  // (데모 잡음으로 설계 외 종목이 한 재선정일에 1.02%까지 올라 1%로는 가려지지 않는다. 설계 종목은 3.8~6.0%다)
+  const flowSwitch = page.getByRole('switch', { name: '순매수 규모 사용' });
+  await flowSwitch.click();
+  await expect(flowSwitch).toBeChecked();
+  await page.getByRole('radiogroup', { name: '순매수 규모 주체' }).getByRole('radio', { name: '외국인', exact: true }).click();
+  const days = page.getByRole('textbox', { name: '순매수 기간' });
+  await days.fill('20');
+  await days.blur();
+  const min = page.getByRole('textbox', { name: '최소 순매수 비율' });
+  await min.fill('3');
+  await min.blur();
+  await expect(min).toHaveValue(/^3(\.0)?$/);
+  await expectNoHorizontalScroll(page);
+  await expectNoSeriousViolations(page, '매매동향 기준 편집');
+
+  // 미리 보기가 바뀐 기준으로 다시 계산돼 이전 문구와 달라진다
+  await expect(previewStatus).not.toHaveText(before, { timeout: 30_000 });
+  await expect(previewStatus).toHaveText(/통과 [1-9]\d*개 · 상위 \d+개/, { timeout: 30_000 });
+
+  await run.click();
+  await expect(page.getByRole('heading', { name: '오늘 기준 선별' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('heading', { name: '선정 이력' })).toBeVisible();
+
+  // 이력 행을 펼치면 순매수 값 줄이 보인다
+  const hist = page.getByRole('region', { name: '선정 이력' });
+  await hist.getByRole('button', { expanded: false }).first().click();
+  await expect(hist.getByText(/^외국인 순매수 20일 [−-]?\d+(\.\d+)?%/).first()).toBeVisible();
+
+  // 뽑힌 종목은 모두 설계한 외국인 순매수 종목이다
+  // (외국인 +5% 3종목 + 외국인·기관이 함께 사는 111110. 데모의 FLOW_FOREIGN_CODES·FLOW_BOTH_CODE)
+  const FOREIGN_SYMBOLS = [...FLOW_FOREIGN_CODES, FLOW_BOTH_CODE];
+  const picked = await hist.locator('.picks .nm small').allInnerTexts();
+  expect(picked.length, '뽑힌 종목이 있다').toBeGreaterThan(0);
+  for (const sym of picked) expect(FOREIGN_SYMBOLS, `${sym}은 설계한 외국인 순매수 종목이다`).toContain(sym.trim());
+
+  await expect(page.getByRole('list', { name: '결과 해석 도움말' })).toContainText('매매동향은 재선정일 이틀 전 거래일까지 써요');
+  await expectNoHorizontalScroll(page);
+  await expectNoSeriousViolations(page, '매매동향 검증 결과');
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });

@@ -46,9 +46,27 @@ export interface MarketDataFileV2 extends Omit<MarketDataFileV1, 'version'> {
   themes: ThemeEntry[];
 }
 
-export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2;
+// 종목별 투자자 수급(순매수 대금, 백만 원 단위 정수). from부터 일봉 d와 같은 간격으로 이어진다.
+// 마지막 일봉까지 닿지 않을 수 있다(수급 끝).
+export interface FlowSeries {
+  from: string; // YYYYMMDD, d 안에 있는 날
+  f: number[]; // 외국인
+  i: number[]; // 기관
+  p: number[]; // 개인
+}
 
-export const isV2 = (f: MarketDataFile): f is MarketDataFileV2 => f.version === 2;
+type StockV1 = MarketDataFileV1['stocks'][number];
+
+export interface MarketDataFileV3 extends Omit<MarketDataFileV2, 'version' | 'stocks'> {
+  version: 3;
+  stocks: (StockV1 & { flow?: FlowSeries })[];
+}
+
+export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2 | MarketDataFileV3;
+
+export const isV3 = (f: MarketDataFile): f is MarketDataFileV3 => f.version === 3;
+// v2 이상이면 macro와 themes가 있다.
+export const hasMacroFormat = (f: MarketDataFile): f is MarketDataFileV2 | MarketDataFileV3 => f.version >= 2;
 
 export type MarketDataCheck =
   | { ok: true; data: MarketDataFile }
@@ -130,18 +148,32 @@ function macroCorrupt(m: Record<string, unknown>): boolean {
   return false;
 }
 
+// v3 flow: from이 d 안에 있고, 세 배열 길이가 같고 1 이상이며, 끝이 d를 넘지 않는다.
+function flowCorrupt(s: Record<string, unknown>): boolean {
+  if (s.flow === undefined) return false;
+  const fl = s.flow;
+  const d = s.d as string[];
+  if (!isObj(fl) || typeof fl.from !== 'string') return true;
+  const at = d.indexOf(fl.from);
+  if (at < 0) return true;
+  const n = Array.isArray(fl.f) ? fl.f.length : 0;
+  if (n < 1 || at + n > d.length) return true;
+  return !(['f', 'i', 'p'] as const).every((k) => isNumArray(fl[k], n) && (fl[k] as number[]).every(Number.isInteger));
+}
+
 export function validateMarketData(x: unknown): MarketDataCheck {
   if (!isObj(x) || x.format !== 'gazua-market-data') return { ok: false, reason: 'format' };
   if (typeof x.version !== 'number') return { ok: false, reason: 'format' };
-  if (x.version > 2) return { ok: false, reason: 'version-newer' };
-  if (x.version !== 1 && x.version !== 2) return { ok: false, reason: 'format' };
+  if (x.version > 3) return { ok: false, reason: 'version-newer' };
+  if (x.version !== 1 && x.version !== 2 && x.version !== 3) return { ok: false, reason: 'format' };
   if (!Array.isArray(x.stocks) || !Array.isArray(x.indices) || !Array.isArray(x.sectors)) {
     return { ok: false, reason: 'format' };
   }
   if (!metaOk(x)) return { ok: false, reason: 'format' };
-  if (x.version === 2 && !v2ShapeOk(x)) return { ok: false, reason: 'format' };
+  if (x.version >= 2 && !v2ShapeOk(x)) return { ok: false, reason: 'format' };
   for (const s of x.stocks) if (!isObj(s) || stockCorrupt(s)) return { ok: false, reason: 'corrupt' };
+  if (x.version === 3) for (const s of x.stocks) if (flowCorrupt(s as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
   for (const i of x.indices) if (!isObj(i) || indexCorrupt(i)) return { ok: false, reason: 'corrupt' };
-  if (x.version === 2 && macroCorrupt(x.macro as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
+  if (x.version >= 2 && macroCorrupt(x.macro as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
   return { ok: true, data: x as unknown as MarketDataFile };
 }

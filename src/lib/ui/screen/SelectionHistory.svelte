@@ -3,17 +3,20 @@
   import type { ValidationResult } from '../../screen/runValidation';
   import { dotDate, returnClass, trendReturn } from '../simulate/simText';
   import type { MacroSeriesKey } from '../../screen/types';
-  import { MACRO_VALUE_KEYS, macroValueLines, NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText } from './screenText';
+  import { FLOW_VALUE_KEYS, flowValueLines, MACRO_VALUE_KEYS, macroValueLines, NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText, type FlowRunSnap } from './screenText';
 
   let {
     result,
     names,
     lookback,
+    flow,
   }: {
     result: ValidationResult;
     names: Record<string, string>;
     /** 실행할 때 기준의 흐름 기간(`최근 20일`). 없으면 `최근 흐름`으로 보인다 */
     lookback?: Partial<Record<MacroSeriesKey, number>>;
+    /** 실행할 때 기준의 수급 주체·기간. 수급 값 줄의 이름에 쓴다 */
+    flow: FlowRunSnap;
   } = $props();
 
   let open = $state<Record<string, boolean>>({});
@@ -60,13 +63,16 @@
                   {#if sp?.soldAtLastClose}<div class="flag">{SOLD_AT_LAST_CLOSE_TEXT}</div>{/if}
                   {#if isOpen}
                     <dl class="vals">
-                      {#each Object.entries(p.values).filter(([k]) => !MACRO_VALUE_KEYS.has(k)) as [k, v] (k)}
+                      {#each Object.entries(p.values).filter(([k]) => !MACRO_VALUE_KEYS.has(k) && !FLOW_VALUE_KEYS.has(k)) as [k, v] (k)}
                         {@const t = valueText(k, v)}
                         <div><dt>{t.label}</dt><dd class="num">{t.text}</dd></div>
                       {/each}
                     </dl>
                     {#each macroValueLines(p.values, lookback) as line (line)}
                       <p class="mv num" data-macro-value>{line}</p>
+                    {/each}
+                    {#each flowValueLines(p.values, flow) as line (line)}
+                      <p class="mv num" data-flow-value>{line}</p>
                     {/each}
                   {/if}
                 </li>

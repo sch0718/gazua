@@ -361,6 +361,23 @@ describe('criteria in export files', () => {
     expect(loadCriteria(st, res.profileId)).toEqual([crit]);
   });
 
+  it('기본값이 아닌 flow·rank.flow도 왕복해 그대로 남는다', () => {
+    const { st, backing } = source();
+    const c = structuredClone(crit);
+    c.conditions.flow = {
+      amount: { on: true, who: 'both', days: 60, minPct: -5, maxPct: 12.5 },
+      streak: { on: true, who: 'indiv', minDays: 9 },
+    };
+    c.rank = { ...c.rank, by: 'flow', flow: { who: 'inst', days: 40 } };
+    seed(backing, profileKeys.criteria('p1'), { criteria: [c] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).criteria).toEqual([c]);
+    const res = importData(st, json);
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(loadCriteria(st, res.profileId)).toEqual([c]);
+  });
+
   it('criteria가 없는 옛 파일도 가져오고 목록은 [], repaired false', () => {
     const { st, backing } = source();
     const res = importData(st, file({}));

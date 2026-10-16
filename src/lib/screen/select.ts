@@ -1,7 +1,9 @@
 import type { Basket } from './baskets';
+import { flowEnd, flowRatio } from './flow';
 import { lastUsablePair, trendAt } from './macro';
-import { RANK_RETURN_DAYS, RANK_VOL_DAYS, stableJson, usesMacro, type Precomputed, type StockSeries } from './precompute';
-import type { MacroSeriesKey, SelectionCriteria } from './types';
+import { flowParams, RANK_RETURN_DAYS, RANK_VOL_DAYS, rankFlowOf, stableJson, usesMacro, type Precomputed, type StockSeries } from './precompute';
+import type { FlowWho, MacroSeriesKey, SelectionCriteria } from './types';
+import { usesFlow } from './validate';
 
 export interface Selection {
   date: string;
@@ -31,6 +33,11 @@ function assertMatches(pre: Precomputed, c: SelectionCriteria): void {
       throw new PrecomputeMismatchError('반등 패턴');
   }
   if (usesMacro(c) && k.macro.betaDays !== p.betaDays) throw new PrecomputeMismatchError('민감도 계산 기간');
+  if (usesFlow(c)) {
+    const want = flowParams(c)!;
+    if (!p.flow || want.whos.some((w) => !p.flow!.whos.includes(w)) || (want.streakWho != null && want.streakWho !== p.flow.streakWho))
+      throw new PrecomputeMismatchError('투자자 매매동향');
+  }
 }
 
 const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
@@ -42,6 +49,25 @@ export function betaAt(pre: Precomputed, st: StockSeries, key: MacroSeriesKey, p
 }
 
 const orNull = (x: number): number | null => (Number.isNaN(x) ? null : x);
+
+/** 수급 비율을 숫자 하나로: both이면 두 비율 중 작은 값(정렬). 하나라도 계산 불가면 NaN(Math.min이 NaN을 남긴다) */
+const minRatio = (r: number | [number, number]): number => (Array.isArray(r) ? Math.min(r[0], r[1]) : r);
+
+/** p 봉에서 e(= p − 1)까지 이어진 연속 순매수 일수. 계산 불가면 −1 */
+function streakAt(st: StockSeries, pIdx: number): number {
+  const e = flowEnd(st, pIdx);
+  return e < 0 ? -1 : st.flow!.streak[e];
+}
+
+/** 이 기준이 쓰는 수급 값(조건·정렬)을 그 종목에서 모두 계산할 수 있는가 */
+function flowComputable(pre: Precomputed, c: SelectionCriteria, st: StockSeries, pIdx: number): boolean {
+  const fl = c.conditions.flow;
+  const ok = (who: FlowWho, days: number) => !Number.isNaN(minRatio(flowRatio(pre, st, who, days, pIdx)));
+  if (fl.amount.on && !ok(fl.amount.who, fl.amount.days)) return false;
+  if (fl.streak.on && flowEnd(st, pIdx) < 0) return false;
+  if (c.rank.by === 'flow' && !ok(rankFlowOf(c).who, rankFlowOf(c).days)) return false;
+  return true;
+}
 
 const EOK = 1e8;
 const SELECTABLE = ['STOCK', 'ETF'];
@@ -108,6 +134,22 @@ export function betaMissingAt(d: string, pre: Precomputed, c: SelectionCriteria,
     const st = pre.stocks[j];
     if (at.pIdx[j] < 0 || !has(st)) continue;
     if (!Number.isNaN(betaAt(pre, st, key, at.prevDay, at.pIdx[j]))) return false;
+    any = true;
+  }
+  return any;
+}
+
+/** 재선정일 d에 후보 범위의 종목(p에 봉이 있는)이 있는데 모두 수급 값을 계산할 수 없는가. 수급을 쓰지 않거나 후보가 없으면 false */
+export function flowMissingAt(d: string, pre: Precomputed, c: SelectionCriteria, baskets: BasketRef[] = []): boolean {
+  if (!usesFlow(c) || pre.params.flow == null) return false;
+  const at = barsAt(d, pre);
+  if (!at) return false;
+  const { has } = poolFilter(pre, c, undefined, baskets);
+  let any = false;
+  for (let j = 0; j < pre.stocks.length; j++) {
+    const st = pre.stocks[j];
+    if (at.pIdx[j] < 0 || !has(st)) continue;
+    if (flowComputable(pre, c, st, at.pIdx[j])) return false;
     any = true;
   }
   return any;
@@ -210,6 +252,25 @@ export function selectAt(
       }
       values[`${key}Beta`] = orNull(b);
     }
+    // 수급은 e = p − 1까지만 쓴다(스펙 2.3). 계산 불가면 탈락
+    const fa = k.flow.amount;
+    if (fa.on) {
+      const r = flowRatio(pre, st, fa.who, fa.days, p);
+      const inRange = (x: number) => x >= fa.minPct && x <= fa.maxPct;
+      if (Array.isArray(r)) {
+        if (!(inRange(r[0]) && inRange(r[1]))) return;
+        values.flowRatioForeign = r[0];
+        values.flowRatioInst = r[1];
+      } else {
+        if (!inRange(r)) return;
+        values.flowRatio = r;
+      }
+    }
+    if (k.flow.streak.on) {
+      const n = streakAt(st, p);
+      if (!(n >= k.flow.streak.minDays)) return;
+      values.flowStreak = n;
+    }
 
     // 정렬 값
     let key: number | null;
@@ -231,6 +292,16 @@ export function selectAt(
       case 'macroBeta': {
         const series = c.rank.series ?? 'usdkrw';
         key = values[`${series}Beta`] = orNull(betaAt(pre, st, series, prevDay, p));
+        break;
+      }
+      case 'flow': {
+        const rf = rankFlowOf(c);
+        const r = flowRatio(pre, st, rf.who, rf.days, p);
+        const v = minRatio(r);
+        if (Number.isNaN(v)) return; // 계산 불가인 종목은 정렬에서 뺀다(스펙 3.3)
+        key = values.rankFlow = v;
+        // both는 작은 쪽으로 정렬하지만(F4) 화면은 두 비율을 따로 보인다
+        if (Array.isArray(r)) [values.rankFlowForeign, values.rankFlowInst] = r;
         break;
       }
     }

@@ -1,14 +1,14 @@
 // 선정 기준 화면의 문구와 요약. 문구는 스펙 7.2·7.3·4장 그대로다.
-import { sectorGroupCount } from '../../screen/precompute';
+import { rankFlowOf, sectorGroupCount } from '../../screen/precompute';
 import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
 import type { MarketDataFile } from '../../marketData/format';
-import type { MacroSeriesKey, SelectionCriteria } from '../../screen/types';
+import type { FlowWho, MacroSeriesKey, SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
 import { fmtReturnPct, trendReturn } from '../simulate/simText';
 
 // 환율·유가(macro)는 켜는 조건이 계열별이라 이 목록에 넣지 않는다(화면은 Task 6)
-export type ConditionKey = Exclude<keyof SelectionCriteria['conditions'], 'macro'>;
+export type ConditionKey = Exclude<keyof SelectionCriteria['conditions'], 'macro' | 'flow'>;
 
 /** 조건 한 줄 설명(스펙 7.3 표) */
 export const CONDITION_HELP: Record<ConditionKey, string> = {
@@ -62,6 +62,16 @@ export const macroTrendHelp = (k: MacroSeriesKey) =>
   `최근 며칠 동안 ${SERIES_SUBJECT[k]} 크게 오르면 같이 오르는 종목을, 크게 내리면 반대로 움직이는 종목을 골라요.`;
 export const NEED_RECOLLECT_TEXT = '다시 수집하면 쓸 수 있어요';
 
+/** 투자자 매매동향(3단계 스펙 4.1) */
+export const FLOW_WHO_LABEL: Record<FlowWho, string> = { foreign: '외국인', inst: '기관', indiv: '개인', both: '외국인+기관' };
+export const FLOW_WHO_ORDER: FlowWho[] = ['foreign', 'inst', 'indiv', 'both'];
+export const FLOW_AMOUNT_HELP = '최근 기간 순매수 금액이 같은 기간 거래대금에서 차지하는 비율이에요. 음수면 순매도예요';
+export const FLOW_STREAK_HELP = '이 주체가 하루도 빠짐없이 순매수한 날이 이어진 수예요';
+export const FLOW_LAG_HINT = '매매동향은 하루 늦게 반영해요(장 마감 뒤 수치가 바뀔 수 있어서)';
+/** 결과 메모(3단계 스펙 4.3) */
+export const FLOW_LAG_TEXT = '매매동향은 재선정일 이틀 전 거래일까지 써요';
+export const FLOW_GAP_TEXT = '수급 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요';
+
 /** 해석 메모(스펙 4.3·5.3·7) */
 export const THEME_SNAPSHOT_TEXT = '테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요';
 export const MACRO_LAG_TEXT = '환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요';
@@ -96,6 +106,10 @@ export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sect
     if (m.beta.on) on.push(`${SERIES_LABEL[key]} 민감도 ${signed(m.beta.min)}~${signed(m.beta.max)}`);
     if (m.trend.on) on.push(`${SERIES_LABEL[key]} 흐름 ${m.trend.lookback}일`);
   }
+  const fa = k.flow.amount;
+  const fs = k.flow.streak;
+  if (fa.on) on.push(`${FLOW_WHO_LABEL[fa.who]} 순매수 ${fa.days}일 ${signed(fa.minPct)}~${signed(fa.maxPct)}%`);
+  if (fs.on) on.push(`${FLOW_WHO_LABEL[fs.who]} 연속 ${fs.minDays}일↑`);
   parts.push(...(on.length ? on : ['조건 없음']));
   parts.push(`상위 ${c.rank.take}`, rebalanceLabel(c.rebalance));
   return parts.join(' · ');
@@ -195,6 +209,53 @@ export function macroValueLines(values: Record<string, number | boolean | null>,
     }
     out.push(parts.join(' · '));
   }
+  return out;
+}
+
+/** 실행할 때 기준의 수급 주체·기간. 선정 이력은 이것으로 값의 이름을 붙인다 */
+export interface FlowRunSnap {
+  amount: { who: FlowWho; days: number };
+  streak: { who: FlowWho };
+  rank: { who: FlowWho; days: number };
+}
+/** 선정 이력의 수급 값 키(일반 값 목록에는 따로 나오지 않는다) */
+export const FLOW_VALUE_KEYS = new Set(['flowRatio', 'flowRatioForeign', 'flowRatioInst', 'flowStreak', 'rankFlow', 'rankFlowForeign', 'rankFlowInst']);
+/** 실행할 때 기준에서 수급 주체·기간을 떼어 둔다(정렬 수급이 없는 옛 기준은 기본값) */
+export function flowRunSnap(c: SelectionCriteria): FlowRunSnap {
+  const { amount, streak } = c.conditions.flow;
+  const rank = rankFlowOf(c);
+  return { amount: { who: amount.who, days: amount.days }, streak: { who: streak.who }, rank: { who: rank.who, days: rank.days } };
+}
+/** 소수 한 자리 %, 음수는 `−`. 0으로 반올림되면 부호가 없다 */
+const pct1 = (v: number | boolean | null | undefined) => {
+  if (typeof v !== 'number') return '—';
+  const t = Math.abs(v).toFixed(1);
+  return `${v < 0 && Number(t) !== 0 ? MINUS : ''}${t}%`;
+};
+/**
+ * 선정 이력의 수급 값 줄(3단계 스펙 4.3): `외국인 순매수 20일 3.2% · 연속 5일`,
+ * `both`면 `외국인 2.1% · 기관 1.4% (20일) · 함께 연속 3일`. `수급 순` 정렬 값은 순매수 규모와 같은 값이 아니면 따로 한 줄이다
+ */
+export function flowValueLines(values: Record<string, number | boolean | null>, snap: FlowRunSnap): string[] {
+  const has = (k: string) => k in values;
+  const out: string[] = [];
+  const parts: string[] = [];
+  const amountShown = has('flowRatio') || has('flowRatioForeign');
+  if (has('flowRatioForeign')) parts.push(`외국인 ${pct1(values.flowRatioForeign)}`, `기관 ${pct1(values.flowRatioInst)} (${snap.amount.days}일)`);
+  else if (has('flowRatio')) parts.push(`${FLOW_WHO_LABEL[snap.amount.who]} 순매수 ${snap.amount.days}일 ${pct1(values.flowRatio)}`);
+  if (has('flowStreak')) {
+    const n = values.flowStreak;
+    const run = `${snap.streak.who === 'both' ? '함께 ' : ''}연속 ${typeof n === 'number' ? n : '—'}일`;
+    parts.push(amountShown && snap.streak.who === snap.amount.who ? run : `${FLOW_WHO_LABEL[snap.streak.who]} ${run}`);
+  }
+  if (parts.length) out.push(parts.join(' · '));
+  const sameAsAmount = amountShown && snap.rank.who === snap.amount.who && snap.rank.days === snap.amount.days;
+  if (has('rankFlow') && !sameAsAmount)
+    out.push(
+      has('rankFlowForeign')
+        ? `외국인 ${pct1(values.rankFlowForeign)} · 기관 ${pct1(values.rankFlowInst)} (${snap.rank.days}일)`
+        : `${FLOW_WHO_LABEL[snap.rank.who]} 순매수 ${snap.rank.days}일 ${pct1(values.rankFlow)}`,
+    );
   return out;
 }
 

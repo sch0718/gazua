@@ -4,7 +4,7 @@ import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX, newCriteria } from './defaults';
 import type { Basket } from './baskets';
-import type { MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
+import type { FlowWho, MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -14,7 +14,8 @@ const realDate = (x: unknown): boolean =>
 
 const MARKETS: readonly Market[] = ['KOSPI', 'KOSDAQ'];
 const TYPES: readonly SecurityType[] = ['STOCK', 'ETF'];
-const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility', 'macroBeta'];
+const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility', 'macroBeta', 'flow'];
+const WHOS: readonly FlowWho[] = ['foreign', 'inst', 'indiv', 'both'];
 const SERIES: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
 const REBALANCES: readonly Rebalance[] = ['monthly', 'quarterly', 'semiannual'];
 /** 억 원 단위 상한(1,000조 원). 그 위는 입력 실수로 본다 */
@@ -126,6 +127,11 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
     };
   };
 
+  const fl = rec(cd.flow);
+  const fa = rec(fl.amount);
+  const fs = rec(fl.streak);
+  const who = (x: unknown, def: FlowWho): FlowWho => pick(x, def, (y) => WHOS.includes(y as FlowWho));
+
   const conditions: SelectionCriteria['conditions'] = {
     marketCap: { on: bool(mc.on, dc.marketCap.on), minEok: num(mc.minEok, dc.marketCap.minEok, 0, EOK_MAX) },
     tradingValue: {
@@ -165,6 +171,20 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
       usdkrw: series(mcr.usdkrw, dc.macro.usdkrw),
       wti: series(mcr.wti, dc.macro.wti),
     },
+    flow: {
+      amount: {
+        on: bool(fa.on, dc.flow.amount.on),
+        who: who(fa.who, dc.flow.amount.who),
+        days: int(fa.days, dc.flow.amount.days, 5, 120),
+        minPct: num(fa.minPct, dc.flow.amount.minPct, -100, 100),
+        maxPct: num(fa.maxPct, dc.flow.amount.maxPct, -100, 100),
+      },
+      streak: {
+        on: bool(fs.on, dc.flow.streak.on),
+        who: who(fs.who, dc.flow.streak.who),
+        minDays: int(fs.minDays, dc.flow.streak.minDays, 1, 60),
+      },
+    },
   };
 
   const rk = rec(raw.rank);
@@ -177,7 +197,14 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
       : SERIES.includes(rk.series as MacroSeriesKey)
         ? (rk.series as MacroSeriesKey)
         : dSeries;
-  const rank = { by, take: int(rk.take, d.rank.take, 1, TAKE_MAX), series: rankSeries };
+  const rf = rec(rk.flow);
+  const dFlow = d.rank.flow ?? { who: 'foreign' as FlowWho, days: 20 };
+  const rank = {
+    by,
+    take: int(rk.take, d.rank.take, 1, TAKE_MAX),
+    series: rankSeries,
+    flow: { who: who(rf.who, dFlow.who), days: int(rf.days, dFlow.days, 5, 120) },
+  };
 
   const p = rec(raw.period);
   const period = { from: pick(p.from, d.period.from, realDate), to: pick(p.to, d.period.to, realDate) };
@@ -260,9 +287,17 @@ export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[])
   return out;
 }
 
+const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+const NO_FLOW = '이 데이터에는 투자자 매매동향이 없어요';
+
 /** 환율·유가 조건이 하나라도 켜져 있는가 */
 export const macroOn = (m: SelectionCriteria['conditions']['macro']): boolean =>
   m.usdkrw.beta.on || m.usdkrw.trend.on || m.wti.beta.on || m.wti.trend.on;
+
+/** 수급 조건이 하나라도 켜져 있는가 */
+export const flowOn = (c: SelectionCriteria): boolean => c.conditions.flow.amount.on || c.conditions.flow.streak.on;
+/** 수급 조건을 켰거나 수급 순으로 정렬하는가 */
+export const usesFlow = (c: SelectionCriteria): boolean => flowOn(c) || c.rank.by === 'flow';
 
 /**
  * dataInfo·baskets를 주면 데이터와 내 묶음에 기대는 검사를 더한다. 생략하면 건너뛴다(기존 호출 그대로).
@@ -271,7 +306,7 @@ export const macroOn = (m: SelectionCriteria['conditions']['macro']): boolean =>
 export function criteriaIssues(
   c: SelectionCriteria,
   strategies: Strategy[],
-  dataInfo?: { hasMacro: boolean; themeCodes?: string[] },
+  dataInfo?: { hasMacro: boolean; hasFlow: boolean; themeCodes?: string[] },
   baskets?: Pick<Basket, 'id'>[],
 ): Issue[] {
   const out: Issue[] = [];
@@ -291,8 +326,7 @@ export function criteriaIssues(
     out.push({ section: 'conditions', text: '고점 대비 범위는 작은 값부터 적어 주세요', blocking: true });
 
   if (dataInfo && !dataInfo.hasMacro && macroOn(k.macro))
-    out.push({ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true });
-  const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+    out.push({ section: 'conditions', text: NO_MACRO, blocking: true });
   (['usdkrw', 'wti'] as const).forEach((key) => {
     const b = k.macro[key].beta;
     if (b.on && b.min > b.max)
@@ -305,14 +339,19 @@ export function criteriaIssues(
   // 같은 문구는 한 번만(조건 구역의 이슈를 남긴다)
   if (dataInfo && !dataInfo.hasMacro && c.rank.by === 'macroBeta' && !out.some((i) => i.text === NO_MACRO))
     out.push({ section: 'rank', text: NO_MACRO, blocking: true });
+  if (k.flow.amount.on && k.flow.amount.minPct > k.flow.amount.maxPct)
+    out.push({ section: 'conditions', text: '순매수 비율의 최소가 최대보다 커요', blocking: true });
+  if (dataInfo && !dataInfo.hasFlow && usesFlow(c))
+    out.push({ section: flowOn(c) ? 'conditions' : 'rank', text: NO_FLOW, blocking: true });
   if (baskets && c.pool.baskets.some((id) => !baskets.some((b) => b.id === id)))
     out.push({ section: 'pool', text: '지워진 내 묶음이 있어요. 다시 골라 주세요', blocking: false });
   const codes = dataInfo?.themeCodes;
   if (codes && c.pool.themes.some((t) => !codes.includes(t)))
     out.push({ section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false });
 
-  const { macro, ...simple } = k;
-  if (!macroOn(macro) && !Object.values(simple).some((x) => x.on))
+  const { macro, flow, ...simple } = k;
+  void flow;
+  if (!macroOn(macro) && !flowOn(c) && !Object.values(simple).some((x) => x.on))
     out.push({ section: 'conditions', text: '조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요', blocking: false });
   return out;
 }

@@ -4,7 +4,7 @@
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { isV2 } from '../lib/marketData/format';
+  import { hasMacroFormat } from '../lib/marketData/format';
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
   import type { Basket } from '../lib/screen/baskets';
@@ -22,7 +22,7 @@
   import CriteriaEditor from '../lib/ui/screen/CriteriaEditor.svelte';
   import CriteriaList from '../lib/ui/screen/CriteriaList.svelte';
   import MarketDataNotice from '../lib/ui/screen/MarketDataNotice.svelte';
-  import { dataAgeDays, lastResultSummary, type LastResult } from '../lib/ui/screen/screenText';
+  import { dataAgeDays, flowRunSnap, lastResultSummary, type FlowRunSnap, type LastResult } from '../lib/ui/screen/screenText';
   import ValidationResult from '../lib/ui/screen/ValidationResult.svelte';
   import ValidationRun from '../lib/ui/screen/ValidationRun.svelte';
   import SimulateTabs, { type SimulateTab } from '../lib/ui/screen/SimulateTabs.svelte';
@@ -140,7 +140,7 @@
     if (!criteriaTab) untrack(() => vctl.cancel());
   });
   // 결과 화면은 실행할 때의 이름·자본을 쓴다(실행 뒤 기준이 바뀌어도 결과와 맞게)
-  let runSnap = $state.raw<{ name: string; capital: number; macro: { used: boolean; lookback: Partial<Record<MacroSeriesKey, number>> } } | null>(null);
+  let runSnap = $state.raw<{ name: string; capital: number; macro: { used: boolean; lookback: Partial<Record<MacroSeriesKey, number>> }; flow: FlowRunSnap } | null>(null);
   // undefined = 아직 읽는 중
   let info = $state.raw<MarketDataInfo | null | undefined>(undefined);
   let sectors = $state.raw<MarketSector[]>([]);
@@ -149,7 +149,7 @@
   // 테마의 종목은 본문에만 있다. 묶음으로 가져올 때만 파일을 읽는다
   async function loadThemeSymbols(code: string): Promise<string[]> {
     const body = await marketData.load?.();
-    return body && isV2(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
+    return body && hasMacroFormat(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
   }
   onMount(() => {
     marketData.info().then(
@@ -217,7 +217,12 @@
   function runCriteria(c: SelectionCriteria) {
     runId = c.id;
     const fx = c.conditions.macro;
-    runSnap = { name: c.name, capital: c.capital, macro: { used: usesMacro(c), lookback: { usdkrw: fx.usdkrw.trend.lookback, wti: fx.wti.trend.lookback } } };
+    runSnap = {
+      name: c.name,
+      capital: c.capital,
+      macro: { used: usesMacro(c), lookback: { usdkrw: fx.usdkrw.trend.lookback, wti: fx.wti.trend.lookback } },
+      flow: flowRunSnap(c),
+    };
     staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
     vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[], baskets: $state.snapshot(app.baskets) as Basket[] });
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id, view: 'result' });
@@ -274,7 +279,7 @@
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
               <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} />
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}

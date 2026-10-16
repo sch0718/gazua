@@ -10,7 +10,7 @@
   import SelectionHistory from './SelectionHistory.svelte';
   import TodayPicks from './TodayPicks.svelte';
   import type { MacroSeriesKey } from '../../screen/types';
-  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, HELP_ALWAYS, MACRO_GAP_TEXT, MACRO_LAG_TEXT, SPARSE_TEXT, THEME_SNAPSHOT_TEXT, trendPp, vsIndex, WARMUP_TEXT } from './screenText';
+  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, FLOW_GAP_TEXT, FLOW_LAG_TEXT, HELP_ALWAYS, MACRO_GAP_TEXT, MACRO_LAG_TEXT, SPARSE_TEXT, THEME_SNAPSHOT_TEXT, trendPp, vsIndex, WARMUP_TEXT, type FlowRunSnap } from './screenText';
 
   let {
     app,
@@ -20,6 +20,7 @@
     capital,
     theme,
     macro,
+    flow,
   }: {
     app: App;
     result: ValidationResult;
@@ -30,6 +31,8 @@
     theme?: string;
     /** 이 실행의 환율·유가 사용 여부와 흐름 기간(실행할 때의 기준). 없으면 쓰지 않은 것으로 본다 */
     macro?: { used: boolean; lookback?: Partial<Record<MacroSeriesKey, number>> };
+    /** 이 실행의 수급 주체·기간(실행할 때의 기준). 선정 이력의 수급 값에 이름을 붙인다 */
+    flow: FlowRunSnap;
   } = $props();
 
   interface Card {
@@ -73,6 +76,7 @@
   {#if note('warmup')}<Banner tone="warn" message={WARMUP_TEXT} />{/if}
   {#if note('sparseAxis')}<Banner tone="warn" message={SPARSE_TEXT} />{/if}
   {#if note('macroGap')}<Banner tone="warn" message={MACRO_GAP_TEXT} />{/if}
+  {#if note('flowGap')}<Banner tone="warn" message={FLOW_GAP_TEXT} />{/if}
 
   <TodayPicks {app} selection={result.today} {names} {criteriaName} />
 
@@ -114,13 +118,14 @@
   </section>
 
   <MarketTable {result} />
-  <SelectionHistory {result} {names} lookback={macro?.lookback} />
+  <SelectionHistory {result} {names} lookback={macro?.lookback} {flow} />
 
   <ul class="help" aria-label="결과 해석 도움말">
     {#each HELP_ALWAYS as line (line)}<li>{line}</li>{/each}
     {#if note('fewSegments')}<li>{FEW_SEGMENTS_TEXT}</li>{/if}
     {#if note('themeSnapshot')}<li>{THEME_SNAPSHOT_TEXT}</li>{/if}
     {#if macro?.used}<li>{MACRO_LAG_TEXT}</li>{/if}
+    {#if note('flowLag')}<li>{FLOW_LAG_TEXT}</li>{/if}
   </ul>
 </div>
 

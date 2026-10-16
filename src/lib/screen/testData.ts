@@ -1,5 +1,5 @@
 // 테스트 전용: 손으로 만든 시장 데이터
-import type { MarketDataFile, MarketDataFileV2 } from '../marketData/format';
+import type { FlowSeries, MarketDataFile, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { tradingDates } from '../sim/testBars';
 import type { Strategy } from '../sim/types';
@@ -99,6 +99,20 @@ export function mkFileV2(
 ): MarketDataFileV2 {
   const empty = { d: [], v: [] };
   return { ...mkFile(stocks, n), version: 2, macro: { usdkrw: macro.usdkrw ?? empty, wti: macro.wti ?? empty }, themes };
+}
+
+export type FlowStock = Stock & { flow?: FlowSeries };
+
+/** 종목에 수급을 붙인다. at은 그 종목 봉 인덱스(수급 시작), 세 배열은 같은 길이. 빠진 주체는 0 */
+export function withFlow(st: Stock, at: number, net: { f?: number[]; i?: number[]; p?: number[] }): FlowStock {
+  const len = (net.f ?? net.i ?? net.p)!.length;
+  const z = () => Array<number>(len).fill(0);
+  return { ...st, flow: { from: st.d[at], f: net.f ?? z(), i: net.i ?? z(), p: net.p ?? z() } };
+}
+
+/** v2 파일을 v3로: 종목마다 flow가 붙을 수 있다 */
+export function mkFileV3(stocks: FlowStock[], n: number): MarketDataFileV3 {
+  return { ...mkFileV2(stocks, n), version: 3, stocks };
 }
 
 /** from부터 미국 평일(토·일 제외) count개, YYYYMMDD */

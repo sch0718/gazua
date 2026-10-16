@@ -1,15 +1,34 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import type { MarketDataFile, MarketDataFileV2 } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { precompute, rebalanceDates, tradingAxis } from './precompute';
 import { addDays } from '../time/kst';
 import type { Basket } from './baskets';
 import { macroKnownFrom } from './macro';
-import { PrecomputeMismatchError, selectAt } from './select';
-import { DATES, lcg, mkFile, mkFileV2, mkStock, NOW, obsBefore, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, ymd, type Stock } from './testData';
-import type { MacroSeriesKey, RankBy, SelectionCriteria } from './types';
+import { flowMissingAt, PrecomputeMismatchError, selectAt } from './select';
+import {
+  DATES,
+  lcg,
+  mkFile,
+  mkFileV2,
+  mkFileV3,
+  mkStock,
+  NOW,
+  obsBefore,
+  offCriteria,
+  olsSlope,
+  reboundAt,
+  reboundEntry,
+  sampleStdPct,
+  usWeekdays,
+  withFlow,
+  ymd,
+  type FlowStock,
+  type Stock,
+} from './testData';
+import type { FlowWho, MacroSeriesKey, RankBy, SelectionCriteria } from './types';
 
 // 기본 데이터: 30거래일, 재선정일 d = DATES[25], 전 거래일 p = 24번 봉
 const N = 30;
@@ -901,5 +920,306 @@ describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터
     const beta = Object.fromEntries(sel.picked.map((x) => [x.symbol, x.values.usdkrwBeta as number]));
     for (const s of ['100000', '101111', '102222', '200000', '202222']) expect(Math.abs(beta[s] - 1.5), s).toBeLessThan(0.25);
     for (const s of ['104444', '105555', '204444']) expect(Math.abs(beta[s] + 1), s).toBeLessThan(0.25);
+  });
+});
+
+// ── 3단계: 투자자 수급 ──
+
+// 일 순매수 비율 pct(%)가 이어지는 수급(거래대금 1e9원 = 1000백만 원 기준)
+const pctFlow = (pct: number, n = N): number[] => Array(n).fill(pct * 10);
+const flowStock = (s: string, net: { f?: number[]; i?: number[]; p?: number[] }, at = 0): FlowStock => withFlow(mkStock(s, flat()), at, net);
+const flowRun = (stocks: FlowStock[], c: SelectionCriteria, d = D) => selectAt(d, precompute(mkFileV3(stocks, N), c, null), c);
+const amount = (who: FlowWho, days: number, minPct: number, maxPct: number) => {
+  const c = offCriteria();
+  c.conditions.flow.amount = { on: true, who, days, minPct, maxPct };
+  return c;
+};
+const flowRank = (who: FlowWho, days: number) => {
+  const c = offCriteria();
+  c.rank = { by: 'flow', take: 10, flow: { who, days } };
+  return c;
+};
+
+describe('selectAt: 수급은 하루 늦게 쓴다(스펙 2.3)', () => {
+  // A는 비율 2%, 기준 1~5%
+  const c = amount('foreign', 5, 1, 5);
+  const base = () => flowRun([flowStock('A', { f: pctFlow(2) })], c);
+
+  it('p 당일 수급이 극단값이어도 선정이 같다', () => {
+    expect(base().picked.map((x) => x.symbol)).toEqual(['A']);
+    for (const v of [-1e9, 1e9, 0]) expect(flowRun([flowStock('A', { f: withAt(pctFlow(2), { [P]: v }) })], c)).toEqual(base());
+  });
+
+  it('p − 1(e) 당일 값을 바꾸면 선정이 바뀐다(쓰고 있다는 증거)', () => {
+    expect(flowRun([flowStock('A', { f: withAt(pctFlow(2), { [P - 1]: -1e9 }) })], c).passed).toBe(0);
+    expect(flowRun([flowStock('A', { f: withAt(pctFlow(2), { [P - 6]: -1e9 }) })], c)).toEqual(base()); // 창 밖(5일 = 19..23번 봉)
+    expect(flowRun([flowStock('A', { f: withAt(pctFlow(2), { [P - 6]: -1e9 }) })], amount('foreign', 6, 1, 5)).passed).toBe(0);
+  });
+});
+
+describe('selectAt: 순매수 규모 조건(스펙 3.3)', () => {
+  const stocks = () => [flowStock('L', { f: pctFlow(0.5) }), flowStock('M', { f: pctFlow(2) }), flowStock('H', { f: pctFlow(6) }), flowStock('S', { f: pctFlow(-3) })];
+
+  it('minPct ≤ 비율 ≤ maxPct이면 통과하고 values.flowRatio에 %로 둔다', () => {
+    const r = flowRun(stocks(), amount('foreign', 20, 1, 5));
+    expect(r.picked).toMatchObject([{ symbol: 'M', values: { flowRatio: expect.closeTo(2, 9) } }]); // 정렬(시가총액) 값도 함께 있다
+    expect(symbols(flowRun(stocks(), amount('foreign', 20, 0.4, 6.1)))).toEqual(['H', 'L', 'M']);
+    expect(symbols(flowRun(stocks(), amount('foreign', 20, 0.6, 5.9)))).toEqual(['M']);
+  });
+
+  it('음수 범위로 순매도 종목을 고른다', () => {
+    expect(symbols(flowRun(stocks(), amount('foreign', 20, -100, -1)))).toEqual(['S']);
+  });
+
+  it('수급이 없거나 계산할 수 없는 종목은 탈락한다', () => {
+    const r = flowRun([...stocks(), mkStock('N', flat()), flowStock('Z', { f: pctFlow(2, 10) }, 20)], amount('foreign', 5, -100, 100));
+    expect(symbols(r)).toEqual(['H', 'L', 'M', 'S']);
+  });
+
+  it('both는 외국인 비율과 기관 비율이 둘 다 범위 안일 때만 통과한다', () => {
+    const r = flowRun(
+      [flowStock('X', { f: pctFlow(2), i: pctFlow(3) }), flowStock('Y', { f: pctFlow(2), i: pctFlow(0.5) }), flowStock('W', { f: pctFlow(0.5), i: pctFlow(3) })],
+      amount('both', 10, 1, 5),
+    );
+    expect(r.picked).toMatchObject([{ symbol: 'X', values: { flowRatioForeign: expect.closeTo(2, 9), flowRatioInst: expect.closeTo(3, 9) } }]);
+    expect(r.picked[0].values).not.toHaveProperty('flowRatio');
+  });
+});
+
+describe('selectAt: 연속 순매수 조건(스펙 3.3)', () => {
+  // e(23번 봉)부터 거꾸로 k일 이어진 기관 순매수
+  const run = (k: number) => Array.from({ length: N }, (_, j) => (j > E - k && j <= E ? 1 : j === E - k ? -1 : 1));
+  const E = P - 1;
+  const crit = (who: FlowWho, minDays: number) => {
+    const c = offCriteria();
+    c.conditions.flow.streak = { on: true, who, minDays };
+    return c;
+  };
+
+  it('minDays 경계: 이어진 수가 minDays 이상이면 통과, values.flowStreak', () => {
+    const stocks = [flowStock('A', { i: run(4) }), flowStock('B', { i: run(5) }), flowStock('C', { i: run(6) })];
+    expect(flowRun(stocks, crit('inst', 5)).picked).toMatchObject([
+      { symbol: 'B', values: { flowStreak: 5 } },
+      { symbol: 'C', values: { flowStreak: 6 } },
+    ]);
+    expect(symbols(flowRun(stocks, crit('inst', 6)))).toEqual(['C']);
+    expect(symbols(flowRun(stocks, crit('foreign', 1)))).toEqual([]); // 외국인은 0
+  });
+
+  it('both는 두 주체가 함께 > 0인 날만', () => {
+    const r = flowRun([flowStock('A', { f: run(3), i: run(6) })], crit('both', 3));
+    expect(r.picked).toMatchObject([{ symbol: 'A', values: { flowStreak: 3 } }]);
+    expect(flowRun([flowStock('A', { f: run(3), i: run(6) })], crit('both', 4)).passed).toBe(0);
+  });
+
+  it('수급 끝이 e보다 앞서거나 수급이 없으면 탈락한다', () => {
+    expect(flowRun([flowStock('A', { i: Array(E).fill(1) }), mkStock('N', flat())], crit('inst', 1)).passed).toBe(0);
+  });
+});
+
+describe("selectAt: 정렬 'flow'(스펙 3.3)", () => {
+  it('비율이 큰 순서. values.rankFlow에 정렬에 쓴 값', () => {
+    const r = flowRun([flowStock('A', { f: pctFlow(6) }), flowStock('B', { f: pctFlow(-2) }), flowStock('C', { f: pctFlow(4) })], flowRank('foreign', 20));
+    expect(symbols(r)).toEqual(['A', 'C', 'B']);
+    expect(r.picked.map((x) => x.values)).toEqual([{ rankFlow: expect.closeTo(6, 9) }, { rankFlow: expect.closeTo(4, 9) }, { rankFlow: expect.closeTo(-2, 9) }]);
+  });
+
+  it('both는 두 비율 중 작은 값으로 정렬한다', () => {
+    const r = flowRun([flowStock('X', { f: pctFlow(6), i: pctFlow(1) }), flowStock('Y', { f: pctFlow(3), i: pctFlow(3) })], flowRank('both', 20));
+    expect(symbols(r)).toEqual(['Y', 'X']);
+    // 화면이 두 비율을 따로 보이도록 주체별 값도 남긴다
+    expect(r.picked[1].values).toEqual({ rankFlow: expect.closeTo(1, 9), rankFlowForeign: expect.closeTo(6, 9), rankFlowInst: expect.closeTo(1, 9) });
+  });
+
+  it('계산할 수 없는 종목은 정렬에서 빠진다(수급 없음, 창이 from 앞, 수급 끝이 e 앞)', () => {
+    const r = flowRun(
+      [
+        flowStock('A', { p: pctFlow(1) }),
+        mkStock('N', flat()),
+        flowStock('Z', { p: pctFlow(9, 10) }, 20),
+        flowStock('T', { p: pctFlow(9, P - 1) }),
+      ],
+      flowRank('indiv', 5),
+    );
+    expect(symbols(r)).toEqual(['A']);
+    expect(r.passed).toBe(1);
+  });
+});
+
+describe('selectAt: 수급 미리 계산과 다른 기준', () => {
+  const stocks = [flowStock('A', { f: pctFlow(2), i: pctFlow(2) })];
+  const preOf = (c: SelectionCriteria) => precompute(mkFileV3(stocks, N), c, null);
+  const streak = (who: FlowWho) => {
+    const c = offCriteria();
+    c.conditions.flow.streak = { on: true, who, minDays: 1 };
+    return c;
+  };
+
+  it('수급 없이 계산했거나 주체·연속 주체가 다르면 거부한다', () => {
+    const fx = amount('foreign', 5, 1, 5);
+    expect(() => selectAt(D, preOf(offCriteria()), fx)).toThrow(PrecomputeMismatchError);
+    expect(() => selectAt(D, preOf(fx), amount('inst', 5, 1, 5))).toThrow(PrecomputeMismatchError);
+    expect(() => selectAt(D, preOf(fx), flowRank('both', 5))).toThrow(PrecomputeMismatchError);
+    expect(() => selectAt(D, preOf(streak('inst')), streak('foreign'))).toThrow(PrecomputeMismatchError);
+    expect(() => selectAt(D, preOf(fx), amount('foreign', 30, 1, 5))).not.toThrow(); // 일수는 누적합으로 아무 값이나 된다
+  });
+
+  it('flowMissingAt: 후보가 있는데 모두 수급 계산 불가일 때만 참', () => {
+    const late = flowStock('Z', { f: pctFlow(2, 10) }, 20);
+    const c = amount('foreign', 5, 1, 5);
+    const pre = precompute(mkFileV3([late, mkStock('N', flat())], N), c, null);
+    expect(flowMissingAt(D, pre, c)).toBe(true);
+    expect(flowMissingAt(DATES[29], pre, c)).toBe(false);
+    const both = precompute(mkFileV3([late, ...stocks], N), c, null);
+    expect(flowMissingAt(D, both, c)).toBe(false);
+    expect(flowMissingAt(D, pre, offCriteria())).toBe(false); // 수급을 쓰지 않는 기준
+  });
+
+  // 늦게 시작한 종목(20번 봉부터)만 후보. 수급이 처음부터 있는 A는 후보 범위 밖
+  const lateOnly = (c: SelectionCriteria) => {
+    c.pool.baskets = ['late'];
+    const pre = precompute(mkFileV3([flowStock('Z', { f: pctFlow(2, 10), i: pctFlow(2, 10) }, 20), ...stocks], N), c, null);
+    return (d: string) => flowMissingAt(d, pre, c, [{ id: 'late', symbols: ['Z'] }]);
+  };
+
+  it('flowMissingAt: 연속 순매수만 켠 기준은 e가 from 앞인 재선정일에 참', () => {
+    const c = offCriteria();
+    c.conditions.flow.streak = { on: true, who: 'inst', minDays: 1 };
+    const missing = lateOnly(c);
+    expect(missing(DATES[20])).toBe(true); // e = 18번 봉 < from(20)
+    expect(missing(DATES[21])).toBe(true); // e = 19번 봉
+    expect(missing(DATES[22])).toBe(false); // e = 20번 봉 = from
+  });
+
+  it("flowMissingAt: 정렬 'flow'만 쓰는 기준은 정렬 창이 from 앞으로 나가는 재선정일에 참", () => {
+    const missing = lateOnly(flowRank('foreign', 5));
+    expect(missing(D)).toBe(true); // 창 19..23번 봉, from 20
+    expect(missing(DATES[26])).toBe(false); // 창 20..24번 봉
+  });
+});
+
+// 설계 종목 코드는 scripts/make-demo-market-data.mjs의 FLOW_* 상수와 같다
+const FLOW_FOREIGN_CODES = ['106666', '108888', '206666'];
+const FLOW_INST_CODES = ['109999', '208888'];
+const FLOW_BOTH_CODE = '111110';
+const FLOW_LATE_CODE = '113332';
+const FLOW_NONE_CODE = '069500';
+
+describe('selectAt: 수급 미래 정보 누설 방지(데모 데이터)', () => {
+  const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV3;
+  const axis = tradingAxis(fixture);
+  const dates = rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
+  const iso = (x: string) => `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6, 8)}`;
+
+  /** 날짜 ≥ p인 수급 값만 바꾼다. 바꾼 값의 수를 돌려준다 */
+  const mutateFrom = (p: string, f: (v: number) => number): { file: MarketDataFileV3; changed: number } => {
+    const g = structuredClone(fixture);
+    let changed = 0;
+    for (const st of g.stocks) {
+      const fl = st.flow;
+      if (!fl) continue;
+      const at = st.d.indexOf(fl.from);
+      for (let j = 0; j < fl.f.length; j++) {
+        if (iso(st.d[at + j]) < p) continue;
+        fl.f[j] = f(fl.f[j]);
+        fl.i[j] = f(fl.i[j]);
+        fl.p[j] = f(fl.p[j]);
+        changed++;
+      }
+    }
+    return { file: g, changed };
+  };
+  /** 날짜 ≥ p인 수급을 잘라낸다(수급 끝이 p 전 거래일). bars가 참이면 p 뒤 봉도 자른다 */
+  const truncateFlow = (p: string, bars: boolean): MarketDataFileV3 => {
+    const g = structuredClone(fixture);
+    const cut = ymd(p);
+    for (const st of g.stocks) {
+      if (bars) {
+        const n = st.d.filter((x) => x <= cut).length;
+        for (const k of ['d', 'o', 'h', 'l', 'c', 'v', 'tv'] as const) (st[k] as unknown[]).splice(n);
+      }
+      const fl = st.flow;
+      if (!fl) continue;
+      const at = st.d.indexOf(fl.from);
+      const keep = at < 0 ? 0 : st.d.slice(at, at + fl.f.length).filter((x) => x < cut).length;
+      if (keep === 0) delete st.flow;
+      else st.flow = { from: fl.from, f: fl.f.slice(0, keep), i: fl.i.slice(0, keep), p: fl.p.slice(0, keep) };
+    }
+    if (bars)
+      for (const ix of g.indices) {
+        const n = ix.d.filter((x) => x <= cut).length;
+        for (const k of ['d', 'o', 'c'] as const) (ix[k] as unknown[]).splice(n);
+      }
+    return g;
+  };
+
+  const flowAmount = (who: FlowWho, days: number, minPct: number, maxPct: number) => (c: SelectionCriteria) =>
+    (c.conditions.flow.amount = { on: true, who, days, minPct, maxPct });
+  const flowStreakOn = (who: FlowWho, minDays: number) => (c: SelectionCriteria) => (c.conditions.flow.streak = { on: true, who, minDays });
+  const rankBy = (who: FlowWho, days: number) => (c: SelectionCriteria) => (c.rank = { by: 'flow', take: 5, flow: { who, days } });
+
+  const variants: [string, (c: SelectionCriteria) => void][] = [
+    ['외국인 순매수 ≥ 1%', flowAmount('foreign', 20, 1, 100)],
+    ['기관 순매도', flowAmount('inst', 10, -100, -0.2)],
+    ['개인 5일', flowAmount('indiv', 5, -100, -1)],
+    ['외국인+기관', flowAmount('both', 20, 1, 100)],
+    ['기관 연속 3일', flowStreakOn('inst', 3)],
+    ['함께 연속 2일', flowStreakOn('both', 2)],
+    ['외국인 ≥ 0.5% + 기관 연속 2일', (c) => (flowAmount('foreign', 60, 0.5, 100)(c), flowStreakOn('inst', 2)(c))],
+    ['정렬 외국인 20일', rankBy('foreign', 20)],
+    ['정렬 외국인+기관', rankBy('both', 10)],
+    ['정렬 개인 120일', rankBy('indiv', 120)],
+  ];
+
+  it.each(variants)('%s: 날짜 ≥ p인 수급을 ×1000·부호 반전·잘라내기로 바꿔도 모든 재선정일의 선정이 같다', (name, patch) => {
+    const c = offCriteria();
+    c.pool.types = ['STOCK', 'ETF'];
+    patch(c);
+    const pre = precompute(fixture, c, null);
+    let passed = 0;
+    let poolSize = 0;
+    let changed = 0;
+    for (const d of [...dates, addDays(axis[axis.length - 1], 1)]) {
+      const p = axis[axis.indexOf(d) - 1] ?? axis[axis.length - 1];
+      const base = selectAt(d, pre, c);
+      passed += base.passed;
+      poolSize += selectAt(d, pre, offCriteriaLike(c)).passed;
+      for (const f of [(v: number) => v * 1000, (v: number) => -v]) {
+        const m = mutateFrom(p, f);
+        changed += m.changed;
+        expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
+      }
+      expect(selectAt(d, precompute(truncateFlow(p, false), c, null), c), `${d} 수급 자름`).toEqual(base);
+      expect(selectAt(d, precompute(truncateFlow(p, true), c, null), c), `${d} 봉·수급 자름`).toEqual(base);
+    }
+    expect(changed).toBeGreaterThan(dates.length * 100);
+    expect(passed).toBeGreaterThan(0);
+    if (!name.startsWith('정렬')) expect(passed).toBeLessThan(poolSize);
+  });
+
+  // 설계하지 않은 종목의 20일 비율은 잡음으로 ±1% 남짓(2025-10-16에 107777이 1.02%)이라 2%로 가른다
+  it('설계 종목: 외국인 순매수 ≥ 2%는 외국인 종목과 외국인+기관 종목만, 늦게 시작한 종목은 앞 재선정일에 계산 불가', () => {
+    const c = offCriteria();
+    c.pool.types = ['STOCK', 'ETF'];
+    c.rank.take = 30;
+    flowAmount('foreign', 20, 2, 100)(c);
+    const pre = precompute(fixture, c, null);
+    for (const d of dates) expect(symbols(selectAt(d, pre, c)).sort(), d).toEqual([...FLOW_FOREIGN_CODES, FLOW_BOTH_CODE].sort());
+    const lateOnly = { ...c, pool: { ...c.pool, baskets: ['late'] } };
+    const late = [{ id: 'late', symbols: [FLOW_LATE_CODE] }];
+    expect(flowMissingAt(dates[0], pre, lateOnly, late)).toBe(true);
+    expect(flowMissingAt(dates[dates.length - 1], pre, lateOnly, late)).toBe(false);
+    const none = [{ id: 'late', symbols: [FLOW_NONE_CODE] }];
+    expect(dates.every((d) => flowMissingAt(d, pre, lateOnly, none))).toBe(true);
+  });
+
+  it('설계 종목: 마지막 거래일 다음 날 기관 연속 순매수는 9일(마지막 10일 연속, 하루 늦춤)', () => {
+    const c = offCriteria();
+    c.rank.take = 30;
+    flowStreakOn('inst', 9)(c);
+    const sel = selectAt(addDays(axis[axis.length - 1], 1), precompute(fixture, c, null), c);
+    const got = Object.fromEntries(sel.picked.map((x) => [x.symbol, x.values.flowStreak]));
+    for (const s of FLOW_INST_CODES) expect(got[s], s).toBe(9);
+    expect(got[FLOW_BOTH_CODE]).toBeGreaterThanOrEqual(9);
   });
 });

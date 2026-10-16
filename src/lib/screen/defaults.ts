@@ -45,8 +45,12 @@ export function newCriteria(
         pattern: { from: 'custom', entry: newStrategy(now, null).entry },
       },
       macro: { betaDays: 120, usdkrw: defaultMacroSeries(), wti: defaultMacroSeries() },
+      flow: {
+        amount: { on: false, who: 'foreign', days: 20, minPct: 1, maxPct: 100 },
+        streak: { on: false, who: 'inst', minDays: 5 },
+      },
     },
-    rank: { by: 'marketCap', take: 10, series: 'usdkrw' },
+    rank: { by: 'marketCap', take: 10, series: 'usdkrw', flow: { who: 'foreign', days: 20 } },
     rebalance: 'monthly',
     period: defaultCriteriaPeriod(now, dataRange),
     benchmarks: { indices: ['KOSPI'], symbols: ['069500'] },

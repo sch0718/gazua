@@ -9,9 +9,10 @@
   import type { MarketDataInfo, MarketSector, MarketThemeSummary } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
   import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX } from '../../screen/defaults';
+  import { rankFlowOf } from '../../screen/precompute';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
-  import type { SelectionCriteria } from '../../screen/types';
+  import type { FlowWho, SelectionCriteria } from '../../screen/types';
   import { criteriaIssues, type Issue } from '../../screen/validate';
   import { PreviewError } from '../../screen/validationController.svelte';
   import { newStrategy } from '../../sim/defaults';
@@ -26,11 +27,12 @@
   import NumberField from '../simulate/editor/NumberField.svelte';
   import BasketPicker from './BasketPicker.svelte';
   import ConditionRow from './ConditionRow.svelte';
+  import FlowConditions from './FlowConditions.svelte';
   import MacroConditions from './MacroConditions.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import PreviewPanel from './PreviewPanel.svelte';
   import SectorPicker from './SectorPicker.svelte';
-  import { CONDITION_HELP, CONDITION_LABEL, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
+  import { CONDITION_HELP, CONDITION_LABEL, FLOW_WHO_LABEL, FLOW_WHO_ORDER, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
   import ThemePicker from './ThemePicker.svelte';
 
   const EOK_MAX = 10_000_000;
@@ -132,13 +134,14 @@
       else if (invalid.has(key)) invalid.delete(key);
     },
   });
-  const sectionOfInvalid = (key: string): Key => (key.startsWith('take') ? 'rank' : key === 'cap' || key === 'fee' ? 'period' : 'conditions');
+  const sectionOfInvalid = (key: string): Key => (key.startsWith('take') || key.startsWith('rank-') ? 'rank' : key === 'cap' || key === 'fee' ? 'period' : 'conditions');
 
   // ── 경고 ──
   // 이 데이터에 환율·유가·테마가 있는가(v1이거나 환율·유가 계열이 비면 새 조건은 쓸 수 없다)
   const v1 = $derived(info !== null && (info.version ?? 1) < 2);
   const noMacro = $derived(info !== null && !info.hasMacro);
-  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
+  const noFlow = $derived(info !== null && !info.hasFlow);
+  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, hasFlow: !!info.hasFlow, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
   const issues = $derived(criteriaIssues(draft, app.strategies, dataInfo, app.baskets));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
   const sectionIssues = (key: Key) => issueRows.filter((r) => r.issue.section === key);
@@ -253,8 +256,8 @@
         return `${d.pool.markets.join('·')} ${types} · ${poolScopeText(d.pool, sectors)}`;
       }
       case 'conditions': {
-        const { macro, ...simple } = d.conditions;
-        const n = Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
+        const { macro, flow, ...simple } = d.conditions;
+        const n = +flow.amount.on + +flow.streak.on + Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
@@ -269,7 +272,13 @@
   }
 
   const SERIES = ['usdkrw', 'wti'] as const;
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순' } as const;
+  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순', flow: '수급 큰 순' } as const;
+
+  // 정렬을 바꾸면 숨는 칸(수급 기간)의 틀린 글은 버린다(칸 없이 실행을 막지 않게)
+  function setRankBy(v: string) {
+    if (v !== 'flow') invalid.delete('rank-flow-days');
+    update((c) => (c.rank.by = v as SelectionCriteria['rank']['by']));
+  }
 
   // ── 후보 범위 ──
   function setMember<T extends string>(list: T[], v: T, on: boolean): T[] {
@@ -477,19 +486,21 @@
           {/if}
         </ConditionRow>
         <MacroConditions macro={k.macro} unavailable={noMacro} {nf} update={(fn) => update((c) => fn(c.conditions.macro))} />
+        <FlowConditions flow={k.flow} unavailable={noFlow} {nf} update={(fn) => update((c) => fn(c.conditions.flow))} />
       {:else if key === 'rank'}
         <Segmented
           wide
           onSurface
           label="정렬 기준"
           value={draft.rank.by}
-          onchange={(v) => update((c) => (c.rank.by = v as SelectionCriteria['rank']['by']))}
+          onchange={setRankBy}
           options={[
             { value: 'marketCap', label: '시가총액 큰 순' },
             { value: 'tradingValue', label: '거래대금 큰 순' },
             { value: 'return', label: '수익률 높은 순' },
             { value: 'lowVolatility', label: '변동성 낮은 순' },
             { value: 'macroBeta', label: '민감도 큰 순' },
+            { value: 'flow', label: '수급 순' },
           ]}
         />
         {#if draft.rank.by === 'macroBeta'}
@@ -502,6 +513,25 @@
               <option value={s} selected={(draft.rank.series ?? 'usdkrw') === s}>{SERIES_LABEL[s]}</option>
             {/each}
           </select>
+        {:else if draft.rank.by === 'flow'}
+          {@const rf = rankFlowOf(draft)}
+          <Segmented
+            wide
+            onSurface
+            label="수급 주체"
+            value={rf.who}
+            onchange={(v) =>
+              update((c) => {
+                c.rank.flow = { ...rankFlowOf(c), who: FLOW_WHO_ORDER.includes(v as FlowWho) ? (v as FlowWho) : 'foreign' };
+              })}
+            options={FLOW_WHO_ORDER.map((w) => ({ value: w, label: FLOW_WHO_LABEL[w] }))}
+          />
+          <div class="row">
+            <NumberField label="수급 기간" value={rf.days} min={5} max={120} step={1} suffix="일" {...nf('rank-flow-days')} onchange={(v) =>
+                update((c) => {
+                  c.rank.flow = { ...rankFlowOf(c), days: v };
+                })} />
+          </div>
         {/if}
         <p class="hint">조건을 통과한 종목을 이 순서로 줄 세워 위에서부터 골라요. 같으면 종목코드 순이에요.</p>
         <div class="row">

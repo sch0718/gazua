@@ -1,6 +1,6 @@
 // 선정 기준 검증 묶음(스펙 6장): ① 동일 비중 보유, ② 매매 규칙, 비교 기준, 시장별 보기. Worker에서 돈다.
 import type { Candle } from '../data/metrics';
-import { isV2, type MarketDataFile } from '../marketData/format';
+import { hasMacroFormat, isV3, type MarketDataFile } from '../marketData/format';
 import { indexCurve, singleCurve } from '../sim/benchmarks';
 import { simulate } from '../sim/simulate';
 import type { SimInput, Skip, Strategy } from '../sim/types';
@@ -10,9 +10,9 @@ import { holdSelection, type HoldSegment } from './holdSelection';
 import { lastKnown, trendAt } from './macro';
 import { beatCount, curveStats } from './metrics';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
-import { betaMissingAt, selectAt, type Selection } from './select';
+import { betaMissingAt, flowMissingAt, selectAt, type Selection } from './select';
 import type { MacroSeriesKey, Market, SelectionCriteria } from './types';
-import { strategyRuleIssues } from './validate';
+import { strategyRuleIssues, usesFlow } from './validate';
 
 export type CurveStats = ReturnType<typeof curveStats>;
 export type CurvePoint = { date: string; value: number };
@@ -25,7 +25,9 @@ export type ValidationNote =
   | 'allEmpty'
   | 'sparseAxis'
   | 'themeSnapshot'
-  | 'macroGap';
+  | 'macroGap'
+  | 'flowLag'
+  | 'flowGap';
 export type MissingReason = '받지 못했어요' | '기간 일부만 받았어요';
 export type ByMarketKey = 'KOSPI' | 'KOSDAQ' | 'ETF';
 
@@ -44,7 +46,7 @@ export interface ValidationResult {
   notes: ValidationNote[];
 }
 
-export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy' | 'no-macro';
+export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy' | 'no-macro' | 'no-flow';
 
 export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'no-rebalance': '기간 안에 재선정일이 없어요',
@@ -52,6 +54,7 @@ export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'missing-strategy': '매매 규칙 전략이 지워졌어요',
   'invalid-strategy': '매매 규칙 전략에 고칠 곳이 있어요',
   'no-macro': '이 데이터에는 환율·유가가 없어요',
+  'no-flow': '이 데이터에는 투자자 매매동향이 없어요',
 };
 
 export class ValidationError extends Error {
@@ -166,7 +169,9 @@ export function runValidation(
   const { data, criteria, strategies } = input;
   const baskets = input.baskets ?? [];
   // 다시 수집하지 않은 v1 파일에는 환율·유가가 없다(편집 화면이 막는 경우를 거치지 않은 실행도 막는다)
-  if (!isV2(data) && usesMacro(criteria)) throw new ValidationError('no-macro');
+  if (!hasMacroFormat(data) && usesMacro(criteria)) throw new ValidationError('no-macro');
+  // 수급이 있는 종목이 하나도 없는 데이터(v1·v2 포함)도 같다
+  if (usesFlow(criteria) && !(isV3(data) && data.stocks.some((s) => s.flow))) throw new ValidationError('no-flow');
   const capital = criteria.capital;
   const feePct = criteria.costs.feePct;
   const fullAxis = tradingAxis(data);
@@ -189,6 +194,7 @@ export function runValidation(
   const byPool: Selection[][] = MARKET_POOLS.map(() => []);
   let sparse = false;
   let macroGap = false;
+  let flowGap = false;
   for (let i = 0; i < dates.length; i++) {
     if (isCancelled?.()) return { cancelled: true };
     const d = dates[i];
@@ -197,6 +203,7 @@ export function runValidation(
     const ai = fullAxis.indexOf(d);
     if (ai > 0 && sparseAt(pre, criteria, fullAxis[ai - 1])) sparse = true;
     if (ai > 0 && !macroGap && macroGapAt(pre, criteria, d, fullAxis[ai - 1], baskets)) macroGap = true;
+    if (!flowGap && flowMissingAt(d, pre, criteria, baskets)) flowGap = true;
     onProgress?.(i + 1, dates.length);
   }
   if (isCancelled?.()) return { cancelled: true };
@@ -274,6 +281,8 @@ export function runValidation(
   if (sparse) notes.push('sparseAxis');
   if (criteria.pool.themes.length > 0 || criteria.pool.baskets.length > 0) notes.push('themeSnapshot');
   if (macroGap) notes.push('macroGap');
+  if (usesFlow(criteria)) notes.push('flowLag');
+  if (flowGap) notes.push('flowGap');
 
   const result: ValidationResult = {
     axis: days,

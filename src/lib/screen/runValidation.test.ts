@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2 } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { roundMoney } from '../sim/money';
 import { simulate } from '../sim/simulate';
@@ -426,5 +426,45 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
     const r = run(warm);
     expect(r.rebalances[0].passed).toBe(0);
     expect(r.notes).toContain('macroGap');
+  });
+});
+
+describe('runValidation: 투자자 수급', () => {
+  const foreign = (c: SelectionCriteria) => (c.conditions.flow.amount = { on: true, who: 'foreign', days: 20, minPct: 1, maxPct: 100 });
+
+  it("수급 조건이나 수급 정렬을 쓰면 늘 'flowLag' 메모", () => {
+    expect(run(crit()).notes).not.toContain('flowLag');
+    expect(run(crit(foreign)).notes).toContain('flowLag');
+    expect(run(crit((c) => (c.rank = { by: 'flow', take: 5, flow: { who: 'inst', days: 20 } }))).notes).toContain('flowLag');
+    expect(run(crit((c) => (c.conditions.flow.streak = { on: true, who: 'inst', minDays: 3 }))).notes).toContain('flowLag');
+  });
+
+  it("후보 전체가 수급 계산 불가인 재선정일이 있으면 'flowGap'(늦게 시작한 종목만 후보)", () => {
+    const late: Basket[] = [{ id: 'late', name: '늦은 수급', updatedAt: NOW, symbols: ['113332'] }];
+    const full: Basket[] = [{ id: 'late', name: '외국인', updatedAt: NOW, symbols: ['106666'] }];
+    const c = crit((c) => (foreign(c), (c.pool.baskets = ['late']), (c.conditions.tradingValue.on = false)));
+    expect(run(c, [], fixture, late).notes).toContain('flowGap');
+    expect(run(c, [], fixture, full).notes).not.toContain('flowGap');
+    expect(run(crit((c) => ((c.pool.baskets = ['late']), (c.conditions.tradingValue.on = false))), [], fixture, late).notes).not.toContain('flowGap');
+  });
+
+  it("수급이 없는 데이터(v1·v2, 또는 수급 있는 종목 0)인데 수급을 쓰면 'no-flow' 오류. 쓰지 않으면 그대로 돈다", () => {
+    const v3 = fixture as MarketDataFileV3;
+    const v2: MarketDataFileV2 = { ...v3, version: 2, stocks: v3.stocks.map(({ flow, ...s }) => (void flow, s)) };
+    const none: MarketDataFileV3 = { ...v3, stocks: v2.stocks };
+    for (const data of [v2, none] as MarketDataFile[]) {
+      for (const c of [crit(foreign), crit((c) => (c.rank = { by: 'flow', take: 5, flow: { who: 'foreign', days: 20 } }))]) {
+        let caught: unknown;
+        try {
+          run(c, [], data);
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(ValidationError);
+        expect(errorCode(caught)).toBe('no-flow');
+        expect((caught as Error).message).toBe('이 데이터에는 투자자 매매동향이 없어요');
+      }
+      expect(run(crit(), [], data).rebalances.length).toBe(DATES.length);
+    }
   });
 });

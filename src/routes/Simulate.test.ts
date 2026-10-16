@@ -876,6 +876,25 @@ describe('Simulate 선정 기준 탭', () => {
     expect(document.querySelector('[data-macro-value]')!.textContent).toBe('원/달러 민감도 0.82 · 최근 15일 +3.4%');
   });
 
+  it('the result shows the flow values with the subject and days of the criteria that was run', async () => {
+    const V3 = { ...FRESH, version: 3 as const, hasMacro: true, themeCount: 0, hasFlow: true, flowStocks: 7 };
+    const { app, worker } = setupCriteria({ info: V3 as never, data: { themes: async () => [] } });
+    app.setCriteria(app.criteria.map((c) => ({ ...c, conditions: { ...c.conditions, flow: { amount: { on: true, who: 'both' as const, days: 10, minPct: 1, maxPct: 100 }, streak: { on: true, who: 'both' as const, minDays: 3 } } } })));
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    // 실행 뒤 기준을 바꿔도 결과는 실행할 때의 기간을 쓴다
+    app.setCriteria(app.criteria.map((c) => ({ ...c, conditions: { ...c.conditions, flow: { ...c.conditions.flow, amount: { ...c.conditions.flow.amount, days: 60 } } } })));
+    const base = validationResult();
+    const values = { flowRatioForeign: 2.1, flowRatioInst: 1.4, flowStreak: 3 };
+    worker.onmessage?.({ data: { type: 'result', result: validationResult({ notes: ['flowLag'], rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] }) } });
+    await waitFor(() => expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy());
+    expect(screen.getByText('매매동향은 재선정일 이틀 전 거래일까지 써요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+    expect(document.querySelector('[data-flow-value]')!.textContent).toBe('외국인 2.1% · 기관 1.4% (10일) · 함께 연속 3일');
+  });
+
   it('v2 data: the editor gets the theme list from the store, and 테마에서 가져오기 reads the theme symbols from the file', async () => {
     const V2 = { collectedAt: '2026-10-10T09:00:00+09:00', stocks: 30, range: RANGE, version: 2 as const, hasMacro: true, themeCount: 1 };
     const load = vi.fn(async () => ({ version: 2, themes: [{ code: 'T01', name: '반도체', symbols: ['005930', '000660'] }] }));
