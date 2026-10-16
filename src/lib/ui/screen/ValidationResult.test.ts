@@ -7,12 +7,13 @@ import type { ValidationResult as Result } from '../../screen/runValidation';
 import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
 import { stats, validationResult } from './resultFixture';
+import type { FlowRunSnap } from './screenText';
 import ValidationResult from './ValidationResult.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
 
 let apps: App[] = [];
-function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } } } = {}) {
+function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } }; flow?: FlowRunSnap } = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
   apps.push(app);
   render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, ...extra });
@@ -260,6 +261,35 @@ describe('ValidationResult', () => {
       expect([...document.querySelectorAll('[data-macro-value]')].map((e) => e.textContent)).toEqual(['원/달러 민감도 0.82 · 최근 20일 +3.4%', '유가 민감도 —']);
       // 환율·유가 값은 일반 값 목록에 따로 나오지 않는다
       expect(document.querySelector('.vals')!.textContent).not.toContain('usdkrw');
+    });
+  });
+  describe('stage 3 investor-flow notes and values', () => {
+    const FLOW: FlowRunSnap = { amount: { who: 'foreign', days: 20 }, streak: { who: 'foreign' }, rank: { who: 'foreign', days: 20 } };
+    const withPicks = (values: Record<string, number | boolean | null>) => {
+      const base = validationResult();
+      return validationResult({ rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] });
+    };
+
+    it('flowLag adds its sentence to the help list (verbatim), and only with that note', () => {
+      setup(validationResult({ notes: ['flowLag'] }));
+      expect(squash(document.querySelector('.help')!)).toContain('매매동향은 재선정일 이틀 전 거래일까지 써요');
+      document.body.innerHTML = '';
+      setup(validationResult({ notes: [] }));
+      expect(squash(document.querySelector('.help')!)).not.toContain('이틀 전 거래일');
+    });
+
+    it('flowGap is a warning banner on top (verbatim)', () => {
+      setup(validationResult({ notes: ['flowGap'] }));
+      expect([...document.querySelectorAll('.banner.warn')].map((b) => squash(b))).toEqual(['수급 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요']);
+      expect(squash(document.querySelector('.help')!)).not.toContain('수급 데이터가 없는');
+    });
+
+    it('expanding a history row shows 외국인 순매수 20일 3.2% · 연속 5일, not the raw keys', async () => {
+      setup(withPicks({ flowRatio: 3.24, flowStreak: 5 }), {}, { flow: FLOW });
+      expect(document.querySelector('[data-flow-value]')).toBeNull();
+      await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+      expect([...document.querySelectorAll('[data-flow-value]')].map((e) => e.textContent)).toEqual(['외국인 순매수 20일 3.2% · 연속 5일']);
+      expect(document.querySelector('.vals')!.textContent).not.toContain('flow');
     });
   });
 });

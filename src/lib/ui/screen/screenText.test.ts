@@ -7,6 +7,13 @@ import {
   CONDITION_HELP,
   criteriaLine,
   dataAgeDays,
+  FLOW_AMOUNT_HELP,
+  FLOW_GAP_TEXT,
+  FLOW_LAG_HINT,
+  FLOW_LAG_TEXT,
+  FLOW_STREAK_HELP,
+  FLOW_WHO_LABEL,
+  flowValueLines,
   lastResultSummary,
   MACRO_GAP_TEXT,
   MACRO_LAG_TEXT,
@@ -137,5 +144,56 @@ describe('screenText (stage 4)', () => {
     expect(macroValueLines({ wtiBeta: 0.5 })).toEqual(['유가 민감도 0.50']);
     expect(macroValueLines({ usdkrwBeta: 1, usdkrwTrend: 2 })).toEqual(['원/달러 민감도 1.00 · 최근 흐름 +2.0%']);
     expect(macroValueLines({ marketCap: 1e12 })).toEqual([]);
+  });});
+
+describe('screenText (stage 3 investor flow)', () => {
+  it('keeps the investor-flow copy of spec 4.1·4.3 verbatim', () => {
+    expect(FLOW_WHO_LABEL).toEqual({ foreign: '외국인', inst: '기관', indiv: '개인', both: '외국인+기관' });
+    expect(FLOW_AMOUNT_HELP).toBe('최근 기간 순매수 금액이 같은 기간 거래대금에서 차지하는 비율이에요. 음수면 순매도예요');
+    expect(FLOW_STREAK_HELP).toBe('이 주체가 하루도 빠짐없이 순매수한 날이 이어진 수예요');
+    expect(FLOW_LAG_HINT).toBe('매매동향은 하루 늦게 반영해요(장 마감 뒤 수치가 바뀔 수 있어서)');
+    expect(FLOW_LAG_TEXT).toBe('매매동향은 재선정일 이틀 전 거래일까지 써요');
+    expect(FLOW_GAP_TEXT).toBe('수급 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요');
+  });
+
+  describe('flow value lines', () => {
+    const snap = (o: Partial<{ aw: string; ad: number; sw: string; rw: string; rd: number }> = {}) =>
+      ({
+        amount: { who: o.aw ?? 'foreign', days: o.ad ?? 20 },
+        streak: { who: o.sw ?? 'foreign' },
+        rank: { who: o.rw ?? 'foreign', days: o.rd ?? 20 },
+      }) as Parameters<typeof flowValueLines>[1];
+
+    it('one subject: ratio with one decimal, and the streak of the same subject joins it', () => {
+      expect(flowValueLines({ flowRatio: 3.24, flowStreak: 5 }, snap())).toEqual(['외국인 순매수 20일 3.2% · 연속 5일']);
+      expect(flowValueLines({ flowRatio: 3.25 }, snap({ aw: 'inst', ad: 60 }))).toEqual(['기관 순매수 60일 3.3%']);
+    });
+
+    it('both: each ratio, the days once, and 함께 연속', () => {
+      expect(flowValueLines({ flowRatioForeign: 2.06, flowRatioInst: 1.4, flowStreak: 3 }, snap({ aw: 'both', sw: 'both' }))).toEqual(['외국인 2.1% · 기관 1.4% (20일) · 함께 연속 3일']);
+    });
+
+    it('negative ratios use the U+2212 minus, and a value that rounds to zero has no sign', () => {
+      expect(flowValueLines({ flowRatio: -4.06 }, snap({ aw: 'indiv' }))).toEqual(['개인 순매수 20일 −4.1%']);
+      expect(flowValueLines({ flowRatioForeign: -0.5, flowRatioInst: -0.04 }, snap({ aw: 'both' }))).toEqual(['외국인 −0.5% · 기관 0.0% (20일)']);
+    });
+
+    it('streak only names its subject; a streak of another subject than the ratio names it too', () => {
+      expect(flowValueLines({ flowStreak: 8 }, snap({ sw: 'inst' }))).toEqual(['기관 연속 8일']);
+      expect(flowValueLines({ flowStreak: 3 }, snap({ sw: 'both' }))).toEqual(['외국인+기관 함께 연속 3일']);
+      expect(flowValueLines({ flowRatio: 1.2, flowStreak: 6 }, snap({ sw: 'inst' }))).toEqual(['외국인 순매수 20일 1.2% · 기관 연속 6일']);
+    });
+
+    it('the 수급 순 value is its own line unless the ratio condition already shows the same subject and days', () => {
+      expect(flowValueLines({ rankFlow: 5.04 }, snap({ rw: 'inst', rd: 10 }))).toEqual(['기관 순매수 10일 5.0%']);
+      expect(flowValueLines({ rankFlow: 1.4 }, snap({ rw: 'both' }))).toEqual(['외국인+기관 순매수 20일 1.4%']);
+      expect(flowValueLines({ flowRatio: 3.2, rankFlow: 3.2 }, snap())).toEqual(['외국인 순매수 20일 3.2%']);
+      expect(flowValueLines({ flowRatio: 3.2, rankFlow: 2.1 }, snap({ rd: 60 }))).toEqual(['외국인 순매수 20일 3.2%', '외국인 순매수 60일 2.1%']);
+    });
+
+    it('no flow values, no line; a missing number reads —', () => {
+      expect(flowValueLines({ marketCap: 1e12 }, snap())).toEqual([]);
+      expect(flowValueLines({ flowRatio: null }, snap())).toEqual(['외국인 순매수 20일 —']);
+    });
   });
 });

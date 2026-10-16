@@ -73,7 +73,8 @@ describe('환율·유가 소구역', () => {
     expect(screen.getByText('유가가 1% 오를 때 주가가 평균 몇 % 움직였는지예요. +면 같이 오르고, −면 반대로 움직여요.')).toBeTruthy();
     expect(screen.getByText('최근 며칠 동안 환율이 크게 오르면 같이 오르는 종목을, 크게 내리면 반대로 움직이는 종목을 골라요.')).toBeTruthy();
     expect(field('민감도 계산 기간').value).toBe('120');
-    expect(screen.queryByText('다시 수집하면 쓸 수 있어요')).toBeNull();
+    // 이 V2에는 매매동향이 없어 그 소구역만 안내가 보인다(환율·유가 소구역에는 없다)
+    expect(within(document.querySelector('.macro')!).queryByText('다시 수집하면 쓸 수 있어요')).toBeNull();
   });
 
   it('switches and numbers reach the saved criteria', async () => {
@@ -137,7 +138,7 @@ describe('v1 데이터(환율·유가·테마 없음)', () => {
   it('turns the FX/oil rows and the theme picker off with the re-collect hint', async () => {
     setup({ info: V1 });
     await open('후보 범위');
-    expect(screen.getAllByText('다시 수집하면 쓸 수 있어요')).toHaveLength(2); // 환율·유가 + 테마
+    expect(screen.getAllByText('다시 수집하면 쓸 수 있어요')).toHaveLength(3); // 환율·유가 + 매매동향 + 테마
     expect(sw('원/달러 민감도 사용').getAttribute('aria-disabled')).toBe('true');
     expect(field('원/달러 최소 민감도').matches(':disabled')).toBe(true); // 비활성 fieldset 안
     expect((screen.getByRole('searchbox', { name: '테마 검색' }) as HTMLInputElement).disabled).toBe(true);
