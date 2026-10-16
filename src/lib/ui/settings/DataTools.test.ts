@@ -181,6 +181,33 @@ describe('DataTools', () => {
       ).toBeTruthy();
     });
 
+    const base = '수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15';
+    async function importVariant(edit: (j: any) => void) {
+      const j = JSON.parse(await decompress(new Blob([gz])));
+      edit(j);
+      await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
+      await pick(demo());
+    }
+    const emptyMacro = (j: any) => (j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
+
+    it('v2 with empty macro names only themes', async () => {
+      await importVariant(emptyMacro);
+      expect(await screen.findByText(`${base} · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
+    });
+
+    it('v2 with empty themes names only macro', async () => {
+      await importVariant((j) => (j.themes = []));
+      expect(await screen.findByText(`${base} · 환율·유가 포함 · 테마는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
+    });
+
+    it('v2 with both empty gets the re-collect hint', async () => {
+      await importVariant((j) => {
+        emptyMacro(j);
+        j.themes = [];
+      });
+      expect(await screen.findByText(`${base} · 다시 수집하면 환율·유가·테마도 쓸 수 있어요`)).toBeTruthy();
+    });
+
     it('shows the corrupt-file message and keeps what was there', async () => {
       await mount();
       await pick(demo());

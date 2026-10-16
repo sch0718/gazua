@@ -199,6 +199,20 @@ describe('market data store', () => {
     expect(await store.info()).toMatchObject({ version: 2, hasMacro: true });
   });
 
+  it('info() carries themeCount, and reads 0 on old data without it', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const n = (await store.themes()).length;
+    expect(n).toBeGreaterThan(0);
+    expect((await store.info())?.themeCount).toBe(n);
+    const db = await openDB('gazua-market-data', 1);
+    const old = await db.get('files', 'current-info');
+    delete old.themeCount;
+    await db.put('files', old, 'current-info');
+    db.close();
+    expect((await store.info())?.themeCount).toBe(0);
+  });
+
   it('hasMacro is false for a v2 file whose macro series are both empty', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));

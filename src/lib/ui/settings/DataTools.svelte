@@ -73,9 +73,17 @@
       .catch(() => {});
   });
 
+  // 파일에 실제로 있는 것만 적는다. 수집이 일부 실패한 v2 파일도 있다.
+  function marketHas(i: MarketDataInfo): string {
+    const macro = !!i.hasMacro;
+    const themes = (i.themeCount ?? 0) > 0;
+    if (macro && themes) return ' · 환율·유가·테마 포함';
+    if (macro) return ' · 환율·유가 포함 · 테마는 다시 수집하면 쓸 수 있어요';
+    if (themes) return ' · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요';
+    return ' · 다시 수집하면 환율·유가·테마도 쓸 수 있어요';
+  }
   const marketLine = (i: MarketDataInfo) =>
-    `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}` +
-    (i.version === 2 ? ' · 환율·유가·테마 포함' : ' · 다시 수집하면 환율·유가·테마도 쓸 수 있어요');
+    `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}` + marketHas(i);
 
   async function onMarketFile(e: Event) {
     const input = e.currentTarget as HTMLInputElement;

@@ -20,6 +20,8 @@ export interface MarketDataInfo {
   version?: 1 | 2;
   /** v2이고 환율·유가 계열 중 하나라도 값이 있다 */
   hasMacro?: boolean;
+  /** 파일에 든 테마 수. 없던 시절의 요약은 0으로 읽는다. */
+  themeCount?: number;
 }
 
 export type ImportResult =
@@ -104,7 +106,7 @@ export function openMarketData(): MarketDataStore {
     try {
       const got = (await d.get(STORE, INFO_KEY)) as MarketDataInfo | undefined;
       // 버전 필드가 생기기 전의 요약은 v1이다
-      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false } : null;
+      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0 } : null;
     } finally {
       d.close();
     }
@@ -179,6 +181,7 @@ export function openMarketData(): MarketDataStore {
       range: data.range,
       bytes: rawBytes,
       version: v2 ? 2 : 1,
+      themeCount: v2 ? data.themes.length : 0,
       hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();
