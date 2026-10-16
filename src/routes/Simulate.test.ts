@@ -762,7 +762,7 @@ describe('Simulate 선정 기준 탭', () => {
     return w;
   }
 
-  function setupCriteria(o: { info?: typeof FRESH | null; hash?: string; names?: string[] } = {}) {
+  function setupCriteria(o: { info?: typeof FRESH | null; hash?: string; names?: string[]; data?: Record<string, unknown> } = {}) {
     const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(['005930']) }], now: NOW });
     apps.push(app);
     app.setStrategies([{ ...newStrategy(NOW, 'g1', '눌림목'), id: 's0' }]);
@@ -772,7 +772,7 @@ describe('Simulate 선정 기준 탭', () => {
     render(Simulate, {
       app,
       barEnd,
-      marketData: { info: async () => (o.info === undefined ? FRESH : o.info), sectors: async () => SECTORS },
+      marketData: { info: async () => (o.info === undefined ? FRESH : o.info), sectors: async () => SECTORS, ...o.data } as never,
       makeWorker: () => worker,
       loadItems: async () => [{ s: '000000', n: '가짜전자', m: 'KOSPI', t: 'STOCK' }],
       now: () => NOW,
@@ -852,6 +852,52 @@ describe('Simulate 선정 기준 탭', () => {
     await tick();
     app.navigate({ name: 'simulate', tab: 'criteria' });
     expect((await screen.findByText(/vs KOSPI/)).textContent!.replace(/\s+/g, ' ')).toBe('① ▲ +12.3% vs KOSPI ▲ +8.1%');
+  });
+
+  it('run and preview carry this profile\'s baskets; the result shows the stage 4 notes for the criteria that was run', async () => {
+    const V2 = { ...FRESH, version: 2 as const, hasMacro: true, themeCount: 0 };
+    const { app, worker } = setupCriteria({ info: V2 as never, data: { themes: async () => [] } });
+    app.setBaskets([{ id: 'b1', name: '내 묶음', updatedAt: NOW, symbols: ['005930'] }]);
+    app.setCriteria(app.criteria.map((c) => ({ ...c, pool: { ...c.pool, baskets: ['b1'] }, conditions: { ...c.conditions, macro: { ...c.conditions.macro, usdkrw: { ...c.conditions.macro.usdkrw, trend: { ...c.conditions.macro.usdkrw.trend, on: true, lookback: 15 } } } } })));
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    const runMsg = worker.posted.find((m) => m.type === 'run') as unknown as { input: { baskets: { id: string }[] } };
+    expect(runMsg.input.baskets.map((b) => b.id)).toEqual(['b1']);
+    const base = validationResult();
+    const values = { usdkrwBeta: 0.82, usdkrwTrend: 3.4 };
+    worker.onmessage?.({ data: { type: 'result', result: validationResult({ notes: ['themeSnapshot', 'macroGap'], rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] }) } });
+    await waitFor(() => expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy());
+    expect(screen.getByText('일부 기간은 환율·유가 값이 없어 그 조건을 통과한 종목이 없어요')).toBeTruthy();
+    expect(screen.getByText(/^테마·내 묶음은 지금 구성을 과거에도 써요/)).toBeTruthy();
+    expect(screen.getByText('환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+    expect(document.querySelector('[data-macro-value]')!.textContent).toBe('원/달러 민감도 0.82 · 최근 15일 +3.4%');
+  });
+
+  it('v2 data: the editor gets the theme list from the store, and 테마에서 가져오기 reads the theme symbols from the file', async () => {
+    const V2 = { collectedAt: '2026-10-10T09:00:00+09:00', stocks: 30, range: RANGE, version: 2 as const, hasMacro: true, themeCount: 1 };
+    const load = vi.fn(async () => ({ version: 2, themes: [{ code: 'T01', name: '반도체', symbols: ['005930', '000660'] }] }));
+    const { app } = setupCriteria({ info: V2 as never, data: { themes: async () => [{ code: 'T01', name: '반도체', count: 2 }], load } });
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    await fireEvent.click(await screen.findByRole('button', { name: /^후보 범위/ }));
+    expect(await screen.findByRole('checkbox', { name: /반도체/ })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '묶음 관리' }));
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 새 묶음' }));
+    await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
+    await waitFor(() => expect(app.baskets).toHaveLength(1));
+    expect(app.baskets[0].symbols).toEqual(['005930', '000660']);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('v1 data: no theme list is asked of the store and the picker says to re-collect', async () => {
+    const themes = vi.fn(async () => []);
+    const { app } = setupCriteria({ data: { themes } });
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    await fireEvent.click(await screen.findByRole('button', { name: /^후보 범위/ }));
+    expect(screen.getAllByText('다시 수집하면 쓸 수 있어요').length).toBeGreaterThan(0);
+    expect(themes).not.toHaveBeenCalled();
   });
 
   it('the result route shows progress with a cancel while running, then the result with names, and NaN shows the failure screen', async () => {

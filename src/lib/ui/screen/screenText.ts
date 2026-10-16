@@ -2,7 +2,7 @@
 import { sectorGroupCount } from '../../screen/precompute';
 import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
 import type { MarketDataFile } from '../../marketData/format';
-import type { SelectionCriteria } from '../../screen/types';
+import type { MacroSeriesKey, SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
 import { fmtReturnPct, trendReturn } from '../simulate/simText';
@@ -50,12 +50,38 @@ function eok(n: number): string {
 const MINUS = '−';
 const signed = (n: number) => (n < 0 ? `${MINUS}${Math.abs(n)}` : String(n));
 
+/** 환율·유가 계열 이름 */
+export const SERIES_LABEL: Record<MacroSeriesKey, string> = { usdkrw: '원/달러', wti: '유가' };
+export const SERIES_ORDER: MacroSeriesKey[] = ['usdkrw', 'wti'];
+// 이/가: 환율은 받침이 있어 `환율이`, 유가는 없어 `유가가`(스펙의 `환율`→`유가` 바꾸기에 조사를 맞춘다)
+const SERIES_SUBJECT: Record<MacroSeriesKey, string> = { usdkrw: '환율이', wti: '유가가' };
+/** 환율·유가 조건 한 줄 설명(스펙 5.2). WTI는 `환율`을 `유가`로 바꾼다 */
+export const macroBetaHelp = (k: MacroSeriesKey) =>
+  `${SERIES_SUBJECT[k]} 1% 오를 때 주가가 평균 몇 % 움직였는지예요. +면 같이 오르고, −면 반대로 움직여요.`;
+export const macroTrendHelp = (k: MacroSeriesKey) =>
+  `최근 며칠 동안 ${SERIES_SUBJECT[k]} 크게 오르면 같이 오르는 종목을, 크게 내리면 반대로 움직이는 종목을 골라요.`;
+export const NEED_RECOLLECT_TEXT = '다시 수집하면 쓸 수 있어요';
+
+/** 해석 메모(스펙 4.3·5.3·7) */
+export const THEME_SNAPSHOT_TEXT = '테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요';
+export const MACRO_LAG_TEXT = '환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요';
+export const MACRO_GAP_TEXT = '일부 기간은 환율·유가 값이 없어 그 조건을 통과한 종목이 없어요';
+
+/** 후보 범위 요약: `업종 2개·테마 2·묶음 1`. 아무것도 안 골랐으면 `전체 업종` */
+export function poolScopeText(pool: SelectionCriteria['pool'], sectors: MarketDataFile['sectors'] = []): string {
+  const parts: string[] = [];
+  if (pool.sectors.length) parts.push(`업종 ${sectorGroupCount(pool.sectors, sectors)}개`);
+  if (pool.themes.length) parts.push(`테마 ${pool.themes.length}`);
+  if (pool.baskets.length) parts.push(`묶음 ${pool.baskets.length}`);
+  return parts.length ? parts.join('·') : '전체 업종';
+}
+
 /** 목록 행의 한 줄: `KOSPI·KOSDAQ 주식 · 거래대금 10억↑ · 반등 10일 · 상위 10 · 매월` */
 export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sectors'] = []): string {
   const k = c.conditions;
   const types = c.pool.types.map((t) => (t === 'STOCK' ? '주식' : 'ETF')).join('·');
   const parts = [`${c.pool.markets.join('·')} ${types}`];
-  if (c.pool.sectors.length) parts.push(`업종 ${sectorGroupCount(c.pool.sectors, sectors)}개`);
+  if (c.pool.sectors.length || c.pool.themes.length || c.pool.baskets.length) parts.push(poolScopeText(c.pool, sectors));
   const on: string[] = [];
   if (k.marketCap.on) on.push(`시총 ${eok(k.marketCap.minEok)}↑`);
   if (k.tradingValue.on) on.push(`거래대금 ${eok(k.tradingValue.minEok)}↑`);
@@ -65,6 +91,11 @@ export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sect
   if (k.fromHigh.on) on.push(`고점 대비 ${k.fromHigh.minPct}~${k.fromHigh.maxPct}% 하락`);
   if (k.volatility.on) on.push(`변동성 ${k.volatility.days}일 ${k.volatility.maxPct}%↓`);
   if (k.rebound.on) on.push(`반등 ${k.rebound.withinDays}일`);
+  for (const key of SERIES_ORDER) {
+    const m = k.macro[key];
+    if (m.beta.on) on.push(`${SERIES_LABEL[key]} 민감도 ${signed(m.beta.min)}~${signed(m.beta.max)}`);
+    if (m.trend.on) on.push(`${SERIES_LABEL[key]} 흐름 ${m.trend.lookback}일`);
+  }
   parts.push(...(on.length ? on : ['조건 없음']));
   parts.push(`상위 ${c.rank.take}`, rebalanceLabel(c.rebalance));
   return parts.join(' · ');
@@ -144,6 +175,27 @@ export const VALUE_LABEL: Record<string, { label: string; fmt: (v: number | bool
 export function valueText(key: string, v: number | boolean | null): { label: string; text: string } {
   const f = VALUE_LABEL[key];
   return f ? { label: f.label, text: f.fmt(v) } : { label: key, text: v === null ? '—' : String(v) };
+}
+
+/** 선정 이력의 환율·유가 값 줄: `원/달러 민감도 0.82 · 최근 20일 +3.4%`. 값이 없는 계열은 줄이 없다 */
+export const MACRO_VALUE_KEYS = new Set(SERIES_ORDER.flatMap((k) => [`${k}Beta`, `${k}Trend`]));
+export function macroValueLines(values: Record<string, number | boolean | null>, lookback?: Partial<Record<MacroSeriesKey, number>>): string[] {
+  const out: string[] = [];
+  for (const k of SERIES_ORDER) {
+    const hasBeta = `${k}Beta` in values;
+    const hasTrend = `${k}Trend` in values;
+    if (!hasBeta && !hasTrend) continue;
+    const b = values[`${k}Beta`];
+    const t = values[`${k}Trend`];
+    const parts = [`${SERIES_LABEL[k]} 민감도 ${typeof b === 'number' ? (b < 0 ? MINUS : '') + Math.abs(b).toFixed(2) : '—'}`];
+    if (hasTrend) {
+      const days = lookback?.[k];
+      const pct = typeof t === 'number' ? `${t < 0 ? MINUS : '+'}${Math.abs(t).toFixed(1)}%` : '—';
+      parts.push(`최근 ${days ? `${days}일 ` : '흐름 '}${pct}`);
+    }
+    out.push(parts.join(' · '));
+  }
+  return out;
 }
 
 /** 새 기준 이름: `새 기준`이 없으면 그대로, 있으면 비어 있는 가장 작은 번호 */

@@ -8,8 +8,9 @@
     help,
     on,
     ontoggle,
+    disabled = false,
     children,
-  }: { label: string; help: string; on: boolean; ontoggle: (v: boolean) => void; children: Snippet } = $props();
+  }: { label: string; help: string; on: boolean; ontoggle: (v: boolean) => void; disabled?: boolean; children: Snippet } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
 </script>
@@ -17,7 +18,7 @@
 <div class="cond" class:off={!on}>
   <div class="row">
     <label for="cond-{uid}">{label}</label>
-    <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} />
+    <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} {disabled} />
   </div>
   <p class="help">{help}</p>
   <div class="fields">{@render children()}</div>

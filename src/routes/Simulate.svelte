@@ -4,9 +4,12 @@
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector } from '../lib/marketData/store';
+  import { isV2 } from '../lib/marketData/format';
+  import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
-  import type { SelectionCriteria } from '../lib/screen/types';
+  import type { Basket } from '../lib/screen/baskets';
+  import { usesMacro } from '../lib/screen/precompute';
+  import type { MacroSeriesKey, SelectionCriteria } from '../lib/screen/types';
   import { createValidationController, type WorkerLike } from '../lib/screen/validationController.svelte';
   import type { Strategy } from '../lib/sim/types';
   import { strategyIssues, type Issue } from '../lib/sim/validate';
@@ -40,7 +43,7 @@
     app: App;
     barEnd: Snippet<[boolean]>;
     /** 가져온 시장 데이터(선정 기준 탭). 테스트는 가짜를 넣는다 */
-    marketData?: Pick<MarketDataStore, 'info' | 'sectors'>;
+    marketData?: Pick<MarketDataStore, 'info' | 'sectors'> & Partial<Pick<MarketDataStore, 'themes' | 'load'>>;
     /** 검증 Worker 만들기. 테스트는 가짜를 넣는다 */
     makeWorker?: () => WorkerLike;
     /** 종목 이름표(오늘 기준 선별·선정 이력). 테스트는 가짜를 넣는다 */
@@ -137,15 +140,27 @@
     if (!criteriaTab) untrack(() => vctl.cancel());
   });
   // 결과 화면은 실행할 때의 이름·자본을 쓴다(실행 뒤 기준이 바뀌어도 결과와 맞게)
-  let runSnap = $state.raw<{ name: string; capital: number } | null>(null);
+  let runSnap = $state.raw<{ name: string; capital: number; macro: { used: boolean; lookback: Partial<Record<MacroSeriesKey, number>> } } | null>(null);
   // undefined = 아직 읽는 중
   let info = $state.raw<MarketDataInfo | null | undefined>(undefined);
   let sectors = $state.raw<MarketSector[]>([]);
+  // undefined = 아직 읽는 중
+  let themes = $state.raw<MarketThemeSummary[] | undefined>(undefined);
+  // 테마의 종목은 본문에만 있다. 묶음으로 가져올 때만 파일을 읽는다
+  async function loadThemeSymbols(code: string): Promise<string[]> {
+    const body = await marketData.load?.();
+    return body && isV2(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
+  }
   onMount(() => {
     marketData.info().then(
       (i) => {
         info = i;
         if (i) marketData.sectors().then((x) => (sectors = x), () => {});
+        // v1 파일은 테마가 없다(빈 목록). 읽지 못해도 빈 목록으로 둔다
+        if (i) {
+          if ((i.version ?? 1) < 2 || !marketData.themes) themes = [];
+          else marketData.themes().then((x) => (themes = x), () => (themes = []));
+        }
       },
       () => (info = null),
     );
@@ -201,9 +216,10 @@
   }
   function runCriteria(c: SelectionCriteria) {
     runId = c.id;
-    runSnap = { name: c.name, capital: c.capital };
+    const fx = c.conditions.macro;
+    runSnap = { name: c.name, capital: c.capital, macro: { used: usesMacro(c), lookback: { usdkrw: fx.usdkrw.trend.lookback, wti: fx.wti.trend.lookback } } };
     staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
-    vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[] });
+    vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[], baskets: $state.snapshot(app.baskets) as Basket[] });
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id, view: 'result' });
     // 누른 실행 버튼이 사라지므로 결과 자리로 포커스
     void tick().then(() => resultHead?.focus());
@@ -258,7 +274,7 @@
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
               <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} />
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}
@@ -275,6 +291,9 @@
               criteria={crit}
               {info}
               {sectors}
+              {themes}
+              {loadThemeSymbols}
+              {loadItems}
               preview={(input) => vctl.preview(input)}
               onRun={runCriteria}
             />

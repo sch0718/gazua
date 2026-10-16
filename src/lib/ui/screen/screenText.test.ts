@@ -3,7 +3,23 @@ import { newCriteria } from '../../screen/defaults';
 import type { ValidationResult } from '../../screen/runValidation';
 import { NOW } from '../../screen/testData';
 import { kstEpoch } from '../../time/kst';
-import { CONDITION_HELP, criteriaLine, dataAgeDays, lastResultSummary, nextCriteriaName, STALE_DAYS, staleText } from './screenText';
+import {
+  CONDITION_HELP,
+  criteriaLine,
+  dataAgeDays,
+  lastResultSummary,
+  MACRO_GAP_TEXT,
+  MACRO_LAG_TEXT,
+  macroBetaHelp,
+  macroTrendHelp,
+  macroValueLines,
+  NEED_RECOLLECT_TEXT,
+  nextCriteriaName,
+  poolScopeText,
+  STALE_DAYS,
+  staleText,
+  THEME_SNAPSHOT_TEXT,
+} from './screenText';
 
 const stats = (totalPct: number) => ({ totalPct, cagrPct: 0, mddPct: 0, volPct: 0 });
 
@@ -77,5 +93,49 @@ describe('screenText', () => {
   it('next name takes the smallest free number', () => {
     expect(nextCriteriaName([])).toBe('새 기준');
     expect(nextCriteriaName([{ name: '새 기준' }, { name: '새 기준 3' }])).toBe('새 기준 2');
+  });
+});
+
+describe('screenText (stage 4)', () => {
+  it('pool scope joins sectors, themes and baskets; nothing picked is 전체 업종', () => {
+    const c = newCriteria(NOW, null);
+    expect(poolScopeText(c.pool)).toBe('전체 업종');
+    c.pool.themes = ['T1', 'T2'];
+    c.pool.baskets = ['b1'];
+    expect(poolScopeText(c.pool)).toBe('테마 2·묶음 1');
+    c.pool.sectors = ['00013'];
+    expect(poolScopeText(c.pool)).toBe('업종 1개·테마 2·묶음 1');
+  });
+
+  it('the list line shows themes and baskets next to the sectors, and the macro conditions that are on', () => {
+    const c = newCriteria(NOW, null);
+    c.pool.themes = ['T1', 'T2'];
+    c.pool.baskets = ['b1'];
+    c.conditions.macro.usdkrw.beta = { on: true, min: 0.3, max: 5 };
+    c.conditions.macro.wti.trend.on = true;
+    expect(criteriaLine(c)).toBe('KOSPI·KOSDAQ 주식 · 테마 2·묶음 1 · 거래대금 10억↑ · 반등 10일 · 원/달러 민감도 0.3~5 · 유가 흐름 20일 · 상위 10 · 매월');
+  });
+
+  it('keeps the macro help of spec 5.2 (WTI swaps 환율 for 유가)', () => {
+    expect(macroBetaHelp('usdkrw')).toBe('환율이 1% 오를 때 주가가 평균 몇 % 움직였는지예요. +면 같이 오르고, −면 반대로 움직여요.');
+    expect(macroBetaHelp('wti')).toBe('유가가 1% 오를 때 주가가 평균 몇 % 움직였는지예요. +면 같이 오르고, −면 반대로 움직여요.');
+    expect(macroTrendHelp('usdkrw')).toBe('최근 며칠 동안 환율이 크게 오르면 같이 오르는 종목을, 크게 내리면 반대로 움직이는 종목을 골라요.');
+    expect(macroTrendHelp('wti')).toBe('최근 며칠 동안 유가가 크게 오르면 같이 오르는 종목을, 크게 내리면 반대로 움직이는 종목을 골라요.');
+  });
+
+  it('keeps the note copy verbatim', () => {
+    expect(THEME_SNAPSHOT_TEXT).toBe('테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요');
+    expect(MACRO_LAG_TEXT).toBe('환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요');
+    expect(MACRO_GAP_TEXT).toBe('일부 기간은 환율·유가 값이 없어 그 조건을 통과한 종목이 없어요');
+    expect(NEED_RECOLLECT_TEXT).toBe('다시 수집하면 쓸 수 있어요');
+  });
+
+  it('macro value lines: beta with 2 decimals, trend with the lookback, — for null', () => {
+    expect(macroValueLines({ usdkrwBeta: 0.8234, usdkrwTrend: 3.44 }, { usdkrw: 20 })).toEqual(['원/달러 민감도 0.82 · 최근 20일 +3.4%']);
+    expect(macroValueLines({ wtiBeta: -1.5, wtiTrend: -6.04 }, { wti: 10 })).toEqual(['유가 민감도 −1.50 · 최근 10일 −6.0%']);
+    expect(macroValueLines({ usdkrwBeta: null, usdkrwTrend: 3 }, { usdkrw: 20 })).toEqual(['원/달러 민감도 — · 최근 20일 +3.0%']);
+    expect(macroValueLines({ wtiBeta: 0.5 })).toEqual(['유가 민감도 0.50']);
+    expect(macroValueLines({ usdkrwBeta: 1, usdkrwTrend: 2 })).toEqual(['원/달러 민감도 1.00 · 최근 흐름 +2.0%']);
+    expect(macroValueLines({ marketCap: 1e12 })).toEqual([]);
   });
 });

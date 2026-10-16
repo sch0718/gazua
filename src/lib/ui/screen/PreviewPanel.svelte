@@ -9,6 +9,7 @@
     pending,
     failed,
     names,
+    blocked = false,
   }: {
     hasData: boolean;
     /** 데이터 마지막 날 */
@@ -18,6 +19,8 @@
     pending: boolean;
     failed: boolean;
     names: Record<string, string>;
+    /** 막는 경고가 있어 계산하지 않는 중 */
+    blocked?: boolean;
   } = $props();
 
   const countText = (s: Selection) => `통과 ${s.passed}개 · 상위 ${s.picked.length}개`;
@@ -28,6 +31,8 @@
   <h3 id={titleId}>오늘 기준 미리 보기</h3>
   {#if !hasData}
     <p class="muted">시장 데이터를 가져오면 미리 볼 수 있어요</p>
+  {:else if blocked}
+    <p class="muted" role="status">고칠 곳을 고치면 미리 볼 수 있어요</p>
   {:else}
     {#if asOf}<p class="muted">{asOf} 기준</p>{/if}
     <!-- 끝난 결과도 이 라이브 영역에 넣어 화면 낭독기가 읽게 한다. 계산 중에는 옛 결과를 그대로 보인다 -->
