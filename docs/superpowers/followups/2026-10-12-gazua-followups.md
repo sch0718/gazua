@@ -122,8 +122,9 @@
 
 - `fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.
 - 키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.
-- `loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/state/exportImport.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.
+- `loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/screen/baskets.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.
 - 중분류 대장주 회귀 케이스가 모든 곳에서 0을 줘서 확인이 약함: 데모에 중분류 코드가 없어요 · `tests/fixtures/market-data-demo.json.gz`, `scripts/make-demo-market-data.mjs` · 데모에 중분류 코드를 넣어요.
 - 정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.
 - PreviewPanel이 막힌 상태에서도 기준일 줄과 `.state` 스타일을 보여줌(보기만 어색함) · `src/lib/ui/screen/PreviewPanel.svelte`
+- 민감도를 켜면 봉마다 메모리가 약 24 B(β용 Float64 두 배열과 Int32 색인 두 배열)라 449만 봉이면 약 108 MB인데, 스펙 3.4는 72 MB로만 어림함 · `src/lib/screen` 사전 계산과 스펙 3.4 · 5년 실행에서 실제 사용량을 재고 스펙의 어림값을 고치거나 배열을 줄여요.
 - 테마를 가져올 때 데이터 파일 전체를 읽음 · `src/lib/marketData` · 테마 부분만 따로 읽는 길을 찾아요.

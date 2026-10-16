@@ -77,13 +77,15 @@ export function assertBasketCap(list: Basket[]): void {
   if (list.length > MAX_BASKETS) throw new Error(BASKET_CAP_MESSAGE);
 }
 
-/** 쓰기 전 검사: 개수 한도에 더해 묶음마다 종목 1~300개, 이름 30자. 읽을 때 조용히 사라지는 값을 막는다. */
+/** 쓰기 전 검사: 개수 한도에 더해 묶음마다 종목 1~300개(6자 [0-9A-Z], 중복 없이), 이름 30자. 읽을 때 조용히 사라지는 값을 막는다. */
 export function assertBasketsWritable(list: Basket[]): void {
   assertBasketCap(list);
   for (const b of list) {
     if (b.symbols.length === 0) throw new Error('묶음에는 종목이 1개 이상 있어야 해요');
     if (b.symbols.length > BASKET_SYMBOLS_MAX) throw new Error(`묶음의 종목은 ${BASKET_SYMBOLS_MAX}개까지예요`);
     if (b.name.length > NAME_MAX) throw new Error(`묶음 이름은 ${NAME_MAX}자까지예요`);
+    if (b.symbols.some((x) => !SYMBOL_RE.test(x))) throw new Error('묶음의 종목 코드는 숫자·영문 대문자 6자여야 해요');
+    if (new Set(b.symbols).size !== b.symbols.length) throw new Error('묶음에 같은 종목이 두 번 들어 있어요');
   }
 }
 

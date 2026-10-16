@@ -124,7 +124,7 @@ const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
  * 재선정일 d(전 거래일 p)에 쓰는 환율·유가 값이 없는가.
  * - 조건을 켰거나 정렬에 쓰는 계열이 비었거나 p까지 공개된 값이 없다
  * - 흐름을 켰는데 계산할 수 없다
- * - 민감도를 켰는데 계열은 있어도 후보 전체의 β가 없다(앞부분 워밍업·구멍)
+ * - 민감도를 켰거나, 흐름이 문턱 이상이라 β가 필요한데, 계열은 있어도 후보 전체의 β가 없다(앞부분 워밍업·구멍)
  */
 function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, d: string, p: string, baskets: Basket[]): boolean {
   return MACRO_KEYS.some((key) => {
@@ -133,8 +133,14 @@ function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, d: string, p:
     if (!m.beta.on && !m.trend.on && !ranked) return false;
     const s = pre.macro[key];
     if (s.d.length === 0 || lastKnown(s.known, p) < 0) return true;
-    if (m.trend.on && Number.isNaN(trendAt(s, p, m.trend.lookback))) return true;
-    return m.beta.on && betaMissingAt(d, pre, criteria, key, baskets);
+    let needBeta = m.beta.on;
+    if (m.trend.on) {
+      const t = trendAt(s, p, m.trend.lookback);
+      if (Number.isNaN(t)) return true;
+      // select.ts와 같다: 흐름이 문턱 이상이면(양·음 모두) 종목마다 β가 있어야 통과한다
+      if (Math.abs(t) >= m.trend.thresholdPct / 100) needBeta = true;
+    }
+    return needBeta && betaMissingAt(d, pre, criteria, key, baskets);
   });
 }
 

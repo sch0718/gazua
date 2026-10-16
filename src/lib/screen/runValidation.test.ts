@@ -414,4 +414,17 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
     expect(r.rebalances.at(-1)!.passed).toBeGreaterThan(0);
     expect(r.notes).toContain('macroGap');
   });
+
+  it("흐름만 켰어도 흐름이 문턱 이상이면 β가 필요하다: 워밍업 재선정일에 'macroGap'", () => {
+    const warm = crit((c) => {
+      c.period = { from: '2025-06-02', to: '2026-10-15' };
+      c.conditions.tradingValue.on = false;
+      c.conditions.macro.betaDays = 250;
+      // 민감도는 끄고 흐름만, 문턱을 거의 0으로 해 어느 날이든 강한 흐름이다
+      c.conditions.macro.usdkrw.trend = { on: true, lookback: 10, thresholdPct: 0.0001, minAbsBeta: 0, whenFlat: 'pass' };
+    });
+    const r = run(warm);
+    expect(r.rebalances[0].passed).toBe(0);
+    expect(r.notes).toContain('macroGap');
+  });
 });

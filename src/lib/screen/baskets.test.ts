@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
-import { BASKET_CAP_MESSAGE, BASKET_SYMBOLS_MAX, MAX_BASKETS, assertBasketCap, loadBaskets, newBasket, sanitizeBaskets, saveBaskets } from './baskets';
+import { BASKET_CAP_MESSAGE, BASKET_SYMBOLS_MAX, MAX_BASKETS, assertBasketCap, assertBasketsWritable, loadBaskets, newBasket, sanitizeBaskets, saveBaskets } from './baskets';
 
 const NOW = 1_700_000_000_000;
 const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ ...newBasket(NOW, `묶음 ${i}`, ['005930']), id: `b${i}` }));
@@ -101,5 +101,16 @@ describe('baskets', () => {
     expect(loadBaskets(st, 'p1')).toEqual([]);
     expect(st.issues).toEqual([]);
     expect(() => saveBaskets(st, 'p1', [{ ...b, name: '가'.repeat(30), symbols: many.slice(0, 300) }])).not.toThrow();
+  });
+
+  it('쓰기 전 검사: 형식이 틀린 종목 코드와 묶음 안 중복 종목을 거절한다', () => {
+    const ok = { id: 'b', name: '묶음', updatedAt: 1, symbols: ['005930', '0000D0'] };
+    expect(() => assertBasketsWritable([ok])).not.toThrow();
+    for (const bad of ['5930', 'abcdef', '00593A0', '005 30', '']) {
+      expect(() => assertBasketsWritable([{ ...ok, symbols: ['005930', bad] }])).toThrow('종목 코드는 숫자·영문 대문자 6자');
+    }
+    expect(() => assertBasketsWritable([{ ...ok, symbols: ['005930', '000660', '005930'] }])).toThrow('같은 종목이 두 번');
+    // 다른 묶음끼리 겹치는 것은 괜찮다
+    expect(() => assertBasketsWritable([ok, { ...ok, id: 'c' }])).not.toThrow();
   });
 });
