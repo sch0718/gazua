@@ -8,7 +8,8 @@
   import Sheet from '../components/Sheet.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
-  import { criteriaLine, nextCriteriaName } from './screenText';
+  import { returnClass, trendReturn } from '../simulate/simText';
+  import { criteriaLine, nextCriteriaName, type LastResult } from './screenText';
 
   let {
     app,
@@ -18,8 +19,8 @@
     app: App;
     /** 새 기준의 기본 기간을 정한다(데이터가 없으면 null) */
     dataRange: { from: string; to: string } | null;
-    /** 기준 id → `① +12.3% vs KOSPI +8.1%` */
-    lastResults?: Record<string, string>;
+    /** 기준 id → 마지막 결과. `① ▲ +12.3% vs KOSPI ▲ +8.1%`로 보인다 */
+    lastResults?: Record<string, LastResult>;
   } = $props();
 
   const full = () => app.criteria.length >= MAX_CRITERIA;
@@ -110,7 +111,10 @@
           <button type="button" class="row" data-criteria-row={c.id} onclick={() => app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id })}>
             <span class="name">{c.name}</span>
             <span class="line">{criteriaLine(c)}</span>
-            {#if lastResults[c.id]}<span class="last">{lastResults[c.id]}</span>{/if}
+            {#if lastResults[c.id]}
+              {@const r = lastResults[c.id]}
+              <span class="last num" data-last-result>① <b class={returnClass(r.hold)}>{trendReturn(r.hold)}</b>{#if r.index}{' '}vs {r.index.id} <b class={returnClass(r.index.pct)}>{trendReturn(r.index.pct)}</b>{/if}</span>
+            {/if}
           </button>
           <button type="button" class="more" aria-label="{c.name} 메뉴" onclick={() => (menuId = c.id)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -201,6 +205,9 @@
   .last {
     font-size: var(--fs-label);
     color: var(--t2);
+    font-weight: 700;
+  }
+  .last b {
     font-weight: 700;
   }
   .more {

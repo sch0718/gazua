@@ -1,9 +1,9 @@
 // 선정 기준 화면의 문구와 요약. 문구는 스펙 7.2·7.3·4장 그대로다.
-import type { ValidationResult } from '../../screen/runValidation';
+import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
 import type { SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
-import { fmtReturnPct } from '../simulate/simText';
+import { fmtReturnPct, trendReturn } from '../simulate/simText';
 
 export type ConditionKey = keyof SelectionCriteria['conditions'];
 
@@ -75,11 +75,58 @@ export function dataAgeDays(collectedAt: string, now: number): number | null {
   return Math.round((kstEpoch(kstDate(now), '00:00:00') - kstEpoch(kstDate(t), '00:00:00')) / DAY);
 }
 
-/** 목록 행의 마지막 결과: `① +12.3% vs KOSPI +8.1%` */
-export function lastResultLine(r: ValidationResult): string {
-  const hold = `① ${fmtReturnPct(r.hold.stats.totalPct, true)}`;
+/** 목록 행의 마지막 결과: `① +12.3% vs KOSPI +8.1%`의 숫자들. 화면이 ▲▼와 색을 입힌다 */
+export interface LastResult {
+  hold: number;
+  index: { id: string; pct: number } | null;
+}
+export function lastResultSummary(r: ValidationResult): LastResult {
   const idx = r.indices.find((i) => i.stats);
-  return idx?.stats ? `${hold} vs ${idx.id} ${fmtReturnPct(idx.stats.totalPct, true)}` : hold;
+  return { hold: r.hold.stats.totalPct, index: idx?.stats ? { id: idx.id, pct: idx.stats.totalPct } : null };
+}
+
+/** 수익률 차이(%p)에 ▲▼: `▲ +3.2%p` */
+export function trendPp(v: number): string {
+  const t = trendReturn(v);
+  return t === '—' ? t : `${t}p`;
+}
+
+/** 실패 화면 문구(스펙 8.2). 시뮬레이션의 `계산 중 문제가 생겼어요`와 같은 말투 */
+export const FAILURE_TEXT: Record<WorkerErrorCode, string> = {
+  ...ERROR_TEXT,
+  'no-data': NO_DATA_TEXT,
+  crash: '계산 중 문제가 생겼어요',
+};
+
+export const ALL_EMPTY_TEXT = '기간 내내 조건을 통과한 종목이 없어요';
+export const WARMUP_TEXT = '앞부분은 지표 계산에 필요한 데이터가 모자라요';
+export const SPARSE_TEXT = '일부 재선정일은 전날 거래한 종목이 적어서 선별이 덜 정확할 수 있어요';
+/** 해석 도움말(스펙 7.4-6). 앞의 셋은 항상 보인다 */
+export const HELP_ALWAYS = [
+  '지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 결과가 실제보다 좋게 나올 수 있어요',
+  '업종과 상장주식수는 수집일 기준이에요. 과거 시점에도 지금 값을 써요',
+  '배당 제외 · 가격 수익률만이에요',
+] as const;
+export const FEW_SEGMENTS_TEXT = '구간이 적어서 우연일 수 있어요';
+export const NOT_BOUGHT_TEXT = '매수 못 함(재선정일 거래 없음)';
+export const SOLD_AT_LAST_CLOSE_TEXT = '거래가 멈춰 마지막 종가로 팔았어요';
+
+/** 선정 이력에서 펼치면 나오는 조건 계산값의 이름과 표시 */
+const WON = (n: number) => (n >= 1e12 ? `${(n / 1e12).toFixed(1)}조원` : n >= 1e8 ? `${fmtWon(Math.round(n / 1e8))}억원` : `${fmtWon(Math.round(n))}원`);
+const ONE = (n: number) => String(Math.round(n * 10) / 10).replace('-', MINUS);
+export const VALUE_LABEL: Record<string, { label: string; fmt: (v: number | boolean | null) => string }> = {
+  marketCap: { label: '시가총액', fmt: (v) => (typeof v === 'number' ? WON(v) : '—') },
+  tradingValue: { label: '거래대금', fmt: (v) => (typeof v === 'number' ? WON(v) : '—') },
+  leaderRank: { label: '업종 순위', fmt: (v) => (typeof v === 'number' ? `${v}위` : '—') },
+  return: { label: '수익률', fmt: (v) => (typeof v === 'number' ? fmtReturnPct(v, true) : '—') },
+  ma: { label: '이동평균', fmt: (v) => (typeof v === 'number' ? `${fmtWon(Math.round(v))}원` : '—') },
+  fromHigh: { label: '52주 고점 대비', fmt: (v) => (typeof v === 'number' ? fmtReturnPct(v, true) : '—') },
+  volatility: { label: '변동성', fmt: (v) => (typeof v === 'number' ? `${ONE(v)}%` : '—') },
+  rebound: { label: '반등 신호', fmt: (v) => (v === true ? '있음' : '—') },
+};
+export function valueText(key: string, v: number | boolean | null): { label: string; text: string } {
+  const f = VALUE_LABEL[key];
+  return f ? { label: f.label, text: f.fmt(v) } : { label: key, text: v === null ? '—' : String(v) };
 }
 
 /** 새 기준 이름: `새 기준`이 없으면 그대로, 있으면 비어 있는 가장 작은 번호 */

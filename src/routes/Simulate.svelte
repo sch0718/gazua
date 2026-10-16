@@ -5,6 +5,7 @@
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector } from '../lib/marketData/store';
+  import type { UniverseItem } from '../lib/data/universe';
   import type { SelectionCriteria } from '../lib/screen/types';
   import { createValidationController, type WorkerLike } from '../lib/screen/validationController.svelte';
   import type { Strategy } from '../lib/sim/types';
@@ -14,10 +15,13 @@
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import { sharedUniverse } from '../sheets/universeSource';
   import CriteriaEditor from '../lib/ui/screen/CriteriaEditor.svelte';
   import CriteriaList from '../lib/ui/screen/CriteriaList.svelte';
   import MarketDataNotice from '../lib/ui/screen/MarketDataNotice.svelte';
-  import { dataAgeDays, lastResultLine } from '../lib/ui/screen/screenText';
+  import { dataAgeDays, lastResultSummary, type LastResult } from '../lib/ui/screen/screenText';
+  import ValidationResult from '../lib/ui/screen/ValidationResult.svelte';
+  import ValidationRun from '../lib/ui/screen/ValidationRun.svelte';
   import SimulateTabs, { type SimulateTab } from '../lib/ui/screen/SimulateTabs.svelte';
   import RunPanel from '../lib/ui/simulate/RunPanel.svelte';
   import { createRunController } from '../lib/ui/simulate/runController.svelte';
@@ -30,6 +34,7 @@
     barEnd,
     marketData = openMarketData(),
     makeWorker,
+    loadItems = sharedUniverse,
     now = Date.now,
   }: {
     app: App;
@@ -38,6 +43,8 @@
     marketData?: Pick<MarketDataStore, 'info' | 'sectors'>;
     /** 검증 Worker 만들기. 테스트는 가짜를 넣는다 */
     makeWorker?: () => WorkerLike;
+    /** 종목 이름표(오늘 기준 선별·선정 이력). 테스트는 가짜를 넣는다 */
+    loadItems?: () => Promise<UniverseItem[]>;
     now?: () => number;
   } = $props();
 
@@ -142,7 +149,7 @@
   const ageDays = $derived(info && !staleDismissed ? dataAgeDays(info.collectedAt, now()) : null);
   const dataRange = $derived(info?.range ?? null);
   // 목록 행의 마지막 결과(이 탭에서 실행한 것만, 화면을 떠나면 사라진다)
-  let lastResults = $state.raw<Record<string, string>>({});
+  let lastResults = $state.raw<Record<string, LastResult>>({});
   let runId = $state<string | null>(null);
   let resultHead = $state<HTMLElement>();
   let criteriaEditor = $state<CriteriaEditor>();
@@ -157,9 +164,22 @@
   });
   $effect(() => {
     if (vctl.state !== 'done' || !vctl.result || runId === null) return;
-    const line = lastResultLine(vctl.result);
+    const line = lastResultSummary(vctl.result);
     const id = runId;
     untrack(() => (lastResults = { ...lastResults, [id]: line }));
+  });
+  // 결과가 나오면 종목 이름을 한 번 읽는다(못 읽으면 코드로 보인다)
+  let names = $state.raw<Record<string, string>>({});
+  let namesLoaded = false;
+  $effect(() => {
+    if (vctl.state !== 'done' || namesLoaded) return;
+    namesLoaded = true;
+    untrack(() =>
+      loadItems().then(
+        (list) => (names = Object.fromEntries(list.map((i) => [i.s, i.n]))),
+        () => (namesLoaded = false),
+      ),
+    );
   });
   // 실행 없이 결과 주소로 들어오면(새로 고침·다른 기준) 편집으로 돌려보낸다
   $effect(() => {
@@ -227,16 +247,13 @@
     {#key app.meta.activeProfileId}
       {#if crit}
         {#if resultView}
-          <!-- 결과 화면은 다음 작업이 채운다. 지금은 진행과 취소만 있다 -->
           <div class="result">
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
-            <p role="status">
-              {vctl.state === 'running' ? '검증하는 중이에요' : vctl.state === 'done' ? '검증이 끝났어요' : vctl.state === 'error' ? '검증을 끝내지 못했어요' : ''}
-            </p>
-            {#if vctl.state === 'running'}
-              <button type="button" class="cancel" onclick={cancelCriteria}>취소</button>
-            {:else}
+            {#if vctl.state === 'done' && vctl.result}
               <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={crit.name} capital={crit.capital} theme={app.settings.theme} />
+            {:else}
+              <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}
           </div>
         {:else if info !== undefined}
@@ -360,10 +377,6 @@
   .result h2 {
     margin: 0;
     font-size: 18px;
-  }
-  .result p {
-    margin: 0;
-    color: var(--t2);
   }
   .cancel {
     min-height: var(--touch);

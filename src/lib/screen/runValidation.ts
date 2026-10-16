@@ -34,7 +34,7 @@ export interface ValidationResult {
 
 export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy';
 
-const ERROR_TEXT: Record<ValidationErrorCode, string> = {
+export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'no-rebalance': '기간 안에 재선정일이 없어요',
   'invalid-number': '계산 중 잘못된 숫자가 나왔어요',
   'missing-strategy': '매매 규칙 전략이 지워졌어요',

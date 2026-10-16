@@ -8,10 +8,11 @@ import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
 import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
 import CriteriaList from './CriteriaList.svelte';
+import type { LastResult } from './screenText';
 
 const RANGE = { from: '2024-10-16', to: '2026-10-15' };
 let apps: App[] = [];
-function setup(names: string[] = [], lastResults: Record<string, string> = {}) {
+function setup(names: string[] = [], lastResults: Record<string, LastResult> = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
   apps.push(app);
   app.setCriteria(names.map((n, i) => ({ ...newCriteria(NOW - i, RANGE, n), id: `c${i}` })));
@@ -32,10 +33,20 @@ describe('CriteriaList', () => {
   });
 
   it('a row shows the name, the one-line summary and — only when run in this tab — the last result', () => {
-    setup(['반등 기준', '다른 기준'], { c0: '① +12.3% vs KOSPI +8.1%' });
+    setup(['반등 기준', '다른 기준'], { c0: { hold: 12.34, index: { id: 'KOSPI', pct: 8.06 } } });
     expect(screen.getByText('반등 기준')).toBeTruthy();
     expect(screen.getAllByText('KOSPI·KOSDAQ 주식 · 거래대금 10억↑ · 반등 10일 · 상위 10 · 매월')).toHaveLength(2);
-    expect(screen.getAllByText('① +12.3% vs KOSPI +8.1%')).toHaveLength(1);
+    const last = document.querySelectorAll('[data-last-result]');
+    expect(last).toHaveLength(1);
+    expect(last[0].textContent!.replace(/\s+/g, ' ').trim()).toBe('① ▲ +12.3% vs KOSPI ▲ +8.1%');
+  });
+
+  it('the last result carries the arrows and trend colours; a loss reads ▼ and no index leaves ① alone', () => {
+    setup(['가', '나'], { c0: { hold: -3.24, index: { id: 'KOSPI', pct: 8.06 } }, c1: { hold: 1, index: null } });
+    const [a, b] = document.querySelectorAll('[data-last-result]');
+    expect(a.textContent!.replace(/\s+/g, ' ').trim()).toBe('① ▼ −3.2% vs KOSPI ▲ +8.1%');
+    expect([...a.querySelectorAll('b')].map((x) => (x.classList.contains('down') ? 'down' : x.classList.contains('up') ? 'up' : ''))).toEqual(['down', 'up']);
+    expect(b.textContent!.replace(/\s+/g, ' ').trim()).toBe('① ▲ +1.0%');
   });
 
   it('＋ 새 기준 adds a numbered criteria with the data range as its period and opens it', async () => {

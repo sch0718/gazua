@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
 import { makeTestApp, itemsOf } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import { ApiError } from '../lib/providers/errors';
 import { newStrategy } from '../lib/sim/defaults';
 import { newCriteria } from '../lib/screen/defaults';
+import { validationResult } from '../lib/ui/screen/resultFixture';
 import { simulate } from '../lib/sim/simulate';
 import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
 import { kstEpoch } from '../lib/time/kst';
@@ -740,6 +741,11 @@ describe('Simulate 선정 기준 탭', () => {
   const OLD = { collectedAt: '2026-08-01T09:00:00+09:00', stocks: 30, range: RANGE };
   const SECTORS = [{ code: '00013', name: '전기·전자', level: 1 as const }];
 
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+    resetLwcStub();
+  });
+
   function fakeWorker() {
     const w = {
       posted: [] as { type: string }[],
@@ -768,6 +774,7 @@ describe('Simulate 선정 기준 탭', () => {
       barEnd,
       marketData: { info: async () => (o.info === undefined ? FRESH : o.info), sectors: async () => SECTORS },
       makeWorker: () => worker,
+      loadItems: async () => [{ s: '000000', n: '가짜전자', m: 'KOSPI', t: 'STOCK' }],
       now: () => NOW,
     });
     return { app, worker };
@@ -841,13 +848,33 @@ describe('Simulate 선정 기준 탭', () => {
     expect(runMsg.input.criteria.id).toBe('c0');
     expect(runMsg.input.strategies).toHaveLength(1);
     expect(worker.posted.some((m) => m.type === 'run')).toBe(true);
-    const stats = (totalPct: number) => ({ totalPct, cagrPct: 0, mddPct: 0, volPct: 0 });
-    worker.onmessage?.({
-      data: { type: 'result', result: { hold: { stats: stats(12.34) }, indices: [{ id: 'KOSPI', curve: [], stats: stats(8.06) }] } },
-    });
+    worker.onmessage?.({ data: { type: 'result', result: validationResult() } });
     await tick();
     app.navigate({ name: 'simulate', tab: 'criteria' });
-    expect(await screen.findByText('① +12.3% vs KOSPI +8.1%')).toBeTruthy();
+    expect((await screen.findByText(/vs KOSPI/)).textContent!.replace(/\s+/g, ' ')).toBe('① ▲ +12.3% vs KOSPI ▲ +8.1%');
+  });
+
+  it('the result route shows progress with a cancel while running, then the result with names, and NaN shows the failure screen', async () => {
+    const { app, worker } = setupCriteria();
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    worker.onmessage?.({ data: { type: 'progress', done: 14, total: 48 } });
+    await tick();
+    expect(screen.getByRole('status').textContent).toBe('재선정일 계산 중 14/48');
+    expect(screen.getByRole('button', { name: '취소' })).toBeTruthy();
+    worker.onmessage?.({ data: { type: 'result', result: validationResult() } });
+    await waitFor(() => expect(screen.getByRole('heading', { name: '오늘 기준 선별' })).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('가짜전자').length).toBeGreaterThan(0));
+    expect(screen.getByRole('button', { name: '관심 그룹으로 만들기' })).toBeTruthy();
+    // 다시 돌리면 NaN으로 실패
+    await fireEvent.click(screen.getByRole('button', { name: '기준 고치기' }));
+    expect(app.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '검증 실행' }));
+    worker.onmessage?.({ data: { type: 'error', code: 'invalid-number' } });
+    expect((await screen.findByRole('alert')).textContent).toBe('계산 중 잘못된 숫자가 나왔어요');
+    expect(screen.queryByRole('heading', { name: '오늘 기준 선별' })).toBeNull();
   });
 
   it('cancelling a run from the result placeholder returns to the editor and ends the worker', async () => {

@@ -3,7 +3,7 @@ import { newCriteria } from '../../screen/defaults';
 import type { ValidationResult } from '../../screen/runValidation';
 import { NOW } from '../../screen/testData';
 import { kstEpoch } from '../../time/kst';
-import { CONDITION_HELP, criteriaLine, dataAgeDays, lastResultLine, nextCriteriaName, STALE_DAYS, staleText } from './screenText';
+import { CONDITION_HELP, criteriaLine, dataAgeDays, lastResultSummary, nextCriteriaName, STALE_DAYS, staleText } from './screenText';
 
 const stats = (totalPct: number) => ({ totalPct, cagrPct: 0, mddPct: 0, volPct: 0 });
 
@@ -52,11 +52,11 @@ describe('screenText', () => {
     expect(staleText(35)).toBe('데이터가 35일 전 것이에요. 최근 기간은 검증에 빠져요');
   });
 
-  it('last result line shows ① against the first index; no index stats leaves ① alone', () => {
+  it('last result summary carries ① and the first index with stats; no index stats leaves ① alone', () => {
     const base = { hold: { stats: stats(12.34) }, indices: [{ id: 'KOSPI', curve: [], stats: stats(8.06) }] } as unknown as ValidationResult;
-    expect(lastResultLine(base)).toBe('① +12.3% vs KOSPI +8.1%');
+    expect(lastResultSummary(base)).toEqual({ hold: 12.34, index: { id: 'KOSPI', pct: 8.06 } });
     const none = { hold: { stats: stats(-3.2) }, indices: [{ id: 'KOSPI', curve: null, stats: null }] } as unknown as ValidationResult;
-    expect(lastResultLine(none)).toBe('① −3.2%');
+    expect(lastResultSummary(none)).toEqual({ hold: -3.2, index: null });
   });
 
   it('next name takes the smallest free number', () => {
