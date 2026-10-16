@@ -287,6 +287,9 @@ export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[])
   return out;
 }
 
+const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+const NO_FLOW = '이 데이터에는 투자자 매매동향이 없어요';
+
 /** 환율·유가 조건이 하나라도 켜져 있는가 */
 export const macroOn = (m: SelectionCriteria['conditions']['macro']): boolean =>
   m.usdkrw.beta.on || m.usdkrw.trend.on || m.wti.beta.on || m.wti.trend.on;
@@ -303,7 +306,7 @@ export const usesFlow = (c: SelectionCriteria): boolean => flowOn(c) || c.rank.b
 export function criteriaIssues(
   c: SelectionCriteria,
   strategies: Strategy[],
-  dataInfo?: { hasMacro: boolean; hasFlow?: boolean; themeCodes?: string[] },
+  dataInfo?: { hasMacro: boolean; hasFlow: boolean; themeCodes?: string[] },
   baskets?: Pick<Basket, 'id'>[],
 ): Issue[] {
   const out: Issue[] = [];
@@ -323,8 +326,7 @@ export function criteriaIssues(
     out.push({ section: 'conditions', text: '고점 대비 범위는 작은 값부터 적어 주세요', blocking: true });
 
   if (dataInfo && !dataInfo.hasMacro && macroOn(k.macro))
-    out.push({ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true });
-  const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+    out.push({ section: 'conditions', text: NO_MACRO, blocking: true });
   (['usdkrw', 'wti'] as const).forEach((key) => {
     const b = k.macro[key].beta;
     if (b.on && b.min > b.max)
@@ -337,7 +339,6 @@ export function criteriaIssues(
   // 같은 문구는 한 번만(조건 구역의 이슈를 남긴다)
   if (dataInfo && !dataInfo.hasMacro && c.rank.by === 'macroBeta' && !out.some((i) => i.text === NO_MACRO))
     out.push({ section: 'rank', text: NO_MACRO, blocking: true });
-  const NO_FLOW = '이 데이터에는 투자자 매매동향이 없어요';
   if (k.flow.amount.on && k.flow.amount.minPct > k.flow.amount.maxPct)
     out.push({ section: 'conditions', text: '순매수 비율의 최소가 최대보다 커요', blocking: true });
   if (dataInfo && !dataInfo.hasFlow && usesFlow(c))

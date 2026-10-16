@@ -374,20 +374,20 @@ describe('criteriaIssues: 데이터·묶음·테마', () => {
   });
 
   it('v1 데이터(hasMacro false)에서 macro 조건이 켜져 있으면 blocking', () => {
-    const out = criteriaIssues(withMacro(), [], { hasMacro: false });
+    const out = criteriaIssues(withMacro(), [], { hasMacro: false, hasFlow: true });
     expect(out).toEqual([{ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true }]);
   });
 
   it('v1 데이터라도 macro 조건이 꺼져 있으면 이슈가 없고, v2면 켜져 있어도 없다', () => {
-    expect(criteriaIssues(base(), [], { hasMacro: false })).toEqual([]);
-    expect(criteriaIssues(withMacro(), [], { hasMacro: true })).toEqual([]);
+    expect(criteriaIssues(base(), [], { hasMacro: false, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(withMacro(), [], { hasMacro: true, hasFlow: true })).toEqual([]);
   });
 
   it('macro만 켠 기준에는 조건 없음 경고를 내지 않는다', () => {
     const c = withMacro();
     c.conditions.tradingValue.on = false;
     c.conditions.rebound.on = false;
-    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
   });
 
   it('지워진 내 묶음은 경고(blocking 아님)', () => {
@@ -402,10 +402,10 @@ describe('criteriaIssues: 데이터·묶음·테마', () => {
   it('데이터에 없는 테마는 경고(blocking 아님)', () => {
     const c = base();
     c.pool.themes = ['T1', 'T9'];
-    expect(criteriaIssues(c, [], { hasMacro: true, themeCodes: ['T1'] })).toEqual([
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, themeCodes: ['T1'] })).toEqual([
       { section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false },
     ]);
-    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
   });
 });
 
@@ -434,13 +434,13 @@ describe('criteriaIssues: 민감도 범위와 환율·유가 정렬', () => {
   it('데이터에 macro가 없는데 macroBeta 정렬이면 rank 구역에서 막는다', () => {
     const c = base();
     c.rank.by = 'macroBeta';
-    expect(criteriaIssues(c, [], { hasMacro: false })).toEqual([{ section: 'rank', text: NODATA, blocking: true }]);
+    expect(criteriaIssues(c, [], { hasMacro: false, hasFlow: true })).toEqual([{ section: 'rank', text: NODATA, blocking: true }]);
   });
 
   it('macro가 있거나 dataInfo를 생략하면 macroBeta 정렬도 통과한다', () => {
     const c = base();
     c.rank.by = 'macroBeta';
-    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
     expect(criteriaIssues(c, [])).toEqual([]);
   });
 
@@ -448,7 +448,7 @@ describe('criteriaIssues: 민감도 범위와 환율·유가 정렬', () => {
     const c = base();
     c.conditions.macro.wti.trend.on = true;
     c.rank.by = 'macroBeta';
-    const out = criteriaIssues(c, [], { hasMacro: false });
+    const out = criteriaIssues(c, [], { hasMacro: false, hasFlow: true });
     expect(out.filter((i) => i.text === NODATA)).toEqual([{ section: 'conditions', text: NODATA, blocking: true }]);
     expect(out).toHaveLength(1);
   });
@@ -507,6 +507,15 @@ describe('수급 조건: sanitize', () => {
     const s = run((c) => (c.conditions.flow.streak.who = 1));
     expect(s.criteria[0].conditions.flow.streak.who).toBe('inst');
     expect(s.repaired).toBe(true);
+  });
+
+  it('최소가 최대보다 큰 수급 범위는 고치지 않는다(criteriaIssues가 막는다)', () => {
+    const r = run((c) => {
+      c.conditions.flow.amount.minPct = 10;
+      c.conditions.flow.amount.maxPct = 5;
+    });
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0].conditions.flow.amount).toMatchObject({ minPct: 10, maxPct: 5 });
   });
 
   it("rank.by 'flow'는 유효한 값이다", () => {
