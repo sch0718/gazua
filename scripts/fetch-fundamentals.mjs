@@ -68,8 +68,10 @@ const round2 = (x) => Math.round(x * 100) / 100 + 0;
 /**
  * 손익·대차 응답 행을 분기 재무로 바꾼다.
  * - 회계연도 경계는 연간 손익 행의 stac_yymm(결산 분기)이다. 그 분기는 a = 1.
- *   가장 이른 연간 행 앞, 가장 늦은 연간 행 뒤는 12개월 회계연도로 이어진다고 본다
- *   (그래서 연간 행이 아직 없는 최근 결산 분기도 a = 1이다).
+ * - 연간 행으로 확인된 회계연도만 내보낸다(D10). 가장 이른 연간 행까지, 그리고 12개월 넘게 떨어진
+ *   두 연간 행(사이 연간 행이 빠짐)의 뒤 행까지는 버린다. 마지막 연간 행 뒤로는 12개월만 남기고,
+ *   그 12개월째 분기를 a = 1(연간 행이 아직 없는 결산 분기)로 둔다.
+ * - 결산월 변경으로 회계연도 첫 분기가 3개월보다 짧으면 빈 분기다.
  * - cumulative이면 같은 회계연도 안에서 직전 누적을 빼고, 회계연도 첫 분기는 누적 그대로다.
  *   연간 행이 있는 결산 분기는 연간 값에서 같은 회계연도 직전 누적을 뺀다(분기 응답에 그 분기 누적이 있어도 연간이 우선).
  * - cumulative가 아니면 분기 값을 그대로 쓰고, 결산 분기가 분기 응답에 없으면 연간에서 같은 회계연도 앞 분기 합을 뺀다.
@@ -84,19 +86,17 @@ export function buildFin({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cu
   const aBS = byMonth(annualBS, BS_KEYS);
   const ends = [...aIS.keys()].sort((x, y) => x - y);
   if (ends.length === 0) return null;
-  const first = ends[0];
+  // 확인된 회계연도만 쓴다(D10): 연이은 두 연간 행 사이 (앞, 뒤]가 12개월 이하일 때만 한 회계연도다.
+  // 가장 이른 연간 행, 또는 12개월 넘게 떨어진(연간 행이 빠진) 마지막 자리의 뒤 연간 행이 시작 경계다.
+  let k0 = 0;
+  for (let k = 1; k < ends.length; k++) if (ends[k] - ends[k - 1] > 12) k0 = k;
+  const start = ends[k0];
   const last = ends[ends.length - 1];
+  const open = last + 12; // 마지막 연간 행 뒤 12개월을 열린 회계연도로 둔다
 
-  // 분기 m이 속한 회계연도의 결산 분기(fyEnd)와 직전 회계연도의 결산 분기(prevEnd)
+  // 분기 m(start < m <= open)이 속한 회계연도의 결산 분기(end)와 직전 회계연도의 결산 분기(prevEnd)
   const fyOf = (m) => {
-    if (m <= first) {
-      const end = first - 12 * Math.floor((first - m) / 12);
-      return { end, prevEnd: end - 12 };
-    }
-    if (m > last) {
-      const end = last + 12 * Math.ceil((m - last) / 12);
-      return { end, prevEnd: end - 12 };
-    }
+    if (m > last) return { end: open, prevEnd: last };
     const k = ends.findIndex((e) => e >= m);
     return { end: ends[k], prevEnd: ends[k - 1] };
   };
@@ -124,12 +124,12 @@ export function buildFin({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cu
     return rest;
   };
 
-  const months = [...new Set([...qIS.keys(), ...aIS.keys()])].sort((x, y) => x - y);
+  const months = [...new Set([...qIS.keys(), ...aIS.keys()])].filter((m) => m > start && m <= open).sort((x, y) => x - y);
   const rows = [];
   for (const m of months) {
-    const { end } = fyOf(m);
-    // 결산월과 3개월 단위로 맞지 않는 분기는 쓰지 않는다
-    if ((end - m) % 3 !== 0) continue;
+    const { end, prevEnd } = fyOf(m);
+    // 결산월과 3개월 단위로 맞지 않는 분기, 결산월 변경으로 3개월보다 짧아진 첫 분기는 빈 분기다
+    if ((end - m) % 3 !== 0 || m - prevEnd < 3) continue;
     const bsRow = qBS.get(m) ?? (m === end ? aBS.get(m) : undefined);
     const v = {};
     for (const k of IS_KEYS) v[k] = income(m, k);
@@ -139,9 +139,9 @@ export function buildFin({ annualIS, quarterIS, quarterBS, annualBS = [] }, { cu
   }
   if (rows.length === 0) return null;
 
-  let start = rows.length - 1;
-  while (start > 0 && rows[start - 1].m === rows[start].m - 3) start--;
-  const seg = rows.slice(start);
+  let from = rows.length - 1;
+  while (from > 0 && rows[from - 1].m === rows[from].m - 3) from--;
+  const seg = rows.slice(from);
   const col = (k) => seg.map((r) => round2(r[k]));
   return { q: seg.map((r) => toYm(r.m)), a: seg.map((r) => r.a), rev: col('rev'), op: col('op'), ni: col('ni'), eq: col('eq'), debt: col('debt') };
 }
