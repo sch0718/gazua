@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { IDBFactory } from 'fake-indexeddb';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +11,7 @@ import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
 import SnackbarHost from '../components/SnackbarHost.svelte';
 import { dismissSnackbar } from '../components/snackbarStore.svelte';
+import { openMarketData, type ImportDeps } from '../../marketData/store';
 import DataTools from './DataTools.svelte';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
@@ -134,5 +139,64 @@ describe('DataTools', () => {
     await fireEvent.click(screen.getByRole('button', { name: '캐시 비우기' }));
     await waitFor(() => expect(clear).toHaveBeenCalled());
     expect(await screen.findByText('0.0 MB')).toBeTruthy();
+  });
+
+  describe('시장 데이터', () => {
+    const gz = readFileSync('tests/fixtures/market-data-demo.json.gz');
+    const decompress = async (b: Blob) => gunzipSync(Buffer.from(await b.arrayBuffer())).toString('utf8');
+    const roomy = async () => ({ quota: 10 ** 12, usage: 0 });
+    let marketData = openMarketData();
+
+    async function mount(marketImportDeps: ImportDeps = { decompress, estimate: roomy }) {
+      globalThis.indexedDB = new IDBFactory();
+      marketData = openMarketData();
+      const app = makeTestApp({ groups: [], now: NOW, settings: { provider: 'kis' } });
+      apps.push(app);
+      render(SnackbarHost);
+      render(DataTools, { app, estimate: async () => 0, marketData, marketImportDeps });
+      return app;
+    }
+    const pick = (f: File) => fireEvent.change(screen.getByLabelText('시장 데이터 파일'), { target: { files: [f] } });
+    const demo = () => new File([gz], 'market-data-20261016.json.gz');
+
+    it('imports a file and shows the summary line; 지우기 removes it', async () => {
+      await mount();
+      expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
+      await pick(demo());
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15')).toBeTruthy();
+      await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
+      await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
+      expect(await marketData.info()).toBeNull();
+    });
+
+    it('shows the corrupt-file message and keeps what was there', async () => {
+      await mount();
+      await pick(demo());
+      await screen.findByText(/^수집 /);
+      await pick(new File(['x'], 'bad.json.gz'));
+      // 두 번째 파일은 기본 decompress 대신 주입된 것으로 풀리므로 gzip이 아니어서 실패한다
+      expect(await screen.findByText('파일을 읽을 수 없어요. 수집을 다시 해 주세요')).toBeTruthy();
+      expect(screen.getByText(/^수집 2026-10-16/)).toBeTruthy();
+    });
+
+    it('shows the newer-version message', async () => {
+      const j = JSON.parse(await decompress(new Blob([gz])));
+      await mount({ decompress: async () => JSON.stringify({ ...j, version: 2 }), estimate: roomy });
+      await pick(demo());
+      expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
+    });
+
+    it('shows the needed MB when space is short', async () => {
+      await mount({ decompress, estimate: async () => ({ quota: 100, usage: 0 }) });
+      await pick(demo());
+      expect(await screen.findByText(/^저장 공간이 부족해요\(필요 약 \d+ MB\)$/)).toBeTruthy();
+    });
+
+    it('warns when the browser refuses persistence', async () => {
+      Object.defineProperty(navigator, 'storage', { value: { persist: async () => false }, configurable: true });
+      await mount();
+      await pick(demo());
+      expect(await screen.findByText('브라우저가 공간이 부족할 때 지울 수 있어요')).toBeTruthy();
+    });
   });
 });

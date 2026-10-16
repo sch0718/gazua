@@ -5,6 +5,7 @@
   import { exportFileName } from '../../state/exportImport';
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { fmtMB } from '../format';
+  import { openMarketData, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
 
   let {
     app,
@@ -12,6 +13,8 @@
     estimate,
     now = () => Date.now(),
     confirmFn = (m: string) => window.confirm(m),
+    marketData = openMarketData(),
+    marketImportDeps,
   }: {
     app: App;
     download?: (filename: string, text: string) => void;
@@ -19,6 +22,9 @@
     estimate?: () => Promise<number>;
     now?: () => number;
     confirmFn?: (message: string) => boolean;
+    marketData?: MarketDataStore;
+    /** 시장 데이터 가져오기의 풀기·공간 확인 주입(테스트용). 기본은 브라우저 구현. */
+    marketImportDeps?: ImportDeps;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 8);
@@ -55,6 +61,55 @@
     }
   }
   onMount(refreshUsage);
+
+  // 시장 데이터(스펙 4): 기기 단위. 프로필·내보내기와 무관하다.
+  let marketInfo = $state<MarketDataInfo | null>(null);
+  let marketBusy = $state(false);
+  let marketInput = $state<HTMLInputElement>();
+  onMount(() => {
+    marketData
+      .info()
+      .then((i) => (marketInfo = i))
+      .catch(() => {});
+  });
+
+  const marketLine = (i: MarketDataInfo) =>
+    `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}`;
+
+  async function onMarketFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || marketBusy) return;
+    marketBusy = true;
+    try {
+      const res = await marketData.importFile(file, marketImportDeps);
+      if (res.ok) {
+        marketInfo = res.info;
+        showSnackbar(res.persisted === false ? '브라우저가 공간이 부족할 때 지울 수 있어요' : '시장 데이터를 가져왔어요');
+      } else if (res.reason === 'version-newer') {
+        showSnackbar('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요');
+      } else if (res.reason === 'quota') {
+        showSnackbar(`저장 공간이 부족해요(필요 약 ${res.neededMb ?? '?'} MB)`);
+      } else {
+        showSnackbar('파일을 읽을 수 없어요. 수집을 다시 해 주세요');
+      }
+    } catch {
+      showSnackbar('시장 데이터를 저장하지 못했어요');
+    } finally {
+      marketBusy = false;
+    }
+  }
+
+  async function clearMarket() {
+    try {
+      await marketData.clear();
+      marketInfo = null;
+      showSnackbar('시장 데이터를 지웠어요');
+    } catch {
+      showSnackbar('시장 데이터를 지우지 못했어요');
+    }
+  }
 
   function exportNow() {
     // 키가 든 파일은 가진 사람 누구나 쓸 수 있어서 한 번 더 확인한다
@@ -142,6 +197,32 @@
       aria-label="가져올 파일"
       tabindex="-1"
       onchange={onFile}
+    />
+  </div>
+
+  <div class="row">
+    <div class="text">
+      <b>시장 데이터 가져오기</b>
+      <p class="num">{marketBusy ? '가져오는 중…' : marketInfo ? marketLine(marketInfo) : '수집한 .json.gz 파일을 가져와요.'}</p>
+    </div>
+    {#if marketInfo}
+      <button type="button" class="btn" disabled={marketBusy} onclick={clearMarket}>지우기</button>
+    {/if}
+    <button
+      type="button"
+      class="btn"
+      aria-label="시장 데이터 가져오기"
+      disabled={marketBusy}
+      onclick={() => marketInput?.click()}
+    >가져오기</button>
+    <input
+      bind:this={marketInput}
+      class="sr-only"
+      type="file"
+      accept=".gz,application/gzip"
+      aria-label="시장 데이터 파일"
+      tabindex="-1"
+      onchange={onMarketFile}
     />
   </div>
 
