@@ -55,7 +55,8 @@ export async function fetchInvestorFlow(client, symbol, { from, to }) {
       if (f === undefined || i === undefined || p === undefined) continue;
       if (!rows.has(d)) rows.set(d, { d, f, i, p });
     }
-    if (oldest === '' || oldest === prevOldest || oldest <= from) break;
+    // 가장 오래된 날이 커서보다 과거가 아니면(되풀이·오작동) 멈춘다
+    if (oldest === '' || oldest >= cursor || oldest === prevOldest || oldest <= from) break;
     prevOldest = oldest;
     cursor = prevDay(oldest);
   }

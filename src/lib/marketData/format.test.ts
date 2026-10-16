@@ -39,7 +39,7 @@ describe('validateMarketData', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('version 4은 version-newer다', () => {
+  it('version 4는 version-newer다', () => {
     expect(validateMarketData({ ...sample(), version: 4 })).toEqual({ ok: false, reason: 'version-newer' });
   });
 
@@ -193,10 +193,34 @@ describe('validateMarketData v3', () => {
   it('v1은 hasMacroFormat이 거짓, v2는 참이다', () => {
     const a = validateMarketData(sample());
     const b = validateMarketData(sampleV2());
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
     if (a.ok && b.ok) {
       expect(hasMacroFormat(a.data)).toBe(false);
       expect(hasMacroFormat(b.data)).toBe(true);
     }
+  });
+
+  it('v3에서 macro가 없으면 format이다', () => {
+    const x = sampleV3();
+    delete x.macro;
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+  });
+
+  it('v3에서 themes가 없으면 format이다', () => {
+    const x = sampleV3();
+    delete x.themes;
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+  });
+
+  it('v3에서 macro가 깨지면 v2와 같은 이유(corrupt)다', () => {
+    const v2 = sampleV2();
+    v2.macro.usdkrw.v = [1340.5, 0];
+    const v3 = sampleV3();
+    v3.macro.usdkrw.v = [1340.5, 0];
+    const r2 = validateMarketData(v2);
+    expect(r2).toEqual({ ok: false, reason: 'corrupt' });
+    expect(validateMarketData(v3)).toEqual(r2);
   });
 
   it('수급 끝이 마지막 일봉보다 앞서도 ok다', () => {

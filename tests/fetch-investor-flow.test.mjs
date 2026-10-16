@@ -57,10 +57,10 @@ test('빈 응답이면 멈춘다', async () => {
 });
 
 test('같은 날짜가 반복되면 멈춘다', async () => {
-  const same = [row('20261016', 1, 1, 1)];
-  const c = fakeClient({ 20261016: same, 20261015: same });
+  const same = [row('20261015', 1, 1, 1)];
+  const c = fakeClient({ 20261016: same, 20261014: same, 20261013: same });
   const r = await fetchInvestorFlow(c, '005930', { from: '20260101', to: '20261016' });
-  assert.deepEqual(r.map((x) => x.d), ['20261016']);
+  assert.deepEqual(r.map((x) => x.d), ['20261015']);
   assert.equal(c.calls.length, 2);
 });
 
@@ -132,4 +132,43 @@ test('alignFlow: 일봉에 없는 수급 날짜는 버린다', () => {
 test('alignFlow: 남는 날이 없으면 null이다', () => {
   assert.equal(alignFlow(['20261012'], [r('20261001')]), null);
   assert.equal(alignFlow(['20261012'], []), null);
+});
+
+test('to 뒤의 행은 버린다', async () => {
+  const c = fakeClient({ 20261015: [row('20261016', 9, 9, 9), row('20261015', 1, 1, 1)] });
+  const r = await fetchInvestorFlow(c, '005930', { from: '20261015', to: '20261015' });
+  assert.deepEqual(r.map((x) => x.d), ['20261015']);
+});
+
+test('from 앞의 행은 버린다', async () => {
+  const c = fakeClient({ 20261016: [row('20261016', 1, 1, 1), row('20261005', 5, 5, 5)] });
+  const r = await fetchInvestorFlow(c, '005930', { from: '20261010', to: '20261016' });
+  assert.deepEqual(r.map((x) => x.d), ['20261016']);
+});
+
+test('필드가 빠진 행은 건너뛴다', async () => {
+  const bad = { stck_bsop_date: '20261015', frgn_ntby_tr_pbmn: '1' };
+  const c = fakeClient({ 20261016: [row('20261016', 1, 1, 1), bad, { frgn_ntby_tr_pbmn: '1' }] });
+  const r = await fetchInvestorFlow(c, '005930', { from: '20261016', to: '20261016' });
+  assert.deepEqual(r.map((x) => x.d), ['20261016']);
+});
+
+test('더 최근 행만 돌려주는 오작동 API면 1번 호출 뒤 멈춘다', async () => {
+  const c = fakeClient({ 20261010: [row('20261016', 1, 1, 1)], 20261015: [row('20261016', 1, 1, 1)] });
+  const r = await fetchInvestorFlow(c, '005930', { from: '20260101', to: '20261010' });
+  assert.equal(c.calls.length, 1);
+  assert.deepEqual(r, []);
+});
+
+test('alignFlow: 첫 일봉에 수급이 없어도 나머지는 맞춘다', () => {
+  const a = alignFlow(['20261012', '20261013', '20261014'], [r('20261013'), r('20261014')]);
+  assert.equal(a.from, '20261013');
+  assert.equal(a.f.length, 2);
+});
+
+test('alignFlow: 중간 빈 날과 끝 빈 날이 함께 있다', () => {
+  const bars = ['20261012', '20261013', '20261014', '20261015', '20261016'];
+  const a = alignFlow(bars, [r('20261012'), r('20261014'), r('20261015')]);
+  assert.equal(a.from, '20261014');
+  assert.equal(a.f.length, 2);
 });
