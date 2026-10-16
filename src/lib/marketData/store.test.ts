@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { IDBFactory } from 'fake-indexeddb';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { validateMarketData } from './format';
 import { openMarketData } from './store';
 
@@ -33,7 +33,63 @@ describe('market data fixture', () => {
   });
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 describe('market data store', () => {
+  // B는 A와 달라야 바뀌었는지 가려낼 수 있다
+  async function fileB() {
+    const j = JSON.parse(await decompress(file()));
+    j.collectedAt = '2026-11-01T09:00:00+09:00';
+    j.stocks = j.stocks.slice(0, 5);
+    return JSON.stringify(j);
+  }
+  // 두 번째 put(요약 쓰기)이 첫 put 뒤에 실패하게 한다
+  function failSecondPut(err: Error) {
+    const real = IDBObjectStore.prototype.put;
+    let calls = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...a: [unknown, IDBValidKey?]) {
+      if (++calls === 2) throw err;
+      return real.apply(this, a);
+    });
+  }
+
+  it('mid-write failure: result is not ok and info() and load() still return A', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const infoA = await store.info();
+    const dataA = await store.load();
+    failSecondPut(new Error('boom'));
+    const text = await fileB();
+    await expect(store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy })).rejects.toThrow('boom');
+    vi.restoreAllMocks();
+    expect(await store.info()).toEqual(infoA);
+    expect(await store.load()).toEqual(dataA);
+  });
+
+  it('QuotaExceededError on write: reason quota, and info() and load() still return A', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const infoA = await store.info();
+    const dataA = await store.load();
+    failSecondPut(new DOMException('full', 'QuotaExceededError'));
+    const text = await fileB();
+    const res = await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(res).toMatchObject({ ok: false, reason: 'quota' });
+    vi.restoreAllMocks();
+    expect(await store.info()).toEqual(infoA);
+    expect(await store.load()).toEqual(dataA);
+  });
+
+  it('same-size re-import is accepted when the stored file is credited as free space', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const raw = new TextEncoder().encode(await decompress(file())).byteLength;
+    // 남은 공간은 A 크기의 1.2배보다 작지만, 교체로 돌려받는 몫을 더하면 충분하다
+    const tight = async () => ({ quota: raw * 1.2 * 0.5, usage: 0 });
+    expect(await store.importFile(file(), { decompress, estimate: tight })).toMatchObject({ ok: true });
+  });
+
+
   it('imports a file and reports info and data', async () => {
     const store = openMarketData();
     expect(await store.info()).toBeNull();
