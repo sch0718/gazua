@@ -2,8 +2,12 @@
   // 시뮬레이션 화면. 전략을 고르지 않았으면 목록, 골랐으면 편집과 결과.
   // 좁은 화면은 실행하면 결과가 편집을 대신하고(머리줄 `규칙`↔`결과`로 오감), PC(≥1024)는 좌우로 둘 다 보인다.
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
-  import { onDestroy, tick, untrack, type Snippet } from 'svelte';
+  import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
+  import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector } from '../lib/marketData/store';
+  import type { UniverseItem } from '../lib/data/universe';
+  import type { SelectionCriteria } from '../lib/screen/types';
+  import { createValidationController, type WorkerLike } from '../lib/screen/validationController.svelte';
   import type { Strategy } from '../lib/sim/types';
   import { strategyIssues, type Issue } from '../lib/sim/validate';
   import type { App } from '../lib/state/app.svelte';
@@ -11,13 +15,38 @@
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import { sharedUniverse } from '../sheets/universeSource';
+  import CriteriaEditor from '../lib/ui/screen/CriteriaEditor.svelte';
+  import CriteriaList from '../lib/ui/screen/CriteriaList.svelte';
+  import MarketDataNotice from '../lib/ui/screen/MarketDataNotice.svelte';
+  import { dataAgeDays, lastResultSummary, type LastResult } from '../lib/ui/screen/screenText';
+  import ValidationResult from '../lib/ui/screen/ValidationResult.svelte';
+  import ValidationRun from '../lib/ui/screen/ValidationRun.svelte';
+  import SimulateTabs, { type SimulateTab } from '../lib/ui/screen/SimulateTabs.svelte';
   import RunPanel from '../lib/ui/simulate/RunPanel.svelte';
   import { createRunController } from '../lib/ui/simulate/runController.svelte';
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
   import { rulesChanged } from '../lib/ui/simulate/strategyActions.svelte';
 
-  let { app, barEnd }: { app: App; barEnd: Snippet<[boolean]> } = $props();
+  let {
+    app,
+    barEnd,
+    marketData = openMarketData(),
+    makeWorker,
+    loadItems = sharedUniverse,
+    now = Date.now,
+  }: {
+    app: App;
+    barEnd: Snippet<[boolean]>;
+    /** 가져온 시장 데이터(선정 기준 탭). 테스트는 가짜를 넣는다 */
+    marketData?: Pick<MarketDataStore, 'info' | 'sectors'>;
+    /** 검증 Worker 만들기. 테스트는 가짜를 넣는다 */
+    makeWorker?: () => WorkerLike;
+    /** 종목 이름표(오늘 기준 선별·선정 이력). 테스트는 가짜를 넣는다 */
+    loadItems?: () => Promise<UniverseItem[]>;
+    now?: () => number;
+  } = $props();
 
   const strategy = $derived(app.strategies.find((s) => s.id === app.route.strategyId) ?? null);
 
@@ -93,6 +122,101 @@
     else run(draft);
   }
 
+  // ── 선정 기준 탭 ──
+  const criteriaTab = $derived(app.route.tab === 'criteria');
+  const crit = $derived(criteriaTab ? (app.criteria.find((c) => c.id === app.route.criteriaId) ?? null) : null);
+  const resultView = $derived(crit !== null && app.route.view === 'result');
+  const tabKey: SimulateTab = $derived(criteriaTab ? 'criteria' : 'rules');
+  const panelId = `sim-panel-${Math.random().toString(36).slice(2, 9)}`;
+
+  // 검증은 Worker가 돌린다. 결과는 이 컨트롤러 메모리에만 있다(화면을 떠나면 버린다)
+  const vctl = createValidationController({ makeWorker: untrack(() => makeWorker) });
+  onDestroy(() => vctl.cancel());
+  // 선정 기준 탭을 떠나면 Worker(전 종목 데이터와 미리 계산을 쥐고 있다)를 끝낸다. 다음에 쓸 때 다시 만든다
+  $effect(() => {
+    if (!criteriaTab) untrack(() => vctl.cancel());
+  });
+  // 결과 화면은 실행할 때의 이름·자본을 쓴다(실행 뒤 기준이 바뀌어도 결과와 맞게)
+  let runSnap = $state.raw<{ name: string; capital: number } | null>(null);
+  // undefined = 아직 읽는 중
+  let info = $state.raw<MarketDataInfo | null | undefined>(undefined);
+  let sectors = $state.raw<MarketSector[]>([]);
+  onMount(() => {
+    marketData.info().then(
+      (i) => {
+        info = i;
+        if (i) marketData.sectors().then((x) => (sectors = x), () => {});
+      },
+      () => (info = null),
+    );
+  });
+  let staleDismissed = $state(false);
+  // 닫은 경고는 다음 실행까지 숨긴다
+  const ageDays = $derived(info && !staleDismissed ? dataAgeDays(info.collectedAt, now()) : null);
+  const dataRange = $derived(info?.range ?? null);
+  // 목록 행의 마지막 결과(이 탭에서 실행한 것만, 화면을 떠나면 사라진다)
+  let lastResults = $state.raw<Record<string, LastResult>>({});
+  let runId = $state<string | null>(null);
+  let resultHead = $state<HTMLElement>();
+  let criteriaEditor = $state<CriteriaEditor>();
+
+  $effect(() => {
+    void app.meta.activeProfileId;
+    untrack(() => {
+      vctl.cancel();
+      runId = null;
+      lastResults = {};
+    });
+  });
+  $effect(() => {
+    if (vctl.state !== 'done' || !vctl.result || runId === null) return;
+    const line = lastResultSummary(vctl.result);
+    const id = runId;
+    untrack(() => (lastResults = { ...lastResults, [id]: line }));
+  });
+  // 결과가 나오면 종목 이름을 한 번 읽는다(못 읽으면 코드로 보인다)
+  let names = $state.raw<Record<string, string>>({});
+  let namesLoaded = false;
+  $effect(() => {
+    if (vctl.state !== 'done' || namesLoaded) return;
+    namesLoaded = true;
+    untrack(() =>
+      loadItems().then(
+        (list) => (names = Object.fromEntries(list.map((i) => [i.s, i.n]))),
+        () => (namesLoaded = false),
+      ),
+    );
+  });
+  // 실행 없이 결과 주소로 들어오면(새로 고침·다른 기준) 편집으로 돌려보낸다
+  $effect(() => {
+    if (!resultView || !crit) return;
+    if (vctl.state === 'idle' || runId !== crit.id) {
+      const id = crit.id;
+      untrack(() => app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: id }));
+    }
+  });
+
+  function selectTab(t: SimulateTab) {
+    app.navigate(t === 'criteria' ? { name: 'simulate', tab: 'criteria' } : { name: 'simulate' });
+  }
+  function runCriteria(c: SelectionCriteria) {
+    runId = c.id;
+    runSnap = { name: c.name, capital: c.capital };
+    staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
+    vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[] });
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id, view: 'result' });
+    // 누른 실행 버튼이 사라지므로 결과 자리로 포커스
+    void tick().then(() => resultHead?.focus());
+  }
+  function cancelCriteria() {
+    const id = crit?.id;
+    vctl.cancel();
+    if (!id) return;
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: id });
+    void tick().then(() => criteriaEditor?.focusRun());
+  }
+  const goData = () => app.navigate({ name: 'settings', section: 'data' });
+
   // 경로를 바로잡았다는 안내(없는 전략)는 여기서 한 번만 보여 준다.
   // 프로필 전환 때는 App이 같은 흐름에서 스낵바를 닫으므로, 그것이 끝난 뒤(tick) 띄운다.
   $effect(() => {
@@ -109,7 +233,10 @@
   {/snippet}
 
   {#snippet bar()}
-    {#if strategy}
+    {#if crit}
+      <button type="button" class="back" aria-label={resultView ? '기준 편집으로' : '선정 기준 목록으로'} onclick={() => (resultView ? cancelCriteria() : app.navigate({ name: 'simulate', tab: 'criteria' }))}>‹</button>
+      <span class="title">시뮬레이션</span>
+    {:else if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
       <span class="title">시뮬레이션</span>
       <!-- `규칙`↔`결과`는 같은 버튼(이름·동작만 바뀐다): 눌러도 포커스가 남는다 -->
@@ -125,7 +252,35 @@
 
   {#snippet main()}
     {#key app.meta.activeProfileId}
-      {#if strategy}
+      {#if crit}
+        {#if resultView}
+          <div class="result">
+            <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
+            {#if vctl.state === 'done' && vctl.result}
+              <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
+              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} />
+            {:else}
+              <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
+            {/if}
+          </div>
+        {:else if info !== undefined}
+          <!-- 기준마다 편집기를 새로 만든다 -->
+          {#key crit.id}
+            <div class="notice">
+              <MarketDataNotice {info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
+            </div>
+            <CriteriaEditor
+              bind:this={criteriaEditor}
+              {app}
+              criteria={crit}
+              {info}
+              {sectors}
+              preview={(input) => vctl.preview(input)}
+              onRun={runCriteria}
+            />
+          {/key}
+        {/if}
+      {:else if strategy}
         <!-- 전략마다 편집기를 새로 만든다. 좁은 화면에서 결과로 바꾸면 편집기는 저장하고 내려간다. -->
         {#key strategy.id}
           <div class="sim" class:split={wide}>
@@ -152,7 +307,19 @@
           </div>
         {/key}
       {:else}
-        <StrategyList {app} />
+        <SimulateTabs tab={tabKey} onselect={selectTab} {panelId} />
+        <div role="tabpanel" id={panelId} aria-label={criteriaTab ? '선정 기준' : '매매 규칙'}>
+          {#if criteriaTab}
+            {#if info !== undefined}
+              <div class="notice">
+                <MarketDataNotice info={info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
+              </div>
+            {/if}
+            <CriteriaList {app} {dataRange} {lastResults} {sectors} />
+          {:else}
+            <StrategyList {app} />
+          {/if}
+        </div>
       {/if}
     {/key}
   {/snippet}
@@ -199,5 +366,31 @@
   }
   .pane {
     min-width: 0;
+  }
+  .notice {
+    max-width: 720px;
+    padding: 0 var(--gutter) 8px;
+  }
+  .notice:empty {
+    display: none;
+  }
+  .result {
+    max-width: 720px;
+    padding: 4px var(--gutter);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .result h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+  .cancel {
+    min-height: var(--touch);
+    padding: 0 20px;
+    border-radius: 12px;
+    background: var(--surface);
+    font-weight: 700;
+    align-self: flex-start;
   }
 </style>

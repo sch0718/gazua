@@ -181,6 +181,7 @@ describe('skipReasonLabel', () => {
     expect(skipReasonLabel('현금 부족')).toBe('현금이 모자랐어요');
     expect(skipReasonLabel('1주가 1회 금액보다 비쌈')).toBe('1주가 회당 금액보다 비싸요');
     expect(skipReasonLabel('거래 없음')).toBe('그날 거래가 없었어요');
+    expect(skipReasonLabel('선정 기간이 아니에요')).toBe('선정 기간이 아니에요');
   });
 });
 

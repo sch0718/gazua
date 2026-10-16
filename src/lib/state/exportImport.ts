@@ -13,6 +13,9 @@ import {
 } from './schema';
 import { isLocked, type LockedSecrets, type Secrets } from './secrets';
 import type { SafeStorage } from './storage';
+import { loadCriteria } from '../screen/criteriaStore';
+import { sanitizeCriteria } from '../screen/validate';
+import type { SelectionCriteria } from '../screen/types';
 import { loadStrategies } from '../sim/strategyStore';
 import { sanitizeStrategies } from '../sim/validate';
 import type { Strategy } from '../sim/types';
@@ -34,6 +37,7 @@ export interface ExportFile {
   watchlists: Watchlists;
   recent: string[];
   strategies?: Strategy[];
+  criteria?: SelectionCriteria[];
   secrets?: Secrets | LockedSecrets;
 }
 
@@ -83,6 +87,7 @@ export function exportData(st: SafeStorage, profileId: string, includeSecrets: b
     watchlists: loadWatchlists(st, profileId),
     recent: loadRecent(st, profileId),
     strategies: loadStrategies(st, profileId),
+    criteria: loadCriteria(st, profileId),
   };
   if (includeSecrets) {
     const raw = st.get<unknown>(profileKeys.secrets(profileId), null);
@@ -123,6 +128,8 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
 
   if (file.strategies !== undefined && !Array.isArray(file.strategies)) return fail(IMPORT_BAD_FORMAT);
   const { strategies, repaired: strategiesRepaired } = sanitizeStrategies(file, now());
+  if (file.criteria !== undefined && !Array.isArray(file.criteria)) return fail(IMPORT_BAD_FORMAT);
+  const { criteria, repaired: criteriaRepaired } = sanitizeCriteria(file, now());
 
   let secrets: Secrets | LockedSecrets | null = null;
   if (file.secrets !== undefined) {
@@ -139,10 +146,11 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   st.set(profileKeys.watchlists(id), watchlists);
   st.set(profileKeys.recent(id), recent);
   st.set(profileKeys.strategies(id), { strategies });
+  st.set(profileKeys.criteria(id), { criteria });
   if (secrets) st.set(profileKeys.secrets(id), secrets);
   // 색인은 마지막에 쓴다(중간에 실패해도 반쯤 만든 프로필이 목록에 보이지 않게).
   const meta: Meta = loadMeta(st);
   st.set(META_KEY, { ...meta, profiles: [...meta.profiles, { id, name: `${name} (가져옴)`, createdAt: now() }] });
   // 관심종목은 하나라도 틀리면 위에서 거절하므로 고침으로 세지 않는다
-  return { ok: true, profileId: id, repaired: invalid.length > 0 || strategiesRepaired || recentRepaired };
+  return { ok: true, profileId: id, repaired: invalid.length > 0 || strategiesRepaired || criteriaRepaired || recentRepaired };
 }

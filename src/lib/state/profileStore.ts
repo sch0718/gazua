@@ -17,6 +17,7 @@ export const profileKeys = {
   tokenIssuedAt: (id: string, provider: 'kis') => `p:${id}:tokenIssuedAt:${provider}`,
   recent: (id: string) => `p:${id}:recent`,
   strategies: (id: string) => `p:${id}:strategies`,
+  criteria: (id: string) => `p:${id}:criteria`,
 };
 
 export const RECENT_MAX = 5;

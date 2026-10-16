@@ -17,7 +17,7 @@
     open: boolean;
     ontoggle: () => void;
     /** id는 포커스를 옮길 때 쓰는 Banner의 id */
-    issues?: { id: string; issue: Issue }[];
+    issues?: { id: string; issue: Pick<Issue, 'text' | 'blocking'> }[];
     children: Snippet;
   } = $props();
 

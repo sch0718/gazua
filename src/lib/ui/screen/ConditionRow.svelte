@@ -1,0 +1,55 @@
+<script lang="ts">
+  // 조건 하나: 이름 · 켜기 토글 · 한 줄 설명 · (아래에) 숫자 칸. 꺼도 칸은 흐리게 보이고 계속 고칠 수 있다.
+  import type { Snippet } from 'svelte';
+  import Toggle from '../components/Toggle.svelte';
+
+  let {
+    label,
+    help,
+    on,
+    ontoggle,
+    children,
+  }: { label: string; help: string; on: boolean; ontoggle: (v: boolean) => void; children: Snippet } = $props();
+
+  const uid = Math.random().toString(36).slice(2, 9);
+</script>
+
+<div class="cond" class:off={!on}>
+  <div class="row">
+    <label for="cond-{uid}">{label}</label>
+    <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} />
+  </div>
+  <p class="help">{help}</p>
+  <div class="fields">{@render children()}</div>
+</div>
+
+<style>
+  .cond {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+  }
+  .cond:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .row label {
+    font-weight: 700;
+  }
+  .help {
+    margin: 0;
+    font-size: var(--fs-sub);
+    color: var(--t2);
+    word-break: keep-all;
+  }
+  .fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fields :global(.field) {
+    flex: none;
+  }
+</style>

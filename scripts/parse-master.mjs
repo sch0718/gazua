@@ -5,6 +5,13 @@
 // 2026-10-11 실제 파일 기준: 그룹코드는 뒷부분의 [0:2]에 있다.
 
 const TAIL_LENGTH = { KOSPI: 227, KOSDAQ: 221 };
+// detail 옵션에서 읽는 뒷부분 오프셋(KIS 공개 파서 기준, 2026-10-16 실제 파일로 확인).
+//   업종 대·중·소는 3·7·11에서 각 4바이트, 상장주수는 천 주 단위 15바이트.
+const DETAIL_OFFSET = {
+  KOSPI: { shares: 113, managed: 62, halted: 60 },
+  KOSDAQ: { shares: 108, managed: 57, halted: 55 },
+};
+const SECTOR_OFFSETS = [3, 7, 11];
 const GROUP_TYPE = { ST: 'STOCK', EF: 'ETF', EN: 'ETN', RT: 'REIT' };
 // 주식·ETF·리츠는 6자리, ETN은 'Q' + 6자리(7자). 펀드(F7…)·워런트(J…) 등은 걸러진다.
 const SYMBOL_PATTERN = /^(?:[0-9A-Z]{6}|Q[0-9A-Z]{6})$/;
@@ -17,9 +24,11 @@ const ascii = new TextDecoder('ascii');
 /**
  * @param {Uint8Array} bytes
  * @param {'KOSPI'|'KOSDAQ'} market
- * @returns {{ s: string; n: string; m: 'KOSPI'|'KOSDAQ'; t: 'STOCK'|'ETF'|'ETN'|'REIT'|'OTHER' }[]}
+ * @param {{ detail?: boolean }} [options] detail이면 업종·상장주수(주)·관리종목·거래정지를 더한다
+ * @returns {{ s: string; n: string; m: 'KOSPI'|'KOSDAQ'; t: 'STOCK'|'ETF'|'ETN'|'REIT'|'OTHER';
+ *   sec?: [string, string, string]; shares?: number; managed?: boolean; halted?: boolean }[]}
  */
-export function parseMaster(bytes, market) {
+export function parseMaster(bytes, market, options = {}) {
   const tailLength = TAIL_LENGTH[market];
   if (tailLength === undefined) throw new Error(`unknown market: ${market}`);
 
@@ -42,7 +51,19 @@ export function parseMaster(bytes, market) {
     const name = decoder.decode(line.subarray(21, headLength)).trim();
     if (!name) continue;
     const group = ascii.decode(line.subarray(headLength, headLength + 2));
-    rows.push({ s: symbol, n: name, m: market, t: GROUP_TYPE[group] ?? 'OTHER' });
+    const row = { s: symbol, n: name, m: market, t: GROUP_TYPE[group] ?? 'OTHER' };
+    if (options.detail) {
+      const tail = line.subarray(headLength);
+      const field = (at, len) => ascii.decode(tail.subarray(at, at + len)).trim();
+      const off = DETAIL_OFFSET[market];
+      row.sec = SECTOR_OFFSETS.map((at) => field(at, 4));
+      // 마스터는 천 주 단위다. 읽을 수 없으면 0으로 둔다.
+      const thousands = Number(field(off.shares, 15));
+      row.shares = Number.isFinite(thousands) ? thousands * 1000 : 0;
+      row.managed = field(off.managed, 1) === 'Y';
+      row.halted = field(off.halted, 1) === 'Y';
+    }
+    rows.push(row);
   }
   return rows.sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
 }

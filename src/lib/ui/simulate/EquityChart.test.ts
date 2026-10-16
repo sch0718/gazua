@@ -90,4 +90,36 @@ describe('EquityChart', () => {
     unmount();
     expect(lwcCharts[0].removed).toBe(true);
   });
+
+  describe('curves mode (선정 기준 검증)', () => {
+    const pts = (vs: number[]) => vs.map((v, i) => ({ date: `2026-01-0${i + 1}`, value: v }));
+    const curves = () => [
+      { id: 'a', name: '① 선정만', color: ['--accent', '#5b47e0'] as [string, string], width: 2, dashed: false, points: pts([10_000_000, 11_000_000]) },
+      { id: 'b', name: 'KOSPI', color: ['--t2', '#5b6069'] as [string, string], width: 1.5, dashed: true, points: pts([10_000_000, 10_500_000]) },
+    ];
+
+    it('draws one series per curve in return %, with a toggle button per legend entry', async () => {
+      render(EquityChart, { initial: 10_000_000, curves: curves(), theme: 'light' });
+      await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(2));
+      expect(lwcCharts[0].series[0].data.at(-1)).toEqual({ time: '2026-01-02', value: expect.closeTo(10, 5) });
+      expect(document.querySelectorAll('.legend button')).toHaveLength(2);
+    });
+
+    it('rebalance ticks follow the time scale and are drawn only when asked for', async () => {
+      const { unmount } = render(EquityChart, { initial: 10_000_000, curves: curves(), rebalanceDates: ['2026-01-01', '2026-01-02'] });
+      await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(2));
+      lwcCharts[0].timeToX = (t) => ((t as unknown) === '2026-01-01' ? 5 : 40);
+      lwcCharts[0].fireVisibleRange();
+      await vi.waitFor(() => expect([...document.querySelectorAll<HTMLElement>('[data-rebalance-tick]')].map((e) => e.style.left)).toEqual(['5px', '40px']));
+      unmount();
+      render(EquityChart, props());
+      expect(document.querySelector('[data-rebalance-tick]')).toBeNull();
+      expect(document.querySelector('.ticks')).toBeNull();
+    });
+
+    it('the default (equity) legend has no toggle buttons', () => {
+      render(EquityChart, props());
+      expect(document.querySelector('.legend button')).toBeNull();
+    });
+  });
 });

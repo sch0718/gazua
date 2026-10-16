@@ -6,7 +6,16 @@
   import NumberField from './NumberField.svelte';
   import PatternHelp from './PatternHelp.svelte';
 
-  let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
+  let {
+    s,
+    update,
+    nf,
+  }: {
+    s: Strategy;
+    update: (fn: (s: Strategy) => void) => void;
+    /** 숫자 칸에 더 줄 속성(칸 이름 → keepInvalid·oninvalid 등). 선정 기준 화면이 틀린 값을 들고 있으려고 쓴다 */
+    nf?: (key: string) => Record<string, unknown>;
+  } = $props();
   const d = $derived(s.entry.decline);
   const t = $derived(s.entry.triggers);
   const f = $derived(s.entry.filter.aboveMa);
@@ -17,7 +26,7 @@
 <p class="hint">켠 조건을 모두 만족해야 하고, 둘 다 끄면 항상 만족해요.</p>
 <div class="row">
   <NumberField
-    label="고점 대비 하락폭"
+    label="고점 대비 하락폭" {...nf?.('dropPct')}
     value={d.dropPct.value}
     min={1}
     max={90}
@@ -29,7 +38,7 @@
 </div>
 <div class="row">
   <NumberField
-    label="고점 뒤 지난 거래일"
+    label="고점 뒤 지난 거래일" {...nf?.('days')}
     value={d.days.value}
     min={1}
     max={60}
@@ -44,7 +53,7 @@
 <p class="group-title">② 그다음 이 중 하나가 나오면 사요</p>
 <div class="row">
   <NumberField
-    label="저점 뒤 연속 상승"
+    label="저점 뒤 연속 상승" {...nf?.('rebound')}
     value={t.reboundDays.value}
     min={1}
     max={60}
@@ -75,7 +84,7 @@
 <PatternHelp />
 <div class="row">
   <NumberField
-    label="이동평균선 돌파"
+    label="이동평균선 돌파" {...nf?.('ma')}
     value={t.maCross.period}
     min={2}
     max={250}
@@ -92,17 +101,17 @@
 </div>
 <div class="indent">
   <div class="row">
-    <NumberField label="짧은 이동평균" value={t.goldenCross.short} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.short = v))} />
+    <NumberField label="짧은 이동평균" {...nf?.('short')} value={t.goldenCross.short} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.short = v))} />
   </div>
   <div class="row">
-    <NumberField label="긴 이동평균" value={t.goldenCross.long} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.long = v))} />
+    <NumberField label="긴 이동평균" {...nf?.('long')} value={t.goldenCross.long} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.long = v))} />
   </div>
 </div>
 
 <p class="group-title">③ 이 조건일 때만 사요 (선택)</p>
 <div class="row">
   <NumberField
-    label="종가가 이동평균선 위"
+    label="종가가 이동평균선 위" {...nf?.('above')}
     value={f.period}
     min={2}
     max={250}

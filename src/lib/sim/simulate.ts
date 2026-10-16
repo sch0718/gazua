@@ -27,6 +27,7 @@ export interface WalkCtx {
   taxPct: number; // 그날 매도세 %
   takeProfit: Strategy['exit']['takeProfit'];
   excluded: Set<number>; // 그날 건너뛴 추가 매수 가격
+  canBuy?: boolean; // false면 추가 매수를 하지 않는다(선정 기간 밖). 없으면 true
   trade(t: Trade): void;
   skip(reason: Skip['reason'], addPrice: number): void;
 }
@@ -63,6 +64,11 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
     if (typeof sized === 'string') {
       ctx.excluded.add(level);
       ctx.skip(sized, level);
+      return;
+    }
+    if (ctx.canBuy === false) {
+      ctx.excluded.add(level);
+      ctx.skip('선정 기간이 아니에요', level);
       return;
     }
     pos.buy(price, sized.qty);
@@ -122,6 +128,9 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
     cur = to;
   }
 }
+
+const inWindows = (w: { from: string; to: string }[] | undefined, date: string) =>
+  !w || w.some((x) => x.from <= date && date <= x.to);
 
 interface SymState {
   stock: SimInput['stocks'][number];
@@ -186,6 +195,11 @@ export function simulateCore(input: SimInput): CoreResult {
         skipped.push({ date, symbol: st.stock.symbol, reason: sized });
         continue;
       }
+      // 체결일이 선정 기간 밖이면 사려던 것만 건너뜀으로 남긴다(다른 사유가 먼저)
+      if (!inWindows(st.stock.buyWindows, date)) {
+        skipped.push({ date, symbol: st.stock.symbol, reason: '선정 기간이 아니에요' });
+        continue;
+      }
       st.pos = openPosition(price, sized.qty, s.scaleIn, s.exit);
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
@@ -209,10 +223,11 @@ export function simulateCore(input: SimInput): CoreResult {
         taxPct: sellTaxPct(settle, market, isEtf),
         takeProfit: s.exit.takeProfit,
         excluded: new Set(),
+        canBuy: inWindows(st.stock.buyWindows, date),
         trade: (t) => record(st, t),
         skip: (reason, price) => {
-          // 추가 매수 건너뜀은 (종목, 포지션, 가격)마다 한 번만 기록
-          const key = `${symbol}|${st.posSeq}|${price}`;
+          // 추가 매수 건너뜀은 (종목, 포지션, 가격)마다 한 번만 기록. 선정 기간 밖은 날짜·종목당 한 번
+          const key = reason === '선정 기간이 아니에요' ? `${date}|${symbol}|${reason}` : `${symbol}|${st.posSeq}|${price}`;
           if (skipKeys.has(key)) return;
           skipKeys.add(key);
           skipped.push({ date, symbol, reason });
