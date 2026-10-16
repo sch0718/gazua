@@ -7,7 +7,8 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect as collectReal, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { zipSync } from 'fflate';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 
 // FRED 가짜 fetch: 주 5일 관측(2024-01-01부터), 환율 > 0, 유가는 음수 한 번 포함
@@ -890,7 +891,7 @@ test('(V2) macro 기간은 일봉 시작 1년 전부터 끝까지 요청한다',
     // WINDOW = 2026-10-16, years 2 → 일봉 시작 2024-10-16 → macro 2023-10-16
     for (const p of q) {
       assert.equal(p.get('cosd'), '2023-10-16');
-      assert.ok(p.get('coed') >= '2026-10-15');
+      assert.equal(p.get('coed'), '2026-10-15');
     }
     // FRED 요청에 키·인증 헤더 없음
     for (const c of calls) assert.ok(!c.url.includes(KEY) && !c.url.includes('Bearer'));
@@ -903,7 +904,9 @@ test('(V3) FRED가 3번 모두 실패하면 빈 계열로 두고 요약에 남�
   const dir = tmpDir();
   try {
     const logs = [];
-    const { file, summary } = await run2(dir, { fredFetch: fakeFredFetch({ fail: true }).fetchImpl, log: (l) => logs.push(l) });
+    const calls = [];
+    const { file, summary } = await run2(dir, { fredFetch: fakeFredFetch({ fail: true, calls }).fetchImpl, log: (l) => logs.push(l) });
+    for (const id of ['DEXKOUS', 'DCOILWTICO']) assert.equal(calls.filter((c) => new URL(c.url).searchParams.get('id') === id).length, 3);
     assert.deepEqual(file.macro, { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
     assert.equal(file.stocks.length, 3);
     assert.deepEqual(summary.failed, []);
@@ -935,7 +938,10 @@ test('(V5) v1 파일을 --update하면 결과가 v2다', async () => {
     const v1 = { ...first.file, version: 1 };
     delete v1.macro;
     delete v1.themes;
-    const r = await collect({ years: 2, out: join(dir, 'b'), update: v1, client: clientFor(fakeKis(dataFor(70))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') });
+    const calls = [];
+    const r = await collect({ years: 2, out: join(dir, 'b'), update: v1, client: clientFor(fakeKis(dataFor(70))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo'), fredFetch: fakeFredFetch({ calls }).fetchImpl });
+    const yearBefore = `${+v1.range.from.slice(0, 4) - 1}${v1.range.from.slice(4)}`;
+    for (const c of calls) assert.equal(new URL(c.url).searchParams.get('cosd'), yearBefore);
     assert.equal(r.file.version, 2);
     assert.equal(r.file.macro.usdkrw.d.length, 30);
     assert.equal(r.file.themes.length, 2);
@@ -968,6 +974,75 @@ test('(V6) 새 경로(FRED·테마)의 로그와 파일에도 키·토큰이 없
     const calls = [];
     await run2(dir, { out: join(dir, 'p'), fredFetch: fakeFredFetch({ calls }).fetchImpl });
     for (const c of calls) for (const needle of [KEY, SECRET, TOKEN]) assert.ok(!c.url.includes(needle));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(X1) 시작일이 윤일(2024-02-29)이어도 macro 시작은 유효한 날짜(2023-03-01)다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await run2(dir);
+    const prev = { ...first.file, range: { ...first.file.range, from: '2024-02-29' } };
+    const calls = [];
+    await collect({ years: 2, out: join(dir, 'b'), update: prev, client: clientFor(fakeKis(dataFor(70))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo'), fredFetch: fakeFredFetch({ calls }).fetchImpl });
+    assert.ok(calls.length === 2);
+    for (const c of calls) assert.equal(new URL(c.url).searchParams.get('cosd'), '2023-03-01');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(X2) --update에서 FRED가 실패하면 이전 파일의 비어 있지 않은 계열을 지키고 경고한다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await run2(dir);
+    const prev = { ...first.file, macro: { usdkrw: { d: ['20260101'], v: [1400] }, wti: { d: [], v: [] } } };
+    const logs = [];
+    const r = await collect({ years: 2, out: join(dir, 'b'), update: prev, client: clientFor(fakeKis(dataFor(70))), master: master3(), now: () => WINDOW, log: (l) => logs.push(l), repoRoot: join(dir, 'repo'), fredFetch: fakeFredFetch({ fail: true }).fetchImpl });
+    assert.deepEqual(r.file.macro.usdkrw, { d: ['20260101'], v: [1400] });
+    assert.deepEqual(r.file.macro.wti, { d: [], v: [] });
+    assert.ok(logs.some((l) => l.includes('환율·유가를 받지 못했어요')));
+    assert.ok(logs.some((l) => l.includes('이전 파일의') && l.includes('usdkrw')));
+    assert.ok(logs.some((l) => l.includes('환율 1일 · 유가 0일')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(X3) 테마 마스터만 500이어도 loadMaster는 종목 마스터를 돌려주고 themeFailed를 표시한다', async () => {
+  const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.meta.url)));
+  const zips = {
+    'kospi_code.mst.zip': zipSync({ 'kospi_code.mst': fx('kospi_code.sample.mst') }),
+    'kosdaq_code.mst.zip': zipSync({ 'kosdaq_code.mst': fx('kosdaq_code.sample.mst') }),
+    'idxcode.mst.zip': zipSync({ 'idxcode.mst': new Uint8Array() }),
+    'theme_code.mst.zip': zipSync({ 'theme_code.mst': fx('theme_code.sample.mst') }),
+  };
+  const make = (themeStatus) => async (url) => {
+    const name = String(url).split('/').pop();
+    if (name === 'theme_code.mst.zip' && themeStatus !== 200) return new Response('x', { status: themeStatus });
+    return new Response(zips[name], { status: 200 });
+  };
+  const bad = await loadMaster({ fetchImpl: make(500) });
+  assert.ok(bad.stocks.length > 0);
+  assert.deepEqual(bad.themes, []);
+  assert.equal(bad.themeFailed, true);
+  const ok = await loadMaster({ fetchImpl: make(200) });
+  assert.equal(ok.themes.length, 2);
+  assert.ok(!ok.themeFailed);
+  // 테마 zip 안에 파일이 없어도 같다
+  zips['theme_code.mst.zip'] = zipSync({ 'other.txt': new Uint8Array([1]) });
+  assert.equal((await loadMaster({ fetchImpl: make(200) })).themeFailed, true);
+});
+
+test('(X4) master.themeFailed면 collect가 테마를 받지 못했다고 알리고 테마 0개로 쓴다', async () => {
+  const dir = tmpDir();
+  try {
+    const logs = [];
+    const { file } = await run2(dir, { master: { ...master3(), themes: [], themeFailed: true }, log: (l) => logs.push(l) });
+    assert.deepEqual(file.themes, []);
+    assert.ok(logs.some((l) => l.includes('테마를 받지 못했어요')));
+    assert.ok(logs.some((l) => l.includes('테마 0개')));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

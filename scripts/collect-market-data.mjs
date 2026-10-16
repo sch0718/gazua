@@ -174,7 +174,7 @@ export async function writeGzipJson(path, file, { sink } = {}) {
 
 /**
  * @param {{ years?: number; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
- *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number };
+ *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number; themeFailed?: boolean };
  *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
@@ -316,19 +316,26 @@ export async function collect({ years = 5, out, update, client, master, now = Da
   });
 
   // 환율·유가: 일봉 시작 1년 전부터(β 워밍업). 실패해도 수집은 계속하고 그 계열만 비운다.
-  const macroFrom = dashed(`${+from.slice(0, 4) - 1}${from.slice(4)}`);
+  // 윤일(2월 29일)도 유효한 날짜가 되도록 Date.UTC로 계산한다(2024-02-29 → 2023-03-01)
+  const macroFrom = new Date(Date.UTC(+from.slice(0, 4) - 1, +from.slice(4, 6) - 1, +from.slice(6, 8))).toISOString().slice(0, 10);
   const macro = {};
   let macroFailed = false;
   for (const [key, id] of Object.entries(FRED_IDS)) {
     try {
       macro[key] = await fetchFredSeries(id, { fetchImpl: fredFetch, sleep, from: macroFrom, to: dashed(to) });
     } catch (e) {
-      macro[key] = { d: [], v: [] };
       macroFailed = true;
       log(`${key} 계열 실패: ${errText(e)}`);
+      const kept = prev?.macro?.[key];
+      if (kept?.d?.length) {
+        macro[key] = kept; // --update: 이전 파일의 계열을 비우지 않고 지킨다
+        log(`이전 파일의 ${key} 계열 ${kept.d.length}일을 그대로 두었어요`);
+      } else macro[key] = { d: [], v: [] };
     }
   }
   if (macroFailed) log('환율·유가를 받지 못했어요');
+
+  if (master.themeFailed) log('테마를 받지 못했어요');
 
   // 테마: 파일에 있는 종목만 남기고 빈 테마는 버린다.
   const inFile = new Set(stocks.map((s) => s.s));
@@ -390,16 +397,23 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
     if (!bytes) throw new Error(`${zip} 안에 ${entry}가 없어요`);
     return bytes;
   };
-  const [kospi, kosdaq, idx, theme] = await Promise.all([
+  // 테마는 없어도 되는 데이터라 실패하면 빈 목록으로 두고 알린다(오류 문구는 담지 않는다)
+  const loadThemes = async () => {
+    try {
+      const { themes, dropped } = parseThemesDetailed(await get('theme_code.mst.zip', 'theme_code.mst'));
+      return { themes, themeDropped: dropped };
+    } catch {
+      return { themes: [], themeDropped: 0, themeFailed: true };
+    }
+  };
+  const [kospi, kosdaq, idx, themeInfo] = await Promise.all([
     get('kospi_code.mst.zip', 'kospi_code.mst'),
     get('kosdaq_code.mst.zip', 'kosdaq_code.mst'),
     get('idxcode.mst.zip', 'idxcode.mst'),
-    get('theme_code.mst.zip', 'theme_code.mst'),
+    loadThemes(),
   ]);
-  const { themes, dropped } = parseThemesDetailed(theme);
   return {
-    themes,
-    themeDropped: dropped,
+    ...themeInfo,
     stocks: [...parseMaster(kospi, 'KOSPI', { detail: true }), ...parseMaster(kosdaq, 'KOSDAQ', { detail: true })],
     idxcode: parseIdxcode(idx),
   };
