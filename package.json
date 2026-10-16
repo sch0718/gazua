@@ -19,6 +19,7 @@
     "test:watch": "TZ=America/New_York vitest",
     "test:demo": "node --test tests/demo.test.mjs",
     "test:universe": "node --test tests/universe-reuse.test.mjs",
+    "test:scripts": "node --test tests/*.test.mjs",
     "e2e": "playwright test"
   },
   "devDependencies": {

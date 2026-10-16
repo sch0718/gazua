@@ -20,6 +20,7 @@ jobs:
       - run: pnpm test
       - run: pnpm test:demo
       - run: pnpm test:universe
+      - run: pnpm test:scripts
       - name: 유니버스 주 키 계산
         id: week
         run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
