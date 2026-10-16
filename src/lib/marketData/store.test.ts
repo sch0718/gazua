@@ -189,14 +189,14 @@ describe('market data store', () => {
     return JSON.stringify(j);
   };
 
-  it('v2 import: themes() lists code, name and symbol count; info() says version 2 with macro', async () => {
+  it('v3 demo import: themes() lists code, name and symbol count; info() says version 3 with macro', async () => {
     const store = openMarketData();
     await store.importFile(file(), { decompress, estimate: roomy });
     const body = (await store.load())!;
-    if (body.version !== 2) throw new Error('fixture is not v2');
+    if (body.version === 1) throw new Error('fixture is not v2 or later');
     expect(body.themes.length).toBeGreaterThan(0);
     expect(await store.themes()).toEqual(body.themes.map((t) => ({ code: t.code, name: t.name, count: t.symbols.length })));
-    expect(await store.info()).toMatchObject({ version: 2, hasMacro: true });
+    expect(await store.info()).toMatchObject({ version: 3, hasMacro: true });
   });
 
   it('info() carries themeCount, and reads 0 on old data without it', async () => {
@@ -213,13 +213,13 @@ describe('market data store', () => {
     expect((await store.info())?.themeCount).toBe(0);
   });
 
-  it('hasMacro is false for a v2 file whose macro series are both empty', async () => {
+  it('hasMacro is false for a v3 file whose macro series are both empty', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
     j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } };
     const text = JSON.stringify(j);
     await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
-    expect(await store.info()).toMatchObject({ version: 2, hasMacro: false });
+    expect(await store.info()).toMatchObject({ version: 3, hasMacro: false });
   });
 
   it('v1 import: themes() is [] and info() says version 1 without macro', async () => {
