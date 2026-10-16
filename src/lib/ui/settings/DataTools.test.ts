@@ -181,7 +181,7 @@ describe('DataTools', () => {
 
     it('shows the newer-version message', async () => {
       const j = JSON.parse(await decompress(new Blob([gz])));
-      await mount({ decompress: async () => JSON.stringify({ ...j, version: 2 }), estimate: roomy });
+      await mount({ decompress: async () => JSON.stringify({ ...j, version: 3 }), estimate: roomy });
       await pick(demo());
       expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
     });

@@ -1,6 +1,6 @@
 // 수집 스크립트가 만드는 시장 데이터 파일(market-data-YYYYMMDD.json.gz를 푼 JSON)의 형식과 검증.
 
-export interface MarketDataFile {
+export interface MarketDataFileV1 {
   format: 'gazua-market-data';
   version: 1;
   collectedAt: string; // ISO, KST
@@ -28,6 +28,27 @@ export interface MarketDataFile {
   // 시가는 비교 곡선의 첫날 기준값(indexCurve)에 쓴다
   indices: { id: 'KOSPI' | 'KOSDAQ'; d: string[]; o: number[]; c: number[] }[];
 }
+
+export interface MacroSeries {
+  d: string[]; // FRED 관측일(YYYYMMDD, 미국 날짜) 오름차순, 값 있는 날만
+  v: number[];
+}
+
+export interface ThemeEntry {
+  code: string;
+  name: string;
+  symbols: string[]; // 파일에 있는 종목만
+}
+
+export interface MarketDataFileV2 extends Omit<MarketDataFileV1, 'version'> {
+  version: 2;
+  macro: { usdkrw: MacroSeries; wti: MacroSeries };
+  themes: ThemeEntry[];
+}
+
+export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2;
+
+export const isV2 = (f: MarketDataFile): f is MarketDataFileV2 => f.version === 2;
 
 export type MarketDataCheck =
   | { ok: true; data: MarketDataFile }
@@ -88,16 +109,39 @@ function metaOk(x: Record<string, unknown>): boolean {
   );
 }
 
+const isStrArray = (x: unknown): x is string[] => Array.isArray(x) && x.every((s) => typeof s === 'string');
+
+// v2의 macro·themes 모양(false면 format)
+function v2ShapeOk(x: Record<string, unknown>): boolean {
+  const m = x.macro;
+  if (!isObj(m) || !isObj(m.usdkrw) || !isObj(m.wti)) return false;
+  if (!Array.isArray(m.usdkrw.d) || !Array.isArray(m.usdkrw.v) || !Array.isArray(m.wti.d) || !Array.isArray(m.wti.v)) return false;
+  if (!Array.isArray(x.themes)) return false;
+  return x.themes.every((t) => isObj(t) && typeof t.code === 'string' && typeof t.name === 'string' && isStrArray(t.symbols));
+}
+
+// 환율은 > 0, WTI는 음수 허용(2020-04-20). 둘 다 유한해야 한다.
+function macroCorrupt(m: Record<string, unknown>): boolean {
+  for (const [key, positive] of [['usdkrw', true], ['wti', false]] as const) {
+    const s = m[key] as Record<string, unknown>;
+    if (!isAscendingDates(s.d)) return true;
+    if (!isNumArray(s.v, s.d.length, positive)) return true;
+  }
+  return false;
+}
+
 export function validateMarketData(x: unknown): MarketDataCheck {
   if (!isObj(x) || x.format !== 'gazua-market-data') return { ok: false, reason: 'format' };
   if (typeof x.version !== 'number') return { ok: false, reason: 'format' };
-  if (x.version > 1) return { ok: false, reason: 'version-newer' };
-  if (x.version !== 1) return { ok: false, reason: 'format' };
+  if (x.version > 2) return { ok: false, reason: 'version-newer' };
+  if (x.version !== 1 && x.version !== 2) return { ok: false, reason: 'format' };
   if (!Array.isArray(x.stocks) || !Array.isArray(x.indices) || !Array.isArray(x.sectors)) {
     return { ok: false, reason: 'format' };
   }
   if (!metaOk(x)) return { ok: false, reason: 'format' };
+  if (x.version === 2 && !v2ShapeOk(x)) return { ok: false, reason: 'format' };
   for (const s of x.stocks) if (!isObj(s) || stockCorrupt(s)) return { ok: false, reason: 'corrupt' };
   for (const i of x.indices) if (!isObj(i) || indexCorrupt(i)) return { ok: false, reason: 'corrupt' };
+  if (x.version === 2 && macroCorrupt(x.macro as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
   return { ok: true, data: x as unknown as MarketDataFile };
 }
