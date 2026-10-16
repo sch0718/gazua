@@ -241,7 +241,8 @@ interface Selection {
 
 - 후보 범위 → 조건 → 정렬 → 상위 `take` 순서다. `values`에는 각 조건의 계산값을 남긴다. 선정 이력에서 이유를 보여 주는 데 쓴다.
   - 키: 켠 조건의 `marketCap`(원), `tradingValue`(원), `leaderRank`, `return`(%), `ma`(평균값), `fromHigh`(%), `volatility`(%), `rebound`(true)와 정렬 기준 값(`lowVolatility`는 `volatility`).
-- 지표는 종목마다 날짜순으로 **한 번** 미리 계산해 Worker 메모리에 둔다(이동평균, 이동 표준편차, 롤링 최대, 패턴 신호일 목록). 그래서 `selectAt`은 종목당 상수 시간이다.
+- 지표는 종목마다 날짜순으로 **한 번** 미리 계산해 Worker 메모리에 둔다(이동평균, 이동 표준편차, 롤링 최대, 패턴 신호일 목록). `selectAt`은 종목마다 p를 이분 탐색으로 찾고(O(log n)), 대장주 조건이 켜져 있으면 날짜마다 업종별로 시가총액 정렬을 한 번 한다.
+- 미리 계산은 쓴 기준 값(거래대금 일수, 이동평균 기간, 변동성 일수, 반등 패턴)을 함께 둔다. `selectAt`에 그와 다른 기준이 오면 `PrecomputeMismatchError`를 던진다. `poolOverride`(시장·종류)는 미리 계산과 무관하다.
 
 ### 6.2 ① 선정만: 동일 비중 보유 `holdSelection`
 

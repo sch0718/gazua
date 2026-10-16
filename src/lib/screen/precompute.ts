@@ -34,9 +34,40 @@ export interface StockSeries {
   lastSignal: number[]; // i번 봉까지 마지막 신호 봉 인덱스, 없으면 -1
 }
 
+/** 미리 계산에 쓴 기준 값. selectAt이 다른 기준으로 고르지 못하게 한다 */
+export interface PrecomputeParams {
+  tvDays: number;
+  maPeriod: number | null; // vsMa가 꺼져 있었으면 null
+  volDays: number;
+  reboundEntryKey: string | null; // entry의 안정 JSON, 없으면 null
+}
+
 export interface Precomputed {
   axis: string[];
   stocks: StockSeries[];
+  params: PrecomputeParams;
+}
+
+/** 키를 정렬한 JSON. 같은 값이면 키 순서와 상관없이 같은 문자열 */
+export function stableJson(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(stableJson).join(',')}]`;
+  if (x !== null && typeof x === 'object')
+    return `{${Object.keys(x)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson((x as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  return JSON.stringify(x);
+}
+
+/** 기준이 고를 때 쓰는 값. 미리 계산과 비교한다 */
+export function precomputeParams(criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): PrecomputeParams {
+  const k = criteria.conditions;
+  return {
+    tvDays: k.tradingValue.days,
+    maPeriod: k.vsMa.on ? k.vsMa.period : null,
+    volDays: k.volatility.on ? k.volatility.days : RANK_VOL_DAYS,
+    reboundEntryKey: reboundEntry ? stableJson(reboundEntry) : null,
+  };
 }
 
 export class MissingStrategyError extends Error {
@@ -135,7 +166,7 @@ function signals(d: string[], st: FileStock, entry: Strategy['entry'] | null): {
 /** 종목마다 날짜순으로 지표를 한 번 계산한다(스펙 6.1). */
 export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): Precomputed {
   const k = criteria.conditions;
-  const volDays = k.volatility.on ? k.volatility.days : RANK_VOL_DAYS;
+  const params = precomputeParams(criteria, reboundEntry);
   const stocks = data.stocks.map((st): StockSeries => {
     const d = st.d.map(isoDate);
     const close = st.c.slice();
@@ -150,13 +181,13 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       halted: st.halted,
       d,
       close,
-      tvAvg: sma(st.tv, k.tradingValue.days),
-      ma: k.vsMa.on ? sma(close, k.vsMa.period) : [],
+      tvAvg: sma(st.tv, params.tvDays),
+      ma: params.maPeriod != null ? sma(close, params.maPeriod) : [],
       high: rollingMax(close, HIGH_WINDOW, HIGH_MIN),
-      vol: rollingVol(close, volDays),
+      vol: rollingVol(close, params.volDays),
       signalDays: sig.days,
       lastSignal: sig.last,
     };
   });
-  return { axis: tradingAxis(data), stocks };
+  return { axis: tradingAxis(data), stocks, params };
 }

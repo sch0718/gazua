@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { MarketDataFile } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { precompute, rebalanceDates, tradingAxis } from './precompute';
-import { selectAt } from './select';
+import { PrecomputeMismatchError, selectAt } from './select';
 import { DATES, mkFile, mkStock, NOW, offCriteria, reboundAt, reboundEntry, sampleStdPct, type Stock } from './testData';
 import type { RankBy, SelectionCriteria } from './types';
 
@@ -129,6 +129,70 @@ describe('selectAt: 봉 유무', () => {
     );
     expect(symbols(r)).toEqual(['B']);
     expect(r.passed).toBe(1);
+  });
+
+  it('p에 봉이 있고 d부터 거래정지인 종목은 고를 수 있다(d의 상태를 보지 않는다)', () => {
+    const c = offCriteria();
+    c.conditions.marketCap = { on: true, minEok: 0 };
+    const r = run([mkStock('A', flat().map((v, i) => (i >= 25 ? null : v)), { shares: 2 }), mkStock('B', flat())], c);
+    expect(symbols(r)).toEqual(['A', 'B']);
+    expect(r.picked[0].values.marketCap).toBe(200);
+  });
+});
+
+describe('selectAt: 미리 계산과 다른 기준', () => {
+  const stocks = () => [mkStock('A', withAt(flat(10), { 22: 10, 23: 20, 24: 30 }))];
+  const pre = (patch: (c: SelectionCriteria) => void = () => {}, entry: ReturnType<typeof reboundEntry> | null = null) => {
+    const c = offCriteria();
+    patch(c);
+    return precompute(mkFile(stocks(), N), c, entry);
+  };
+  const sel = (p: ReturnType<typeof pre>, patch: (c: SelectionCriteria) => void) => {
+    const c = offCriteria();
+    patch(c);
+    return () => selectAt(D, p, c);
+  };
+
+  it('이동평균: 꺼진 채 계산했는데 켜거나, 기간이 다르면 거부한다', () => {
+    const on3 = (c: SelectionCriteria) => (c.conditions.vsMa = { on: true, period: 3, side: 'above' });
+    expect(sel(pre(), on3)).toThrow(PrecomputeMismatchError);
+    expect(sel(pre(on3), (c) => (c.conditions.vsMa = { on: true, period: 5, side: 'above' }))).toThrow(PrecomputeMismatchError);
+    expect(symbols(sel(pre(on3), on3)())).toEqual(['A']);
+    expect(sel(pre(on3), () => {})).not.toThrow(); // 켜서 계산하고 꺼서 고르는 것은 괜찮다
+  });
+
+  it('거래대금 일수가 다르면 조건·정렬에서 쓸 때 거부한다', () => {
+    const p = pre((c) => (c.conditions.tradingValue.days = 5));
+    expect(sel(p, (c) => (c.conditions.tradingValue = { on: true, days: 20, minEok: 0 }))).toThrow(PrecomputeMismatchError);
+    expect(sel(p, (c) => (c.rank.by = 'tradingValue'))).toThrow(PrecomputeMismatchError);
+    expect(sel(p, (c) => (c.conditions.tradingValue = { on: true, days: 5, minEok: 0 }))).not.toThrow();
+  });
+
+  it('변동성 일수(꺼져 있으면 20)가 다르면 조건·정렬에서 쓸 때 거부한다', () => {
+    const p = pre(); // 20일
+    expect(sel(p, (c) => (c.conditions.volatility = { on: true, days: 10, maxPct: 100 }))).toThrow(PrecomputeMismatchError);
+    expect(sel(p, (c) => (c.conditions.volatility = { on: true, days: 20, maxPct: 100 }))).not.toThrow();
+    expect(sel(p, (c) => (c.rank.by = 'lowVolatility'))).not.toThrow();
+    const p10 = pre((c) => (c.conditions.volatility = { on: true, days: 10, maxPct: 100 }));
+    expect(sel(p10, (c) => (c.rank.by = 'lowVolatility'))).toThrow(PrecomputeMismatchError);
+  });
+
+  it('반등: 패턴 없이 계산했거나 다른 패턴이면 거부한다', () => {
+    const custom = (e: ReturnType<typeof reboundEntry>) => (c: SelectionCriteria) =>
+      (c.conditions.rebound = { on: true, withinDays: 3, pattern: { from: 'custom', entry: e } });
+    expect(sel(pre(), custom(reboundEntry()))).toThrow(PrecomputeMismatchError);
+    const other = reboundEntry();
+    other.triggers.reboundDays.value = 3;
+    expect(sel(pre(() => {}, reboundEntry()), custom(other))).toThrow(PrecomputeMismatchError);
+    expect(sel(pre(() => {}, reboundEntry()), custom(reboundEntry()))).not.toThrow();
+  });
+
+  it('poolOverride는 미리 계산과 무관하다', () => {
+    const c = offCriteria();
+    c.conditions.vsMa = { on: true, period: 3, side: 'above' };
+    const p = precompute(mkFile(stocks(), N), c, null);
+    expect(symbols(selectAt(D, p, c, { markets: ['KOSPI'], types: ['STOCK'] }))).toEqual(['A']);
+    expect(symbols(selectAt(D, p, c, { markets: ['KOSDAQ'], types: ['ETF'] }))).toEqual([]);
   });
 });
 

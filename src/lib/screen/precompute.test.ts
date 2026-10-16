@@ -4,7 +4,7 @@ import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
-import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis } from './precompute';
+import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
 import { DATES, mkFile, mkStock, NOW, offCriteria, reboundAt, reboundEntry, sampleStdPct, ymd } from './testData';
 
 describe('tradingAxis', () => {
@@ -166,6 +166,21 @@ describe('precompute', () => {
     expect(want.length).toBeGreaterThan(1);
     expect(s.signalDays).toEqual(want);
     expect(s.signalDays).toEqual([DATES[5], DATES[13], DATES[16]]);
+  });
+
+  it('쓴 기준 값을 params로 둔다(이동평균이 꺼져 있으면 null, 변동성이 꺼져 있으면 20, 패턴은 키 순서와 무관한 JSON)', () => {
+    const c = offCriteria();
+    c.conditions.tradingValue.days = 7;
+    const f = mkFile([mkStock('A', [1, 2, 3])], 3);
+    expect(precompute(f, c, null).params).toEqual({ tvDays: 7, maPeriod: null, volDays: 20, reboundEntryKey: null });
+    c.conditions.vsMa = { on: true, period: 9, side: 'below' };
+    c.conditions.volatility = { on: true, days: 4, maxPct: 1 };
+    const e = reboundEntry();
+    const reordered = Object.fromEntries(Object.entries(e).reverse()) as typeof e;
+    const params = precompute(f, c, e).params;
+    expect(params).toEqual({ tvDays: 7, maPeriod: 9, volDays: 4, reboundEntryKey: stableJson(e) });
+    expect(stableJson(reordered)).toBe(params.reboundEntryKey);
+    expect(JSON.parse(params.reboundEntryKey!)).toEqual(e);
   });
 
   it('반등 패턴이 없으면 신호일도 없다', () => {

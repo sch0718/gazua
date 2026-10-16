@@ -1,10 +1,33 @@
-import { RANK_RETURN_DAYS, type Precomputed, type StockSeries } from './precompute';
+import { RANK_RETURN_DAYS, RANK_VOL_DAYS, stableJson, type Precomputed, type StockSeries } from './precompute';
 import type { SelectionCriteria } from './types';
 
 export interface Selection {
   date: string;
   passed: number; // 조건 통과 수
   picked: { symbol: string; values: Record<string, number | boolean | null> }[];
+}
+
+export class PrecomputeMismatchError extends Error {
+  constructor(what: string) {
+    super(`미리 계산한 지표와 기준이 달라요: ${what}`);
+    this.name = 'PrecomputeMismatchError';
+  }
+}
+
+// 이 기준이 쓰는 값이 미리 계산과 다르거나 계산되지 않았으면 거부한다(조용히 모두 탈락시키지 않게)
+function assertMatches(pre: Precomputed, c: SelectionCriteria): void {
+  const k = c.conditions;
+  const p = pre.params;
+  if ((k.tradingValue.on || c.rank.by === 'tradingValue') && k.tradingValue.days !== p.tvDays) throw new PrecomputeMismatchError('거래대금 일수');
+  if (k.vsMa.on && k.vsMa.period !== p.maPeriod) throw new PrecomputeMismatchError('이동평균 기간');
+  if ((k.volatility.on || c.rank.by === 'lowVolatility') && (k.volatility.on ? k.volatility.days : RANK_VOL_DAYS) !== p.volDays)
+    throw new PrecomputeMismatchError('변동성 일수');
+  if (k.rebound.on) {
+    if (p.reboundEntryKey == null) throw new PrecomputeMismatchError('반등 패턴');
+    // 저장된 전략을 가리키면 여기서는 해석할 수 없으므로 계산 여부만 본다
+    if (k.rebound.pattern.from === 'custom' && stableJson(k.rebound.pattern.entry) !== p.reboundEntryKey)
+      throw new PrecomputeMismatchError('반등 패턴');
+  }
 }
 
 const EOK = 1e8;
@@ -34,6 +57,7 @@ export function selectAt(
   c: SelectionCriteria,
   poolOverride?: Pick<SelectionCriteria['pool'], 'markets' | 'types'>,
 ): Selection {
+  assertMatches(pre, c);
   const ai = lowerBound(pre.axis, d);
   if (ai === 0) return { date: d, passed: 0, picked: [] };
   const prevDay = pre.axis[ai - 1];
