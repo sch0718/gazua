@@ -199,7 +199,7 @@ export function criteriaIssues(c: SelectionCriteria, strategies: Strategy[]): Is
   const has = (id: string) => strategies.some((s) => s.id === id);
   const k = c.conditions;
 
-  if (k.rebound.pattern.from === 'strategy' && !has(k.rebound.pattern.strategyId))
+  if (k.rebound.on && k.rebound.pattern.from === 'strategy' && !has(k.rebound.pattern.strategyId))
     out.push({ section: 'conditions', text: '반등 신호에 쓰던 전략이 없어요. 다시 골라 주세요', blocking: true });
   if (c.trading.strategyId !== null && !has(c.trading.strategyId))
     out.push({ section: 'trading', text: '매매 규칙 전략이 없어요. 다시 골라 주세요', blocking: true });

@@ -185,6 +185,32 @@ describe('criteriaIssues', () => {
     expect(gone.map((i) => i.section).sort()).toEqual(['conditions', 'trading']);
   });
 
+  it('반등 조건을 껐으면 지워진 전략을 참조해도 막지 않는다', () => {
+    const c = withRef((x) => {
+      x.conditions.rebound.on = false;
+      x.conditions.rebound.pattern = { from: 'strategy', strategyId: 'gone' };
+    });
+    expect(criteriaIssues(c, []).filter((i) => i.section === 'conditions' && i.blocking)).toEqual([]);
+  });
+
+  it('반등 조건을 켰는데 전략이 지워졌으면 blocking', () => {
+    const c = withRef((x) => {
+      x.conditions.rebound.on = true;
+      x.conditions.rebound.pattern = { from: 'strategy', strategyId: 'gone' };
+    });
+    expect(criteriaIssues(c, []).filter((i) => i.section === 'conditions' && i.blocking)).toHaveLength(1);
+  });
+
+  it('반등만 켜져 있고 전략이 없으면 blocking만 나오고 조건 없음 경고는 없다', () => {
+    const c = withRef((x) => {
+      x.conditions.tradingValue.on = false;
+      x.conditions.rebound.pattern = { from: 'strategy', strategyId: 'gone' };
+    });
+    const out = criteriaIssues(c, []);
+    expect(out).toHaveLength(1);
+    expect(out[0].blocking).toBe(true);
+  });
+
   it('매매 규칙 전략만 지워져도 blocking', () => {
     const c = withRef((x) => (x.trading.strategyId = 'gone'));
     expect(criteriaIssues(c, [strat]).filter((i) => i.blocking)).toHaveLength(1);
