@@ -138,7 +138,7 @@ describe('market data store', () => {
   it('tells a newer version and a wrong format apart', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
-    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 4 }) });
+    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 5 }) });
     expect(newer).toEqual({ ok: false, reason: 'version-newer' });
     const other = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => '{"a":1}' });
     expect(other).toEqual({ ok: false, reason: 'format' });
@@ -220,6 +220,15 @@ describe('market data store', () => {
     const n = body.stocks.filter((s: any) => s.flow).length;
     expect(n).toBeGreaterThan(0);
     expect(await store.info()).toMatchObject({ version: 3, hasFlow: true, flowStocks: n });
+  });
+
+  it('v4 import: info() still carries hasFlow and flowStocks', async () => {
+    const store = openMarketData();
+    const j = JSON.parse(await decompress(file()));
+    const n = j.stocks.filter((s: any) => s.flow).length;
+    const text = JSON.stringify({ ...j, version: 4 });
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(await store.info()).toMatchObject({ version: 4, hasFlow: true, flowStocks: n });
   });
 
   it('v3 without any flow has hasFlow false', async () => {

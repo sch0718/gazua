@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { roundMoney } from '../sim/money';
 import { simulate } from '../sim/simulate';
@@ -466,5 +466,12 @@ describe('runValidation: 투자자 수급', () => {
       }
       expect(run(crit(), [], data).rebalances.length).toBe(DATES.length);
     }
+  });
+
+  it('v4 파일의 수급도 v3와 똑같이 쓴다', () => {
+    const v3 = fixture as MarketDataFileV3;
+    const v4: MarketDataFileV4 = { ...v3, version: 4 };
+    const c = crit(foreign);
+    expect(run(c, [], v4).rebalances).toEqual(run(c, [], v3).rebalances);
   });
 });

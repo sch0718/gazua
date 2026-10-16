@@ -1,6 +1,6 @@
 // 선정 기준 검증 묶음(스펙 6장): ① 동일 비중 보유, ② 매매 규칙, 비교 기준, 시장별 보기. Worker에서 돈다.
 import type { Candle } from '../data/metrics';
-import { hasMacroFormat, isV3, type MarketDataFile } from '../marketData/format';
+import { hasFlowFormat, hasMacroFormat, type MarketDataFile } from '../marketData/format';
 import { indexCurve, singleCurve } from '../sim/benchmarks';
 import { simulate } from '../sim/simulate';
 import type { SimInput, Skip, Strategy } from '../sim/types';
@@ -171,7 +171,7 @@ export function runValidation(
   // 다시 수집하지 않은 v1 파일에는 환율·유가가 없다(편집 화면이 막는 경우를 거치지 않은 실행도 막는다)
   if (!hasMacroFormat(data) && usesMacro(criteria)) throw new ValidationError('no-macro');
   // 수급이 있는 종목이 하나도 없는 데이터(v1·v2 포함)도 같다
-  if (usesFlow(criteria) && !(isV3(data) && data.stocks.some((s) => s.flow))) throw new ValidationError('no-flow');
+  if (usesFlow(criteria) && !(hasFlowFormat(data) && data.stocks.some((s) => s.flow))) throw new ValidationError('no-flow');
   const capital = criteria.capital;
   const feePct = criteria.costs.feePct;
   const fullAxis = tradingAxis(data);

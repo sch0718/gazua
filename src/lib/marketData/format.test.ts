@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasMacroFormat, isV3, validateMarketData } from './format';
+import { hasFlowFormat, hasMacroFormat, isV3, isV4, validateMarketData } from './format';
 
 function sample() {
   return {
@@ -39,8 +39,8 @@ describe('validateMarketData', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('version 4는 version-newer다', () => {
-    expect(validateMarketData({ ...sample(), version: 4 })).toEqual({ ok: false, reason: 'version-newer' });
+  it('version 5는 version-newer다', () => {
+    expect(validateMarketData({ ...sample(), version: 5 })).toEqual({ ok: false, reason: 'version-newer' });
   });
 
   it('format이 다르거나 객체가 아니면 format이다', () => {
@@ -244,9 +244,9 @@ describe('validateMarketData v3', () => {
     if (!r.ok) expect(r.reason).toBe('corrupt');
   });
 
-  it('version 4는 version-newer다', () => {
+  it('version 5는 version-newer다', () => {
     const x = sampleV3();
-    x.version = 4;
+    x.version = 5;
     const r = validateMarketData(x);
     expect(!r.ok && r.reason).toBe('version-newer');
   });
@@ -254,5 +254,111 @@ describe('validateMarketData v3', () => {
   it('v1·v2는 여전히 ok다', () => {
     expect(validateMarketData(sample()).ok).toBe(true);
     expect(validateMarketData(sampleV2()).ok).toBe(true);
+  });
+});
+
+const FIN = () => ({
+  q: ['202509', '202512', '202603', '202606'],
+  a: [0, 1, 0, 0],
+  rev: [100, 150.25, -3, 170],
+  op: [10, 12, -5, 9],
+  ni: [8, -2.5, 3, 7],
+  eq: [500, 510, 512, 520],
+  debt: [300, 290, 0, 310],
+});
+
+function sampleV4(fin?: unknown, flow?: unknown) {
+  const x = sampleV3(flow);
+  x.version = 4;
+  if (fin !== undefined) x.stocks[0].fin = fin;
+  return x;
+}
+
+describe('validateMarketData v4', () => {
+  it('정상 v4 파일은 ok이고 isV4·hasFlowFormat·hasMacroFormat이 참, isV3는 거짓이다', () => {
+    const r = validateMarketData(sampleV4(FIN(), { from: '20261014', f: [1, -2], i: [3, 4], p: [-4, -2] }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(isV4(r.data)).toBe(true);
+      expect(hasFlowFormat(r.data)).toBe(true);
+      expect(hasMacroFormat(r.data)).toBe(true);
+      expect(isV3(r.data)).toBe(false);
+    }
+  });
+
+  it('hasFlowFormat은 v3에서 참, v1·v2에서 거짓이다', () => {
+    const rs = [sample(), sampleV2(), sampleV3()].map(validateMarketData);
+    expect(rs.map((r) => r.ok && hasFlowFormat(r.data))).toEqual([false, false, true]);
+    expect(rs.map((r) => r.ok && isV4(r.data))).toEqual([false, false, false]);
+  });
+
+  it('fin이 없는 종목은 ok다', () => {
+    expect(validateMarketData(sampleV4()).ok).toBe(true);
+  });
+
+  it('분기 하나짜리 fin도 ok다', () => {
+    const one = { q: ['202606'], a: [0], rev: [1], op: [1], ni: [1], eq: [1], debt: [1] };
+    expect(validateMarketData(sampleV4(one)).ok).toBe(true);
+  });
+
+  it('결산월이 3월에서 12월로 바뀐 이력(a가 3월과 12월에 1)도 ok다', () => {
+    const f = { ...FIN(), q: ['202403', '202406', '202409', '202412'], a: [1, 0, 0, 1] };
+    expect(validateMarketData(sampleV4(f)).ok).toBe(true);
+  });
+
+  it.each([
+    ['q 형식 오류(8자리)', (f: any) => (f.q[0] = '20250930')],
+    ['q 월이 13', (f: any) => (f.q[0] = '202513')],
+    ['q가 문자열이 아님', (f: any) => (f.q[0] = 202509)],
+    ['q 역순', (f: any) => (f.q = ['202512', '202509', '202603', '202606'])],
+    ['q 6개월 간격', (f: any) => (f.q = ['202509', '202603', '202606', '202609'])],
+    ['q 같은 분기 반복', (f: any) => (f.q = ['202509', '202509', '202512', '202603'])],
+    ['q가 비었음', (f: any) => Object.assign(f, { q: [], a: [], rev: [], op: [], ni: [], eq: [], debt: [] })],
+    ['a 값이 2', (f: any) => (f.a[1] = 2)],
+    ['a 값이 0.5', (f: any) => (f.a[1] = 0.5)],
+    ['a 길이 불일치', (f: any) => (f.a = [0, 1, 0])],
+    ['rev 길이 불일치', (f: any) => (f.rev = [1, 2, 3])],
+    ['debt 길이 불일치', (f: any) => (f.debt = [1, 2, 3, 4, 5])],
+    ['ni가 NaN', (f: any) => (f.ni[2] = NaN)],
+    ['eq가 Infinity', (f: any) => (f.eq[0] = Infinity)],
+    ['op가 문자열', (f: any) => (f.op[0] = '10')],
+    ['eq가 없음', (f: any) => delete f.eq],
+  ])('%s이면 corrupt다', (_n, mutate) => {
+    const f = FIN();
+    mutate(f);
+    expect(validateMarketData(sampleV4(f))).toEqual({ ok: false, reason: 'corrupt' });
+  });
+
+  it('fin이 객체가 아니면 corrupt다', () => {
+    expect(validateMarketData(sampleV4([1, 2]))).toEqual({ ok: false, reason: 'corrupt' });
+    expect(validateMarketData(sampleV4(null))).toEqual({ ok: false, reason: 'corrupt' });
+  });
+
+  it('v3 수급 검사가 v4에도 적용된다', () => {
+    const bad = { from: '20261013', f: [1], i: [1], p: [1] };
+    expect(validateMarketData(sampleV3(bad))).toEqual({ ok: false, reason: 'corrupt' });
+    expect(validateMarketData(sampleV4(FIN(), bad))).toEqual({ ok: false, reason: 'corrupt' });
+    expect(validateMarketData(sampleV4(undefined, { from: '20261014', f: [1.5], i: [1], p: [1] }))).toEqual({
+      ok: false,
+      reason: 'corrupt',
+    });
+  });
+
+  it('v4에서 macro가 없으면 format이다', () => {
+    const x = sampleV4();
+    delete x.macro;
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+  });
+
+  it('v3 파일의 fin은 검사하지 않는다(v3에는 fin이 없다)', () => {
+    const x = sampleV3();
+    x.stocks[0].fin = { q: ['bad'] };
+    expect(validateMarketData(x).ok).toBe(true);
+  });
+
+  it('v1~v3는 여전히 ok다', () => {
+    expect(validateMarketData(sample()).ok).toBe(true);
+    expect(validateMarketData(sampleV2()).ok).toBe(true);
+    expect(validateMarketData(sampleV3({ from: '20261014', f: [1], i: [1], p: [1] })).ok).toBe(true);
   });
 });
