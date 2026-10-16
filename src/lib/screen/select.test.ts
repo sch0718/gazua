@@ -992,7 +992,7 @@ describe('selectAt: 연속 순매수 조건(스펙 3.3)', () => {
   const E = P - 1;
   const crit = (who: FlowWho, minDays: number) => {
     const c = offCriteria();
-      c.conditions.flow.streak = { on: true, who, minDays };
+    c.conditions.flow.streak = { on: true, who, minDays };
     return c;
   };
 
@@ -1072,6 +1072,28 @@ describe('selectAt: 수급 미리 계산과 다른 기준', () => {
     const both = precompute(mkFileV3([late, ...stocks], N), c, null);
     expect(flowMissingAt(D, both, c)).toBe(false);
     expect(flowMissingAt(D, pre, offCriteria())).toBe(false); // 수급을 쓰지 않는 기준
+  });
+
+  // 늦게 시작한 종목(20번 봉부터)만 후보. 수급이 처음부터 있는 A는 후보 범위 밖
+  const lateOnly = (c: SelectionCriteria) => {
+    c.pool.baskets = ['late'];
+    const pre = precompute(mkFileV3([flowStock('Z', { f: pctFlow(2, 10), i: pctFlow(2, 10) }, 20), ...stocks], N), c, null);
+    return (d: string) => flowMissingAt(d, pre, c, [{ id: 'late', symbols: ['Z'] }]);
+  };
+
+  it('flowMissingAt: 연속 순매수만 켠 기준은 e가 from 앞인 재선정일에 참', () => {
+    const c = offCriteria();
+    c.conditions.flow.streak = { on: true, who: 'inst', minDays: 1 };
+    const missing = lateOnly(c);
+    expect(missing(DATES[20])).toBe(true); // e = 18번 봉 < from(20)
+    expect(missing(DATES[21])).toBe(true); // e = 19번 봉
+    expect(missing(DATES[22])).toBe(false); // e = 20번 봉 = from
+  });
+
+  it("flowMissingAt: 정렬 'flow'만 쓰는 기준은 정렬 창이 from 앞으로 나가는 재선정일에 참", () => {
+    const missing = lateOnly(flowRank('foreign', 5));
+    expect(missing(D)).toBe(true); // 창 19..23번 봉, from 20
+    expect(missing(DATES[26])).toBe(false); // 창 20..24번 봉
   });
 });
 
