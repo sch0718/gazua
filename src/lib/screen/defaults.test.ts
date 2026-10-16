@@ -26,8 +26,12 @@ describe('newCriteria', () => {
         usdkrw: { beta: { on: false, min: 0.3, max: 5 }, trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' } },
         wti: { beta: { on: false, min: 0.3, max: 5 }, trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' } },
       },
+      flow: {
+        amount: { on: false, who: 'foreign', days: 20, minPct: 1, maxPct: 100 },
+        streak: { on: false, who: 'inst', minDays: 5 },
+      },
     });
-    expect(c.rank).toEqual({ by: 'marketCap', take: 10, series: 'usdkrw' });
+    expect(c.rank).toEqual({ by: 'marketCap', take: 10, series: 'usdkrw', flow: { who: 'foreign', days: 20 } });
     expect(c.rebalance).toBe('monthly');
     expect(c.benchmarks).toEqual({ indices: ['KOSPI'], symbols: ['069500'] });
     expect(c.costs).toEqual({ feePct: 0.015 });

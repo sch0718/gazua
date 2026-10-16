@@ -233,6 +233,9 @@ export function selectAt(
         key = values[`${series}Beta`] = orNull(betaAt(pre, st, series, prevDay, p));
         break;
       }
+      case 'flow':
+        key = null; // 수급 순 정렬은 Task 5에서 구현한다
+        break;
     }
     passed.push({ symbol: st.s, key, values });
   });

@@ -8,7 +8,7 @@ import { fmtWon } from '../format';
 import { fmtReturnPct, trendReturn } from '../simulate/simText';
 
 // 환율·유가(macro)는 켜는 조건이 계열별이라 이 목록에 넣지 않는다(화면은 Task 6)
-export type ConditionKey = Exclude<keyof SelectionCriteria['conditions'], 'macro'>;
+export type ConditionKey = Exclude<keyof SelectionCriteria['conditions'], 'macro' | 'flow'>;
 
 /** 조건 한 줄 설명(스펙 7.3 표) */
 export const CONDITION_HELP: Record<ConditionKey, string> = {

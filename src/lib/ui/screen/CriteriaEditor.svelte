@@ -138,7 +138,7 @@
   // 이 데이터에 환율·유가·테마가 있는가(v1이거나 환율·유가 계열이 비면 새 조건은 쓸 수 없다)
   const v1 = $derived(info !== null && (info.version ?? 1) < 2);
   const noMacro = $derived(info !== null && !info.hasMacro);
-  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
+  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, hasFlow: !!info.hasFlow, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
   const issues = $derived(criteriaIssues(draft, app.strategies, dataInfo, app.baskets));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
   const sectionIssues = (key: Key) => issueRows.filter((r) => r.issue.section === key);
@@ -253,8 +253,8 @@
         return `${d.pool.markets.join('·')} ${types} · ${poolScopeText(d.pool, sectors)}`;
       }
       case 'conditions': {
-        const { macro, ...simple } = d.conditions;
-        const n = Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
+        const { macro, flow, ...simple } = d.conditions;
+        const n = +flow.amount.on + +flow.streak.on + Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
@@ -269,7 +269,7 @@
   }
 
   const SERIES = ['usdkrw', 'wti'] as const;
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순' } as const;
+  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순', flow: '수급 큰 순' } as const;
 
   // ── 후보 범위 ──
   function setMember<T extends string>(list: T[], v: T, on: boolean): T[] {

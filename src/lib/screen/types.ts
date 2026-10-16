@@ -2,7 +2,9 @@ import type { Strategy } from '../sim/types';
 
 export type Market = 'KOSPI' | 'KOSDAQ';
 export type SecurityType = 'STOCK' | 'ETF';
-export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility' | 'macroBeta';
+export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility' | 'macroBeta' | 'flow';
+/** 수급 주체. both는 외국인과 기관이 각각 만족해야 한다 */
+export type FlowWho = 'foreign' | 'inst' | 'indiv' | 'both';
 export type MacroSeriesKey = 'usdkrw' | 'wti';
 export type Rebalance = 'monthly' | 'quarterly' | 'semiannual';
 
@@ -39,8 +41,12 @@ export interface SelectionCriteria {
       pattern: { from: 'strategy'; strategyId: string } | { from: 'custom'; entry: Strategy['entry'] };
     };
     macro: { betaDays: number; usdkrw: MacroSeriesCond; wti: MacroSeriesCond };
+    flow: {
+      amount: { on: boolean; who: FlowWho; days: number; minPct: number; maxPct: number };
+      streak: { on: boolean; who: FlowWho; minDays: number };
+    };
   };
-  rank: { by: RankBy; take: number; series?: MacroSeriesKey }; // take 1~30. series는 by가 macroBeta일 때 쓴다
+  rank: { by: RankBy; take: number; series?: MacroSeriesKey; flow?: { who: FlowWho; days: number } }; // take 1~30. series는 by가 macroBeta일 때 쓴다
   rebalance: Rebalance;
   period: { from: string; to: string };
   benchmarks: { indices: Market[]; symbols: string[] }; // symbols 최대 3
