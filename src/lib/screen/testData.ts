@@ -1,5 +1,5 @@
 // 테스트 전용: 손으로 만든 시장 데이터
-import type { FlowSeries, MarketDataFile, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
+import type { FinSeries, FlowSeries, MarketDataFile, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { tradingDates } from '../sim/testBars';
 import type { Strategy } from '../sim/types';
@@ -113,6 +113,31 @@ export function withFlow(st: Stock, at: number, net: { f?: number[]; i?: number[
 /** v2 파일을 v3로: 종목마다 flow가 붙을 수 있다 */
 export function mkFileV3(stocks: FlowStock[], n: number): MarketDataFileV3 {
   return { ...mkFileV2(stocks, n), version: 3, stocks };
+}
+
+export type FinStock = FlowStock & { fin?: FinSeries };
+
+/** 종목에 재무를 붙인다. a를 주지 않으면 12월 분기만 연간 결산 분기(1) */
+export function withFin(st: Stock, fin: Omit<FinSeries, 'a'> & { a?: number[] }): FinStock {
+  return { ...st, fin: { ...fin, a: fin.a ?? fin.q.map((q) => (q.endsWith('12') ? 1 : 0)) } };
+}
+
+/** 손계산용 8분기 재무(2022년 4분기 ~ 2024년 3분기, 억 원).
+ * 2025-02-05에는 202409까지 알려진다(202409 + 60일 = 2024-11-29). 시가총액 10억 원(100원 × 1e7주)이면
+ * TTM 순이익 2억 → PER 5, 자본 8억 → PBR 1.25, (8 + 12) / 2 = 10억 → ROE 20%, 3 / 30 → 영업이익률 10%,
+ * 30 / 24 → 매출 +25%, 3 / 2 → 영업이익 +50%, 4 / 8 → 부채비율 50% */
+export const FIN_BASE: Omit<FinSeries, 'a'> = {
+  q: ['202212', '202303', '202306', '202309', '202312', '202403', '202406', '202409'],
+  rev: [6, 6, 6, 6, 7.5, 7.5, 7.5, 7.5],
+  op: [0.5, 0.5, 0.5, 0.5, 0.75, 0.75, 0.75, 0.75],
+  ni: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+  eq: [12, 12, 12, 12, 8, 8, 8, 8],
+  debt: [4, 4, 4, 4, 4, 4, 4, 4],
+};
+
+/** v3 파일을 v4로: 종목마다 fin이 붙을 수 있다 */
+export function mkFileV4(stocks: FinStock[], n: number): MarketDataFileV4 {
+  return { ...mkFileV3(stocks, n), version: 4, stocks };
 }
 
 /** from부터 미국 평일(토·일 제외) count개, YYYYMMDD */

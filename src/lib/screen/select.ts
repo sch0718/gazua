@@ -1,9 +1,10 @@
 import type { Basket } from './baskets';
+import { finAscending, finMetricsAt, rankFinOf, type FinValues } from './fin';
 import { flowEnd, flowRatio } from './flow';
 import { lastUsablePair, trendAt } from './macro';
 import { flowParams, RANK_RETURN_DAYS, RANK_VOL_DAYS, rankFlowOf, stableJson, usesMacro, type Precomputed, type StockSeries } from './precompute';
-import type { FlowWho, MacroSeriesKey, SelectionCriteria } from './types';
-import { usesFlow } from './validate';
+import type { FinMetric, FlowWho, MacroSeriesKey, SelectionCriteria } from './types';
+import { usesFin, usesFlow } from './validate';
 
 export interface Selection {
   date: string;
@@ -38,6 +39,7 @@ function assertMatches(pre: Precomputed, c: SelectionCriteria): void {
     if (!p.flow || want.whos.some((w) => !p.flow!.whos.includes(w)) || (want.streakWho != null && want.streakWho !== p.flow.streakWho))
       throw new PrecomputeMismatchError('투자자 매매동향');
   }
+  if (usesFin(c) && !p.fin) throw new PrecomputeMismatchError('재무');
 }
 
 const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
@@ -67,6 +69,17 @@ function flowComputable(pre: Precomputed, c: SelectionCriteria, st: StockSeries,
   if (fl.streak.on && flowEnd(st, pIdx) < 0) return false;
   if (c.rank.by === 'flow' && !ok(rankFlowOf(c).who, rankFlowOf(c).days)) return false;
   return true;
+}
+
+/** 이 기준이 쓰는 재무 지표(조건·정렬)를 그 값에서 모두 계산할 수 있는가. 흑자는 TTM 순이익이 있으면 계산 가능 */
+function finComputable(c: SelectionCriteria, v: FinValues | null): boolean {
+  if (!v) return false;
+  const f = c.conditions.fin;
+  const metrics: FinMetric[] = (['per', 'pbr', 'roe', 'opMargin', 'revGrowth', 'opGrowth'] as const).filter((m) => f[m].on);
+  if (c.rank.by === 'fin') metrics.push(rankFinOf(c));
+  if (metrics.some((m) => Number.isNaN(v[m]))) return false;
+  if (f.debtRatio.on && Number.isNaN(v.debtRatio)) return false;
+  return !(f.profitable.on && Number.isNaN(v.ttmNi));
 }
 
 const EOK = 1e8;
@@ -155,6 +168,22 @@ export function flowMissingAt(d: string, pre: Precomputed, c: SelectionCriteria,
   return any;
 }
 
+/** 재선정일 d에 후보 범위의 종목(p에 봉이 있는)이 있는데 모두 재무 값을 계산할 수 없는가. 재무를 쓰지 않거나 후보가 없으면 false */
+export function finMissingAt(d: string, pre: Precomputed, c: SelectionCriteria, baskets: BasketRef[] = []): boolean {
+  if (!usesFin(c) || pre.params.fin == null) return false;
+  const at = barsAt(d, pre);
+  if (!at) return false;
+  const { has } = poolFilter(pre, c, undefined, baskets);
+  let any = false;
+  for (let j = 0; j < pre.stocks.length; j++) {
+    const st = pre.stocks[j];
+    if (at.pIdx[j] < 0 || !has(st)) continue;
+    if (finComputable(c, finMetricsAt(pre, st, at.pIdx[j], at.prevDay))) return false;
+    any = true;
+  }
+  return any;
+}
+
 /**
  * 재선정일 d의 선별(스펙 6.1). 모든 값은 축의 전 거래일 p의 봉까지만 쓴다.
  * 순서: 후보 범위 → 조건 → 정렬 → 상위 take
@@ -183,6 +212,7 @@ export function selectAt(
   }
   const returnDays = k.returnRange.on ? k.returnRange.days : RANK_RETURN_DAYS;
   const ret = (st: StockSeries, p: number): number | null => (p - returnDays >= 0 ? (st.close[p] / st.close[p - returnDays] - 1) * 100 : null);
+  const finUsed = usesFin(c);
 
   const passed: { symbol: string; key: number | null; values: Selection['picked'][number]['values'] }[] = [];
   pre.stocks.forEach((st, j) => {
@@ -271,6 +301,28 @@ export function selectAt(
       if (!(n >= k.flow.streak.minDays)) return;
       values.flowStreak = n;
     }
+    // 재무는 finKnownFrom < p인 분기만 쓴다(스펙 2.3). 계산 불가면 그 조건에서 탈락(3.2)
+    let fin: FinValues | null = null;
+    if (finUsed) {
+      fin = finMetricsAt(pre, st, p, prevDay);
+      if (!fin) return; // 알려진 분기가 없으면 어떤 재무 조건·정렬도 계산할 수 없다
+      const f = k.fin;
+      const range = (on: boolean, v: number, min: number, max: number, key: string): boolean => {
+        if (!on) return true;
+        if (!(v >= min && v <= max)) return false;
+        values[key] = v;
+        return true;
+      };
+      if (!range(f.per.on, fin.per, f.per.min, f.per.max, 'finPer')) return;
+      if (!range(f.pbr.on, fin.pbr, f.pbr.min, f.pbr.max, 'finPbr')) return;
+      if (!range(f.roe.on, fin.roe, f.roe.min, Infinity, 'finRoe')) return;
+      if (!range(f.opMargin.on, fin.opMargin, f.opMargin.min, Infinity, 'finOpMargin')) return;
+      if (!range(f.revGrowth.on, fin.revGrowth, f.revGrowth.min, Infinity, 'finRevGrowth')) return;
+      if (!range(f.opGrowth.on, fin.opGrowth, f.opGrowth.min, Infinity, 'finOpGrowth')) return;
+      if (!range(f.debtRatio.on, fin.debtRatio, -Infinity, f.debtRatio.max, 'finDebtRatio')) return;
+      if (f.profitable.on && !(fin.ttmNi > 0)) return;
+      values.finQuarter = Number(fin.quarter);
+    }
 
     // 정렬 값
     let key: number | null;
@@ -304,10 +356,14 @@ export function selectAt(
         if (Array.isArray(r)) [values.rankFlowForeign, values.rankFlowInst] = r;
         break;
       }
-      case 'fin':
-        // Task 5 implements: 재무 지표 정렬. 그때까지 키 없이 뒤로 보낸다
-        key = null;
+      case 'fin': {
+        const metric = rankFinOf(c);
+        const v = fin![metric];
+        if (Number.isNaN(v)) return; // 계산 불가인 종목은 정렬과 통과 수에서 뺀다(스펙 3.2, D6)
+        values.rankFin = v;
+        key = finAscending(metric) ? -v : v; // PER·PBR은 낮을수록 앞
         break;
+      }
     }
     passed.push({ symbol: st.s, key, values });
   });

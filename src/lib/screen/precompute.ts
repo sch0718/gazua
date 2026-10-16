@@ -1,13 +1,14 @@
 import type { Candle } from '../data/metrics';
-import { hasFlowFormat, hasMacroFormat, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
+import { hasFlowFormat, hasMacroFormat, isV4, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import type { Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
+import { stockFin, type StockFin } from './fin';
 import { flowPrefix, flowStreak, subjectsOf, type FlowSubject, type StockFlow } from './flow';
 import { alignSeries, pairIndices, rollingBeta, type AlignedSeries } from './macro';
 import type { FlowWho, MacroSeriesKey, Rebalance, SelectionCriteria } from './types';
-import { macroOn, usesFlow } from './validate';
+import { macroOn, usesFin, usesFlow } from './validate';
 
 type FileStock = MarketDataFile['stocks'][number];
 
@@ -41,6 +42,8 @@ export interface StockSeries {
   macroIdx: Record<MacroSeriesKey, Int32Array>;
   /** 투자자 수급 누적합·연속 일수. 수급 조건·정렬을 쓰지 않거나 그 종목에 수급이 없으면 null */
   flow: StockFlow | null;
+  /** 재무 공시일·누적합. 재무 조건·정렬을 쓰지 않거나 그 종목에 재무가 없으면 null */
+  fin: StockFin | null;
 }
 
 /** 미리 계산에 쓴 기준 값. selectAt이 다른 기준으로 고르지 못하게 한다 */
@@ -52,6 +55,8 @@ export interface PrecomputeParams {
   betaDays: number | null; // 환율·유가 조건·정렬을 쓰지 않으면 null(β를 계산하지 않음)
   /** 수급 조건·정렬을 쓰지 않으면 null. whos는 비율(누적합)을 쓰는 주체, streakWho는 연속 순매수를 켠 주체 */
   flow: { whos: FlowWho[]; streakWho: FlowWho | null } | null;
+  /** 재무 조건·정렬을 쓰지 않으면 null */
+  fin: { used: true } | null;
 }
 
 export interface Precomputed {
@@ -118,6 +123,7 @@ export function precomputeParams(criteria: SelectionCriteria, reboundEntry: Stra
     reboundEntryKey: reboundEntry ? stableJson(reboundEntry) : null,
     betaDays: usesMacro(criteria) ? k.macro.betaDays : null,
     flow: flowParams(criteria),
+    fin: usesFin(criteria) ? { used: true } : null,
   };
 }
 
@@ -238,6 +244,7 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
   const params = precomputeParams(criteria, reboundEntry);
   const v2 = hasMacroFormat(data) ? data : null;
   const v3 = hasFlowFormat(data) ? data : null;
+  const v4 = isV4(data) ? data : null;
   const macro: Precomputed['macro'] = {
     usdkrw: alignSeries('usdkrw', v2?.macro.usdkrw),
     wti: alignSeries('wti', v2?.macro.wti),
@@ -275,6 +282,7 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       beta: { usdkrw: fx.beta, wti: oil.beta },
       macroIdx: { usdkrw: fx.idx, wti: oil.idx },
       flow: v3 && params.flow ? stockFlow(v3.stocks[j], params.flow) : null,
+      fin: v4 && params.fin && v4.stocks[j].fin ? stockFin(v4.stocks[j].fin) : null,
     };
   });
   const themes = new Map((v2?.themes ?? []).map((t) => [t.code, t.symbols]));

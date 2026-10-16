@@ -476,3 +476,55 @@ describe('runValidation: 투자자 수급', () => {
     expect(run(c, [], v4).rebalances).toEqual(run(c, [], v3).rebalances);
   });
 });
+
+describe('runValidation: 재무', () => {
+  const per = (c: SelectionCriteria) => (c.conditions.fin.per = { on: true, min: 0, max: 15 });
+  const rankFin = (metric: 'per' | 'pbr' | 'roe') => (c: SelectionCriteria) => (c.rank = { by: 'fin', take: 5, fin: { metric } });
+
+  it("재무 조건이나 재무 정렬을 쓰면 늘 'finLag' 메모", () => {
+    expect(run(crit()).notes).not.toContain('finLag');
+    expect(run(crit(per)).notes).toContain('finLag');
+    expect(run(crit(rankFin('roe'))).notes).toContain('finLag');
+    expect(run(crit((c) => (c.conditions.fin.profitable.on = true))).notes).toContain('finLag');
+  });
+
+  it("PER·PBR 조건이나 PER·PBR 정렬을 쓸 때만 'finShares' 메모", () => {
+    expect(run(crit()).notes).not.toContain('finShares');
+    expect(run(crit(per)).notes).toContain('finShares');
+    expect(run(crit((c) => (c.conditions.fin.pbr = { on: true, min: 0, max: 1.5 }))).notes).toContain('finShares');
+    expect(run(crit(rankFin('pbr'))).notes).toContain('finShares');
+    expect(run(crit(rankFin('per'))).notes).toContain('finShares');
+    expect(run(crit(rankFin('roe'))).notes).not.toContain('finShares');
+    expect(run(crit((c) => (c.conditions.fin.roe = { on: true, min: 10 }))).notes).not.toContain('finShares');
+  });
+
+  it("후보 전체가 재무 계산 불가인 재선정일이 있으면 'finGap'(재무가 늦게 시작한 종목만 후보)", () => {
+    const late: Basket[] = [{ id: 'late', name: '늦은 재무', updatedAt: NOW, symbols: ['103333'] }];
+    const value: Basket[] = [{ id: 'late', name: '저PER', updatedAt: NOW, symbols: ['114443'] }];
+    const base = (c: SelectionCriteria) => ((c.pool.baskets = ['late']), (c.pool.excludeManaged = false), (c.conditions.tradingValue.on = false));
+    const c = crit((c) => (base(c), per(c)));
+    expect(run(c, [], fixture, late).notes).toContain('finGap');
+    expect(run(c, [], fixture, value).notes).not.toContain('finGap');
+    expect(run(crit(base), [], fixture, late).notes).not.toContain('finGap');
+  });
+
+  it("재무가 없는 데이터(v1~v3, 또는 재무 있는 종목 0)인데 재무를 쓰면 'no-fin' 오류. 쓰지 않으면 그대로 돈다", () => {
+    const v4 = fixture as MarketDataFileV4;
+    const v3: MarketDataFileV3 = { ...v4, version: 3, stocks: v4.stocks.map(({ fin, ...s }) => (void fin, s)) };
+    const none: MarketDataFileV4 = { ...v4, stocks: v3.stocks };
+    for (const data of [v3, none] as MarketDataFile[]) {
+      for (const c of [crit(per), crit(rankFin('roe'))]) {
+        let caught: unknown;
+        try {
+          run(c, [], data);
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(ValidationError);
+        expect(errorCode(caught)).toBe('no-fin');
+        expect((caught as Error).message).toBe('이 데이터에는 재무 정보가 없어요');
+      }
+      expect(run(crit(), [], data).rebalances.length).toBe(DATES.length);
+    }
+  });
+});
