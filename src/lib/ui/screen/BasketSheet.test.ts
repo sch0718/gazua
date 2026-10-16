@@ -18,12 +18,12 @@ const NAMES = { '005930': '삼성전자', '000660': 'SK하이닉스', '035420': 
 const THEMES = [{ code: 'T01', name: '반도체', count: 2 }];
 
 let apps: App[] = [];
-function setup(o: { baskets?: Basket[]; themeSymbols?: string[]; themes?: typeof THEMES } = {}) {
+function setup(o: { baskets?: Basket[]; themeSymbols?: string[]; themes?: typeof THEMES; loadThemeSymbols?: (code: string) => Promise<string[]> } = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체주', items: itemsOf(['005930', '000660']) }], now: NOW });
   apps.push(app);
   if (o.baskets) app.setBaskets(o.baskets);
   const onclose = vi.fn();
-  const loadThemeSymbols = vi.fn(async () => o.themeSymbols ?? ['005930', '035420']);
+  const loadThemeSymbols = vi.fn(o.loadThemeSymbols ?? (async () => o.themeSymbols ?? ['005930', '035420']));
   render(BasketSheet, { open: true, app, onclose, names: NAMES, loadItems: async () => ITEMS, themes: o.themes ?? THEMES, loadThemeSymbols });
   return { app, onclose, loadThemeSymbols };
 }
@@ -142,6 +142,37 @@ describe('BasketSheet', () => {
     await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
     await vi.waitFor(() => expect(app.baskets[0].symbols).toHaveLength(300));
     expect(currentSnackbar()?.message).toBe('종목 1개를 가져왔어요. 300개를 넘는 2개는 뺐어요');
+  });
+
+  it('a theme import lands in the basket it started from, even after switching to another basket', async () => {
+    let resolve!: (v: string[]) => void;
+    const pending = new Promise<string[]>((r) => (resolve = r));
+    const { app } = setup({ baskets: [mk('a', 'A', ['005930']), mk('b', 'B', ['000660'])], loadThemeSymbols: () => pending });
+    await fireEvent.click(screen.getByRole('button', { name: 'A 편집' }));
+    await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
+    await fireEvent.click(screen.getByRole('button', { name: '‹ 묶음 목록' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'B 편집' }));
+    resolve(['035420']);
+    await vi.waitFor(() => expect(app.baskets.find((b) => b.id === 'a')?.symbols).toEqual(['005930', '035420']));
+    expect(app.baskets.find((b) => b.id === 'b')?.symbols).toEqual(['000660']);
+    const saved = JSON.parse(app.exportData(false)).baskets as Basket[];
+    expect(saved.find((b) => b.id === 'a')?.symbols).toEqual(['005930', '035420']);
+    expect(saved.find((b) => b.id === 'b')?.symbols).toEqual(['000660']);
+    expect(currentSnackbar()?.message).toBe("'A'에 종목 1개를 가져왔어요");
+  });
+
+  it('a theme import is dropped when the basket was deleted mid-import', async () => {
+    let resolve!: (v: string[]) => void;
+    const pending = new Promise<string[]>((r) => (resolve = r));
+    const { app } = setup({ baskets: [mk('a', 'A', ['005930']), mk('b', 'B', ['000660'])], loadThemeSymbols: () => pending });
+    await fireEvent.click(screen.getByRole('button', { name: 'A 편집' }));
+    await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
+    await fireEvent.click(screen.getByRole('button', { name: '‹ 묶음 목록' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'A 삭제' }));
+    resolve(['035420']);
+    await vi.waitFor(() => expect(currentSnackbar()?.message).toBe('가져오는 동안 묶음이 바뀌어 넣지 못했어요'));
+    expect(app.baskets.map((b) => b.id)).toEqual(['b']);
+    expect(app.baskets[0].symbols).toEqual(['000660']);
   });
 
   it('undo is refused across a profile switch', async () => {

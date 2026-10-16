@@ -164,8 +164,8 @@
   }
 
   /** 종목을 더한다(중복은 건너뛰고 300개에서 멈춘다). 안내는 부르는 쪽이 한 번에 한다 */
-  function addSymbols(syms: string[]): { added: number; truncated: number; failed: boolean } {
-    const b = current;
+  function addSymbols(id: string, syms: string[]): { added: number; truncated: number; failed: boolean } {
+    const b = rows.find((x) => x.id === id);
     if (!b) return { added: 0, truncated: 0, failed: false };
     const have = new Set(b.symbols);
     const fresh = [...new Set(syms)].filter((s) => SYMBOL_RE.test(s) && !have.has(s));
@@ -178,10 +178,10 @@
   }
 
   /** 가져오기 결과를 안내 하나로 합친다. 저장이 실패했으면 저장소의 오류 안내만 남긴다 */
-  function report(r: { added: number; truncated: number; failed: boolean }) {
+  function report(r: { added: number; truncated: number; failed: boolean }, prefix = '') {
     if (r.failed) return;
     if (r.added === 0) return void showSnackbar(r.truncated > 0 ? SYMBOLS_FULL : '새로 넣을 종목이 없어요');
-    showSnackbar(`종목 ${r.added}개를 가져왔어요${r.truncated > 0 ? `. ${BASKET_SYMBOLS_MAX}개를 넘는 ${r.truncated}개는 뺐어요` : ''}`);
+    showSnackbar(`${prefix}종목 ${r.added}개를 가져왔어요${r.truncated > 0 ? `. ${BASKET_SYMBOLS_MAX}개를 넘는 ${r.truncated}개는 뺐어요` : ''}`);
   }
 
   async function removeSymbol(sym: string) {
@@ -223,14 +223,20 @@
   function fromGroup() {
     const g = groups.find((x) => x.id === groupId);
     if (!g) return;
-    report(addSymbols(g.items.map((i) => i.symbol)));
+    if (view) report(addSymbols(view, g.items.map((i) => i.symbol)));
   }
 
   async function fromTheme() {
     if (!themeCode || !loadThemeSymbols || importing) return;
+    const target = view;
+    if (!target) return;
+    const profile = app.meta.activeProfileId;
     importing = true;
     try {
-      report(addSymbols(await loadThemeSymbols(themeCode)));
+      const syms = await loadThemeSymbols(themeCode);
+      const b = rows.find((x) => x.id === target);
+      if (app.meta.activeProfileId !== profile || !open || !b) return void showSnackbar('가져오는 동안 묶음이 바뀌어 넣지 못했어요');
+      report(addSymbols(target, syms), view === target ? '' : `'${b.name}'에 `);
     } catch {
       showSnackbar('테마 종목을 불러오지 못했어요');
     } finally {
@@ -337,7 +343,7 @@
   max={BASKET_SYMBOLS_MAX}
   limitMessage={SYMBOLS_FULL}
   onpick={(item) => {
-    const r = addSymbols([item.s]);
+    const r = current ? addSymbols(current.id, [item.s]) : { added: 0, truncated: 0, failed: false };
     if (r.truncated > 0) showSnackbar(SYMBOLS_FULL);
   }}
   onclose={endAdding}
