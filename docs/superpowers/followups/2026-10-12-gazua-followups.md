@@ -101,3 +101,16 @@
 - 4단계 환율·유가 영향도: FRED CSV(DEXKOUS, DCOILWTICO, DCOILBRENTEU). 키가 필요 없고 1980년대부터 있다. → 가능. 수집 스크립트에서 함께 받는다(브라우저 CORS 문제 없음).
 - 4단계 테마: KIS `theme_code.mst`(현재 편입만), 사용자 정의 묶음. → 가능. 과거 편입 이력이 없다는 한계를 안내한다.
 - 실연결 점검 ⑯~⑲ 결과와 `output2` 빈 구간 동작은 [live-check](../../live-check.md)에서 확인한다.
+
+### 선정 기준 검증 1단계에서 남김 (2026-10-16)
+[설계](../specs/2026-10-16-selection-criteria-validation-design.md) · [계획](../plans/2026-10-16-selection-criteria-validation.md)의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
+
+- 해외식 색 관례에서 첫 ETF 선(`--s6`)이 상승색 초록과 거의 같음 · `src/lib/ui/screen/curveStyles.ts` · 관례에 따라 ETF 팔레트를 고르거나 선 모양으로 구분하고, `tokens.test`가 두 관례를 모두 보게 해요. 두 번째 ETF와 두 번째 지수가 같은 `--s3`(실선·점선으로 구분)인 것도 함께 정리해요.
+- 같은 업종 이름이 시장마다 다른 레벨에 잡히면 업종 고르기에서 두 줄로 나뉨 · `precompute.ts`의 묶음 키 · 실연결 점검 ⑰에서 실제로 갈리는지 확인한 뒤 정해요.
+- 수집기: 토큰 발급 응답 본문 읽기 시간 초과가 `netFail`을 거치지 않음, `--update` 겹침 구간을 정확한 값으로 비교, 빈 구간에서 `output2`를 빼고 응답하면 재시도 후 실패로 셈(실연결 점검 ⑱을 첫 5년 수집 전에 먼저) · `scripts/kis-collect.mjs`, `scripts/collect-market-data.mjs`
+- 시장 데이터 검증기가 `managed`·`halted` 불리언을 확인하지 않고, o·h·l·v·tv에 0을 허용함 · `src/lib/marketData/format.ts` · 수집기만 파일을 만들어 영향이 작아요.
+- CI에서 `test:scripts`가 demo·universe 테스트를 한 번 더 돎 · `.github/workflows/ci.yml` · 단계를 하나로 합쳐요.
+- 데모 fixture에 KRX 휴장일이 없음, 기본 `DecompressionStream` 경로는 jsdom에서 안 돌아 e2e만 덮음 · `tests/fixtures/market-data-demo.json.gz`
+- 테스트 보강: ① 첫 구간이 자본(initial)에서 시작하는지 고정, ② 창 밖에서 막힌 추가 매수가 창 안에서 같은 가격에 채워지는 경우, 기존 그룹에 넣을 때 "이미 있음 + 자리 부족" 두 번째 줄
+- 선정 기준 편집의 복제가 한도에서 이유 없이 비활성(전략 편집과 같음) · `CriteriaEditor.svelte`
+- 실제 기기에서 5년 파일로 검증 실행(메모리·시간) · 실연결 점검 ⑳
