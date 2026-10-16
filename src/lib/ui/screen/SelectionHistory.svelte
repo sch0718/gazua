@@ -2,9 +2,19 @@
   // 선정 이력(스펙 7.4-5): 재선정일마다 통과 수 · 뽑힌 종목 · 그 구간 종목별 수익률. 행을 펼치면 조건 계산값.
   import type { ValidationResult } from '../../screen/runValidation';
   import { dotDate, returnClass, trendReturn } from '../simulate/simText';
-  import { NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText } from './screenText';
+  import type { MacroSeriesKey } from '../../screen/types';
+  import { MACRO_VALUE_KEYS, macroValueLines, NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText } from './screenText';
 
-  let { result, names }: { result: ValidationResult; names: Record<string, string> } = $props();
+  let {
+    result,
+    names,
+    lookback,
+  }: {
+    result: ValidationResult;
+    names: Record<string, string>;
+    /** 실행할 때 기준의 흐름 기간(`최근 20일`). 없으면 `최근 흐름`으로 보인다 */
+    lookback?: Partial<Record<MacroSeriesKey, number>>;
+  } = $props();
 
   let open = $state<Record<string, boolean>>({});
   const segmentOf = (date: string) => result.hold.segments.find((s) => s.from === date);
@@ -50,11 +60,14 @@
                   {#if sp?.soldAtLastClose}<div class="flag">{SOLD_AT_LAST_CLOSE_TEXT}</div>{/if}
                   {#if isOpen}
                     <dl class="vals">
-                      {#each Object.entries(p.values) as [k, v] (k)}
+                      {#each Object.entries(p.values).filter(([k]) => !MACRO_VALUE_KEYS.has(k)) as [k, v] (k)}
                         {@const t = valueText(k, v)}
                         <div><dt>{t.label}</dt><dd class="num">{t.text}</dd></div>
                       {/each}
                     </dl>
+                    {#each macroValueLines(p.values, lookback) as line (line)}
+                      <p class="mv num" data-macro-value>{line}</p>
+                    {/each}
                   {/if}
                 </li>
               {/each}
@@ -132,5 +145,9 @@
   }
   .vals dd {
     margin: 0;
+  }
+  .mv {
+    margin: 2px 0 0;
+    color: var(--t2);
   }
 </style>

@@ -4,6 +4,7 @@ import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { newStrategy } from '../sim/defaults';
 import { newCriteria } from '../screen/defaults';
+import { newBasket } from '../screen/baskets';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
@@ -967,6 +968,47 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(() => app.setCriteria(many)).toThrow('선정 기준은 20개까지 저장할 수 있어요');
     expect(app.criteria).toEqual([]);
     expect(backing.getItem('gazua:v1:p:p1:criteria')).toBeNull();
+  });
+
+  it('setBaskets persists, switchProfile swaps the list, deleteProfile removes the key', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    const a = { ...newBasket(NOW, '가', ['005930']), id: 'a' };
+    const b = { ...newBasket(NOW, '나', ['000660']), id: 'b' };
+    seed(backing, 'p:p2:baskets', { baskets: [b] });
+    const app = make(backing);
+    expect(app.baskets).toEqual([]);
+    app.setBaskets([a]);
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:baskets')!)).toEqual({ baskets: [a] });
+    expect(app.baskets).toEqual([a]);
+    app.switchProfile('p2');
+    expect(app.baskets).toEqual([b]);
+    app.deleteProfile('p2');
+    expect(backing.getItem('gazua:v1:p:p2:baskets')).toBeNull();
+    expect(app.baskets).toEqual([a]);
+  });
+
+  it('setBaskets는 31개면 던지고 저장하지 않는다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    const app = make(backing);
+    const many = Array.from({ length: 31 }, (_, i) => ({ ...newBasket(NOW, '묶음', ['005930']), id: `b${i}` }));
+    expect(() => app.setBaskets(many)).toThrow('내 묶음은 30개까지 저장할 수 있어요');
+    expect(app.baskets).toEqual([]);
+    expect(backing.getItem('gazua:v1:p:p1:baskets')).toBeNull();
+  });
+
+  it('setBaskets는 빈 묶음을 거절하고 저장하지 않는다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    const app = make(backing);
+    expect(() => app.setBaskets([{ ...newBasket(NOW, '빈', []), id: 'e' }])).toThrow('묶음에는 종목이 1개 이상 있어야 해요');
+    expect(app.baskets).toEqual([]);
+    expect(backing.getItem('gazua:v1:p:p1:baskets')).toBeNull();
   });
 
   it('verifyPassphrase checks the stored lock without changing state', async () => {

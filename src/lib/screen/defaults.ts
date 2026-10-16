@@ -1,5 +1,5 @@
 import { defaultPeriod, MAX_INITIAL, NAME_MAX, newStrategy } from '../sim/defaults';
-import type { SelectionCriteria } from './types';
+import type { MacroSeriesCond, SelectionCriteria } from './types';
 
 export { MAX_INITIAL, NAME_MAX };
 export const MAX_CRITERIA = 20;
@@ -15,6 +15,12 @@ export function defaultCriteriaPeriod(now: number, dataRange: { from: string; to
   return { from, to: dataRange.to };
 }
 
+/** 환율·유가 한 계열의 기본 조건(스펙 3.3). 호출마다 새 객체 */
+export const defaultMacroSeries = (): MacroSeriesCond => ({
+  beta: { on: false, min: 0.3, max: 5 },
+  trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' },
+});
+
 export function newCriteria(
   now: number,
   dataRange: { from: string; to: string } | null,
@@ -24,7 +30,7 @@ export function newCriteria(
     id: crypto.randomUUID(),
     name,
     updatedAt: now,
-    pool: { markets: ['KOSPI', 'KOSDAQ'], types: ['STOCK'], excludeManaged: true, sectors: [] },
+    pool: { markets: ['KOSPI', 'KOSDAQ'], types: ['STOCK'], excludeManaged: true, sectors: [], themes: [], baskets: [] },
     conditions: {
       marketCap: { on: false, minEok: 1000 },
       tradingValue: { on: true, days: 20, minEok: 10 },
@@ -38,8 +44,9 @@ export function newCriteria(
         withinDays: 10,
         pattern: { from: 'custom', entry: newStrategy(now, null).entry },
       },
+      macro: { betaDays: 120, usdkrw: defaultMacroSeries(), wti: defaultMacroSeries() },
     },
-    rank: { by: 'marketCap', take: 10 },
+    rank: { by: 'marketCap', take: 10, series: 'usdkrw' },
     rebalance: 'monthly',
     period: defaultCriteriaPeriod(now, dataRange),
     benchmarks: { indices: ['KOSPI'], symbols: ['069500'] },

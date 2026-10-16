@@ -5,6 +5,7 @@ import { kstEpoch } from '../time/kst';
 import { loadStrategies } from '../sim/strategyStore';
 import { newCriteria } from '../screen/defaults';
 import { loadCriteria } from '../screen/criteriaStore';
+import { loadBaskets, newBasket } from '../screen/baskets';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
 import { DEFAULT_SETTINGS, META_KEY, type Meta, type Watchlists } from './schema';
 import { lockSecrets, type Secrets } from './secrets';
@@ -391,5 +392,39 @@ describe('criteria in export files', () => {
     expect(res).toMatchObject({ ok: true, repaired: true });
     if (!res.ok) return;
     expect(loadCriteria(st, res.profileId)).toHaveLength(20);
+  });
+});
+
+describe('baskets in export files', () => {
+  const bk = { ...newBasket(1_700_000_000_000, '내 묶음', ['005930', '000660']), id: 'b1' };
+  const file = (extra: Record<string, unknown>) =>
+    JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: {}, watchlists: LISTS, ...extra });
+
+  it('내보낸 JSON에 baskets가 있고 가져온 새 프로필에 같은 묶음이 저장된다(왕복)', () => {
+    const { st, backing } = source();
+    seed(backing, profileKeys.baskets('p1'), { baskets: [bk] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).baskets).toEqual([bk]);
+    const res = importData(st, json);
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(loadBaskets(st, res.profileId)).toEqual([bk]);
+  });
+
+  it('baskets가 없는 옛 파일도 조용히 가져오고 목록은 [], repaired false', () => {
+    const { st, backing } = source();
+    const res = importData(st, file({}));
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.baskets(res.profileId)}`)!)).toEqual({ baskets: [] });
+  });
+
+  it('baskets가 배열이 아니면 형식 오류, 깨진 항목은 고쳐 저장하고 repaired true', () => {
+    const { st } = source();
+    expect(importData(st, file({ baskets: 'x' }))).toEqual({ ok: false, reason: IMPORT_BAD_FORMAT });
+    const res = importData(st, file({ baskets: [{ ...bk, symbols: ['005930', 'zz'] }] }));
+    expect(res).toMatchObject({ ok: true, repaired: true });
+    if (!res.ok) return;
+    expect(loadBaskets(st, res.profileId)[0].symbols).toEqual(['005930']);
   });
 });

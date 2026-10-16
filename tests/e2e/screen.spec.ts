@@ -101,3 +101,78 @@ test('선정 기준 검증: 가져오기 → 새 기준 → 미리 보기 → �
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
+
+test('환율·테마 기준: v2 데이터 → 테마 1개 + 원/달러 민감도 ≥ 1.0 → 미리 보기 → 실행 → 이력 값 · 테마 메모', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await openApp(page);
+  await enterDemo(page);
+
+  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
+  await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: '비교로 돌아가기' }).click();
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('tab', { name: '선정 기준' }).click();
+  await page.getByRole('button', { name: '＋ 새 기준' }).first().click();
+  const run = page.getByRole('button', { name: '검증 실행' });
+  await expect(run).toBeEnabled();
+  await expect(page.getByText(/통과 \d+개 · 상위 \d+개/).first()).toBeVisible({ timeout: 30_000 });
+
+  // 후보 범위 › 테마 1개: 설계상 USD/KRW 민감도 +1.5인 종목만 든 '환율 수혜 대표'
+  await page.getByRole('button', { name: /^후보 범위/ }).click();
+  await page.getByLabel('테마 검색').fill('환율 수혜');
+  await page.getByRole('checkbox', { name: /환율 수혜 대표/ }).check();
+  await expect(page.getByRole('list', { name: '고른 테마' })).toContainText('환율 수혜 대표');
+
+  // 조건 › 원/달러 민감도 ≥ 1.0
+  const beta = page.getByRole('switch', { name: '원/달러 민감도 사용' });
+  await beta.click();
+  await expect(beta).toBeChecked();
+  const min = page.getByRole('textbox', { name: '원/달러 최소 민감도' });
+  await min.fill('1.0');
+  await min.blur();
+  await expect(min).toHaveValue(/^1(\.0)?$/);
+  await expectNoHorizontalScroll(page);
+  await expectNoSeriousViolations(page, '환율·테마 기준 편집');
+
+  // 기본으로 켜진 반등 신호는 끈다: 이 흐름은 테마와 환율 민감도만 본다
+  const previewStatus = page.getByRole('region', { name: '오늘 기준 미리 보기' }).getByRole('status');
+  await expect(previewStatus).toHaveText(/통과 \d+개 · 상위 \d+개/, { timeout: 30_000 });
+  const before = (await previewStatus.innerText()).trim();
+  const rebound = page.getByRole('switch', { name: '반등 신호 사용' });
+  await rebound.click();
+  await expect(rebound).not.toBeChecked();
+
+  // 미리 보기가 바뀐 기준으로 다시 계산돼 이전 값과 달라지고, 테마 안의 종목이 통과한다
+  await expect(previewStatus).not.toHaveText(before, { timeout: 30_000 });
+  await expect(previewStatus).toHaveText(/통과 [1-9]\d*개 · 상위 \d+개/, { timeout: 30_000 });
+
+  await run.click();
+  await expect(page.getByRole('heading', { name: '오늘 기준 선별' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('heading', { name: '선정 이력' })).toBeVisible();
+
+  // 이력 행을 펼치면 원/달러 민감도 값 줄이 보인다
+  const hist = page.getByRole('region', { name: '선정 이력' });
+  const row = hist.getByRole('button', { expanded: false }).first();
+  await row.click();
+  await expect(hist.locator('[data-macro-value]').first()).toHaveText(/^원\/달러 민감도 \d+\.\d{2}/);
+
+  // 뽑힌 종목은 모두 '환율 수혜 대표' 테마(설계상 원/달러 민감도 +1.5)의 종목이고, 민감도 값이 1.0 이상이다
+  const THEME_SYMBOLS = ['100000', '101111', '102222'];
+  const picked = await hist.locator('.picks .nm small').allInnerTexts();
+  expect(picked.length, '뽑힌 종목이 있다').toBeGreaterThan(0);
+  for (const sym of picked) expect(THEME_SYMBOLS, `${sym}은 테마 종목이다`).toContain(sym.trim());
+  const betas = (await hist.locator('[data-macro-value]').allInnerTexts()).map((t) => Number(/민감도 (\d+\.\d+)/.exec(t)![1]));
+  expect(betas.length).toBeGreaterThan(0);
+  for (const b of betas) expect(b).toBeGreaterThanOrEqual(1.0);
+
+  // 테마를 썼으니 테마 메모가 도움말에 있다
+  await expect(page.getByRole('list', { name: '결과 해석 도움말' })).toContainText('테마·내 묶음은 지금 구성을 과거에도 써요');
+  await expectNoHorizontalScroll(page);
+  await expectNoSeriousViolations(page, '환율·테마 검증 결과');
+
+  expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});

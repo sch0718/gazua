@@ -6,9 +6,8 @@
   import AddStockSheet from '../../../sheets/AddStockSheet.svelte';
   import { sharedUniverse } from '../../../sheets/universeSource';
   import type { UniverseItem } from '../../data/universe';
-  import type { MarketDataInfo, MarketSector } from '../../marketData/store';
+  import type { MarketDataInfo, MarketSector, MarketThemeSummary } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
-  import { sectorGroupCount } from '../../screen/precompute';
   import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX } from '../../screen/defaults';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
@@ -17,6 +16,7 @@
   import { PreviewError } from '../../screen/validationController.svelte';
   import { newStrategy } from '../../sim/defaults';
   import type { Strategy } from '../../sim/types';
+  import type { Basket } from '../../screen/baskets';
   import type { App } from '../../state/app.svelte';
   import Segmented from '../components/Segmented.svelte';
   import { showSnackbar } from '../components/snackbarStore.svelte';
@@ -24,11 +24,14 @@
   import EditorSection from '../simulate/editor/EditorSection.svelte';
   import EntrySection from '../simulate/editor/EntrySection.svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';
+  import BasketPicker from './BasketPicker.svelte';
   import ConditionRow from './ConditionRow.svelte';
+  import MacroConditions from './MacroConditions.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import PreviewPanel from './PreviewPanel.svelte';
   import SectorPicker from './SectorPicker.svelte';
-  import { CONDITION_HELP, CONDITION_LABEL, NO_DATA_RUN_REASON, rebalanceLabel } from './screenText';
+  import { CONDITION_HELP, CONDITION_LABEL, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
+  import ThemePicker from './ThemePicker.svelte';
 
   const EOK_MAX = 10_000_000;
 
@@ -41,6 +44,8 @@
     onRun,
     ondraft,
     loadItems = sharedUniverse,
+    themes,
+    loadThemeSymbols,
   }: {
     app: App;
     criteria: SelectionCriteria;
@@ -52,6 +57,10 @@
     onRun: (draft: SelectionCriteria) => void;
     ondraft?: (draft: SelectionCriteria) => void;
     loadItems?: () => Promise<UniverseItem[]>;
+    /** 파일의 테마 요약(읽는 중이면 undefined, v1이면 빈 배열) */
+    themes?: MarketThemeSummary[];
+    /** 테마의 종목 코드(묶음으로 가져오기용) */
+    loadThemeSymbols?: (code: string) => Promise<string[]>;
   } = $props();
 
   const SAVE_MS = 500;
@@ -126,15 +135,22 @@
   const sectionOfInvalid = (key: string): Key => (key.startsWith('take') ? 'rank' : key === 'cap' || key === 'fee' ? 'period' : 'conditions');
 
   // ── 경고 ──
-  const issues = $derived(criteriaIssues(draft, app.strategies));
+  // 이 데이터에 환율·유가·테마가 있는가(v1이거나 환율·유가 계열이 비면 새 조건은 쓸 수 없다)
+  const v1 = $derived(info !== null && (info.version ?? 1) < 2);
+  const noMacro = $derived(info !== null && !info.hasMacro);
+  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
+  const issues = $derived(criteriaIssues(draft, app.strategies, dataInfo, app.baskets));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
   const sectionIssues = (key: Key) => issueRows.filter((r) => r.issue.section === key);
 
   // ── 미리 보기: 이름·수정 시각만 바뀐 것은 다시 계산하지 않는다 ──
   const previewKey = $derived(
     JSON.stringify({ ...($state.snapshot(draft) as SelectionCriteria), name: '', updatedAt: 0 }) +
-      app.strategies.map((s) => `${s.id}:${s.updatedAt}`).join(),
+      app.strategies.map((s) => `${s.id}:${s.updatedAt}`).join() +
+      app.baskets.map((b) => `${b.id}:${b.updatedAt}`).join(),
   );
+  // 막는 경고가 있으면 미리 보기를 돌리지 않는다(돌리면 0으로 보여 오해하기 쉽다)
+  const previewBlocked = $derived(issues.some((i) => i.blocking));
   let previewSel = $state.raw<Selection | null>(null);
   let previewPending = $state(false);
   let previewFailed = $state(false);
@@ -149,6 +165,7 @@
       const sel = await preview({
         criteria: $state.snapshot(draft) as SelectionCriteria,
         strategies: $state.snapshot(app.strategies) as Strategy[],
+        baskets: $state.snapshot(app.baskets) as Basket[],
       });
       if (seq === previewSeq) previewSel = sel;
     } catch (e) {
@@ -161,7 +178,7 @@
 
   $effect(() => {
     void previewKey;
-    const has = info !== null;
+    const has = info !== null && !previewBlocked;
     untrack(() => {
       clearTimeout(previewTimer);
       previewSeq++; // 이미 나간 계산의 답은 이 편집보다 옛것이다
@@ -233,10 +250,11 @@
     switch (key) {
       case 'pool': {
         const types = d.pool.types.map((t) => (t === 'STOCK' ? '주식' : 'ETF')).join('·');
-        return `${d.pool.markets.join('·')} ${types} · ${d.pool.sectors.length ? `업종 ${sectorGroupCount(d.pool.sectors, sectors)}개` : '전체 업종'}`;
+        return `${d.pool.markets.join('·')} ${types} · ${poolScopeText(d.pool, sectors)}`;
       }
       case 'conditions': {
-        const n = Object.values(d.conditions).filter((x) => x.on).length;
+        const { macro, ...simple } = d.conditions;
+        const n = Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
@@ -250,7 +268,8 @@
     }
   }
 
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순' } as const;
+  const SERIES = ['usdkrw', 'wti'] as const;
+  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순' } as const;
 
   // ── 후보 범위 ──
   function setMember<T extends string>(list: T[], v: T, on: boolean): T[] {
@@ -364,6 +383,17 @@
             update((c) => {
               c.pool.sectors = next;
             })} />
+        <p class="group-title">테마</p>
+        <ThemePicker {themes} selected={draft.pool.themes} disabled={v1} onchange={(next) =>
+            update((c) => {
+              c.pool.themes = next;
+            })} />
+        <p class="group-title">내 묶음</p>
+        <BasketPicker {app} selected={draft.pool.baskets} {names} {loadItems} {themes} {loadThemeSymbols} onchange={(next) =>
+            update((c) => {
+              c.pool.baskets = next;
+            })} />
+        <p class="hint">업종·테마·내 묶음은 하나라도 고르면 그 종목들의 합집합이 후보예요. 아무것도 안 고르면 전체예요.</p>
       {:else if key === 'conditions'}
         {@const k = draft.conditions}
         <ConditionRow label={CONDITION_LABEL.marketCap} help={CONDITION_HELP.marketCap} on={k.marketCap.on} ontoggle={(v) => update((c) => (c.conditions.marketCap.on = v))}>
@@ -446,6 +476,7 @@
             <EntrySection s={entryHost} update={updateEntry} nf={(k) => nf(`entry-${k}`)} />
           {/if}
         </ConditionRow>
+        <MacroConditions macro={k.macro} unavailable={noMacro} {nf} update={(fn) => update((c) => fn(c.conditions.macro))} />
       {:else if key === 'rank'}
         <Segmented
           wide
@@ -458,8 +489,20 @@
             { value: 'tradingValue', label: '거래대금 큰 순' },
             { value: 'return', label: '수익률 높은 순' },
             { value: 'lowVolatility', label: '변동성 낮은 순' },
+            { value: 'macroBeta', label: '민감도 큰 순' },
           ]}
         />
+        {#if draft.rank.by === 'macroBeta'}
+          <select
+            class="pick"
+            aria-label="민감도 계열"
+            onchange={(e) => update((c) => (c.rank.series = e.currentTarget.value === 'wti' ? 'wti' : 'usdkrw'))}
+          >
+            {#each SERIES as s (s)}
+              <option value={s} selected={(draft.rank.series ?? 'usdkrw') === s}>{SERIES_LABEL[s]}</option>
+            {/each}
+          </select>
+        {/if}
         <p class="hint">조건을 통과한 종목을 이 순서로 줄 세워 위에서부터 골라요. 같으면 종목코드 순이에요.</p>
         <div class="row">
           <NumberField label="고를 개수" value={draft.rank.take} min={1} max={TAKE_MAX} step={1} suffix="개" {...nf('take')} onchange={(v) => update((c) => (c.rank.take = v))} />
@@ -544,6 +587,7 @@
     selection={previewSel}
     pending={previewPending}
     failed={previewFailed}
+    blocked={previewBlocked}
     {names}
   />
 

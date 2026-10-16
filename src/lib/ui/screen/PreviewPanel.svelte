@@ -9,6 +9,7 @@
     pending,
     failed,
     names,
+    blocked = false,
   }: {
     hasData: boolean;
     /** 데이터 마지막 날 */
@@ -18,6 +19,8 @@
     pending: boolean;
     failed: boolean;
     names: Record<string, string>;
+    /** 막는 경고가 있어 계산하지 않는 중 */
+    blocked?: boolean;
   } = $props();
 
   const countText = (s: Selection) => `통과 ${s.passed}개 · 상위 ${s.picked.length}개`;
@@ -31,10 +34,12 @@
   {:else}
     {#if asOf}<p class="muted">{asOf} 기준</p>{/if}
     <!-- 끝난 결과도 이 라이브 영역에 넣어 화면 낭독기가 읽게 한다. 계산 중에는 옛 결과를 그대로 보인다 -->
-    <p class="state" class:count={!pending && !!selection && !failed} role="status">
-      {pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
+    <p class="state" class:count={!blocked && !pending && !!selection && !failed} role="status">
+      {blocked ? '고칠 곳을 고치면 미리 볼 수 있어요' : pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
     </p>
-    {#if failed}
+    {#if blocked}
+      <!-- 막는 경고가 있으면 옛 결과를 보이지 않는다 -->
+    {:else if failed}
       <p class="err">미리 보기를 계산하지 못했어요</p>
     {:else if selection}
       {#if pending}<p class="count">{countText(selection)}</p>{/if}

@@ -10,9 +10,11 @@ import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { createGzip, gunzipSync } from 'node:zlib';
 import { unzipSync } from 'fflate';
+import { fetchFredSeries } from './fetch-fred.mjs';
 import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
 import { parseIdxcode } from './parse-idxcode.mjs';
 import { parseMaster } from './parse-master.mjs';
+import { parseThemesDetailed } from './parse-theme.mjs';
 
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MASTER_BASE = 'https://new.real.download.dws.co.kr/common/master';
@@ -24,6 +26,8 @@ const MAX_YEARS = 10;
 const STOCK_KEYS = ['d', 'o', 'h', 'l', 'c', 'v', 'tv'];
 const INDEX_KEYS = ['d', 'o', 'c'];
 const INDEX_IDS = ['KOSPI', 'KOSDAQ'];
+// FRED 계열 ID(키 없이 받는다)
+const FRED_IDS = { usdkrw: 'DEXKOUS', wti: 'DCOILWTICO' };
 const pick = (rec, keys) => Object.fromEntries(keys.map((k) => [k, rec[k]]));
 const SECTOR_PREFIX = { KOSPI: '0', KOSDAQ: '1' };
 
@@ -170,10 +174,11 @@ export async function writeGzipJson(path, file, { sink } = {}) {
 
 /**
  * @param {{ years?: number; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
- *   master: { stocks: any[]; idxcode: { code: string; name: string }[] };
+ *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number; themeFailed?: boolean };
+ *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [] }) {
+export async function collect({ years = 5, out, update, client, master, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep }) {
   // 로그에 나가는 모든 문구에서 키·토큰을 가린다.
   const clean = (msg) => {
     let t = client.scrub ? client.scrub(msg) : String(msg);
@@ -310,17 +315,47 @@ export async function collect({ years = 5, out, update, client, master, now = Da
     });
   });
 
+  // 환율·유가: 일봉 시작 1년 전부터(β 워밍업). 실패해도 수집은 계속하고 그 계열만 비운다.
+  // 윤일(2월 29일)도 유효한 날짜가 되도록 Date.UTC로 계산한다(2024-02-29 → 2023-03-01)
+  const macroFrom = new Date(Date.UTC(+from.slice(0, 4) - 1, +from.slice(4, 6) - 1, +from.slice(6, 8))).toISOString().slice(0, 10);
+  const macro = {};
+  let macroFailed = false;
+  for (const [key, id] of Object.entries(FRED_IDS)) {
+    try {
+      macro[key] = await fetchFredSeries(id, { fetchImpl: fredFetch, sleep, from: macroFrom, to: dashed(to) });
+    } catch (e) {
+      macroFailed = true;
+      log(`${key} 계열 실패: ${errText(e)}`);
+      const kept = prev?.macro?.[key];
+      if (kept?.d?.length) {
+        macro[key] = kept; // --update: 이전 파일의 계열을 비우지 않고 지킨다
+        log(`이전 파일의 ${key} 계열 ${kept.d.length}일을 그대로 두었어요`);
+      } else macro[key] = { d: [], v: [] };
+    }
+  }
+  if (macroFailed) log('환율·유가를 받지 못했어요');
+
+  if (master.themeFailed) log('테마를 받지 못했어요');
+
+  // 테마: 파일에 있는 종목만 남기고 빈 테마는 버린다.
+  const inFile = new Set(stocks.map((s) => s.s));
+  const themes = (master.themes ?? [])
+    .map((t) => ({ code: t.code, name: t.name, symbols: t.symbols.filter((x) => inFile.has(x)) }))
+    .filter((t) => t.symbols.length > 0);
+
   const axis = indices.find((i) => i.id === 'KOSPI')?.d ?? [];
   const allDates = axis.length ? axis : stocks.flatMap((s) => [s.d[0], s.d.at(-1)]).sort();
   const range = { from: dashed(allDates[0] ?? from), to: dashed(allDates.at(-1) ?? to) };
   const file = {
     format: 'gazua-market-data',
-    version: 1,
+    version: 2,
     collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
     source: 'kis',
     adjusted: true,
     range,
     sectors,
+    macro,
+    themes,
     stocks,
     indices,
   };
@@ -339,12 +374,17 @@ export async function collect({ years = 5, out, update, client, master, now = Da
     failed,
     elapsedMs: now() - startedAt,
     bytes: statSync(filePath).size,
+    macroDays: { usdkrw: macro.usdkrw.d.length, wti: macro.wti.d.length },
+    themes: themes.length,
+    themeDropped: master.themeDropped ?? 0,
   };
   log(
     `완료: ${summary.stocks}종목 · ${range.from} ~ ${range.to} · 다시 받은 종목 ${refetched}개 · 실패 ${failed.length}개${
       failed.length ? ` (${failed.join(', ')})` : ''
     } · ${Math.round(summary.elapsedMs / 1000)}초 · ${(summary.bytes / 1048576).toFixed(1)}MB`,
   );
+  log(`환율 ${summary.macroDays.usdkrw}일 · 유가 ${summary.macroDays.wti}일 · 테마 ${themes.length}개`);
+  if (summary.themeDropped) log(`테마 파일에서 형식이 맞지 않는 행 ${summary.themeDropped}개를 뺐어요`);
   return { file, summary };
 }
 
@@ -357,12 +397,23 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
     if (!bytes) throw new Error(`${zip} 안에 ${entry}가 없어요`);
     return bytes;
   };
-  const [kospi, kosdaq, idx] = await Promise.all([
+  // 테마는 없어도 되는 데이터라 실패하면 빈 목록으로 두고 알린다(오류 문구는 담지 않는다)
+  const loadThemes = async () => {
+    try {
+      const { themes, dropped } = parseThemesDetailed(await get('theme_code.mst.zip', 'theme_code.mst'));
+      return { themes, themeDropped: dropped };
+    } catch {
+      return { themes: [], themeDropped: 0, themeFailed: true };
+    }
+  };
+  const [kospi, kosdaq, idx, themeInfo] = await Promise.all([
     get('kospi_code.mst.zip', 'kospi_code.mst'),
     get('kosdaq_code.mst.zip', 'kosdaq_code.mst'),
     get('idxcode.mst.zip', 'idxcode.mst'),
+    loadThemes(),
   ]);
   return {
+    ...themeInfo,
     stocks: [...parseMaster(kospi, 'KOSPI', { detail: true }), ...parseMaster(kosdaq, 'KOSDAQ', { detail: true })],
     idxcode: parseIdxcode(idx),
   };

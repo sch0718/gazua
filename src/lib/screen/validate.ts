@@ -3,7 +3,8 @@ import { kstDate, kstEpoch } from '../time/kst';
 import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX, newCriteria } from './defaults';
-import type { Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
+import type { Basket } from './baskets';
+import type { MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -13,7 +14,8 @@ const realDate = (x: unknown): boolean =>
 
 const MARKETS: readonly Market[] = ['KOSPI', 'KOSDAQ'];
 const TYPES: readonly SecurityType[] = ['STOCK', 'ETF'];
-const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility'];
+const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility', 'macroBeta'];
+const SERIES: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
 const REBALANCES: readonly Rebalance[] = ['monthly', 'quarterly', 'semiannual'];
 /** 억 원 단위 상한(1,000조 원). 그 위는 입력 실수로 본다 */
 const EOK_MAX = 10_000_000;
@@ -67,7 +69,19 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
     sectors = [...new Set(pl.sectors.filter((x): x is string => typeof x === 'string' && x !== ''))];
     if (sectors.length !== pl.sectors.length) repaired = true;
   } else if (pl.sectors !== undefined) repaired = true;
+  // 문자열 목록(테마 코드·묶음 id). 틀린 항목은 버리고 고침으로 센다
+  const strList = (v: unknown, def: string[]): string[] => {
+    if (!Array.isArray(v)) {
+      if (v !== undefined) repaired = true;
+      return def;
+    }
+    const out = [...new Set(v.filter((x): x is string => typeof x === 'string' && x !== ''))];
+    if (out.length !== v.length) repaired = true;
+    return out;
+  };
   const pool = {
+    themes: strList(pl.themes, d.pool.themes),
+    baskets: strList(pl.baskets, d.pool.baskets),
     markets: list(pl.markets, d.pool.markets, MARKETS, false),
     types: list(pl.types, d.pool.types, TYPES, false),
     excludeManaged: bool(pl.excludeManaged, d.pool.excludeManaged),
@@ -94,6 +108,23 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
     if (e.repaired) repaired = true;
     pattern = { from: 'custom', entry: e.entry };
   } else if (rb.pattern !== undefined) repaired = true;
+
+  const mcr = rec(cd.macro);
+  const series = (v: unknown, def: MacroSeriesCond): MacroSeriesCond => {
+    const r = rec(v);
+    const b = rec(r.beta);
+    const t = rec(r.trend);
+    return {
+      beta: { on: bool(b.on, def.beta.on), min: num(b.min, def.beta.min, -20, 20), max: num(b.max, def.beta.max, -20, 20) },
+      trend: {
+        on: bool(t.on, def.trend.on),
+        lookback: int(t.lookback, def.trend.lookback, 5, 120),
+        thresholdPct: num(t.thresholdPct, def.trend.thresholdPct, 0.5, 50),
+        minAbsBeta: num(t.minAbsBeta, def.trend.minAbsBeta, 0, 20),
+        whenFlat: pick(t.whenFlat, def.trend.whenFlat, (x) => x === 'pass' || x === 'none'),
+      },
+    };
+  };
 
   const conditions: SelectionCriteria['conditions'] = {
     marketCap: { on: bool(mc.on, dc.marketCap.on), minEok: num(mc.minEok, dc.marketCap.minEok, 0, EOK_MAX) },
@@ -129,13 +160,24 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
       maxPct: num(vo.maxPct, dc.volatility.maxPct, 0, 100),
     },
     rebound: { on: bool(rb.on, dc.rebound.on), withinDays: int(rb.withinDays, dc.rebound.withinDays, 1, 60), pattern },
+    macro: {
+      betaDays: int(mcr.betaDays, dc.macro.betaDays, 30, 250),
+      usdkrw: series(mcr.usdkrw, dc.macro.usdkrw),
+      wti: series(mcr.wti, dc.macro.wti),
+    },
   };
 
   const rk = rec(raw.rank);
-  const rank = {
-    by: pick(rk.by, d.rank.by, (x) => RANKS.includes(x as RankBy)),
-    take: int(rk.take, d.rank.take, 1, TAKE_MAX),
-  };
+  const by = pick(rk.by, d.rank.by, (x) => RANKS.includes(x as RankBy));
+  const dSeries = d.rank.series ?? 'usdkrw';
+  // series는 macroBeta일 때만 검증한다. 아니면 틀린 값도 고침으로 세지 않고 기본값으로 둔다
+  const rankSeries: MacroSeriesKey =
+    by === 'macroBeta'
+      ? pick(rk.series, dSeries, (x) => SERIES.includes(x as MacroSeriesKey))
+      : SERIES.includes(rk.series as MacroSeriesKey)
+        ? (rk.series as MacroSeriesKey)
+        : dSeries;
+  const rank = { by, take: int(rk.take, d.rank.take, 1, TAKE_MAX), series: rankSeries };
 
   const p = rec(raw.period);
   const period = { from: pick(p.from, d.period.from, realDate), to: pick(p.to, d.period.to, realDate) };
@@ -218,7 +260,20 @@ export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[])
   return out;
 }
 
-export function criteriaIssues(c: SelectionCriteria, strategies: Strategy[]): Issue[] {
+/** 환율·유가 조건이 하나라도 켜져 있는가 */
+export const macroOn = (m: SelectionCriteria['conditions']['macro']): boolean =>
+  m.usdkrw.beta.on || m.usdkrw.trend.on || m.wti.beta.on || m.wti.trend.on;
+
+/**
+ * dataInfo·baskets를 주면 데이터와 내 묶음에 기대는 검사를 더한다. 생략하면 건너뛴다(기존 호출 그대로).
+ * baskets는 지금 프로필의 내 묶음 목록이다.
+ */
+export function criteriaIssues(
+  c: SelectionCriteria,
+  strategies: Strategy[],
+  dataInfo?: { hasMacro: boolean; themeCodes?: string[] },
+  baskets?: Pick<Basket, 'id'>[],
+): Issue[] {
   const out: Issue[] = [];
   const has = (id: string) => strategies.some((s) => s.id === id);
   const k = c.conditions;
@@ -235,7 +290,29 @@ export function criteriaIssues(c: SelectionCriteria, strategies: Strategy[]): Is
   if (k.fromHigh.on && k.fromHigh.minPct > k.fromHigh.maxPct)
     out.push({ section: 'conditions', text: '고점 대비 범위는 작은 값부터 적어 주세요', blocking: true });
 
-  if (!Object.values(k).some((x) => x.on))
+  if (dataInfo && !dataInfo.hasMacro && macroOn(k.macro))
+    out.push({ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true });
+  const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+  (['usdkrw', 'wti'] as const).forEach((key) => {
+    const b = k.macro[key].beta;
+    if (b.on && b.min > b.max)
+      out.push({
+        section: 'conditions',
+        text: `${key === 'usdkrw' ? '원/달러' : '유가'} 민감도 범위의 최소가 최대보다 커요`,
+        blocking: true,
+      });
+  });
+  // 같은 문구는 한 번만(조건 구역의 이슈를 남긴다)
+  if (dataInfo && !dataInfo.hasMacro && c.rank.by === 'macroBeta' && !out.some((i) => i.text === NO_MACRO))
+    out.push({ section: 'rank', text: NO_MACRO, blocking: true });
+  if (baskets && c.pool.baskets.some((id) => !baskets.some((b) => b.id === id)))
+    out.push({ section: 'pool', text: '지워진 내 묶음이 있어요. 다시 골라 주세요', blocking: false });
+  const codes = dataInfo?.themeCodes;
+  if (codes && c.pool.themes.some((t) => !codes.includes(t)))
+    out.push({ section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false });
+
+  const { macro, ...simple } = k;
+  if (!macroOn(macro) && !Object.values(simple).some((x) => x.on))
     out.push({ section: 'conditions', text: '조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요', blocking: false });
   return out;
 }

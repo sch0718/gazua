@@ -11,7 +11,7 @@ describe('newCriteria', () => {
     expect(c.name).toBe('새 기준');
     expect(c.updatedAt).toBe(NOW);
     expect(c.id).not.toBe('');
-    expect(c.pool).toEqual({ markets: ['KOSPI', 'KOSDAQ'], types: ['STOCK'], excludeManaged: true, sectors: [] });
+    expect(c.pool).toEqual({ markets: ['KOSPI', 'KOSDAQ'], types: ['STOCK'], excludeManaged: true, sectors: [], themes: [], baskets: [] });
     expect(c.conditions).toEqual({
       marketCap: { on: false, minEok: 1000 },
       tradingValue: { on: true, days: 20, minEok: 10 },
@@ -21,8 +21,13 @@ describe('newCriteria', () => {
       fromHigh: { on: false, minPct: 20, maxPct: 50 },
       volatility: { on: false, days: 20, maxPct: 3 },
       rebound: { on: true, withinDays: 10, pattern: { from: 'custom', entry: newStrategy(NOW, null).entry } },
+      macro: {
+        betaDays: 120,
+        usdkrw: { beta: { on: false, min: 0.3, max: 5 }, trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' } },
+        wti: { beta: { on: false, min: 0.3, max: 5 }, trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' } },
+      },
     });
-    expect(c.rank).toEqual({ by: 'marketCap', take: 10 });
+    expect(c.rank).toEqual({ by: 'marketCap', take: 10, series: 'usdkrw' });
     expect(c.rebalance).toBe('monthly');
     expect(c.benchmarks).toEqual({ indices: ['KOSPI'], symbols: ['069500'] });
     expect(c.costs).toEqual({ feePct: 0.015 });

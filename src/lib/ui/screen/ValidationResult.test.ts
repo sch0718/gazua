@@ -12,10 +12,10 @@ import ValidationResult from './ValidationResult.svelte';
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
 
 let apps: App[] = [];
-function setup(result: Result = validationResult(), names: Record<string, string> = {}) {
+function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } } } = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
   apps.push(app);
-  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000 });
+  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, ...extra });
   return app;
 }
 beforeEach(() => {
@@ -223,5 +223,43 @@ describe('ValidationResult', () => {
     await vi.waitFor(() => expect(lwcCharts[0].series[1].options.visible).toBe(false));
     await fireEvent.click(btn);
     await vi.waitFor(() => expect(lwcCharts[0].series[1].options.visible).toBe(true));
+  });
+
+  describe('stage 4 notes and values', () => {
+    const withPicks = (values: Record<string, number | boolean | null>) => {
+      const base = validationResult();
+      return validationResult({ rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] });
+    };
+
+    it('themeSnapshot adds its sentence to the help list (verbatim), and only with that note', () => {
+      setup(validationResult({ notes: ['themeSnapshot'] }));
+      expect(squash(document.querySelector('.help')!)).toContain('테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요');
+      document.body.innerHTML = '';
+      setup(validationResult({ notes: [] }));
+      expect(squash(document.querySelector('.help')!)).not.toContain('지금 구성을 과거에도');
+    });
+
+    it('the weekly-release line shows only when the run used FX/oil', () => {
+      setup(validationResult({ notes: [] }), {}, { macro: { used: true } });
+      expect(squash(document.querySelector('.help')!)).toContain('환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요');
+      document.body.innerHTML = '';
+      setup(validationResult({ notes: [] }));
+      expect(squash(document.querySelector('.help')!)).not.toContain('매주 묶어서');
+    });
+
+    it('macroGap is a warning banner on top', () => {
+      setup(validationResult({ notes: ['macroGap'] }));
+      expect([...document.querySelectorAll('.banner.warn')].map((b) => squash(b))).toEqual(['일부 기간은 환율·유가 값이 없어 그 조건을 통과한 종목이 없어요']);
+      expect(squash(document.querySelector('.help')!)).not.toContain('일부 기간은');
+    });
+
+    it('expanding a history row shows beta and trend as 원/달러 민감도 0.82 · 최근 20일 +3.4%', async () => {
+      setup(withPicks({ usdkrwBeta: 0.8234, usdkrwTrend: 3.44, wtiBeta: null }), {}, { macro: { used: true, lookback: { usdkrw: 20 } } });
+      expect(document.querySelector('[data-macro-value]')).toBeNull();
+      await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+      expect([...document.querySelectorAll('[data-macro-value]')].map((e) => e.textContent)).toEqual(['원/달러 민감도 0.82 · 최근 20일 +3.4%', '유가 민감도 —']);
+      // 환율·유가 값은 일반 값 목록에 따로 나오지 않는다
+      expect(document.querySelector('.vals')!.textContent).not.toContain('usdkrw');
+    });
   });
 });

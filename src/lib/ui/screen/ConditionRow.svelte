@@ -8,8 +8,21 @@
     help,
     on,
     ontoggle,
+    disabled = false,
+    softDisabled = false,
+    describedby,
     children,
-  }: { label: string; help: string; on: boolean; ontoggle: (v: boolean) => void; children: Snippet } = $props();
+  }: {
+    label: string;
+    help: string;
+    on: boolean;
+    ontoggle: (v: boolean) => void;
+    disabled?: boolean;
+    /** 포커스를 지키며 막을 때: aria-disabled만 켠다 */
+    softDisabled?: boolean;
+    describedby?: string;
+    children: Snippet;
+  } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
 </script>
@@ -17,7 +30,7 @@
 <div class="cond" class:off={!on}>
   <div class="row">
     <label for="cond-{uid}">{label}</label>
-    <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} />
+    <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} {disabled} {softDisabled} {describedby} />
   </div>
   <p class="help">{help}</p>
   <div class="fields">{@render children()}</div>

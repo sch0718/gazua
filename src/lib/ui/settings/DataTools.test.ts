@@ -163,10 +163,49 @@ describe('DataTools', () => {
       await mount();
       expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
       await pick(demo());
-      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15')).toBeTruthy();
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
       await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
       expect(await marketData.info()).toBeNull();
+    });
+
+    it('a v1 file gets the re-collect hint instead', async () => {
+      const j = JSON.parse(await decompress(new Blob([gz])));
+      j.version = 1;
+      delete j.macro;
+      delete j.themes;
+      await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
+      await pick(demo());
+      expect(
+        await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 다시 수집하면 환율·유가·테마도 쓸 수 있어요'),
+      ).toBeTruthy();
+    });
+
+    const base = '수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15';
+    async function importVariant(edit: (j: any) => void) {
+      const j = JSON.parse(await decompress(new Blob([gz])));
+      edit(j);
+      await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
+      await pick(demo());
+    }
+    const emptyMacro = (j: any) => (j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
+
+    it('v2 with empty macro names only themes', async () => {
+      await importVariant(emptyMacro);
+      expect(await screen.findByText(`${base} · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
+    });
+
+    it('v2 with empty themes names only macro', async () => {
+      await importVariant((j) => (j.themes = []));
+      expect(await screen.findByText(`${base} · 환율·유가 포함 · 테마는 다시 수집하면 쓸 수 있어요`)).toBeTruthy();
+    });
+
+    it('v2 with both empty gets the re-collect hint', async () => {
+      await importVariant((j) => {
+        emptyMacro(j);
+        j.themes = [];
+      });
+      expect(await screen.findByText(`${base} · 다시 수집하면 환율·유가·테마도 쓸 수 있어요`)).toBeTruthy();
     });
 
     it('shows the corrupt-file message and keeps what was there', async () => {
@@ -181,7 +220,7 @@ describe('DataTools', () => {
 
     it('shows the newer-version message', async () => {
       const j = JSON.parse(await decompress(new Blob([gz])));
-      await mount({ decompress: async () => JSON.stringify({ ...j, version: 2 }), estimate: roomy });
+      await mount({ decompress: async () => JSON.stringify({ ...j, version: 3 }), estimate: roomy });
       await pick(demo());
       expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
     });

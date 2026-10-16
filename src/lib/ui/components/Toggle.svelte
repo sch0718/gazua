@@ -5,6 +5,8 @@
     onchange,
     disabled = false,
     id,
+    describedby,
+    softDisabled = false,
   }: {
     checked: boolean;
     label: string;
@@ -12,6 +14,10 @@
     disabled?: boolean;
     /** 바깥 <label for>와 연결할 때 */
     id?: string;
+    /** 설명 문구 요소 id */
+    describedby?: string;
+    /** aria-disabled만 켠다(포커스를 잃지 않게 disabled는 쓰지 않는다). 누름 처리는 부르는 쪽 몫 */
+    softDisabled?: boolean;
   } = $props();
 </script>
 
@@ -21,6 +27,8 @@
   role="switch"
   aria-checked={checked}
   aria-label={label}
+  aria-describedby={describedby}
+  aria-disabled={softDisabled ? 'true' : undefined}
   {id}
   {disabled}
   onclick={() => onchange(!checked)}
@@ -35,7 +43,8 @@
     min-width: 52px;
     min-height: 44px;
   }
-  .toggle:disabled {
+  .toggle:disabled,
+  .toggle[aria-disabled='true'] {
     opacity: 0.5;
     cursor: not-allowed;
   }

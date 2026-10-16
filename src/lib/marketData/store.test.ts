@@ -138,7 +138,7 @@ describe('market data store', () => {
   it('tells a newer version and a wrong format apart', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
-    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 2 }) });
+    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 3 }) });
     expect(newer).toEqual({ ok: false, reason: 'version-newer' });
     const other = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => '{"a":1}' });
     expect(other).toEqual({ ok: false, reason: 'format' });
@@ -178,6 +178,116 @@ describe('market data store', () => {
     expect(await store.info()).toEqual(infoA);
     expect(await store.load()).toEqual(dataA);
     expect(await store.sectors()).toEqual(sectorsA);
+  });
+
+  // v1 파일: v2에만 있는 두 필드를 뺀다
+  const asV1 = async () => {
+    const j = JSON.parse(await decompress(file()));
+    j.version = 1;
+    delete j.macro;
+    delete j.themes;
+    return JSON.stringify(j);
+  };
+
+  it('v2 import: themes() lists code, name and symbol count; info() says version 2 with macro', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const body = (await store.load())!;
+    if (body.version !== 2) throw new Error('fixture is not v2');
+    expect(body.themes.length).toBeGreaterThan(0);
+    expect(await store.themes()).toEqual(body.themes.map((t) => ({ code: t.code, name: t.name, count: t.symbols.length })));
+    expect(await store.info()).toMatchObject({ version: 2, hasMacro: true });
+  });
+
+  it('info() carries themeCount, and reads 0 on old data without it', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const n = (await store.themes()).length;
+    expect(n).toBeGreaterThan(0);
+    expect((await store.info())?.themeCount).toBe(n);
+    const db = await openDB('gazua-market-data', 1);
+    const old = await db.get('files', 'current-info');
+    delete old.themeCount;
+    await db.put('files', old, 'current-info');
+    db.close();
+    expect((await store.info())?.themeCount).toBe(0);
+  });
+
+  it('hasMacro is false for a v2 file whose macro series are both empty', async () => {
+    const store = openMarketData();
+    const j = JSON.parse(await decompress(file()));
+    j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } };
+    const text = JSON.stringify(j);
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(await store.info()).toMatchObject({ version: 2, hasMacro: false });
+  });
+
+  it('v1 import: themes() is [] and info() says version 1 without macro', async () => {
+    const store = openMarketData();
+    const text = await asV1();
+    const res = await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(res).toMatchObject({ ok: true, info: { version: 1, hasMacro: false } });
+    expect(await store.themes()).toEqual([]);
+    expect(await store.info()).toMatchObject({ version: 1, hasMacro: false });
+  });
+
+  it('info() of data imported before version existed reads as version 1 without macro', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const db = await openDB('gazua-market-data', 1);
+    const old = await db.get('files', 'current-info');
+    delete old.version;
+    delete old.hasMacro;
+    await db.put('files', old, 'current-info');
+    db.close();
+    expect(await store.info()).toMatchObject({ version: 1, hasMacro: false });
+  });
+
+  it('themes() falls back to the file body when current-themes is missing, and reads only the summary key otherwise', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const expected = await store.themes();
+    expect(expected.length).toBeGreaterThan(0);
+    const getSpy = vi.spyOn(IDBObjectStore.prototype, 'get');
+    expect(await store.themes()).toEqual(expected);
+    expect(getSpy.mock.calls.map((c) => c[0])).not.toContain('current');
+    vi.restoreAllMocks();
+    const db = await openDB('gazua-market-data', 1);
+    await db.delete('files', 'current-themes');
+    db.close();
+    expect(await store.themes()).toEqual(expected);
+  });
+
+  it('failing the fourth put (themes) rolls back all four keys', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const infoA = await store.info();
+    const dataA = await store.load();
+    const sectorsA = await store.sectors();
+    const themesA = await store.themes();
+    const real = IDBObjectStore.prototype.put;
+    let calls = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...a: [unknown, IDBValidKey?]) {
+      if (++calls === 4) throw new Error('boom');
+      return real.apply(this, a);
+    });
+    const j = JSON.parse(await decompress(file()));
+    j.collectedAt = '2026-11-01T09:00:00+09:00';
+    j.themes = j.themes.slice(1);
+    const text = JSON.stringify(j);
+    await expect(store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy })).rejects.toThrow('boom');
+    vi.restoreAllMocks();
+    expect(await store.info()).toEqual(infoA);
+    expect(await store.load()).toEqual(dataA);
+    expect(await store.sectors()).toEqual(sectorsA);
+    expect(await store.themes()).toEqual(themesA);
+  });
+
+  it('clear() makes themes() return an empty list', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    await store.clear();
+    expect(await store.themes()).toEqual([]);
   });
 
   it('clear() makes sectors() return an empty list', async () => {

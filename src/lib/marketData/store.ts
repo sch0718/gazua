@@ -1,8 +1,14 @@
 // 시장 데이터 파일(수집 스크립트 산출물)을 브라우저 IndexedDB에 하나만 보관한다. 기기 단위 데이터다(스펙 4).
 import { openDB, type DBSchema } from 'idb';
-import { validateMarketData, type MarketDataFile } from './format';
+import { isV2, validateMarketData, type MarketDataFile } from './format';
 
 export type MarketSector = MarketDataFile['sectors'][number];
+/** 테마 선택 화면용 요약. 종목 목록은 본문에만 둔다. */
+export interface MarketThemeSummary {
+  code: string;
+  name: string;
+  count: number;
+}
 
 export interface MarketDataInfo {
   collectedAt: string;
@@ -10,6 +16,12 @@ export interface MarketDataInfo {
   range: { from: string; to: string };
   /** 저장된 파일이 풀린 크기(바이트). 교체할 때 여유 공간에 되돌려 셈한다. */
   bytes?: number;
+  /** 파일 형식 버전. 이 필드가 생기기 전에 가져온 데이터는 1로 본다. */
+  version?: 1 | 2;
+  /** v2이고 환율·유가 계열 중 하나라도 값이 있다 */
+  hasMacro?: boolean;
+  /** 파일에 든 테마 수. 없던 시절의 요약은 0으로 읽는다. */
+  themeCount?: number;
 }
 
 export type ImportResult =
@@ -27,6 +39,8 @@ export interface MarketDataStore {
   load(): Promise<MarketDataFile | null>;
   /** 업종 목록만. 수십 MB 본문을 읽지 않는다(없으면 빈 배열). */
   sectors(): Promise<MarketSector[]>;
+  /** 테마 요약만(없으면 빈 배열). v1 파일은 테마가 없다. */
+  themes(): Promise<MarketThemeSummary[]>;
   importFile(file: Blob, deps?: ImportDeps): Promise<ImportResult>;
   clear(): Promise<void>;
 }
@@ -42,6 +56,8 @@ const KEY = 'current';
 const INFO_KEY = 'current-info';
 // 업종 선택 화면용 목록. 본문을 풀지 않고 읽으려고 가져올 때 함께 쓴다.
 const SECTORS_KEY = 'current-sectors';
+// 테마 선택 화면용 요약(code, name, 종목 수). 같은 방식으로 가져올 때 함께 쓴다.
+const THEMES_KEY = 'current-themes';
 const NEED_FACTOR = 1.2;
 
 // 풀리는 바이트를 흘려보내며 센다. 본문을 다시 인코딩하면 실제 규모에서 수백 MB를 한 번 더 잡는다
@@ -72,6 +88,9 @@ function utf8Length(s: string): number {
   return n;
 }
 
+const summarizeThemes = (t: { code: string; name: string; symbols: string[] }[]): MarketThemeSummary[] =>
+  t.map((x) => ({ code: x.code, name: x.name, count: x.symbols.length }));
+
 const defaultEstimate = async () => (await navigator.storage?.estimate?.()) ?? {};
 
 export function openMarketData(): MarketDataStore {
@@ -85,7 +104,9 @@ export function openMarketData(): MarketDataStore {
   async function info(): Promise<MarketDataInfo | null> {
     const d = await db();
     try {
-      return ((await d.get(STORE, INFO_KEY)) as MarketDataInfo | undefined) ?? null;
+      const got = (await d.get(STORE, INFO_KEY)) as MarketDataInfo | undefined;
+      // 버전 필드가 생기기 전의 요약은 v1이다
+      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0 } : null;
     } finally {
       d.close();
     }
@@ -107,6 +128,19 @@ export function openMarketData(): MarketDataStore {
       if (own) return own;
       // 업종 요약이 생기기 전에 가져온 데이터: 본문에서 읽는다
       return ((await d.get(STORE, KEY)) as MarketDataFile | undefined)?.sectors ?? [];
+    } finally {
+      d.close();
+    }
+  }
+
+  async function themes(): Promise<MarketThemeSummary[]> {
+    const d = await db();
+    try {
+      const own = (await d.get(STORE, THEMES_KEY)) as MarketThemeSummary[] | undefined;
+      if (own) return own;
+      // 테마 요약이 생기기 전에 가져온 데이터: 본문에서 만든다(v1이면 빈 배열)
+      const body = (await d.get(STORE, KEY)) as MarketDataFile | undefined;
+      return body && isV2(body) ? summarizeThemes(body.themes) : [];
     } finally {
       d.close();
     }
@@ -140,7 +174,16 @@ export function openMarketData(): MarketDataStore {
     }
 
     const data = check.data;
-    const next: MarketDataInfo = { collectedAt: data.collectedAt, stocks: data.stocks.length, range: data.range, bytes: rawBytes };
+    const v2 = isV2(data);
+    const next: MarketDataInfo = {
+      collectedAt: data.collectedAt,
+      stocks: data.stocks.length,
+      range: data.range,
+      bytes: rawBytes,
+      version: v2 ? 2 : 1,
+      themeCount: v2 ? data.themes.length : 0,
+      hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
+    };
     const d = await db();
     const tx = d.transaction(STORE, 'readwrite');
     try {
@@ -148,7 +191,7 @@ export function openMarketData(): MarketDataStore {
       // 만든 즉시 처리기를 달아, 뒤의 put이 동기로 던져 취소될 때 앞 요청의 거부가 떠돌지 않게 한다
       const pending: Promise<unknown>[] = [tx.done];
       tx.done.catch(() => {});
-      for (const [v, k] of [[data, KEY], [next, INFO_KEY], [data.sectors, SECTORS_KEY]] as const) {
+      for (const [v, k] of [[data, KEY], [next, INFO_KEY], [data.sectors, SECTORS_KEY], [v2 ? summarizeThemes(data.themes) : [], THEMES_KEY]] as const) {
         const req = tx.store.put(v, k);
         req.catch(() => {});
         pending.push(req);
@@ -185,5 +228,5 @@ export function openMarketData(): MarketDataStore {
     }
   }
 
-  return { info, load, sectors, importFile, clear };
+  return { info, load, sectors, themes, importFile, clear };
 }
