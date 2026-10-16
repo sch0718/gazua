@@ -139,13 +139,16 @@ test('환율·테마 기준: v2 데이터 → 테마 1개 + 원/달러 민감도
   await expectNoSeriousViolations(page, '환율·테마 기준 편집');
 
   // 기본으로 켜진 반등 신호는 끈다: 이 흐름은 테마와 환율 민감도만 본다
+  const previewStatus = page.getByRole('region', { name: '오늘 기준 미리 보기' }).getByRole('status');
+  await expect(previewStatus).toHaveText(/통과 \d+개 · 상위 \d+개/, { timeout: 30_000 });
+  const before = (await previewStatus.innerText()).trim();
   const rebound = page.getByRole('switch', { name: '반등 신호 사용' });
   await rebound.click();
   await expect(rebound).not.toBeChecked();
 
-  // 미리 보기: 테마 안의 종목만 후보라 통과 수가 0보다 크다
-  const preview = page.getByText(/통과 [1-9]\d*개 · 상위 \d+개/).first();
-  await expect(preview).toBeVisible({ timeout: 30_000 });
+  // 미리 보기가 바뀐 기준으로 다시 계산돼 이전 값과 달라지고, 테마 안의 종목이 통과한다
+  await expect(previewStatus).not.toHaveText(before, { timeout: 30_000 });
+  await expect(previewStatus).toHaveText(/통과 [1-9]\d*개 · 상위 \d+개/, { timeout: 30_000 });
 
   await run.click();
   await expect(page.getByRole('heading', { name: '오늘 기준 선별' })).toBeVisible({ timeout: 60_000 });
@@ -156,6 +159,15 @@ test('환율·테마 기준: v2 데이터 → 테마 1개 + 원/달러 민감도
   const row = hist.getByRole('button', { expanded: false }).first();
   await row.click();
   await expect(hist.locator('[data-macro-value]').first()).toHaveText(/^원\/달러 민감도 \d+\.\d{2}/);
+
+  // 뽑힌 종목은 모두 '환율 수혜 대표' 테마(설계상 원/달러 민감도 +1.5)의 종목이고, 민감도 값이 1.0 이상이다
+  const THEME_SYMBOLS = ['100000', '101111', '102222'];
+  const picked = await hist.locator('.picks .nm small').allInnerTexts();
+  expect(picked.length, '뽑힌 종목이 있다').toBeGreaterThan(0);
+  for (const sym of picked) expect(THEME_SYMBOLS, `${sym}은 테마 종목이다`).toContain(sym.trim());
+  const betas = (await hist.locator('[data-macro-value]').allInnerTexts()).map((t) => Number(/민감도 (\d+\.\d+)/.exec(t)![1]));
+  expect(betas.length).toBeGreaterThan(0);
+  for (const b of betas) expect(b).toBeGreaterThanOrEqual(1.0);
 
   // 테마를 썼으니 테마 메모가 도움말에 있다
   await expect(page.getByRole('list', { name: '결과 해석 도움말' })).toContainText('테마·내 묶음은 지금 구성을 과거에도 써요');
