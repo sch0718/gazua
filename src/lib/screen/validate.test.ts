@@ -247,7 +247,7 @@ describe('criteriaIssues', () => {
     const c = withRef((x) => (x.trading.strategyId = 's1'));
     const out = criteriaIssues(c, [noSignals()]).filter((i) => i.blocking);
     expect(out).toEqual([
-      { section: 'trading', text: '매매 규칙 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true },
+      { section: 'trading', text: '매매 규칙 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. 전략 편집에서 하나 이상 켜 주세요', blocking: true },
     ]);
   });
 
@@ -261,7 +261,7 @@ describe('criteriaIssues', () => {
   it('반등 패턴 전략은 매수(entry) 오류만 막는다', () => {
     const c = withRef((x) => (x.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } }));
     expect(criteriaIssues(c, [noSignals()]).filter((i) => i.blocking)).toEqual([
-      { section: 'conditions', text: '반등 패턴 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요', blocking: true },
+      { section: 'conditions', text: '반등 패턴 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. 전략 편집에서 하나 이상 켜 주세요', blocking: true },
     ]);
     expect(criteriaIssues(c, [badTakeProfit()]).filter((i) => i.blocking)).toEqual([]);
     // 반등 조건을 끄면 보지 않는다

@@ -195,6 +195,8 @@ export function sanitizeCriteria(raw: unknown, now = Date.now()): { criteria: Se
 }
 
 const RULE_SECTIONS = ['entry', 'scaleIn', 'exit'];
+// 전략 편집 화면의 구역 번호(②)는 이 화면의 ②와 헷갈리므로 '전략 편집'으로 바꾼다
+const borrowed = (text: string): string => text.replace(/[①-⑨]에서/g, '전략 편집에서');
 
 /**
  * 참조 전략에서 전략 편집 화면이 실행을 막는 매수·매도 규칙 오류(스펙 5장). 반등 패턴은 entry만 본다.
@@ -209,10 +211,10 @@ export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[])
   const p = c.conditions.rebound;
   if (p.on && p.pattern.from === 'strategy')
     for (const i of blocking(p.pattern.strategyId, ['entry']))
-      out.push({ section: 'conditions', text: `반등 패턴 전략에 고칠 곳이 있어요: ${i.text}`, blocking: true });
+      out.push({ section: 'conditions', text: `반등 패턴 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
   if (c.trading.strategyId !== null)
     for (const i of blocking(c.trading.strategyId, RULE_SECTIONS))
-      out.push({ section: 'trading', text: `매매 규칙 전략에 고칠 곳이 있어요: ${i.text}`, blocking: true });
+      out.push({ section: 'trading', text: `매매 규칙 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
   return out;
 }
 
