@@ -141,7 +141,7 @@
   const v1 = $derived(info !== null && (info.version ?? 1) < 2);
   const noMacro = $derived(info !== null && !info.hasMacro);
   const noFlow = $derived(info !== null && !info.hasFlow);
-  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, hasFlow: !!info.hasFlow, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
+  const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, hasFlow: !!info.hasFlow, hasFin: !!info.hasFin, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
   const issues = $derived(criteriaIssues(draft, app.strategies, dataInfo, app.baskets));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
   const sectionIssues = (key: Key) => issueRows.filter((r) => r.issue.section === key);
@@ -256,8 +256,8 @@
         return `${d.pool.markets.join('·')} ${types} · ${poolScopeText(d.pool, sectors)}`;
       }
       case 'conditions': {
-        const { macro, flow, ...simple } = d.conditions;
-        const n = +flow.amount.on + +flow.streak.on + Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
+        const { macro, flow, fin, ...simple } = d.conditions;
+        const n = +flow.amount.on + +flow.streak.on + Object.values(fin).filter((x) => x.on).length + Object.values(simple).filter((x) => x.on).length + SERIES.reduce((a, k) => a + +macro[k].beta.on + +macro[k].trend.on, 0);
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
@@ -272,7 +272,7 @@
   }
 
   const SERIES = ['usdkrw', 'wti'] as const;
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순', flow: '수급 큰 순' } as const;
+  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순', flow: '수급 큰 순', fin: '재무 순' } as const;
 
   // 정렬을 바꾸면 숨는 칸(수급 기간)의 틀린 글은 버린다(칸 없이 실행을 막지 않게)
   function setRankBy(v: string) {

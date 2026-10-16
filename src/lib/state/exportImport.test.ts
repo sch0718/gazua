@@ -378,6 +378,29 @@ describe('criteria in export files', () => {
     expect(loadCriteria(st, res.profileId)).toEqual([c]);
   });
 
+  it('기본값이 아닌 fin·rank.fin도 왕복해 그대로 남는다', () => {
+    const { st, backing } = source();
+    const c = structuredClone(crit);
+    c.conditions.fin = {
+      per: { on: true, min: 2.5, max: 12 },
+      pbr: { on: true, min: 0.2, max: 1.2 },
+      roe: { on: true, min: 8.5 },
+      opMargin: { on: true, min: -3 },
+      revGrowth: { on: true, min: 15 },
+      opGrowth: { on: true, min: 30 },
+      debtRatio: { on: true, max: 150 },
+      profitable: { on: true },
+    };
+    c.rank = { ...c.rank, by: 'fin', fin: { metric: 'roe' } };
+    seed(backing, profileKeys.criteria('p1'), { criteria: [c] });
+    const json = exportData(st, 'p1', false);
+    expect(JSON.parse(json).criteria).toEqual([c]);
+    const res = importData(st, json);
+    expect(res).toMatchObject({ ok: true, repaired: false });
+    if (!res.ok) return;
+    expect(loadCriteria(st, res.profileId)).toEqual([c]);
+  });
+
   it('criteria가 없는 옛 파일도 가져오고 목록은 [], repaired false', () => {
     const { st, backing } = source();
     const res = importData(st, file({}));

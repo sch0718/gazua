@@ -304,6 +304,10 @@ export function selectAt(
         if (Array.isArray(r)) [values.rankFlowForeign, values.rankFlowInst] = r;
         break;
       }
+      case 'fin':
+        // Task 5 implements: 재무 지표 정렬. 그때까지 키 없이 뒤로 보낸다
+        key = null;
+        break;
     }
     passed.push({ symbol: st.s, key, values });
   });

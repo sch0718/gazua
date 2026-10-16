@@ -3,7 +3,7 @@ import { newStrategy } from '../sim/defaults';
 import { kstEpoch } from '../time/kst';
 import { newCriteria } from './defaults';
 import type { SelectionCriteria } from './types';
-import { criteriaIssues, flowOn, sanitizeCriteria, usesFlow } from './validate';
+import { criteriaIssues, finOn, flowOn, sanitizeCriteria, usesFin, usesFlow } from './validate';
 
 const NOW = kstEpoch('2026-10-16', '12:00:00');
 const RANGE = { from: '2021-03-02', to: '2026-10-15' };
@@ -374,20 +374,20 @@ describe('criteriaIssues: 데이터·묶음·테마', () => {
   });
 
   it('v1 데이터(hasMacro false)에서 macro 조건이 켜져 있으면 blocking', () => {
-    const out = criteriaIssues(withMacro(), [], { hasMacro: false, hasFlow: true });
+    const out = criteriaIssues(withMacro(), [], { hasMacro: false, hasFlow: true, hasFin: true });
     expect(out).toEqual([{ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true }]);
   });
 
   it('v1 데이터라도 macro 조건이 꺼져 있으면 이슈가 없고, v2면 켜져 있어도 없다', () => {
-    expect(criteriaIssues(base(), [], { hasMacro: false, hasFlow: true })).toEqual([]);
-    expect(criteriaIssues(withMacro(), [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(base(), [], { hasMacro: false, hasFlow: true, hasFin: true })).toEqual([]);
+    expect(criteriaIssues(withMacro(), [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
   });
 
   it('macro만 켠 기준에는 조건 없음 경고를 내지 않는다', () => {
     const c = withMacro();
     c.conditions.tradingValue.on = false;
     c.conditions.rebound.on = false;
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
   });
 
   it('지워진 내 묶음은 경고(blocking 아님)', () => {
@@ -402,10 +402,10 @@ describe('criteriaIssues: 데이터·묶음·테마', () => {
   it('데이터에 없는 테마는 경고(blocking 아님)', () => {
     const c = base();
     c.pool.themes = ['T1', 'T9'];
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, themeCodes: ['T1'] })).toEqual([
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true, themeCodes: ['T1'] })).toEqual([
       { section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false },
     ]);
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
   });
 });
 
@@ -434,13 +434,13 @@ describe('criteriaIssues: 민감도 범위와 환율·유가 정렬', () => {
   it('데이터에 macro가 없는데 macroBeta 정렬이면 rank 구역에서 막는다', () => {
     const c = base();
     c.rank.by = 'macroBeta';
-    expect(criteriaIssues(c, [], { hasMacro: false, hasFlow: true })).toEqual([{ section: 'rank', text: NODATA, blocking: true }]);
+    expect(criteriaIssues(c, [], { hasMacro: false, hasFlow: true, hasFin: true })).toEqual([{ section: 'rank', text: NODATA, blocking: true }]);
   });
 
   it('macro가 있거나 dataInfo를 생략하면 macroBeta 정렬도 통과한다', () => {
     const c = base();
     c.rank.by = 'macroBeta';
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
     expect(criteriaIssues(c, [])).toEqual([]);
   });
 
@@ -448,7 +448,7 @@ describe('criteriaIssues: 민감도 범위와 환율·유가 정렬', () => {
     const c = base();
     c.conditions.macro.wti.trend.on = true;
     c.rank.by = 'macroBeta';
-    const out = criteriaIssues(c, [], { hasMacro: false, hasFlow: true });
+    const out = criteriaIssues(c, [], { hasMacro: false, hasFlow: true, hasFin: true });
     expect(out.filter((i) => i.text === NODATA)).toEqual([{ section: 'conditions', text: NODATA, blocking: true }]);
     expect(out).toHaveLength(1);
   });
@@ -554,7 +554,7 @@ describe('수급 조건: flowOn·usesFlow·criteriaIssues', () => {
   });
 
   it('수급 없는 데이터에서 수급 조건을 켜면 conditions 구역에서 막는다', () => {
-    expect(criteriaIssues(withAmount(), [], { hasMacro: true, hasFlow: false })).toEqual([
+    expect(criteriaIssues(withAmount(), [], { hasMacro: true, hasFlow: false, hasFin: true })).toEqual([
       { section: 'conditions', text: NOFLOW, blocking: true },
     ]);
   });
@@ -562,20 +562,20 @@ describe('수급 조건: flowOn·usesFlow·criteriaIssues', () => {
   it('수급 순 정렬만 골라도 rank 구역에서 막는다', () => {
     const c = base();
     c.rank.by = 'flow';
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: false })).toEqual([{ section: 'rank', text: NOFLOW, blocking: true }]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: false, hasFin: true })).toEqual([{ section: 'rank', text: NOFLOW, blocking: true }]);
   });
 
   it('조건과 정렬을 모두 쓰면 같은 문구는 한 번만(conditions)', () => {
     const c = withAmount();
     c.rank.by = 'flow';
-    const out = criteriaIssues(c, [], { hasMacro: true, hasFlow: false });
+    const out = criteriaIssues(c, [], { hasMacro: true, hasFlow: false, hasFin: true });
     expect(out).toEqual([{ section: 'conditions', text: NOFLOW, blocking: true }]);
   });
 
   it('수급이 있는 데이터거나 dataInfo를 생략하면 경고가 없다', () => {
     const c = withAmount();
     c.rank.by = 'flow';
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
     expect(criteriaIssues(c, [])).toEqual([]);
   });
 
@@ -583,6 +583,188 @@ describe('수급 조건: flowOn·usesFlow·criteriaIssues', () => {
     const c = withAmount();
     c.conditions.tradingValue.on = false;
     c.conditions.rebound.on = false;
-    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true })).toEqual([]);
+    expect(criteriaIssues(c, [], { hasMacro: true, hasFlow: true, hasFin: true })).toEqual([]);
+  });
+});
+
+describe('재무 조건: sanitize', () => {
+  const FIN_DEFAULT = {
+    per: { on: false, min: 0, max: 15 },
+    pbr: { on: false, min: 0, max: 1.5 },
+    roe: { on: false, min: 10 },
+    opMargin: { on: false, min: 5 },
+    revGrowth: { on: false, min: 10 },
+    opGrowth: { on: false, min: 20 },
+    debtRatio: { on: false, max: 100 },
+    profitable: { on: false },
+  };
+
+  it('기본값 표', () => {
+    expect(base().conditions.fin).toEqual(FIN_DEFAULT);
+    expect(base().rank.fin).toEqual({ metric: 'per' });
+  });
+
+  it('fin·rank.fin이 없는 기존 프로필은 조용히 기본값으로 채운다', () => {
+    const r = run((c) => {
+      delete c.conditions.fin;
+      delete c.rank.fin;
+    });
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0].conditions.fin).toEqual(FIN_DEFAULT);
+    expect(r.criteria[0].rank.fin).toEqual({ metric: 'per' });
+  });
+
+  it('범위 경계 값은 그대로 둔다', () => {
+    const fin = {
+      per: { on: true, min: 0, max: 1000 },
+      pbr: { on: true, min: 0, max: 100 },
+      roe: { on: true, min: -100 },
+      opMargin: { on: true, min: 100 },
+      revGrowth: { on: true, min: 1000 },
+      opGrowth: { on: true, min: -100 },
+      debtRatio: { on: true, max: 10000 },
+      profitable: { on: true },
+    };
+    const r = run((c) => {
+      c.conditions.fin = fin;
+      c.rank.by = 'fin';
+      c.rank.fin = { metric: 'opGrowth' };
+    });
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0].conditions.fin).toEqual(fin);
+    expect(r.criteria[0].rank).toMatchObject({ by: 'fin', fin: { metric: 'opGrowth' } });
+  });
+
+  it.each([
+    ['per', 'min', -1, 0],
+    ['per', 'max', 1001, 15],
+    ['pbr', 'min', -0.1, 0],
+    ['pbr', 'max', 101, 1.5],
+    ['roe', 'min', -101, 10],
+    ['roe', 'min', 101, 10],
+    ['opMargin', 'min', 101, 5],
+    ['opMargin', 'min', -101, 5],
+    ['revGrowth', 'min', 1001, 10],
+    ['revGrowth', 'min', -101, 10],
+    ['opGrowth', 'min', 1001, 20],
+    ['opGrowth', 'min', -101, 20],
+    ['debtRatio', 'max', 10001, 100],
+    ['debtRatio', 'max', -1, 100],
+    ['roe', 'min', NaN, 10],
+    ['roe', 'min', '10', 10],
+  ])('fin.%s.%s: %s는 기본값 %s로 고친다', (key, field, v, def) => {
+    const r = run((c) => (c.conditions.fin[key][field] = v));
+    expect(r.criteria[0].conditions.fin[key as 'roe'][field as 'min']).toBe(def);
+    expect(r.repaired).toBe(true);
+  });
+
+  it('on이 불리언이 아니면 고친다', () => {
+    const r = run((c) => (c.conditions.fin.profitable.on = 'yes'));
+    expect(r.criteria[0].conditions.fin.profitable.on).toBe(false);
+    expect(r.repaired).toBe(true);
+  });
+
+  it('소수 값(1.5)은 그대로 둔다', () => {
+    const r = run((c) => (c.conditions.fin.pbr.max = 2.75));
+    expect(r.criteria[0].conditions.fin.pbr.max).toBe(2.75);
+    expect(r.repaired).toBe(false);
+  });
+
+  it('rank.fin.metric이 잘못되면 per로 고친다', () => {
+    const r = run((c) => (c.rank.fin = { metric: 'eps' }));
+    expect(r.criteria[0].rank.fin).toEqual({ metric: 'per' });
+    expect(r.repaired).toBe(true);
+  });
+
+  it("rank.by 'fin'은 유효한 값이다", () => {
+    const r = run((c) => (c.rank.by = 'fin'));
+    expect(r.criteria[0].rank.by).toBe('fin');
+    expect(r.repaired).toBe(false);
+  });
+
+  it('뒤집힌 PER·PBR 범위는 고치지 않는다(criteriaIssues가 막는다)', () => {
+    const r = run((c) => {
+      c.conditions.fin.per = { on: true, min: 20, max: 5 };
+      c.conditions.fin.pbr = { on: true, min: 3, max: 1 };
+    });
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0].conditions.fin.per).toEqual({ on: true, min: 20, max: 5 });
+    expect(r.criteria[0].conditions.fin.pbr).toEqual({ on: true, min: 3, max: 1 });
+  });
+});
+
+describe('재무 조건: finOn·usesFin·criteriaIssues', () => {
+  const NOFIN = '이 데이터에는 재무 정보가 없어요';
+  const info = (hasFin: boolean) => ({ hasMacro: true, hasFlow: true, hasFin });
+  const withPer = (patch: Partial<SelectionCriteria['conditions']['fin']['per']> = {}) => {
+    const c = base();
+    c.conditions.fin.per = { ...c.conditions.fin.per, on: true, ...patch };
+    return c;
+  };
+
+  it('finOn·usesFin', () => {
+    const c = base();
+    expect([finOn(c), usesFin(c)]).toEqual([false, false]);
+    c.rank.by = 'fin';
+    expect([finOn(c), usesFin(c)]).toEqual([false, true]);
+    const a = withPer();
+    expect([finOn(a), usesFin(a)]).toEqual([true, true]);
+    const p = base();
+    p.conditions.fin.profitable.on = true;
+    expect(finOn(p)).toBe(true);
+    const d = base();
+    d.conditions.fin.debtRatio.on = true;
+    expect(finOn(d)).toBe(true);
+  });
+
+  it('PER 범위의 최소가 최대보다 크면 conditions에서 막고, 같으면 통과하고, 꺼져 있으면 보지 않는다', () => {
+    expect(criteriaIssues(withPer({ min: 20, max: 5 }), [], info(true))).toEqual([
+      { section: 'conditions', text: 'PER 범위의 최소가 최대보다 커요', blocking: true },
+    ]);
+    expect(criteriaIssues(withPer({ min: 5, max: 5 }), [], info(true))).toEqual([]);
+    expect(criteriaIssues(withPer({ on: false, min: 20, max: 5 }), [], info(true))).toEqual([]);
+  });
+
+  it('PBR 범위의 최소가 최대보다 크면 막는다', () => {
+    const c = base();
+    c.conditions.fin.pbr = { on: true, min: 3, max: 1 };
+    expect(criteriaIssues(c, [], info(true))).toEqual([
+      { section: 'conditions', text: 'PBR 범위의 최소가 최대보다 커요', blocking: true },
+    ]);
+  });
+
+  it('재무 없는 데이터에서 재무 조건을 켜면 conditions 구역에서 막는다', () => {
+    expect(criteriaIssues(withPer(), [], info(false))).toEqual([{ section: 'conditions', text: NOFIN, blocking: true }]);
+    const p = base();
+    p.conditions.fin.profitable.on = true;
+    expect(criteriaIssues(p, [], info(false))).toEqual([{ section: 'conditions', text: NOFIN, blocking: true }]);
+  });
+
+  it('재무 순 정렬만 골라도 rank 구역에서 막는다', () => {
+    const c = base();
+    c.rank.by = 'fin';
+    expect(criteriaIssues(c, [], info(false))).toEqual([{ section: 'rank', text: NOFIN, blocking: true }]);
+  });
+
+  it('조건과 정렬을 모두 쓰면 같은 문구는 한 번만(conditions)', () => {
+    const c = withPer();
+    c.rank.by = 'fin';
+    expect(criteriaIssues(c, [], info(false))).toEqual([{ section: 'conditions', text: NOFIN, blocking: true }]);
+  });
+
+  it('재무가 있는 데이터거나 dataInfo를 생략하면 재무 경고가 없다', () => {
+    const c = withPer();
+    c.rank.by = 'fin';
+    expect(criteriaIssues(c, [], info(true))).toEqual([]);
+    expect(criteriaIssues(c, [])).toEqual([]);
+  });
+
+  it('재무 조건만 켠 기준에는 조건 없음 경고를 내지 않는다', () => {
+    const c = base();
+    c.conditions.tradingValue.on = false;
+    c.conditions.rebound.on = false;
+    expect(criteriaIssues(c, [], info(true)).map((i) => i.text)).toEqual(['조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요']);
+    c.conditions.fin.profitable.on = true;
+    expect(criteriaIssues(c, [], info(true))).toEqual([]);
   });
 });

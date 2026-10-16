@@ -2,9 +2,11 @@ import type { Strategy } from '../sim/types';
 
 export type Market = 'KOSPI' | 'KOSDAQ';
 export type SecurityType = 'STOCK' | 'ETF';
-export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility' | 'macroBeta' | 'flow';
+export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility' | 'macroBeta' | 'flow' | 'fin';
 /** 수급 주체. both는 외국인과 기관이 각각 만족해야 한다 */
 export type FlowWho = 'foreign' | 'inst' | 'indiv' | 'both';
+/** 재무 정렬 지표. PER·PBR은 낮은 순, 나머지는 높은 순 */
+export type FinMetric = 'per' | 'pbr' | 'roe' | 'opMargin' | 'revGrowth' | 'opGrowth';
 export type MacroSeriesKey = 'usdkrw' | 'wti';
 export type Rebalance = 'monthly' | 'quarterly' | 'semiannual';
 
@@ -45,8 +47,18 @@ export interface SelectionCriteria {
       amount: { on: boolean; who: FlowWho; days: number; minPct: number; maxPct: number };
       streak: { on: boolean; who: FlowWho; minDays: number };
     };
+    fin: {
+      per: { on: boolean; min: number; max: number };
+      pbr: { on: boolean; min: number; max: number };
+      roe: { on: boolean; min: number };
+      opMargin: { on: boolean; min: number };
+      revGrowth: { on: boolean; min: number };
+      opGrowth: { on: boolean; min: number };
+      debtRatio: { on: boolean; max: number };
+      profitable: { on: boolean };
+    };
   };
-  rank: { by: RankBy; take: number; series?: MacroSeriesKey; flow?: { who: FlowWho; days: number } }; // take 1~30. series는 by가 macroBeta일 때 쓴다
+  rank: { by: RankBy; take: number; series?: MacroSeriesKey; flow?: { who: FlowWho; days: number }; fin?: { metric: FinMetric } }; // take 1~30. series는 by가 macroBeta일 때 쓴다
   rebalance: Rebalance;
   period: { from: string; to: string };
   benchmarks: { indices: Market[]; symbols: string[] }; // symbols 최대 3
