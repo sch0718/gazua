@@ -1001,6 +1001,16 @@ describe('createApp — profiles management, passphrase check, export/import', (
     expect(backing.getItem('gazua:v1:p:p1:baskets')).toBeNull();
   });
 
+  it('setBaskets는 빈 묶음을 거절하고 저장하지 않는다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    const app = make(backing);
+    expect(() => app.setBaskets([{ ...newBasket(NOW, '빈', []), id: 'e' }])).toThrow('묶음에는 종목이 1개 이상 있어야 해요');
+    expect(app.baskets).toEqual([]);
+    expect(backing.getItem('gazua:v1:p:p1:baskets')).toBeNull();
+  });
+
   it('verifyPassphrase checks the stored lock without changing state', async () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);

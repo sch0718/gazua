@@ -77,7 +77,17 @@ export function assertBasketCap(list: Basket[]): void {
   if (list.length > MAX_BASKETS) throw new Error(BASKET_CAP_MESSAGE);
 }
 
-export function saveBaskets(st: SafeStorage, profileId: string, list: Basket[]): void {
+/** 쓰기 전 검사: 개수 한도에 더해 묶음마다 종목 1~300개, 이름 30자. 읽을 때 조용히 사라지는 값을 막는다. */
+export function assertBasketsWritable(list: Basket[]): void {
   assertBasketCap(list);
+  for (const b of list) {
+    if (b.symbols.length === 0) throw new Error('묶음에는 종목이 1개 이상 있어야 해요');
+    if (b.symbols.length > BASKET_SYMBOLS_MAX) throw new Error(`묶음의 종목은 ${BASKET_SYMBOLS_MAX}개까지예요`);
+    if (b.name.length > NAME_MAX) throw new Error(`묶음 이름은 ${NAME_MAX}자까지예요`);
+  }
+}
+
+export function saveBaskets(st: SafeStorage, profileId: string, list: Basket[]): void {
+  assertBasketsWritable(list);
   st.set(profileKeys.baskets(profileId), { baskets: list });
 }

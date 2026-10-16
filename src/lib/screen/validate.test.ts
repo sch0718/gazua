@@ -408,3 +408,48 @@ describe('criteriaIssues: 데이터·묶음·테마', () => {
     expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
   });
 });
+
+describe('criteriaIssues: 민감도 범위와 환율·유가 정렬', () => {
+  const NODATA = '이 데이터에는 환율·유가가 없어요';
+  const withBeta = (key: 'usdkrw' | 'wti', min: number, max: number, on = true) => {
+    const c = base();
+    c.conditions.macro[key].beta = { on, min, max };
+    return c;
+  };
+
+  it('min이 max보다 크면 계열별 문구로 막는다', () => {
+    expect(criteriaIssues(withBeta('usdkrw', 3, 1), [])).toEqual([
+      { section: 'conditions', text: '원/달러 민감도 범위의 최소가 최대보다 커요', blocking: true },
+    ]);
+    expect(criteriaIssues(withBeta('wti', 3, 1), [])).toEqual([
+      { section: 'conditions', text: '유가 민감도 범위의 최소가 최대보다 커요', blocking: true },
+    ]);
+  });
+
+  it('min과 max가 같으면 통과하고, beta가 꺼져 있으면 보지 않는다', () => {
+    expect(criteriaIssues(withBeta('usdkrw', 1, 1), [])).toEqual([]);
+    expect(criteriaIssues(withBeta('usdkrw', 3, 1, false), [])).toEqual([]);
+  });
+
+  it('데이터에 macro가 없는데 macroBeta 정렬이면 rank 구역에서 막는다', () => {
+    const c = base();
+    c.rank.by = 'macroBeta';
+    expect(criteriaIssues(c, [], { hasMacro: false })).toEqual([{ section: 'rank', text: NODATA, blocking: true }]);
+  });
+
+  it('macro가 있거나 dataInfo를 생략하면 macroBeta 정렬도 통과한다', () => {
+    const c = base();
+    c.rank.by = 'macroBeta';
+    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+    expect(criteriaIssues(c, [])).toEqual([]);
+  });
+
+  it('macro 조건도 켜고 macroBeta 정렬이면 같은 문구는 한 번만, 첫 이슈(conditions)를 남긴다', () => {
+    const c = base();
+    c.conditions.macro.wti.trend.on = true;
+    c.rank.by = 'macroBeta';
+    const out = criteriaIssues(c, [], { hasMacro: false });
+    expect(out.filter((i) => i.text === NODATA)).toEqual([{ section: 'conditions', text: NODATA, blocking: true }]);
+    expect(out).toHaveLength(1);
+  });
+});

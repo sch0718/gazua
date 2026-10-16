@@ -90,4 +90,16 @@ describe('baskets', () => {
     expect(sanitizeBaskets({}, NOW)).toEqual({ baskets: [], repaired: false });
     expect(sanitizeBaskets(null, NOW)).toEqual({ baskets: [], repaired: false });
   });
+
+  it('쓸 때 종목이 없거나 300개를 넘거나 이름이 30자를 넘으면 던지고 쓰지 않는다', () => {
+    const st = createSafeStorage(memoryBacking());
+    const b = mk(1)[0];
+    expect(() => saveBaskets(st, 'p1', [{ ...b, symbols: [] }])).toThrow('묶음에는 종목이 1개 이상 있어야 해요');
+    const many = Array.from({ length: 301 }, (_, i) => String(100000 + i));
+    expect(() => saveBaskets(st, 'p1', [{ ...b, symbols: many }])).toThrow('묶음의 종목은 300개까지예요');
+    expect(() => saveBaskets(st, 'p1', [{ ...b, name: '가'.repeat(31) }])).toThrow('묶음 이름은 30자까지예요');
+    expect(loadBaskets(st, 'p1')).toEqual([]);
+    expect(st.issues).toEqual([]);
+    expect(() => saveBaskets(st, 'p1', [{ ...b, name: '가'.repeat(30), symbols: many.slice(0, 300) }])).not.toThrow();
+  });
 });

@@ -292,6 +292,19 @@ export function criteriaIssues(
 
   if (dataInfo && !dataInfo.hasMacro && macroOn(k.macro))
     out.push({ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true });
+  const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
+  (['usdkrw', 'wti'] as const).forEach((key) => {
+    const b = k.macro[key].beta;
+    if (b.on && b.min > b.max)
+      out.push({
+        section: 'conditions',
+        text: `${key === 'usdkrw' ? '원/달러' : '유가'} 민감도 범위의 최소가 최대보다 커요`,
+        blocking: true,
+      });
+  });
+  // 같은 문구는 한 번만(조건 구역의 이슈를 남긴다)
+  if (dataInfo && !dataInfo.hasMacro && c.rank.by === 'macroBeta' && !out.some((i) => i.text === NO_MACRO))
+    out.push({ section: 'rank', text: NO_MACRO, blocking: true });
   if (baskets && c.pool.baskets.some((id) => !baskets.some((b) => b.id === id)))
     out.push({ section: 'pool', text: '지워진 내 묶음이 있어요. 다시 골라 주세요', blocking: false });
   const codes = dataInfo?.themeCodes;

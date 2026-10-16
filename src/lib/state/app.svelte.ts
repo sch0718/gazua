@@ -25,7 +25,7 @@ import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
 import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
-import { assertBasketCap, loadBaskets, type Basket } from '../screen/baskets';
+import { assertBasketsWritable, loadBaskets, type Basket } from '../screen/baskets';
 import { exportData, importData, type ImportResult } from './exportImport';
 import { hashFor, parseHash, type Route } from './routes';
 import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
@@ -76,7 +76,7 @@ export interface App {
   setStrategies(list: Strategy[]): void;
   /** 선정 기준 목록 전체를 바꿔 저장한다. 20개를 넘으면 Error. */
   setCriteria(list: SelectionCriteria[]): void;
-  /** 내 묶음 목록 전체를 바꿔 저장한다. 30개를 넘으면 Error. */
+  /** 내 묶음 목록 전체를 바꿔 저장한다. 30개를 넘거나 묶음이 비었으면 Error. */
   setBaskets(list: Basket[]): void;
   switchProfile(id: string): void;
   addProfile(name: string): Profile;
@@ -566,7 +566,7 @@ export function createApp(deps: AppDeps): App {
     },
 
     setBaskets(list) {
-      assertBasketCap(list);
+      assertBasketsWritable(list);
       baskets = list;
       write(profileKeys.baskets(activeId()), { baskets: list });
     },
