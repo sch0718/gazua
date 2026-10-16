@@ -163,7 +163,7 @@ describe('DataTools', () => {
       await mount();
       expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
       await pick(demo());
-      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함 · 매매동향 포함')).toBeTruthy();
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함 · 매매동향 포함 · 재무 포함')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
       await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
       expect(await marketData.info()).toBeNull();
@@ -209,6 +209,26 @@ describe('DataTools', () => {
           delete st.fin;
         });
       });
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
+    });
+
+    it('v4 with flow but no fin names only flow', async () => {
+      await importVariant((j) => j.stocks.forEach((st: any) => delete st.fin));
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함 · 매매동향 포함`)).toBeTruthy();
+    });
+
+    it('v4 with fin but no flow names only fin', async () => {
+      await importVariant((j) => j.stocks.forEach((st: any) => delete st.flow));
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함 · 재무 포함`)).toBeTruthy();
+    });
+
+    it('v4 with neither flow nor fin keeps the plain macro/theme text', async () => {
+      await importVariant((j) =>
+        j.stocks.forEach((st: any) => {
+          delete st.flow;
+          delete st.fin;
+        }),
+      );
       expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
     });
 

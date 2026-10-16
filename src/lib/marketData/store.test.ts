@@ -242,6 +242,46 @@ describe('market data store', () => {
     expect(await store.info()).toMatchObject({ version: 4, hasFlow: true, flowStocks: src.stocks.filter((s: any) => s.flow).length });
   });
 
+  it('v4 demo import: info() carries hasFin and finStocks', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const src = JSON.parse(await decompress(file()));
+    const n = src.stocks.filter((s: any) => s.fin).length;
+    expect(n).toBeGreaterThan(0);
+    expect(await store.info()).toMatchObject({ version: 4, hasFin: true, finStocks: n });
+  });
+
+  it('v4 without any fin has hasFin false', async () => {
+    const store = openMarketData();
+    const j = JSON.parse(await decompress(file()));
+    j.stocks.forEach((s: any) => delete s.fin);
+    const text = JSON.stringify(j);
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(await store.info()).toMatchObject({ version: 4, hasFin: false, finStocks: 0 });
+  });
+
+  it('v3 import has hasFin false', async () => {
+    const store = openMarketData();
+    const j = JSON.parse(await decompress(file()));
+    j.version = 3;
+    j.stocks.forEach((s: any) => delete s.fin);
+    const text = JSON.stringify(j);
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    expect(await store.info()).toMatchObject({ version: 3, hasFin: false, finStocks: 0 });
+  });
+
+  it('info() of data stored before the fin keys existed reads hasFin false', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const db = await openDB('gazua-market-data', 1);
+    const old = await db.get('files', 'current-info');
+    delete old.hasFin;
+    delete old.finStocks;
+    await db.put('files', old, 'current-info');
+    db.close();
+    expect(await store.info()).toMatchObject({ hasFin: false, finStocks: 0 });
+  });
+
   it('v3 without any flow has hasFlow false', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
