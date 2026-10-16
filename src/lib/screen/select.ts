@@ -150,6 +150,9 @@ export function selectAt(
         values.volatility = key;
         if (key != null) key = -key; // 낮을수록 앞
         break;
+      case 'macroBeta':
+        key = null; // 계산은 Task 4
+        break;
     }
     passed.push({ symbol: st.s, key, values });
   });

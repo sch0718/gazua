@@ -2,8 +2,15 @@ import type { Strategy } from '../sim/types';
 
 export type Market = 'KOSPI' | 'KOSDAQ';
 export type SecurityType = 'STOCK' | 'ETF';
-export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility';
+export type RankBy = 'marketCap' | 'tradingValue' | 'return' | 'lowVolatility' | 'macroBeta';
+export type MacroSeriesKey = 'usdkrw' | 'wti';
 export type Rebalance = 'monthly' | 'quarterly' | 'semiannual';
+
+/** 환율·유가 한 계열의 조건(스펙 3.3) */
+export interface MacroSeriesCond {
+  beta: { on: boolean; min: number; max: number };
+  trend: { on: boolean; lookback: number; thresholdPct: number; minAbsBeta: number; whenFlat: 'pass' | 'none' };
+}
 
 /** 선정 기준(스펙 5장). 켠 조건을 모두 만족해야 통과한다. */
 export interface SelectionCriteria {
@@ -14,7 +21,9 @@ export interface SelectionCriteria {
     markets: Market[]; // 빈 배열 불가
     types: SecurityType[]; // 빈 배열 불가
     excludeManaged: boolean;
-    sectors: string[]; // 빈 배열 = 전체
+    sectors: string[]; // 빈 배열 = 사용 안 함
+    themes: string[]; // KIS 테마 코드. 빈 배열 = 사용 안 함
+    baskets: string[]; // 내 묶음 id. 빈 배열 = 사용 안 함
   };
   conditions: {
     marketCap: { on: boolean; minEok: number };
@@ -29,8 +38,9 @@ export interface SelectionCriteria {
       withinDays: number;
       pattern: { from: 'strategy'; strategyId: string } | { from: 'custom'; entry: Strategy['entry'] };
     };
+    macro: { betaDays: number; usdkrw: MacroSeriesCond; wti: MacroSeriesCond };
   };
-  rank: { by: RankBy; take: number }; // take 1~30
+  rank: { by: RankBy; take: number; series?: MacroSeriesKey }; // take 1~30. series는 by가 macroBeta일 때 쓴다
   rebalance: Rebalance;
   period: { from: string; to: string };
   benchmarks: { indices: Market[]; symbols: string[] }; // symbols 최대 3

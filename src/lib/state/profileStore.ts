@@ -18,6 +18,7 @@ export const profileKeys = {
   recent: (id: string) => `p:${id}:recent`,
   strategies: (id: string) => `p:${id}:strategies`,
   criteria: (id: string) => `p:${id}:criteria`,
+  baskets: (id: string) => `p:${id}:baskets`,
 };
 
 export const RECENT_MAX = 5;

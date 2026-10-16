@@ -284,3 +284,127 @@ describe('criteriaIssues', () => {
     expect(criteriaIssues(c, []).filter((i) => i.blocking)).toHaveLength(2);
   });
 });
+
+describe('새 필드(테마·묶음·환율·유가)', () => {
+  it('옛 기준(새 필드 없음)은 조용히 기본값을 받고 repaired false', () => {
+    const old: Record<string, any> = structuredClone(base());
+    delete old.pool.themes;
+    delete old.pool.baskets;
+    delete old.conditions.macro;
+    delete old.rank.series;
+    const r = sanitizeCriteria({ criteria: [old] }, NOW);
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0]).toEqual(base());
+    expect(r.criteria[0].pool.themes).toEqual([]);
+    expect(r.criteria[0].conditions.macro.betaDays).toBe(120);
+    expect(r.criteria[0].conditions.macro.usdkrw).toEqual({
+      beta: { on: false, min: 0.3, max: 5 },
+      trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' },
+    });
+    expect(r.criteria[0].rank.series).toBe('usdkrw');
+  });
+
+  it.each([
+    ['betaDays 29', (c: any) => (c.conditions.macro.betaDays = 29), (c: any) => c.conditions.macro.betaDays, 120],
+    ['betaDays 소수', (c: any) => (c.conditions.macro.betaDays = 100.5), (c: any) => c.conditions.macro.betaDays, 120],
+    ['beta.min -21', (c: any) => (c.conditions.macro.wti.beta.min = -21), (c: any) => c.conditions.macro.wti.beta.min, 0.3],
+    ['beta.max 21', (c: any) => (c.conditions.macro.usdkrw.beta.max = 21), (c: any) => c.conditions.macro.usdkrw.beta.max, 5],
+    ['lookback 4', (c: any) => (c.conditions.macro.usdkrw.trend.lookback = 4), (c: any) => c.conditions.macro.usdkrw.trend.lookback, 20],
+    ['lookback 121', (c: any) => (c.conditions.macro.usdkrw.trend.lookback = 121), (c: any) => c.conditions.macro.usdkrw.trend.lookback, 20],
+    ['thresholdPct 0.4', (c: any) => (c.conditions.macro.wti.trend.thresholdPct = 0.4), (c: any) => c.conditions.macro.wti.trend.thresholdPct, 3],
+    ['thresholdPct 51', (c: any) => (c.conditions.macro.wti.trend.thresholdPct = 51), (c: any) => c.conditions.macro.wti.trend.thresholdPct, 3],
+    ['minAbsBeta -1', (c: any) => (c.conditions.macro.wti.trend.minAbsBeta = -1), (c: any) => c.conditions.macro.wti.trend.minAbsBeta, 0.3],
+    ['whenFlat x', (c: any) => (c.conditions.macro.wti.trend.whenFlat = 'x'), (c: any) => c.conditions.macro.wti.trend.whenFlat, 'pass'],
+  ])('범위를 벗어난 macro 값(%s)은 기본값으로 고치고 repaired', (_n, patch, read, def) => {
+    const r = run(patch);
+    expect(read(r.criteria[0])).toBe(def);
+    expect(r.repaired).toBe(true);
+  });
+
+  it('macro 경계값은 그대로 둔다', () => {
+    const r = run((c) => {
+      c.conditions.macro.betaDays = 30;
+      c.conditions.macro.usdkrw.beta = { on: true, min: -20, max: 20 };
+      c.conditions.macro.wti.trend = { on: true, lookback: 120, thresholdPct: 0.5, minAbsBeta: 0, whenFlat: 'none' };
+    });
+    expect(r.repaired).toBe(false);
+    expect(r.criteria[0].conditions.macro.wti.trend.whenFlat).toBe('none');
+  });
+
+  it('pool.themes·baskets: 문자열만 중복 없이, 틀린 것은 repaired', () => {
+    const r = run((c) => {
+      c.pool.themes = ['T1', 'T1', 3];
+      c.pool.baskets = ['b1'];
+    });
+    expect(r.criteria[0].pool.themes).toEqual(['T1']);
+    expect(r.criteria[0].pool.baskets).toEqual(['b1']);
+    expect(r.repaired).toBe(true);
+    const r2 = run((c) => (c.pool.themes = 'x'));
+    expect(r2.criteria[0].pool.themes).toEqual([]);
+    expect(r2.repaired).toBe(true);
+  });
+
+  it('rank.by macroBeta는 받고, series는 그때만 검증한다', () => {
+    const ok = run((c) => {
+      c.rank.by = 'macroBeta';
+      c.rank.series = 'wti';
+    });
+    expect(ok.criteria[0].rank).toMatchObject({ by: 'macroBeta', series: 'wti' });
+    expect(ok.repaired).toBe(false);
+    const bad = run((c) => {
+      c.rank.by = 'macroBeta';
+      c.rank.series = 'gold';
+    });
+    expect(bad.criteria[0].rank.series).toBe('usdkrw');
+    expect(bad.repaired).toBe(true);
+    const other = run((c) => (c.rank.series = 'gold'));
+    expect(other.repaired).toBe(false);
+  });
+});
+
+describe('criteriaIssues: 데이터·묶음·테마', () => {
+  const withMacro = () => {
+    const c = base();
+    c.conditions.macro.usdkrw.beta.on = true;
+    return c;
+  };
+
+  it('dataInfo를 생략하면 macro가 켜져 있어도 이슈가 없다', () => {
+    expect(criteriaIssues(withMacro(), [])).toEqual([]);
+  });
+
+  it('v1 데이터(hasMacro false)에서 macro 조건이 켜져 있으면 blocking', () => {
+    const out = criteriaIssues(withMacro(), [], { hasMacro: false });
+    expect(out).toEqual([{ section: 'conditions', text: '이 데이터에는 환율·유가가 없어요', blocking: true }]);
+  });
+
+  it('v1 데이터라도 macro 조건이 꺼져 있으면 이슈가 없고, v2면 켜져 있어도 없다', () => {
+    expect(criteriaIssues(base(), [], { hasMacro: false })).toEqual([]);
+    expect(criteriaIssues(withMacro(), [], { hasMacro: true })).toEqual([]);
+  });
+
+  it('macro만 켠 기준에는 조건 없음 경고를 내지 않는다', () => {
+    const c = withMacro();
+    c.conditions.tradingValue.on = false;
+    c.conditions.rebound.on = false;
+    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+  });
+
+  it('지워진 내 묶음은 경고(blocking 아님)', () => {
+    const c = base();
+    c.pool.baskets = ['b1', 'gone'];
+    expect(criteriaIssues(c, [], undefined, [{ id: 'b1' }])).toEqual([
+      { section: 'pool', text: '지워진 내 묶음이 있어요. 다시 골라 주세요', blocking: false },
+    ]);
+    expect(criteriaIssues(c, [], undefined, [{ id: 'b1' }, { id: 'gone' }])).toEqual([]);
+  });
+
+  it('데이터에 없는 테마는 경고(blocking 아님)', () => {
+    const c = base();
+    c.pool.themes = ['T1', 'T9'];
+    expect(criteriaIssues(c, [], { hasMacro: true, themeCodes: ['T1'] })).toEqual([
+      { section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false },
+    ]);
+    expect(criteriaIssues(c, [], { hasMacro: true })).toEqual([]);
+  });
+});

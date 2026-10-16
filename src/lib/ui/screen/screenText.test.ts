@@ -14,7 +14,7 @@ describe('screenText', () => {
 
   it('summary follows the pool, the on conditions, the take and the rebalance', () => {
     const c = newCriteria(NOW, null);
-    c.pool = { markets: ['KOSDAQ'], types: ['STOCK', 'ETF'], excludeManaged: true, sectors: ['001', '002'] };
+    c.pool = { markets: ['KOSDAQ'], types: ['STOCK', 'ETF'], excludeManaged: true, sectors: ['001', '002'], themes: [], baskets: [] };
     c.conditions.tradingValue.on = false;
     c.conditions.rebound.on = false;
     c.conditions.marketCap.on = true;

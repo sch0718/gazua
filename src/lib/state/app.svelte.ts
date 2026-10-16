@@ -25,6 +25,7 @@ import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
 import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
+import { assertBasketCap, loadBaskets, type Basket } from '../screen/baskets';
 import { exportData, importData, type ImportResult } from './exportImport';
 import { hashFor, parseHash, type Route } from './routes';
 import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
@@ -56,6 +57,8 @@ export interface App {
   readonly strategies: Strategy[];
   /** 이 프로필의 선정 기준(최대 20개) */
   readonly criteria: SelectionCriteria[];
+  /** 이 프로필의 내 묶음(최대 30개) */
+  readonly baskets: Basket[];
   /** 경로를 바로잡았을 때 화면이 한 번 보여 줄 안내(예: 없는 전략). 보여 준 뒤 clearRouteNotice. */
   readonly routeNotice: string | null;
   clearRouteNotice(): void;
@@ -73,6 +76,8 @@ export interface App {
   setStrategies(list: Strategy[]): void;
   /** 선정 기준 목록 전체를 바꿔 저장한다. 20개를 넘으면 Error. */
   setCriteria(list: SelectionCriteria[]): void;
+  /** 내 묶음 목록 전체를 바꿔 저장한다. 30개를 넘으면 Error. */
+  setBaskets(list: Basket[]): void;
   switchProfile(id: string): void;
   addProfile(name: string): Profile;
   /** 빈 이름은 무시한다. */
@@ -196,6 +201,7 @@ export function createApp(deps: AppDeps): App {
   let recent = $state.raw<string[]>(first.recent);
   let strategies = $state.raw<Strategy[]>(first.strategies);
   let criteria = $state.raw<SelectionCriteria[]>(first.criteria);
+  let baskets = $state.raw<Basket[]>(first.baskets);
   let routeNotice = $state<string | null>(null);
   let locked: LockedSecrets | null = first.locked;
   /** 이 탭이 지우지 못하고 남긴 잠긴 키(프로필·JSON). 평문 저장을 거절할 때 다른 탭의 잠금과 구분한다. */
@@ -228,6 +234,7 @@ export function createApp(deps: AppDeps): App {
       recent: loadRecent(storage, id),
       strategies: loadStrategies(storage, id),
       criteria: loadCriteria(storage, id),
+      baskets: loadBaskets(storage, id),
       secrets: stored.plain,
       locked: stored.locked,
     };
@@ -387,6 +394,7 @@ export function createApp(deps: AppDeps): App {
     recent = loaded.recent;
     strategies = loaded.strategies;
     criteria = loaded.criteria;
+    baskets = loaded.baskets;
     secrets = loaded.secrets;
     locked = loaded.locked;
     unlockUnsaved = false;
@@ -465,6 +473,9 @@ export function createApp(deps: AppDeps): App {
     },
     get criteria() {
       return criteria;
+    },
+    get baskets() {
+      return baskets;
     },
     get routeNotice() {
       return routeNotice;
@@ -554,6 +565,12 @@ export function createApp(deps: AppDeps): App {
       write(profileKeys.criteria(activeId()), { criteria: list });
     },
 
+    setBaskets(list) {
+      assertBasketCap(list);
+      baskets = list;
+      write(profileKeys.baskets(activeId()), { baskets: list });
+    },
+
     switchProfile,
 
     addProfile(name) {
@@ -588,6 +605,7 @@ export function createApp(deps: AppDeps): App {
       remove(profileKeys.recent(id));
       remove(profileKeys.strategies(id));
       remove(profileKeys.criteria(id));
+      remove(profileKeys.baskets(id));
       remove(profileKeys.tokenIssuedAt(id, 'kis'));
     },
 

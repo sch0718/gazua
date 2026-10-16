@@ -236,7 +236,7 @@
         return `${d.pool.markets.join('·')} ${types} · ${d.pool.sectors.length ? `업종 ${sectorGroupCount(d.pool.sectors, sectors)}개` : '전체 업종'}`;
       }
       case 'conditions': {
-        const n = Object.values(d.conditions).filter((x) => x.on).length;
+        const n = Object.values({ ...d.conditions, macro: undefined }).filter((x) => x?.on).length;
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
@@ -250,7 +250,7 @@
     }
   }
 
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순' } as const;
+  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순' } as const;
 
   // ── 후보 범위 ──
   function setMember<T extends string>(list: T[], v: T, on: boolean): T[] {
