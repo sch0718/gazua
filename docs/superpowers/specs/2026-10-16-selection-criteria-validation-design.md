@@ -75,7 +75,7 @@ KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-
 - 파일은 `scripts/collect-market-data.mjs`다. Node 22에서 돌고, 런타임 의존성은 새로 넣지 않는다(내장 `fetch`, `zlib`).
 - 키는 **환경변수로만** 받는다. 파일·로그·출력·오류 메시지에 키나 토큰을 쓰지 않는다. 토큰은 실행 동안 메모리에만 둔다. KIS 1분 1회 발급 제한을 지키도록 실행당 한 번 발급한다.
 - 요청 속도는 초당 18건을 넘지 않는다(KIS 한도 20건에 여유). 429나 `EGW00201`을 받으면 기존 큐와 같은 규칙으로 쉰다.
-- 실전/모의 서버를 고르는 `--paper` 옵션이 있다. 기본은 실전이다.
+- 실전/모의 서버를 고르는 `--paper` 옵션이 있다. 기본은 실전이다(`openapi.koreainvestment.com:9443`, 모의 `openapivts.koreainvestment.com:29443`).
 - 기본 출력 폴더는 `~/gazua-data/`다. 저장소 안이면 `.gitignore`에 있는 `data/`만 허용하고, 그 밖의 저장소 경로는 거부한다.
 
 ### 3.2 받는 것
@@ -83,7 +83,7 @@ KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-
 | 데이터 | 출처 | 비고 |
 |---|---|---|
 | 종목 목록, 시장, 종류 | KIS 마스터 `kospi_code.mst`, `kosdaq_code.mst` | `scripts/parse-master.mjs`를 확장한다 |
-| 업종 대·중·소 코드와 이름 | 마스터 tail 오프셋 3·7·11(각 4바이트), 이름은 `idxcode.mst` | **수집일 기준** |
+| 업종 대·중·소 코드와 이름 | 마스터 tail 오프셋 3·7·11(각 4바이트), 이름은 `idxcode.mst` | **수집일 기준**. 코드 변환은 아래 규칙 |
 | 상장주식수(천 주) | 마스터 tail(KOSPI 113:15, KOSDAQ 108:15) | **수집일 기준**. 단위는 실연결 점검으로 확정한다(8.3) |
 | 관리종목, 거래정지 | 마스터 tail(KOSPI 62·60, KOSDAQ 57·55) | **수집일 기준** |
 | 종목 일봉(수정주가) | `inquire-daily-itemchartprice`(FHKST03010100), 시장 `J` | 시가·고가·저가·종가·거래량·거래대금 |
@@ -91,6 +91,10 @@ KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-
 
 - 마스터의 매출·영업이익·ROE·시가총액 필드는 **받지 않는다.** 현재 스냅샷뿐이라 과거 시점 검증에 섞이면 미래 정보가 된다. 단위와 기간이 불분명하고, 당기순이익 필드는 폭이 의심스럽다는 이유도 있다.
 - 일봉 TR은 한 번에 100행 안팎을 준다. 기간을 나눠 거슬러 받는다.
+- **업종 코드 변환(2026-10-16 실제 파일로 확인).** 마스터 tail의 4자리 코드 앞에 시장 숫자(KOSPI `0`, KOSDAQ `1`)를 붙이면 `idxcode.mst`의 5자리 코드가 된다.
+  - 예: 삼성전자 tail `0027`·`0013` → `00027` 제조·`00013` 전기·전자. 에코프로비엠(247540) tail `1009`·`1028` → `11009` 제조·`11028` 전기·전자(KOSDAQ tail은 이미 `1`로 시작한다). 마스터 종목의 업종 슬롯 4,202개(0000 제외)가 모두 이 규칙으로 `idxcode.mst`에서 이름이 찾아진다.
+  - `0000`과 `idxcode.mst`에 없는 코드는 `''`(없음)로 둔다.
+  - 파일의 `sec`와 `sectors[].code`는 이 5자리 코드다. `sectors`에는 종목이 실제로 쓰는 코드만 넣고, `level`은 그 코드가 나타난 슬롯(1 대분류, 2 중분류, 3 소분류) 중 가장 낮은 값이다.
 
 ### 3.3 이어 받기와 수정주가
 
@@ -111,12 +115,12 @@ interface MarketDataFile {
   source: 'kis';
   adjusted: true;                   // 수정주가
   range: { from: string; to: string };   // YYYY-MM-DD
-  sectors: { code: string; name: string; level: 1 | 2 | 3 }[];
+  sectors: { code: string; name: string; level: 1 | 2 | 3 }[];   // code는 5자리(3.2). level은 나타난 가장 낮은 슬롯
   stocks: {
     s: string; n: string;           // 코드, 이름
     m: 'KOSPI' | 'KOSDAQ';
     t: 'STOCK' | 'ETF' | 'ETN' | 'REIT' | 'OTHER';
-    sec: [string, string, string];  // 업종 대·중·소 코드 ('' = 없음)
+    sec: [string, string, string];  // 업종 대·중·소 5자리 코드(시장 숫자 + tail, 3.2). '' = 없음
     shares: number;                 // 상장주식수(주). 수집일 기준
     managed: boolean; halted: boolean;   // 수집일 기준
     d: string[];                    // 날짜(YYYYMMDD) 오름차순
