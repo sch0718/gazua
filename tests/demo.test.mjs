@@ -219,7 +219,7 @@ test('데모 v3: 설계하지 않은 종목은 외국인 비율이 0 주변이�
   }
 });
 
-test('데모 v3: 두 번 만들면 바이트가 같고 저장된 fixture와도 같다', () => {
+test('데모 v3: 두 번 만들면 바이트가 같고 저장된 fixture와 내용이 같다', () => {
   const dir = mkdtempSync(join(tmpdir(), 'demo-'));
   try {
     const script = new URL('../scripts/make-demo-market-data.mjs', import.meta.url).pathname;
@@ -227,7 +227,9 @@ test('데모 v3: 두 번 만들면 바이트가 같고 저장된 fixture와도 �
     for (const o of outs) assert.equal(spawnSync(process.execPath, [script, o], { encoding: 'utf8' }).status, 0);
     const [a, b] = outs.map((o) => readFileSync(o));
     assert.ok(a.equals(b));
-    assert.ok(a.equals(readFileSync(new URL('./fixtures/market-data-demo.json.gz', import.meta.url))));
+    // gzip 바이트는 플랫폼(zlib 버전·헤더의 OS 바이트)마다 달라서, 저장된 fixture와는 푼 내용으로 비교한다
+    const stored = gunzipSync(readFileSync(new URL('./fixtures/market-data-demo.json.gz', import.meta.url)));
+    assert.ok(gunzipSync(a).equals(stored));
     assert.deepEqual(JSON.parse(gunzipSync(a).toString('utf8')), JSON.parse(JSON.stringify(demoFile)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
