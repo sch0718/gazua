@@ -23,13 +23,13 @@
 - 키는 환경변수 `KIS_APP_KEY`·`KIS_APP_SECRET`에서만 읽는다. 요청 URL·로그·오류·partial·출력 파일에 넣지 않는다. 인증 헤더는 기존 클라이언트 규칙 그대로다.
 
 **미래 정보 차단 (스펙 2.3)**
-- `finKnownFrom(q, fy)` = 분기말 날짜(그 달 말일) + 100일(결산월 분기) 또는 + 60일(그 밖의 분기). 날짜 계산은 `Date.UTC`로 한다.
+- `finKnownFrom(q, annual)` = 분기말 날짜(그 달 말일) + 100일(연간 결산 분기, `a` = 1) 또는 + 60일(그 밖의 분기). 연간 여부는 분기마다 저장한 `a`로 정하고, 종목의 현재 결산월로 다시 계산하지 않는다(스펙 D8). 날짜 계산은 `Date.UTC`로 한다.
 - p에서는 `finKnownFrom < p`인 분기만 쓴다. p는 재선정일 d의 전 거래일이다.
 - TTM은 마지막으로 쓸 수 있는 분기 L에서 [L−3, L]이 모두 있어야 계산한다. 1년 전 TTM은 [L−7, L−4]다. 모자라면 계산 불가다.
 - 계산 불가는 조건에서 탈락이고, 정렬과 통과 수에서 뺀다.
 
 **데이터 (스펙 2.2)**
-- 파일은 `version: 4`이고 `stocks[].fin?: { q, fy, rev, op, ni, eq, debt }`를 담는다. 단위는 억 원이고 소수 둘째 자리까지다.
+- 파일은 `version: 4`이고 `stocks[].fin?: { q, a, rev, op, ni, eq, debt }`를 담는다. `a`는 분기마다 연간 결산 분기면 1, 아니면 0이다. 단위는 억 원이고 소수 둘째 자리까지다.
 - `q`는 엄격히 오름차순이고 3개월 간격으로 연속이다. 빠진 분기는 0으로 채우지 않고 그 앞을 버린다.
 - v1~v3도 받는다. 5 이상은 `version-newer`다.
 - 경로·TR·필드·단위·누적 여부는 `scripts/fetch-fundamentals.mjs`의 `FIN_API` 한 곳에 둔다. 가정값: 단위는 억 원, 분기 손익은 누적.
@@ -82,13 +82,13 @@
   - `MarketDataFile = V1 | V2 | V3 | V4`
   - `isV4(f)`
   - `hasFlowFormat(f)`: version ≥ 3이면 참. v3 전용 검사를 v4에도 적용할 때 쓴다. 기존 `isV3` 사용처는 v4에서도 맞게 고친다.
-  - `FinSeries { q: string[]; fy: number; rev; op; ni; eq; debt: number[] }`
+  - `FinSeries { q: string[]; a: number[]; rev; op; ni; eq; debt: number[] }`
   - `validateMarketData`가 v4를 검사한다(스펙 2.2).
   - `fetchFundamentals(client, symbol) → Promise<{ annualIS, quarterIS, quarterBS }>`
     - 기존 클라이언트의 `client.get`을 쓴다.
     - `FIN_API` 상수: 경로, TR, 필드, `unit`(억 원), `cumulative`(true)
   - `buildFin({ annualIS, quarterIS, quarterBS }) → FinSeries | null`
-    - 결산월 `fy`를 정한다.
+    - 연간 행의 `stac_yymm`으로 분기마다 `a`(연간 결산 분기 여부)와 회계연도 경계를 정한다. 결산월이 바뀐 경우도 연간 행을 그대로 따른다.
     - `cumulative`이면 같은 회계연도 안에서 차분한다. 결산월 분기는 연간 값에서 같은 회계연도 직전 누적값을 뺀다.
     - 손익과 대차를 분기말로 맞춘다.
     - 연속 구간만 남긴다(마지막 빈 분기 다음부터).
@@ -97,13 +97,14 @@
 - [ ] **Step 1:** 실패하는 테스트를 쓴다.
   - **v4 검증**
     - 정상 파일은 ok다.
-    - 다음은 corrupt다: `q` 형식 오류, 역순, 6개월 간격, `fy` 0·13, 길이 불일치, NaN.
+    - 다음은 corrupt다: `q` 형식 오류, 역순, 6개월 간격, `a` 값이 0·1이 아님, 길이 불일치, NaN.
     - `fin`이 없는 종목은 ok다.
     - version 5는 `version-newer`다.
     - v1~v3는 여전히 ok다. 특히 v3 수급 검사가 v4에도 적용되는지 확인한다.
   - **`buildFin`**
     - 12월 결산: 누적 [100, 250, 420]과 연간 600이면 분기는 [100, 150, 170, 180]이다.
-    - 3월 결산(`fy` 3)도 같은 규칙으로 계산한다.
+    - 3월 결산도 같은 규칙으로 계산한다.
+    - **결산월 변경**: 3월 결산에서 12월 결산으로 바뀐 이력(짧은 회계연도 포함)에서 각 분기의 `a`와 차분이 맞고, 옛 3월 연간 분기의 `a`가 1로 남는다.
     - 회계연도 경계에서는 이전 해 누적값을 빼지 않는다.
     - 대차는 차분하지 않는다.
     - 중간 분기가 빠지면 그 앞은 버린다.
@@ -131,7 +132,7 @@
   - `--no-fins` 옵션.
   - `--update`
     - 다시 받아 덮어쓴다.
-    - 받은 이력이 짧으면 이전 분기를 앞에 이어 붙인다(연속일 때만).
+    - 받은 이력이 짧으면 이전 분기를 앞에 이어 붙인다(연속일 때만). 이어 붙인 분기는 이전 파일의 `a`를 그대로 쓴다.
     - 실패하면 이전 `fin`을 유지한다.
   - partial 파일에 `kind:'fin'` 줄을 쓴다.
   - 데모는 v4로 만든다. 설계 재무 종목(스펙 5장)을 넣고, 코드를 상수로 내보낸다.
@@ -220,7 +221,7 @@
 - Consumes: Task 1의 `FinSeries`, Task 4의 필드와 `usesFin`.
 - Produces:
   - `fin.ts`
-    - `finKnownFrom(q: string, fy: number): string` (YYYYMMDD)
+    - `finKnownFrom(q: string, annual: boolean): string` (YYYYMMDD)
     - `lastKnownQuarter(known: string[], p: string): number` (이진 탐색, 없으면 −1)
     - `finMetricsAt(pre, st, pIdx, p): FinValues | null`: TTM·1년 전 TTM·L 자본·부채·시가총액으로 스펙 3.1의 지표를 계산한다. 계산 불가인 항목은 NaN이고, 쓴 분기 `L`의 `q`를 함께 돌려준다.
   - precompute
@@ -236,12 +237,12 @@
     - 재무 없는 데이터면 `ValidationError('no-fin')`이고, `WorkerErrorCode`에도 넣는다.
 
 - [ ] **Step 1:** 실패하는 테스트를 쓴다.
-  - `finKnownFrom` 표
+  - `finKnownFrom` 표 (결산월 변경 종목: 옛 연간 분기는 `a`=1이라 +100일. PR #16 리뷰의 반례 `q=201303` → 20130709)
     - 12월 결산 분기 4개(3·6·9월은 +60일, 12월은 +100일)
     - 3월 결산
     - 2월 말일과 윤년
   - 지표 손계산
-    - 3.1 표의 각 지표와 계산 불가 경우 전부
+    - 3.1 표의 각 지표와 계산 불가 경우 전부(상장주식수 0이면 PER·PBR 계산 불가이고 조건·정렬에서 빠짐)
     - 연속 4분기·8분기 경계
     - L−4 자본이 없을 때의 ROE
   - 공시 시점
@@ -271,7 +272,7 @@
   - **정렬**: `재무 순`과 지표 고르기(스펙 4.2의 이름 6개). 정렬 요약 라벨은 기존 `… 순` 패턴을 따른다.
   - **`criteriaLine`**: 재무 조건을 넣는다(스펙 4.3).
   - **`screenText`**
-    - 문구와 이력 포맷터를 둔다. 포맷터는 `PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지)` 형식이다. 분기는 달력 분기이고, 소수는 한 자리, 음수는 `−`다.
+    - 문구와 이력 포맷터를 둔다. 포맷터는 `PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지)` 형식이다. 분기는 달력 분기 `ceil(월 ÷ 3)`이고(2·5·8·11월 말 분기 테스트 포함), 소수는 한 자리, 음수는 `−`다.
     - 실행 시점 스냅샷에 재무 정렬 지표를 담는다(`flowRunSnap`처럼).
   - **결과 메모**: `finLag`·`finShares`·`finGap`
 
