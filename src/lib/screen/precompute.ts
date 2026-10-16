@@ -1,5 +1,5 @@
 import type { Candle } from '../data/metrics';
-import { isV2, type MarketDataFile } from '../marketData/format';
+import { hasMacroFormat, type MarketDataFile } from '../marketData/format';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import type { Strategy } from '../sim/types';
@@ -197,7 +197,7 @@ function signals(d: string[], st: FileStock, entry: Strategy['entry'] | null): {
 export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): Precomputed {
   const k = criteria.conditions;
   const params = precomputeParams(criteria, reboundEntry);
-  const v2 = isV2(data) ? data : null;
+  const v2 = hasMacroFormat(data) ? data : null;
   const macro: Precomputed['macro'] = {
     usdkrw: alignSeries('usdkrw', v2?.macro.usdkrw),
     wti: alignSeries('wti', v2?.macro.wti),

@@ -138,7 +138,7 @@ describe('market data store', () => {
   it('tells a newer version and a wrong format apart', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
-    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 3 }) });
+    const newer = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => JSON.stringify({ ...j, version: 4 }) });
     expect(newer).toEqual({ ok: false, reason: 'version-newer' });
     const other = await store.importFile(new Blob(['x']), { estimate: roomy, decompress: async () => '{"a":1}' });
     expect(other).toEqual({ ok: false, reason: 'format' });

@@ -213,6 +213,8 @@ export function createKisClient({ appKey, appSecret, paper = false, fetchImpl = 
 
   return {
     scrub,
+    /** 저수준 GET(인증 헤더·재시도·속도 제한 포함). 수급 같은 별도 API용 */
+    get,
     /** 종목 일봉(수정주가) → 열 지향 { d,o,h,l,c,v,tv } */
     async dailyCandles(symbol, from, to) {
       const rows = await paged(

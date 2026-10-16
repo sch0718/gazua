@@ -4,7 +4,7 @@
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { isV2 } from '../lib/marketData/format';
+  import { hasMacroFormat } from '../lib/marketData/format';
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
   import type { Basket } from '../lib/screen/baskets';
@@ -149,7 +149,7 @@
   // 테마의 종목은 본문에만 있다. 묶음으로 가져올 때만 파일을 읽는다
   async function loadThemeSymbols(code: string): Promise<string[]> {
     const body = await marketData.load?.();
-    return body && isV2(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
+    return body && hasMacroFormat(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
   }
   onMount(() => {
     marketData.info().then(
