@@ -1438,7 +1438,7 @@ test('(R3) .partial의 수급 줄에서 이어 받는다: 일봉은 다시 요�
   }
 });
 
-test('(R4) 경고의 분모는 전체 종목이다: 이어 받은 2종목 + 실패 1종목이면 절반 경고가 없다', async () => {
+test('(R4) 경고의 분모에 .partial에서 이어 받은 종목도 든다: 이어 받은 2종목 + 실패 1종목이면 절반 경고가 없다', async () => {
   const dir = tmpDir();
   try {
     const opts = await interrupted(dir);
@@ -1454,7 +1454,23 @@ test('(R4) 경고의 분모는 전체 종목이다: 이어 받은 2종목 + 실�
   }
 });
 
-test('(R5) 요청이 없었던 종목(수급 끝이 기준일 이후)은 시도 수에 넣지 않고, 일봉 실패로 남긴 종목은 수급 실패가 아니다', async () => {
+test('(R4b) 이전 값만 지킨 종목은 경고의 분모에 넣지 않는다: 일봉 실패 2종목 + 수급 실패 1종목이면 1/1로 경고한다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    const data = flowDataFor(62);
+    const bad = fakeKis(data, { flowFail: ['000030'], onGet: (_, q) => (['000010', '000020'].includes(q.FID_INPUT_ISCD) ? json({ rt_cd: '1', msg_cd: 'X' }, 500) : null) });
+    const logs = [];
+    const r = await runF(dir, data, { fake: bad, update: first.file, out: join(dir, 'b'), log: (l) => logs.push(l) });
+    assert.deepEqual(r.summary.failed, ['000010', '000020']);
+    assert.deepEqual(r.summary.flowFailed, ['000030']);
+    assert.equal(logs.filter((l) => l.includes('수급 받기 실패가 절반을 넘었어요 (1/1종목)')).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(R5) 일봉 실패로 이전 값을 남긴 종목은 수급을 요청하지 않고 수급 실패로도 세지 않는다', async () => {
   const dir = tmpDir();
   try {
     const first = await runF(dir, flowDataFor(60));

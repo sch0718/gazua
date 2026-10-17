@@ -378,6 +378,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   // 수급: 일봉 다음에 종목마다 받는다. 한 종목이 실패하면 그 종목만 비우고(--update면 이전 값을 지키고) 계속한다.
   // 수급 실패는 수집을 멈추지 않는다(치명 오류인 401·403 등만 멈춘다). 연속 20번 실패하면 남은 종목은 받지 않고 실패로 센다.
   const flowFailed = [];
+  let flowTried = 0; // 이번 수집에서 받으려던 종목 수(.partial에서 이어 받은 종목과 멈춘 뒤 남은 종목은 넣고, 이전 값만 지킨 종목은 뺀다)
   let flowFails = 0;
   let flowStopped = false;
   for (let idx = 0; idx < stocks.length; idx++) {
@@ -391,8 +392,10 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       // 일봉이 이전 파일과 같아 받을 새 수급이 없고, 일봉 실패로 이미 알렸으니 수급 실패로 세지 않는다.
       flow = keep();
     } else if (done.flows.has(st.s)) {
+      flowTried++;
       flow = done.flows.get(st.s).flow ?? undefined;
     } else if (flowStopped) {
+      flowTried++;
       flowFailed.push(st.s);
       flow = keep();
     } else {
@@ -400,6 +403,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       // 없으면 기간 처음부터 받는다. 겹친 날은 새로 받은 행이 이전 행을 덮어쓴다(alignFlow의 Map이 뒤의 행을 남긴다)
       const overlapFrom = prevRows.length ? prevRows[Math.max(0, prevRows.length - FLOW_OVERLAP_DAYS)].d : undefined;
       const start = overlapFrom ?? (flowFloor > st.d[0] ? flowFloor : st.d[0]);
+      if (start <= to) flowTried++; // 받을 날이 없으면 요청하지 않으니 시도로 세지 않는다
       try {
         const fresh = start <= to ? await fetchInvestorFlow(client, st.s, { from: start, to }) : [];
         flow = alignFlow(st.d, [...prevRows, ...fresh]) ?? undefined;
@@ -424,13 +428,14 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   }
   const flowStocks = stocks.filter((x) => x.flow).length;
   const flowFirst = stocks.reduce((m, x) => (x.flow && (m === '' || x.flow.from < m) ? x.flow.from : m), '');
-  // 분모는 이 파일의 전체 종목이다(이어 받은 종목·이전 값을 지킨 종목 포함)
-  if (flowFailed.length * 2 > stocks.length) log(`경고: 수급 받기 실패가 절반을 넘었어요 (${flowFailed.length}/${stocks.length}종목). 수급 TR·권한을 확인해 주세요`);
+  // 분모는 이번 수집에서 받으려던 종목 수다. 이전 값만 지킨 종목(--no-flows·일봉 실패)을 넣으면 실패가 묽어져 경고가 덜 나온다
+  if (flowFailed.length * 2 > flowTried) log(`경고: 수급 받기 실패가 절반을 넘었어요 (${flowFailed.length}/${flowTried}종목). 수급 TR·권한을 확인해 주세요`);
 
   // 재무: 수급 다음에 STOCK 종목마다 받는다(ETF·ETN 등은 재무제표가 없어 요청하지 않고 실패로도 세지 않는다).
   // 실패 처리는 수급과 같다. 한 종목이 실패하면 그 종목만 비우고(--update면 이전 값을 지키고) 계속한다.
   // 치명 오류(401·403 등)만 멈추고, 연속 20번 실패하면 남은 종목은 받지 않고 실패로 센다.
   const finFailed = [];
+  let finTried = 0; // 수급과 같다: 이번에 받으려던 STOCK 종목 수
   let finFails = 0;
   let finStopped = false;
   const finTargets = stocks.filter((x) => x.t === 'STOCK');
@@ -442,11 +447,14 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       // 받지 않는다: 이전 값만 지킨다. keptOld(일봉 받기가 실패해 옛 기록을 그대로 둔 종목)는 일봉 실패로 이미 알렸으니 재무 실패로 세지 않는다
       fin = prevFin;
     } else if (done.fins.has(st.s)) {
+      finTried++;
       fin = done.fins.get(st.s).fin ?? undefined;
     } else if (finStopped) {
+      finTried++;
       finFailed.push(st.s);
       fin = prevFin;
     } else {
+      finTried++;
       try {
         const built = buildFinWithStart(await fetchFundamentals(client, st.s));
         fin = mergeFin(prevFin, built.fin, built.start) ?? undefined;
@@ -471,8 +479,8 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   }
   const finStocks = stocks.filter((x) => x.fin).length;
   const finFirst = stocks.reduce((m, x) => (x.fin && (m === '' || x.fin.q[0] < m) ? x.fin.q[0] : m), '');
-  // 분모는 이 파일의 STOCK 종목 수다(이어 받은 종목·이전 값을 지킨 종목 포함, 재무를 요청하지 않는 ETF·ETN 등은 뺀다)
-  if (finFailed.length * 2 > finTargets.length) log(`경고: 재무 받기 실패가 절반을 넘었어요 (${finFailed.length}/${finTargets.length}종목). 재무 TR·권한을 확인해 주세요`);
+  // 분모는 이번 수집에서 받으려던 STOCK 종목 수다(이전 값만 지킨 종목과 재무를 요청하지 않는 ETF·ETN 등은 뺀다)
+  if (finFailed.length * 2 > finTried) log(`경고: 재무 받기 실패가 절반을 넘었어요 (${finFailed.length}/${finTried}종목). 재무 TR·권한을 확인해 주세요`);
 
   // 환율·유가: 일봉 시작 1년 전부터(β 워밍업). 실패해도 수집은 계속하고 그 계열만 비운다.
   // 윤일(2월 29일)도 유효한 날짜가 되도록 Date.UTC로 계산한다(2024-02-29 → 2023-03-01)
