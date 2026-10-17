@@ -84,6 +84,12 @@ test('시간 초과면 다시 보내고 3번 모두 넘기면 throw한다', asyn
     n += 1;
     return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
   };
-  await assert.rejects(fetchFredSeries('DEXKOUS', { fetchImpl, sleep: noSleep, timeoutMs: 5 }), /FRED DEXKOUS 요청 실패/);
+  // AbortSignal.timeout의 타이머는 이벤트 루프를 붙잡지 않아(Node 22) 기다리는 동안 루프가 끝나지 않게 붙잡아 둔다
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(fetchFredSeries('DEXKOUS', { fetchImpl, sleep: noSleep, timeoutMs: 5 }), /FRED DEXKOUS 요청 실패/);
+  } finally {
+    clearInterval(keepAlive);
+  }
   assert.equal(n, 3);
 });
