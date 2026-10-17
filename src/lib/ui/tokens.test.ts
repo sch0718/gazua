@@ -79,16 +79,30 @@ describe('tokens.css', () => {
     });
 
     it.each([
-      ['light', light],
-      ['dark (data-theme)', darkSet],
-    ])('%s: 선정 기준 결과의 지수·ETF 선은 bg 위 3:1이고, ETF 선은 등락색(한국 관례 빨강·파랑)을 쓰지 않는다', (_, b) => {
+      ['light', light, ':root.global-colors'],
+      ['dark (data-theme)', darkSet, ":root.global-colors[data-theme='dark']"],
+    ])('%s: 선정 기준 결과의 지수·ETF 선은 bg 위 3:1이고, ETF 선은 두 관례 모두 등락색·지수 선 색과 다르다', (_, b, globalSel) => {
       const name = (c: readonly [string, string]) => c[0].slice(2);
-      for (const c of [...INDEX_STYLES, ...BENCH_STYLES.map((x) => x.color)]) expect(ratio(token(b, name(c)), token(b, 'bg')), c[0]).toBeGreaterThanOrEqual(3);
+      const g = block(globalSel);
+      // 글로벌 관례에서는 그 블록이 덮어쓴 토큰을 먼저 본다
+      const inGlobal = (n: string) => (new RegExp(`--${n}:`).test(g) ? token(g, n) : token(b, n));
+      const indexColors = INDEX_STYLES.map((c) => token(b, name(c)));
+      for (const c of [...INDEX_STYLES, ...BENCH_STYLES.map((x) => x.color)]) {
+        expect(ratio(token(b, name(c)), token(b, 'bg')), c[0]).toBeGreaterThanOrEqual(3);
+        expect(ratio(inGlobal(name(c)), token(b, 'bg')), `${c[0]} global`).toBeGreaterThanOrEqual(3);
+      }
       for (const { color } of BENCH_STYLES) {
-        expect(['s7', 's8', 'up', 'down'], color[0]).not.toContain(name(color));
-        expect([token(b, 'up'), token(b, 'down'), token(b, 's7'), token(b, 's8')]).not.toContain(token(b, name(color)));
+        const kr = token(b, name(color));
+        const gl = inGlobal(name(color));
+        // 한국 관례: 빨강▲·파랑▼(--up·--down과 그 계열 --s8·--s7)
+        expect([token(b, 'up'), token(b, 'down'), token(b, 's7'), token(b, 's8'), ...indexColors], `${color[0]} kr`).not.toContain(kr);
+        // 글로벌 관례: 초록▲·빨강▼(--up·--down과 그 계열 --s6·--s8)
+        expect([inGlobal('up'), inGlobal('down'), token(b, 's6'), token(b, 's8'), ...indexColors], `${color[0]} global`).not.toContain(gl);
         expect(token(light, name(color)), `${color[0]} fallback`).toBe(color[1]);
       }
+      // ETF 선끼리도 색이 다르다
+      expect(new Set(BENCH_STYLES.map(({ color }) => token(b, name(color)))).size).toBe(BENCH_STYLES.length);
+      expect(new Set(BENCH_STYLES.map(({ color }) => inGlobal(name(color)))).size).toBe(BENCH_STYLES.length);
     });
 
     it.each([

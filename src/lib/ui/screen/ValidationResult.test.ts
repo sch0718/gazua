@@ -203,8 +203,23 @@ describe('ValidationResult', () => {
     await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(4));
     const [hold, , a, b] = lwcCharts[0].series.map((s) => [s.options.color, s.options.lineWidth]);
     expect(a).toEqual(['#008300', 2]);
-    expect(b).toEqual(['#4a3aa7', 2]); // 파랑(하락색)이 아닌 --s3
+    expect(b).toEqual(['#9a6700', 2]); // 파랑(하락색)도, 두 번째 지수의 보라(--s3)도 아닌 --etf-2
     expect([a, b]).not.toContainEqual(hold);
+  });
+
+  it('색 관례를 바꾸면 ETF 선 색을 다시 읽는다(--etf-1은 관례마다 다르다)', async () => {
+    const app = setup();
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(3));
+    const etf = lwcCharts[0].series[2];
+    expect(etf.options.color).toBe('#008300');
+    // jsdom은 tokens.css를 읽지 않으므로 글로벌 관례의 값을 직접 넣는다
+    document.documentElement.style.setProperty('--etf-1', '#2a78d6');
+    try {
+      app.updateSettings({ colorConvention: 'global' });
+      await vi.waitFor(() => expect(etf.options.color).toBe('#2a78d6'));
+    } finally {
+      document.documentElement.style.removeProperty('--etf-1');
+    }
   });
 
   it('chart gets one curve per available line and rebalance ticks', async () => {
