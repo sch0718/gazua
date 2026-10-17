@@ -126,12 +126,12 @@
 - 데모의 적자 종목과 늦게 시작하는 종목은 관리종목이라 기본 풀(관리종목 제외)에서 빠져요 · `scripts/make-demo-market-data.mjs` · 해당 경우를 e2e로 보려면 풀 설정을 바꿔야 해요.
 - 데모의 우량주 테스트 기준이 ROE 18 이상이에요. 217776이 한 때 19.9까지 내려가서 20으로 못 잡아요 · `tests/demo.test.mjs`
 - 테스트 도우미가 겹쳐요(`finStock`, FIN_BASE 자르기). 한 테스트 묶음은 id `'late'`를 이름 `'저PER'`에 다시 써요 · `src/lib/screen/*.test.ts`
-- `CriteriaEditor.svelte`가 약 770줄이에요 · 다음에 `RankSection`을 떼어내요.
+- ~~`CriteriaEditor.svelte`가 약 770줄이에요 · 다음에 `RankSection`을 떼어내요.~~ → 해결: `RankSection.svelte`로 떼어냈어요(약 690줄). 정렬 이름은 `screenText.ts`의 `RANK_LABEL` 한 곳에 둬요. (`feat/followups-4`)
 
 ### 4단계에서 미룬 것 (2026-10-16)
 `feat/macro-theme-criteria`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
 
-- `fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.
+- ~~`fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.~~ → 해결: 4xx(429 제외)는 바로 실패해요. 시간 초과는 `timeoutMs`로 줄여 테스트해요. `now`는 기간을 늘 호출하는 쪽이 넘겨서 쓰는 곳이 없어 넣지 않았어요. (`f4b0e54`)
 - 키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.
 - `loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/screen/baskets.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.
 - 중분류 대장주 회귀 케이스가 모든 곳에서 0을 줘서 확인이 약함: 데모에 중분류 코드가 없어요 · `tests/fixtures/market-data-demo.json.gz`, `scripts/make-demo-market-data.mjs` · 데모에 중분류 코드를 넣어요.
@@ -147,6 +147,6 @@
 - 수급 절반 실패 경고의 분모가 이전 값을 지킨 종목까지 포함해서 경고가 덜 나올 수 있음 · `scripts/collect-market-data.mjs` · 이번에 받으려던 종목 수를 분모로 해요.
 - `--update`의 "새 일봉 0개"와 "수정주가 다시 받기" 경우는 테스트가 없음(탐침으로는 정상 확인) · `tests/collect-market-data.test.mjs`
 - `Simulate.test`가 `StrategyEditor.svelte:201`에서 `binding_property_non_reactive` 경고를 찍음 · 3단계 이전부터 있었어요.
-- 정렬 고르기가 6개가 되어 좁은 폰에서 줄이 넘어감 · `src/lib/ui/screen/CriteriaEditor.svelte` · 모양을 다시 잡아요.
+- ~~정렬 고르기가 6개가 되어 좁은 폰에서 줄이 넘어감 · `src/lib/ui/screen/CriteriaEditor.svelte` · 모양을 다시 잡아요.~~ → 해결: `Segmented`에 `wrap`을 더해 600px 미만에서는 두 칸씩, 넓은 화면에서는 넘치면 다음 줄로 가요. 375px에서 가로 스크롤 없음을 확인했어요. (`feat/followups-4`)
 - KIS 수급 API의 경로·필드·단위는 `FLOW_API`의 가정이고 확인하지 못함 · `scripts/fetch-investor-flow.mjs` · 실연결 점검 ㉓에서 확인해 고쳐요.
 - 정렬이 `flow`일 때 통과 개수에 계산할 수 없는 종목이 빠짐. `macroBeta`는 그런 종목도 세므로 둘이 다름 · `src/lib/screen` · 어느 쪽에 맞출지 정해요.

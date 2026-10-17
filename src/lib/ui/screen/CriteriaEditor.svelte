@@ -8,12 +8,11 @@
   import type { UniverseItem } from '../../data/universe';
   import type { MarketDataInfo, MarketSector, MarketThemeSummary } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
-  import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX } from '../../screen/defaults';
+  import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX } from '../../screen/defaults';
   import { rankFinOf } from '../../screen/fin';
-  import { rankFlowOf } from '../../screen/precompute';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
-  import type { FinMetric, FlowWho, SelectionCriteria } from '../../screen/types';
+  import type { SelectionCriteria } from '../../screen/types';
   import { criteriaIssues, type Issue } from '../../screen/validate';
   import { PreviewError } from '../../screen/validationController.svelte';
   import { newStrategy } from '../../sim/defaults';
@@ -33,8 +32,9 @@
   import MacroConditions from './MacroConditions.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import PreviewPanel from './PreviewPanel.svelte';
+  import RankSection from './RankSection.svelte';
   import SectorPicker from './SectorPicker.svelte';
-  import { CONDITION_HELP, CONDITION_LABEL, FIN_METRIC_ORDER, FIN_RANK_LABEL, FLOW_WHO_LABEL, FLOW_WHO_ORDER, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
+  import { CONDITION_HELP, CONDITION_LABEL, FIN_RANK_LABEL, NO_DATA_RUN_REASON, poolScopeText, RANK_LABEL, rebalanceLabel } from './screenText';
   import ThemePicker from './ThemePicker.svelte';
 
   const EOK_MAX = 10_000_000;
@@ -276,13 +276,6 @@
   }
 
   const SERIES = ['usdkrw', 'wti'] as const;
-  const RANK_LABEL = { marketCap: '시가총액 큰 순', tradingValue: '거래대금 큰 순', return: '수익률 높은 순', lowVolatility: '변동성 낮은 순', macroBeta: '민감도 큰 순', flow: '수급 큰 순', fin: '재무 순' } as const;
-
-  // 정렬을 바꾸면 숨는 칸(수급 기간)의 틀린 글은 버린다(칸 없이 실행을 막지 않게)
-  function setRankBy(v: string) {
-    if (v !== 'flow') invalid.delete('rank-flow-days');
-    update((c) => (c.rank.by = v as SelectionCriteria['rank']['by']));
-  }
 
   // ── 후보 범위 ──
   function setMember<T extends string>(list: T[], v: T, on: boolean): T[] {
@@ -493,71 +486,7 @@
         <FlowConditions flow={k.flow} unavailable={noFlow} {nf} update={(fn) => update((c) => fn(c.conditions.flow))} />
         <FinConditions fin={k.fin} unavailable={noFin} {nf} update={(fn) => update((c) => fn(c.conditions.fin))} />
       {:else if key === 'rank'}
-        <Segmented
-          wide
-          onSurface
-          label="정렬 기준"
-          value={draft.rank.by}
-          onchange={setRankBy}
-          options={[
-            { value: 'marketCap', label: '시가총액 큰 순' },
-            { value: 'tradingValue', label: '거래대금 큰 순' },
-            { value: 'return', label: '수익률 높은 순' },
-            { value: 'lowVolatility', label: '변동성 낮은 순' },
-            { value: 'macroBeta', label: '민감도 큰 순' },
-            { value: 'flow', label: '수급 순' },
-            { value: 'fin', label: RANK_LABEL.fin },
-          ]}
-        />
-        {#if draft.rank.by === 'macroBeta'}
-          <select
-            class="pick"
-            aria-label="민감도 계열"
-            onchange={(e) => update((c) => (c.rank.series = e.currentTarget.value === 'wti' ? 'wti' : 'usdkrw'))}
-          >
-            {#each SERIES as s (s)}
-              <option value={s} selected={(draft.rank.series ?? 'usdkrw') === s}>{SERIES_LABEL[s]}</option>
-            {/each}
-          </select>
-        {:else if draft.rank.by === 'fin'}
-          <select
-            class="pick"
-            aria-label="재무 지표"
-            onchange={(e) => {
-              const v = e.currentTarget.value as FinMetric;
-              update((c) => {
-                c.rank.fin = { metric: FIN_METRIC_ORDER.includes(v) ? v : 'per' };
-              });
-            }}
-          >
-            {#each FIN_METRIC_ORDER as m (m)}
-              <option value={m} selected={rankFinOf(draft) === m}>{FIN_RANK_LABEL[m]}</option>
-            {/each}
-          </select>
-        {:else if draft.rank.by === 'flow'}
-          {@const rf = rankFlowOf(draft)}
-          <Segmented
-            wide
-            onSurface
-            label="수급 주체"
-            value={rf.who}
-            onchange={(v) =>
-              update((c) => {
-                c.rank.flow = { ...rankFlowOf(c), who: FLOW_WHO_ORDER.includes(v as FlowWho) ? (v as FlowWho) : 'foreign' };
-              })}
-            options={FLOW_WHO_ORDER.map((w) => ({ value: w, label: FLOW_WHO_LABEL[w] }))}
-          />
-          <div class="row">
-            <NumberField label="수급 기간" value={rf.days} min={5} max={120} step={1} suffix="일" {...nf('rank-flow-days')} onchange={(v) =>
-                update((c) => {
-                  c.rank.flow = { ...rankFlowOf(c), days: v };
-                })} />
-          </div>
-        {/if}
-        <p class="hint">조건을 통과한 종목을 이 순서로 줄 세워 위에서부터 골라요. 같으면 종목코드 순이에요.</p>
-        <div class="row">
-          <NumberField label="고를 개수" value={draft.rank.take} min={1} max={TAKE_MAX} step={1} suffix="개" {...nf('take')} onchange={(v) => update((c) => (c.rank.take = v))} />
-        </div>
+        <RankSection criteria={draft} {update} {nf} forget={(k) => invalid.delete(k)} />
       {:else if key === 'period'}
         <Segmented
           onSurface

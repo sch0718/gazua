@@ -7,6 +7,7 @@
     onchange,
     label,
     wide = false,
+    wrap = false,
     onSurface = false,
   }: {
     options: Option[];
@@ -14,6 +15,8 @@
     onchange: (value: string) => void;
     label?: string;
     wide?: boolean;
+    /** 옵션이 많을 때: 좁은 화면에서 두 칸씩 줄을 나누고, 넓은 화면에서는 넘치면 다음 줄로 */
+    wrap?: boolean;
     /** 표면(--surface) 카드 안에 놓을 때: 트랙·선택 색을 테마별 토큰으로(라이트는 기본 모양, 다크는 트랙 --bg·선택 --surface2) */
     onSurface?: boolean;
   } = $props();
@@ -47,7 +50,7 @@
   });
 </script>
 
-<div class="seg" class:wide class:on-surface={onSurface} role="radiogroup" aria-label={label}>
+<div class="seg" class:wide class:wrap class:on-surface={onSurface} role="radiogroup" aria-label={label}>
   {#each options as o, i (o.value)}
     <button
       type="button"
@@ -115,6 +118,14 @@
   .wide button {
     flex: 1;
   }
+  .wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .wrap button {
+    word-break: keep-all;
+  }
   @media (min-width: 600px) {
     .wide {
       display: inline-flex;
@@ -122,6 +133,11 @@
     }
     .wide button {
       flex: none;
+    }
+    .wrap {
+      display: inline-flex;
+      flex-wrap: wrap;
+      width: auto;
     }
   }
 </style>
