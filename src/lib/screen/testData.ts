@@ -5,7 +5,7 @@ import { tradingDates } from '../sim/testBars';
 import type { Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
 import { newCriteria } from './defaults';
-import type { SelectionCriteria } from './types';
+import type { MacroSeriesKey, SelectionCriteria } from './types';
 
 export type Stock = MarketDataFile['stocks'][number];
 
@@ -174,3 +174,16 @@ export function olsSlope(r: number[], x: number[]): number {
   }
   return cov / vx;
 }
+
+/** 선정 결과의 종목 코드 */
+export const symbols = (r: { picked: { symbol: string }[] }): string[] => r.picked.map((x) => x.symbol);
+
+/** 같은 후보 범위에 조건만 모두 끈 기준 */
+export function offCriteriaLike(c: SelectionCriteria): SelectionCriteria {
+  const o = offCriteria();
+  o.pool = c.pool;
+  o.rank = { by: 'marketCap', take: 30 };
+  return o;
+}
+
+export const betaOn = (c: SelectionCriteria, key: MacroSeriesKey, min = -20, max = 20) => (c.conditions.macro[key].beta = { on: true, min, max });

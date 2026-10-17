@@ -9,6 +9,7 @@ import type { Basket } from './baskets';
 import { macroKnownFrom } from './macro';
 import { finMissingAt, flowMissingAt, PrecomputeMismatchError, selectAt } from './select';
 import {
+  betaOn,
   DATES,
   FIN_BASE,
   lcg,
@@ -20,10 +21,12 @@ import {
   NOW,
   obsBefore,
   offCriteria,
+  offCriteriaLike,
   olsSlope,
   reboundAt,
   reboundEntry,
   sampleStdPct,
+  symbols,
   usWeekdays,
   withFin,
   withFlow,
@@ -44,7 +47,6 @@ const nulls = (arr: (number | null)[], before: number): (number | null)[] => arr
 
 const run = (stocks: Stock[], c: SelectionCriteria, opts: { n?: number; d?: string; entry?: ReturnType<typeof reboundEntry> | null } = {}) =>
   selectAt(opts.d ?? D, precompute(mkFile(stocks, opts.n ?? N), c, opts.entry ?? null), c);
-const symbols = (r: ReturnType<typeof selectAt>) => r.picked.map((x) => x.symbol);
 
 describe('selectAt: 조건 계산(전 거래일 p까지)', () => {
   it('시가총액 = c[p] × shares', () => {
@@ -489,14 +491,6 @@ describe('selectAt: 미래 정보 누설 방지', () => {
   });
 });
 
-/** 같은 후보 범위에 조건만 모두 끈 기준 */
-function offCriteriaLike(c: SelectionCriteria): SelectionCriteria {
-  const o = offCriteria();
-  o.pool = c.pool;
-  o.rank = { by: 'marketCap', take: 30 };
-  return o;
-}
-
 // ── 4단계: 환율·유가, 테마·내 묶음 ──
 
 /** 봉마다 관측일 기준으로 짝지은 계열 값(스펙 2.3). 짝이 없으면 NaN */
@@ -518,7 +512,6 @@ const lastKnown = (key: MacroSeriesKey, obs: string[], p: string): number => {
   obs.forEach((o, i) => macroKnownFrom(key, o) <= p && (k = i));
   return k;
 };
-const betaOn = (c: SelectionCriteria, key: MacroSeriesKey, min = -20, max = 20) => (c.conditions.macro[key].beta = { on: true, min, max });
 
 describe('selectAt: 환율 β는 관측일로 짝짓고 공개 시점으로 자른다(스펙 2.3·3.1)', () => {
   it('기간 맞추기(리뷰 재현): 한 주 +1%·다음 주 −1% 환율, 주가는 관측 기간 변화율의 2배 → β = +2.0', () => {
@@ -827,106 +820,6 @@ describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
   });
 });
 
-describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터)', () => {
-  const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV2;
-  const axis = tradingAxis(fixture);
-  const dates = rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
-  const KEYS: MacroSeriesKey[] = ['usdkrw', 'wti'];
-  const iso = (o: string) => `${o.slice(0, 4)}-${o.slice(4, 6)}-${o.slice(6, 8)}`;
-
-  /** knownFrom > p인 관측값만 바꾼다. 바꾼 값 가운데 관측일이 p 이전인 것의 수를 돌려준다 */
-  const mutateUnknown = (p: string, f: (v: number) => number): { file: MarketDataFileV2; earlier: number } => {
-    const g = structuredClone(fixture);
-    let earlier = 0;
-    for (const key of KEYS) {
-      const s = g.macro[key];
-      s.d.forEach((o, i) => {
-        if (macroKnownFrom(key, o) <= p) return;
-        s.v[i] = f(s.v[i]);
-        if (iso(o) <= p) earlier++;
-      });
-    }
-    return { file: g, earlier };
-  };
-  /** p 이후의 관측값과 봉을 모두 자른다 */
-  const truncate = (p: string): MarketDataFileV2 => {
-    const g = structuredClone(fixture);
-    const cut = ymd(p);
-    for (const key of KEYS) {
-      const s = g.macro[key];
-      const n = s.d.filter((o) => o <= cut).length;
-      g.macro[key] = { d: s.d.slice(0, n), v: s.v.slice(0, n) };
-    }
-    for (const st of g.stocks) {
-      const n = st.d.filter((x) => x <= cut).length;
-      for (const k of ['d', 'o', 'h', 'l', 'c', 'v', 'tv'] as const) (st[k] as unknown[]).splice(n);
-    }
-    for (const ix of g.indices) {
-      const n = ix.d.filter((x) => x <= cut).length;
-      for (const k of ['d', 'o', 'c'] as const) (ix[k] as unknown[]).splice(n);
-    }
-    return g;
-  };
-
-  /** p 이후 봉을 자르고, 계열은 p까지 공개된 관측값(knownFrom ≤ p)만 남긴다. 그날 실제로 알 수 있던 것 전부다 */
-  const truncatePublished = (p: string): MarketDataFileV2 => {
-    const g = truncate(p);
-    for (const key of KEYS) {
-      const s = fixture.macro[key];
-      const n = s.d.filter((o) => macroKnownFrom(key, o) <= p).length;
-      g.macro[key] = { d: s.d.slice(0, n), v: s.v.slice(0, n) };
-    }
-    return g;
-  };
-
-  const variants: [string, (c: SelectionCriteria) => void][] = [
-    ['원/달러 β 수혜', (c) => betaOn(c, 'usdkrw', 0.3, 5)],
-    ['원/달러 β 피해', (c) => betaOn(c, 'usdkrw', -5, -0.3)],
-    ['원/달러 흐름', (c) => (c.conditions.macro.usdkrw.trend = { on: true, lookback: 20, thresholdPct: 0.5, minAbsBeta: 0.3, whenFlat: 'none' })],
-    ['WTI β', (c) => betaOn(c, 'wti', -0.2, 0.2)],
-    ['WTI 흐름', (c) => (c.conditions.macro.wti.trend = { on: true, lookback: 10, thresholdPct: 1, minAbsBeta: 0, whenFlat: 'pass' })],
-    ['정렬 원/달러 β', (c) => (c.rank = { by: 'macroBeta', take: 5, series: 'usdkrw' })],
-    ['정렬 WTI β', (c) => (c.rank = { by: 'macroBeta', take: 5, series: 'wti' })],
-  ];
-
-  it.each(variants)('%s: knownFrom > p인 관측값을 극단값으로 바꾸거나, p 이후를 자르거나, 공개된 관측값만 남겨도 결과가 같다', (name, patch) => {
-    const c = offCriteria();
-    c.pool.types = ['STOCK', 'ETF'];
-    patch(c);
-    const pre = precompute(fixture, c, null);
-    let passed = 0;
-    let poolSize = 0;
-    let earlier = 0;
-    for (const d of dates) {
-      const p = axis[axis.indexOf(d) - 1];
-      const base = selectAt(d, pre, c);
-      passed += base.passed;
-      poolSize += selectAt(d, pre, offCriteriaLike(c)).passed;
-      for (const f of [(v: number) => v * 1000, (v: number) => -v, (v: number) => v / 1000]) {
-        const m = mutateUnknown(p, f);
-        earlier += m.earlier;
-        expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
-      }
-      expect(selectAt(d, precompute(truncate(p), c, null), c), `${d} 자름`).toEqual(base);
-      expect(selectAt(d, precompute(truncatePublished(p), c, null), c), `${d} 공개분만`).toEqual(base);
-    }
-    // 관측일은 p보다 앞서지만 아직 공개되지 않은 값도 바꿨다
-    expect(earlier).toBeGreaterThan(dates.length);
-    expect(passed).toBeGreaterThan(0);
-    if (!name.startsWith('정렬')) expect(passed).toBeLessThan(poolSize);
-  });
-
-  it('설계한 종목의 원/달러 β: +1.5 종목과 −1.0 종목', () => {
-    const c = offCriteria();
-    c.pool.markets = ['KOSPI', 'KOSDAQ'];
-    c.rank = { by: 'macroBeta', take: 30, series: 'usdkrw' };
-    const sel = selectAt(dates[dates.length - 1], precompute(fixture, c, null), c);
-    const beta = Object.fromEntries(sel.picked.map((x) => [x.symbol, x.values.usdkrwBeta as number]));
-    for (const s of ['100000', '101111', '102222', '200000', '202222']) expect(Math.abs(beta[s] - 1.5), s).toBeLessThan(0.25);
-    for (const s of ['104444', '105555', '204444']) expect(Math.abs(beta[s] + 1), s).toBeLessThan(0.25);
-  });
-});
-
 // ── 3단계: 투자자 수급 ──
 
 // 일 순매수 비율 pct(%)가 이어지는 수급(거래대금 1e9원 = 1000백만 원 기준)
@@ -1099,132 +992,6 @@ describe('selectAt: 수급 미리 계산과 다른 기준', () => {
     const missing = lateOnly(flowRank('foreign', 5));
     expect(missing(D)).toBe(true); // 창 19..23번 봉, from 20
     expect(missing(DATES[26])).toBe(false); // 창 20..24번 봉
-  });
-});
-
-// 설계 종목 코드는 scripts/make-demo-market-data.mjs의 FLOW_* 상수와 같다
-const FLOW_FOREIGN_CODES = ['106666', '108888', '206666'];
-const FLOW_INST_CODES = ['109999', '208888'];
-const FLOW_BOTH_CODE = '111110';
-const FLOW_LATE_CODE = '113332';
-const FLOW_NONE_CODE = '069500';
-
-describe('selectAt: 수급 미래 정보 누설 방지(데모 데이터)', () => {
-  const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV3;
-  const axis = tradingAxis(fixture);
-  const dates = rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
-  const iso = (x: string) => `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6, 8)}`;
-
-  /** 날짜 ≥ p인 수급 값만 바꾼다. 바꾼 값의 수를 돌려준다 */
-  const mutateFrom = (p: string, f: (v: number) => number): { file: MarketDataFileV3; changed: number } => {
-    const g = structuredClone(fixture);
-    let changed = 0;
-    for (const st of g.stocks) {
-      const fl = st.flow;
-      if (!fl) continue;
-      const at = st.d.indexOf(fl.from);
-      for (let j = 0; j < fl.f.length; j++) {
-        if (iso(st.d[at + j]) < p) continue;
-        fl.f[j] = f(fl.f[j]);
-        fl.i[j] = f(fl.i[j]);
-        fl.p[j] = f(fl.p[j]);
-        changed++;
-      }
-    }
-    return { file: g, changed };
-  };
-  /** 날짜 ≥ p인 수급을 잘라낸다(수급 끝이 p 전 거래일). bars가 참이면 p 뒤 봉도 자른다 */
-  const truncateFlow = (p: string, bars: boolean): MarketDataFileV3 => {
-    const g = structuredClone(fixture);
-    const cut = ymd(p);
-    for (const st of g.stocks) {
-      if (bars) {
-        const n = st.d.filter((x) => x <= cut).length;
-        for (const k of ['d', 'o', 'h', 'l', 'c', 'v', 'tv'] as const) (st[k] as unknown[]).splice(n);
-      }
-      const fl = st.flow;
-      if (!fl) continue;
-      const at = st.d.indexOf(fl.from);
-      const keep = at < 0 ? 0 : st.d.slice(at, at + fl.f.length).filter((x) => x < cut).length;
-      if (keep === 0) delete st.flow;
-      else st.flow = { from: fl.from, f: fl.f.slice(0, keep), i: fl.i.slice(0, keep), p: fl.p.slice(0, keep) };
-    }
-    if (bars)
-      for (const ix of g.indices) {
-        const n = ix.d.filter((x) => x <= cut).length;
-        for (const k of ['d', 'o', 'c'] as const) (ix[k] as unknown[]).splice(n);
-      }
-    return g;
-  };
-
-  const flowAmount = (who: FlowWho, days: number, minPct: number, maxPct: number) => (c: SelectionCriteria) =>
-    (c.conditions.flow.amount = { on: true, who, days, minPct, maxPct });
-  const flowStreakOn = (who: FlowWho, minDays: number) => (c: SelectionCriteria) => (c.conditions.flow.streak = { on: true, who, minDays });
-  const rankBy = (who: FlowWho, days: number) => (c: SelectionCriteria) => (c.rank = { by: 'flow', take: 5, flow: { who, days } });
-
-  const variants: [string, (c: SelectionCriteria) => void][] = [
-    ['외국인 순매수 ≥ 1%', flowAmount('foreign', 20, 1, 100)],
-    ['기관 순매도', flowAmount('inst', 10, -100, -0.2)],
-    ['개인 5일', flowAmount('indiv', 5, -100, -1)],
-    ['외국인+기관', flowAmount('both', 20, 1, 100)],
-    ['기관 연속 3일', flowStreakOn('inst', 3)],
-    ['함께 연속 2일', flowStreakOn('both', 2)],
-    ['외국인 ≥ 0.5% + 기관 연속 2일', (c) => (flowAmount('foreign', 60, 0.5, 100)(c), flowStreakOn('inst', 2)(c))],
-    ['정렬 외국인 20일', rankBy('foreign', 20)],
-    ['정렬 외국인+기관', rankBy('both', 10)],
-    ['정렬 개인 120일', rankBy('indiv', 120)],
-  ];
-
-  it.each(variants)('%s: 날짜 ≥ p인 수급을 ×1000·부호 반전·잘라내기로 바꿔도 모든 재선정일의 선정이 같다', (name, patch) => {
-    const c = offCriteria();
-    c.pool.types = ['STOCK', 'ETF'];
-    patch(c);
-    const pre = precompute(fixture, c, null);
-    let passed = 0;
-    let poolSize = 0;
-    let changed = 0;
-    for (const d of [...dates, addDays(axis[axis.length - 1], 1)]) {
-      const p = axis[axis.indexOf(d) - 1] ?? axis[axis.length - 1];
-      const base = selectAt(d, pre, c);
-      passed += base.passed;
-      poolSize += selectAt(d, pre, offCriteriaLike(c)).passed;
-      for (const f of [(v: number) => v * 1000, (v: number) => -v]) {
-        const m = mutateFrom(p, f);
-        changed += m.changed;
-        expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
-      }
-      expect(selectAt(d, precompute(truncateFlow(p, false), c, null), c), `${d} 수급 자름`).toEqual(base);
-      expect(selectAt(d, precompute(truncateFlow(p, true), c, null), c), `${d} 봉·수급 자름`).toEqual(base);
-    }
-    expect(changed).toBeGreaterThan(dates.length * 100);
-    expect(passed).toBeGreaterThan(0);
-    if (!name.startsWith('정렬')) expect(passed).toBeLessThan(poolSize);
-  });
-
-  // 설계하지 않은 종목의 20일 비율은 잡음으로 ±1% 남짓(2025-10-16에 107777이 1.02%)이라 2%로 가른다
-  it('설계 종목: 외국인 순매수 ≥ 2%는 외국인 종목과 외국인+기관 종목만, 늦게 시작한 종목은 앞 재선정일에 계산 불가', () => {
-    const c = offCriteria();
-    c.pool.types = ['STOCK', 'ETF'];
-    c.rank.take = 30;
-    flowAmount('foreign', 20, 2, 100)(c);
-    const pre = precompute(fixture, c, null);
-    for (const d of dates) expect(symbols(selectAt(d, pre, c)).sort(), d).toEqual([...FLOW_FOREIGN_CODES, FLOW_BOTH_CODE].sort());
-    const lateOnly = { ...c, pool: { ...c.pool, baskets: ['late'] } };
-    const late = [{ id: 'late', symbols: [FLOW_LATE_CODE] }];
-    expect(flowMissingAt(dates[0], pre, lateOnly, late)).toBe(true);
-    expect(flowMissingAt(dates[dates.length - 1], pre, lateOnly, late)).toBe(false);
-    const none = [{ id: 'late', symbols: [FLOW_NONE_CODE] }];
-    expect(dates.every((d) => flowMissingAt(d, pre, lateOnly, none))).toBe(true);
-  });
-
-  it('설계 종목: 마지막 거래일 다음 날 기관 연속 순매수는 9일(마지막 10일 연속, 하루 늦춤)', () => {
-    const c = offCriteria();
-    c.rank.take = 30;
-    flowStreakOn('inst', 9)(c);
-    const sel = selectAt(addDays(axis[axis.length - 1], 1), precompute(fixture, c, null), c);
-    const got = Object.fromEntries(sel.picked.map((x) => [x.symbol, x.values.flowStreak]));
-    for (const s of FLOW_INST_CODES) expect(got[s], s).toBe(9);
-    expect(got[FLOW_BOTH_CODE]).toBeGreaterThanOrEqual(9);
   });
 });
 
@@ -1494,177 +1261,5 @@ describe('selectAt: 재무 미래 정보 누설 방지(손으로 만든 데이�
       for (const f of [(v: number) => v * 1000, (v: number) => -v, null])
         expect(selectAt(d, precompute(mutated(p, f), c, null), c), `${p} ${hits}`).toEqual(base);
     }
-  });
-});
-
-// 설계 종목 코드는 scripts/make-demo-market-data.mjs의 FIN_* 상수와 같다
-const FIN_VALUE_CODES = ['114443', '115554', '213332'];
-const FIN_QUALITY_CODES = ['215554', '217776'];
-const FIN_GROWTH_CODES = ['219998', '107777'];
-const FIN_LOSS_CODE = '211110';
-const FIN_LATE_CODE = '103333';
-
-describe('selectAt: 재무 미래 정보 누설 방지(데모 데이터)', () => {
-  const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV4;
-  const axis = tradingAxis(fixture);
-  const dates = rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
-  const all = [...dates, addDays(axis[axis.length - 1], 1)];
-  const prevOf = (d: string) => axis[axis.indexOf(d) - 1] ?? axis[axis.length - 1];
-  // 검사 쪽 공시일: 분기말(다음 달 1일 − 1일) + 100일(a = 1) 또는 60일. 구현(fin.ts)과 따로 계산한다
-  const known = (q: string, a: number): string => {
-    const y = +q.slice(0, 4);
-    const m = +q.slice(4, 6);
-    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
-    return addDays(addDays(next, -1), a ? 100 : 60);
-  };
-  const KEYS = ['rev', 'op', 'ni', 'eq', 'debt'] as const;
-
-  /** 공시일 ≥ p인 분기 값만 바꾼다. 바꾼 분기 수를 돌려준다 */
-  const mutateFrom = (p: string, f: (v: number) => number): { file: MarketDataFileV4; changed: number } => {
-    const g = structuredClone(fixture);
-    let changed = 0;
-    for (const st of g.stocks) {
-      const fin = st.fin;
-      if (!fin) continue;
-      fin.q.forEach((q, k) => {
-        if (known(q, fin.a[k]) < p) return;
-        for (const key of KEYS) fin[key][k] = f(fin[key][k]);
-        changed++;
-      });
-    }
-    return { file: g, changed };
-  };
-  /** 공시일 ≥ p인 분기를 잘라낸다. bars가 참이면 p 뒤 봉도 자른다 */
-  const truncateFin = (p: string, bars: boolean): MarketDataFileV4 => {
-    const g = structuredClone(fixture);
-    const cut = ymd(p);
-    for (const st of g.stocks) {
-      if (bars) {
-        const n = st.d.filter((x) => x <= cut).length;
-        for (const k of ['d', 'o', 'h', 'l', 'c', 'v', 'tv'] as const) (st[k] as unknown[]).splice(n);
-      }
-      const fin = st.fin;
-      if (!fin) continue;
-      const keep = fin.q.filter((q, k) => known(q, fin.a[k]) < p).length;
-      if (keep === 0) delete st.fin;
-      else for (const k of ['q', 'a', ...KEYS] as const) (fin[k] as unknown[]).splice(keep);
-    }
-    if (bars)
-      for (const ix of g.indices) {
-        const n = ix.d.filter((x) => x <= cut).length;
-        for (const k of ['d', 'o', 'c'] as const) (ix[k] as unknown[]).splice(n);
-      }
-    return g;
-  };
-  /** 공시일 < p인 마지막 분기만 f로 바꾼다 */
-  const mutateLastKnown = (p: string, keys: readonly (typeof KEYS)[number][], f: (v: number) => number): MarketDataFileV4 => {
-    const g = structuredClone(fixture);
-    for (const st of g.stocks) {
-      const fin = st.fin;
-      if (!fin) continue;
-      const k = fin.q.filter((q, j) => known(q, fin.a[j]) < p).length - 1;
-      if (k >= 0) for (const key of keys) fin[key][k] = f(fin[key][k]);
-    }
-    return g;
-  };
-
-  const cond = (patch: (f: SelectionCriteria['conditions']['fin']) => void) => (c: SelectionCriteria) => patch(c.conditions.fin);
-  const rankBy = (metric: FinMetric) => (c: SelectionCriteria) => (c.rank = { by: 'fin', take: 5, fin: { metric } });
-  const variants: [string, (c: SelectionCriteria) => void][] = [
-    ['PER 0~10', cond((f) => (f.per = { on: true, min: 0, max: 10 }))],
-    ['PBR 0~1', cond((f) => (f.pbr = { on: true, min: 0, max: 1 }))],
-    ['ROE ≥ 20', cond((f) => (f.roe = { on: true, min: 20 }))],
-    ['영업이익률 ≥ 15', cond((f) => (f.opMargin = { on: true, min: 15 }))],
-    ['매출 증가율 ≥ 30', cond((f) => (f.revGrowth = { on: true, min: 30 }))],
-    ['영업이익 증가율 ≥ 40', cond((f) => (f.opGrowth = { on: true, min: 40 }))],
-    ['부채비율 ≤ 60', cond((f) => (f.debtRatio = { on: true, max: 60 }))],
-    ['흑자', cond((f) => (f.profitable.on = true))],
-    ['정렬 PER', rankBy('per')],
-    ['정렬 PBR', rankBy('pbr')],
-    ['정렬 ROE', rankBy('roe')],
-    ['정렬 영업이익 증가율', rankBy('opGrowth')],
-  ];
-
-  it.each(variants)('%s: 공시일 ≥ p인 분기를 ×1000·부호 반전·잘라내기로 바꿔도 모든 재선정일의 선정이 같다', (name, patch) => {
-    const c = offCriteria();
-    c.pool.excludeManaged = false; // 적자·늦은 종목은 관리종목이다
-    patch(c);
-    const pre = precompute(fixture, c, null);
-    let passed = 0;
-    let poolSize = 0;
-    let changed = 0;
-    for (const d of all) {
-      const p = prevOf(d);
-      const base = selectAt(d, pre, c);
-      passed += base.passed;
-      poolSize += selectAt(d, pre, offCriteriaLike(c)).passed;
-      for (const f of [(v: number) => v * 1000, (v: number) => -v]) {
-        const m = mutateFrom(p, f);
-        changed += m.changed;
-        expect(selectAt(d, precompute(m.file, c, null), c), `${d}`).toEqual(base);
-      }
-      expect(selectAt(d, precompute(truncateFin(p, false), c, null), c), `${d} 재무 자름`).toEqual(base);
-      expect(selectAt(d, precompute(truncateFin(p, true), c, null), c), `${d} 봉·재무 자름`).toEqual(base);
-    }
-    expect(changed).toBeGreaterThan(dates.length * 100);
-    expect(passed).toBeGreaterThan(0);
-    if (!name.startsWith('정렬')) expect(passed).toBeLessThan(poolSize);
-  });
-
-  it('알려진 마지막 분기를 바꾸면 선정이 바뀐다(쓰고 있다는 증거): PER 조건과 ROE 정렬', () => {
-    const per = offCriteria();
-    per.conditions.fin.per = { on: true, min: 0, max: 10 };
-    const roe = offCriteria();
-    rankBy('roe')(roe);
-    for (const c of [per, roe]) {
-      const pre = precompute(fixture, c, null);
-      for (const d of all) {
-        const p = prevOf(d);
-        const base = selectAt(d, pre, c);
-        expect(base.passed, d).toBeGreaterThan(0);
-        const g = c === per ? mutateLastKnown(p, ['ni'], (v) => -Math.abs(v) * 1000) : mutateLastKnown(p, ['eq'], (v) => v * 1000);
-        expect(selectAt(d, precompute(g, c, null), c), d).not.toEqual(base);
-      }
-    }
-  });
-
-  it('설계 종목: PER 0~10은 모든 재선정일에 저PER 3종목만, values.finPer는 설계값(약 5) 근처', () => {
-    const c = offCriteria();
-    c.pool.excludeManaged = false;
-    c.rank.take = 30;
-    c.conditions.fin.per = { on: true, min: 0, max: 10 };
-    const pre = precompute(fixture, c, null);
-    for (const d of all) {
-      const r = selectAt(d, pre, c);
-      expect(symbols(r).sort(), d).toEqual([...FIN_VALUE_CODES].sort());
-      for (const x of r.picked) expect(x.values.finPer as number, `${d} ${x.symbol}`).toBeLessThan(10);
-    }
-  });
-
-  // 고ROE 종목의 ROE는 19.9~31.3, 나머지는 13.1 이하다
-  it('설계 종목: ROE ≥ 18은 고ROE 종목, 영업이익 증가율 ≥ 40은 고성장 종목, 흑자는 적자 종목을 뺀다', () => {
-    const run = (patch: (f: SelectionCriteria['conditions']['fin']) => void) => {
-      const c = offCriteria();
-      c.pool.excludeManaged = false;
-      c.rank.take = 30;
-      patch(c.conditions.fin);
-      const pre = precompute(fixture, c, null);
-      return all.map((d) => symbols(selectAt(d, pre, c)).sort());
-    };
-    for (const got of run((f) => (f.roe = { on: true, min: 18 }))) expect(got).toEqual([...FIN_QUALITY_CODES].sort());
-    for (const got of run((f) => (f.opGrowth = { on: true, min: 40 }))) expect(got).toEqual([...FIN_GROWTH_CODES].sort());
-    for (const got of run((f) => (f.profitable.on = true))) expect(got).not.toContain(FIN_LOSS_CODE);
-  });
-
-  it('설계 종목: 재무가 늦게 시작한 종목만 후보면 앞 재선정일에 finGap, 4개 분기가 알려진 뒤에는 아니다', () => {
-    const c = offCriteria();
-    c.pool.excludeManaged = false;
-    c.pool.baskets = ['late'];
-    c.conditions.fin.per = { on: true, min: 0, max: 1000 };
-    const pre = precompute(fixture, c, null);
-    const late = [{ id: 'late', symbols: [FIN_LATE_CODE] }];
-    expect(finMissingAt(dates[0], pre, c, late)).toBe(true);
-    // 202509 ~ 202606 네 분기: 202606 + 60일 = 2026-08-29 뒤 재선정일부터 계산된다
-    expect(finMissingAt(dates[dates.length - 1], pre, c, late)).toBe(false);
   });
 });
