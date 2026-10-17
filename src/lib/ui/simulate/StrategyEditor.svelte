@@ -122,6 +122,7 @@
   // 요청 번호(seq)가 새로 올 때만 연다 — 사용자가 접은 구역을 다시 열지 않는다.
   // 연 구역에 막는 경고가 있으면 첫 막는 경고 Banner로(실행 버튼과 같은 규칙, 경고가 읽힌다), 없으면 그 머리로 포커스
   let handledSeq = -1;
+  // 구역 인스턴스는 포커스 옮기기에만 쓴다(반응성 불필요). 함수 바인딩으로 담아 non-reactive 경고 없이 인스턴스를 그대로 둔다
   const heads: Partial<Record<Key, EditorSection>> = {};
   $effect(() => {
     const req = openRequest;
@@ -198,7 +199,7 @@
 
   {#each SECTIONS as { key, title } (key)}
     <EditorSection
-      bind:this={heads[key]}
+      bind:this={() => heads[key], (v) => (heads[key] = v)}
       {title}
       summary={summary(key)}
       open={!!openKeys[key]}

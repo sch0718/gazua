@@ -415,6 +415,19 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
     expect(r.notes).toContain('macroGap');
   });
 
+  it("민감도 순 정렬만 써도 후보 전체의 β가 없는 재선정일(워밍업)이 있으면 'macroGap'", () => {
+    const warm = crit((c) => {
+      c.period = { from: '2025-06-02', to: '2026-10-15' };
+      c.conditions.tradingValue.on = false;
+      c.conditions.macro.betaDays = 250;
+      c.rank = { by: 'macroBeta', take: 5, series: 'usdkrw' };
+    });
+    const r = run(warm);
+    expect(r.rebalances[0].passed).toBe(0);
+    expect(r.rebalances.at(-1)!.passed).toBeGreaterThan(0);
+    expect(r.notes).toContain('macroGap');
+  });
+
   it("흐름만 켰어도 흐름이 문턱 이상이면 β가 필요하다: 워밍업 재선정일에 'macroGap'", () => {
     const warm = crit((c) => {
       c.period = { from: '2025-06-02', to: '2026-10-15' };

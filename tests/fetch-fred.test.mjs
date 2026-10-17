@@ -55,3 +55,41 @@ test('3번 모두 실패하면 throw한다', async () => {
 test('헤더가 다르면 throw한다', async () => {
   await assert.rejects(fetchFredSeries('DEXKOUS', { fetchImpl: ok('<html>\n'), sleep: noSleep }));
 });
+
+test('4xx는 다시 보내지 않고 바로 throw한다', async () => {
+  let n = 0;
+  const fetchImpl = async () => {
+    n += 1;
+    return { ok: false, status: 404, text: async () => '' };
+  };
+  await assert.rejects(fetchFredSeries('DEXKOUS', { fetchImpl, sleep: noSleep }), /HTTP 404/);
+  assert.equal(n, 1);
+});
+
+test('429는 다시 보낸다', async () => {
+  let n = 0;
+  const fetchImpl = async () => {
+    n += 1;
+    return n < 2 ? { ok: false, status: 429, text: async () => '' } : ok(NEW)();
+  };
+  const r = await fetchFredSeries('DEXKOUS', { fetchImpl, sleep: noSleep });
+  assert.equal(n, 2);
+  assert.equal(r.d.length, 3);
+});
+
+test('시간 초과면 다시 보내고 3번 모두 넘기면 throw한다', async () => {
+  let n = 0;
+  // 응답하지 않고 signal이 끊기기를 기다린다
+  const fetchImpl = (_u, { signal }) => {
+    n += 1;
+    return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+  };
+  // AbortSignal.timeout의 타이머는 이벤트 루프를 붙잡지 않아(Node 22) 기다리는 동안 루프가 끝나지 않게 붙잡아 둔다
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(fetchFredSeries('DEXKOUS', { fetchImpl, sleep: noSleep, timeoutMs: 5 }), /FRED DEXKOUS 요청 실패/);
+  } finally {
+    clearInterval(keepAlive);
+  }
+  assert.equal(n, 3);
+});

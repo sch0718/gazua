@@ -111,7 +111,7 @@
 - 같은 업종 이름이 시장마다 다른 레벨에 잡히면 업종 고르기에서 두 줄로 나뉨 · `precompute.ts`의 묶음 키 · 실연결 점검 ⑰에서 실제로 갈리는지 확인한 뒤 정해요.
 - 수집기: 토큰 발급 응답 본문 읽기 시간 초과가 `netFail`을 거치지 않음, `--update` 겹침 구간을 정확한 값으로 비교, 빈 구간에서 `output2`를 빼고 응답하면 재시도 후 실패로 셈(실연결 점검 ⑱을 첫 5년 수집 전에 먼저) · `scripts/kis-collect.mjs`, `scripts/collect-market-data.mjs`
 - 시장 데이터 검증기가 `managed`·`halted` 불리언을 확인하지 않고, o·h·l·v·tv에 0을 허용함 · `src/lib/marketData/format.ts` · 수집기만 파일을 만들어 영향이 작아요.
-- CI에서 `test:scripts`가 demo·universe 테스트를 한 번 더 돎 · `.github/workflows/ci.yml` · 단계를 하나로 합쳐요.
+- ~~CI에서 `test:scripts`가 demo·universe 테스트를 한 번 더 돎 · `.github/workflows/ci.yml` · 단계를 하나로 합쳐요.~~ → 해결: CI는 `test:scripts` 한 단계만 돌아요. (`feat/followups-4`)
 - 데모 fixture에 KRX 휴장일이 없음, 기본 `DecompressionStream` 경로는 jsdom에서 안 돌아 e2e만 덮음 · `tests/fixtures/market-data-demo.json.gz`
 - 테스트 보강: ① 첫 구간이 자본(initial)에서 시작하는지 고정, ② 창 밖에서 막힌 추가 매수가 창 안에서 같은 가격에 채워지는 경우, 기존 그룹에 넣을 때 "이미 있음 + 자리 부족" 두 번째 줄
 - 선정 기준 편집의 복제가 한도에서 이유 없이 비활성(전략 편집과 같음) · `CriteriaEditor.svelte`
@@ -126,16 +126,16 @@
 - 데모의 적자 종목과 늦게 시작하는 종목은 관리종목이라 기본 풀(관리종목 제외)에서 빠져요 · `scripts/make-demo-market-data.mjs` · 해당 경우를 e2e로 보려면 풀 설정을 바꿔야 해요.
 - 데모의 우량주 테스트 기준이 ROE 18 이상이에요. 217776이 한 때 19.9까지 내려가서 20으로 못 잡아요 · `tests/demo.test.mjs`
 - 테스트 도우미가 겹쳐요(`finStock`, FIN_BASE 자르기). 한 테스트 묶음은 id `'late'`를 이름 `'저PER'`에 다시 써요 · `src/lib/screen/*.test.ts`
-- `CriteriaEditor.svelte`가 약 770줄이에요 · 다음에 `RankSection`을 떼어내요.
+- ~~`CriteriaEditor.svelte`가 약 770줄이에요 · 다음에 `RankSection`을 떼어내요.~~ → 해결: `RankSection.svelte`로 떼어냈어요(약 690줄). 정렬 이름은 `screenText.ts`의 `RANK_LABEL` 한 곳에 둬요. (`feat/followups-4`)
 
 ### 4단계에서 미룬 것 (2026-10-16)
 `feat/macro-theme-criteria`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
 
-- `fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.
+- ~~`fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.~~ → 해결: 4xx(429 제외)는 바로 실패해요. 시간 초과는 `timeoutMs`로 줄여 테스트해요. `now`는 기간을 늘 호출하는 쪽이 넘겨서 쓰는 곳이 없어 넣지 않았어요. (`f4b0e54`)
 - 키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.
 - `loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/screen/baskets.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.
 - 중분류 대장주 회귀 케이스가 모든 곳에서 0을 줘서 확인이 약함: 데모에 중분류 코드가 없어요 · `tests/fixtures/market-data-demo.json.gz`, `scripts/make-demo-market-data.mjs` · 데모에 중분류 코드를 넣어요.
-- 정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.
+- ~~정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.~~ → 해결: 민감도 순으로 정렬하면 β가 필요하다고 보고, 후보 전체에 β가 없는 재선정일에 `macroGap` 메모를 남겨요. (`feat/followups-4`)
 - PreviewPanel이 막힌 상태에서도 기준일 줄과 `.state` 스타일을 보여줌(보기만 어색함) · `src/lib/ui/screen/PreviewPanel.svelte`
 - 민감도를 켜면 봉마다 메모리가 약 24 B(β용 Float64 두 배열과 Int32 색인 두 배열)라 449만 봉이면 약 108 MB인데, 스펙 3.4는 72 MB로만 어림함 · `src/lib/screen` 사전 계산과 스펙 3.4 · 5년 실행에서 실제 사용량을 재고 스펙의 어림값을 고치거나 배열을 줄여요.
 - 테마를 가져올 때 데이터 파일 전체를 읽음 · `src/lib/marketData` · 테마 부분만 따로 읽는 길을 찾아요.
@@ -143,10 +143,10 @@
 ### 3단계에서 미룬 것 (2026-10-17)
 `feat/investor-flow`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
 
-- 수집기 테스트 R5의 제목이 `start>to` 경우를 말하지만 실제로는 그 경우를 돌리지 않음 · `tests/collect-market-data.test.mjs` (R5) · 그 경우를 실제로 돌리거나 제목을 고쳐요.
-- 수급 절반 실패 경고의 분모가 이전 값을 지킨 종목까지 포함해서 경고가 덜 나올 수 있음 · `scripts/collect-market-data.mjs` · 이번에 받으려던 종목 수를 분모로 해요.
+- ~~수집기 테스트 R5의 제목이 `start>to` 경우를 말하지만 실제로는 그 경우를 돌리지 않음 · `tests/collect-market-data.test.mjs` (R5) · 그 경우를 실제로 돌리거나 제목을 고쳐요.~~ → 해결: 제목을 실제로 확인하는 경우(일봉 실패로 남긴 종목)에 맞췄어요. `start>to`면 요청하지 않으니 경고 분모에도 세지 않아요. (`feat/followups-4`)
+- ~~수급 절반 실패 경고의 분모가 이전 값을 지킨 종목까지 포함해서 경고가 덜 나올 수 있음 · `scripts/collect-market-data.mjs` · 이번에 받으려던 종목 수를 분모로 해요.~~ → 해결: 분모가 이번 수집에서 받으려던 종목 수예요(.partial에서 이어 받은 종목과 멈춘 뒤 남은 종목은 넣고, 이전 값만 지킨 종목은 빼요). 재무 경고도 같은 규칙으로 맞췄어요. R4b 테스트를 더했어요. (`feat/followups-4`)
 - `--update`의 "새 일봉 0개"와 "수정주가 다시 받기" 경우는 테스트가 없음(탐침으로는 정상 확인) · `tests/collect-market-data.test.mjs`
-- `Simulate.test`가 `StrategyEditor.svelte:201`에서 `binding_property_non_reactive` 경고를 찍음 · 3단계 이전부터 있었어요.
-- 정렬 고르기가 6개가 되어 좁은 폰에서 줄이 넘어감 · `src/lib/ui/screen/CriteriaEditor.svelte` · 모양을 다시 잡아요.
+- ~~`Simulate.test`가 `StrategyEditor.svelte:201`에서 `binding_property_non_reactive` 경고를 찍음 · 3단계 이전부터 있었어요.~~ → 해결: 함수 바인딩(`bind:this={() => …, (v) => …}`)으로 바꿔 경고가 없어요. (`feat/followups-4`)
+- ~~정렬 고르기가 6개가 되어 좁은 폰에서 줄이 넘어감 · `src/lib/ui/screen/CriteriaEditor.svelte` · 모양을 다시 잡아요.~~ → 해결: `Segmented`에 `wrap`을 더해 600px 미만에서는 두 칸씩, 넓은 화면에서는 넘치면 다음 줄로 가요. 375px에서 가로 스크롤 없음을 확인했어요. (`feat/followups-4`)
 - KIS 수급 API의 경로·필드·단위는 `FLOW_API`의 가정이고 확인하지 못함 · `scripts/fetch-investor-flow.mjs` · 실연결 점검 ㉓에서 확인해 고쳐요.
-- 정렬이 `flow`일 때 통과 개수에 계산할 수 없는 종목이 빠짐. `macroBeta`는 그런 종목도 세므로 둘이 다름 · `src/lib/screen` · 어느 쪽에 맞출지 정해요.
+- ~~정렬이 `flow`일 때 통과 개수에 계산할 수 없는 종목이 빠짐. `macroBeta`는 그런 종목도 세므로 둘이 다름 · `src/lib/screen` · 어느 쪽에 맞출지 정해요.~~ → 해결 (결정): `macroBeta`도 수급·재무 순처럼 β가 없는 종목을 정렬과 통과 수에서 빼요. [4단계 스펙](../specs/2026-10-16-macro-theme-criteria-design.md) 3.3 정렬에 적었어요. (`feat/followups-4`)

@@ -17,6 +17,14 @@ describe('Segmented', () => {
     expect(screen.getByRole('radio', { name: /자동/ }).getAttribute('aria-checked')).toBe('false');
   });
 
+  it('wrap: 좁은 화면에서 두 칸씩 나누고 넓은 화면에서는 넘치면 다음 줄로 간다', () => {
+    render(Segmented, { options, value: 'auto', onchange: vi.fn(), wrap: true, label: '많은 옵션' });
+    expect(screen.getByRole('radiogroup', { name: '많은 옵션' }).classList.contains('wrap')).toBe(true);
+    const css = segmentedSource.replace(/\s+/g, ' ');
+    expect(css).toContain('.wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));');
+    expect(css).toMatch(/@media \(min-width: 600px\) \{.*\.wrap \{ display: inline-flex; flex-wrap: wrap;/);
+  });
+
   it('shows the sub label', () => {
     render(Segmented, { options, value: 'auto', onchange: vi.fn() });
     expect(screen.getByText('KRX', { selector: 'small' })).toBeTruthy();

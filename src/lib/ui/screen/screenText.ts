@@ -94,6 +94,16 @@ export const FIN_METRIC_LABEL: Record<FinMetric | 'debtRatio', string> = {
   debtRatio: '부채비율',
 };
 export const FIN_PROFITABLE_LABEL = '흑자';
+/** 정렬 기준(스펙 7.3). 재무 순은 요약에서 고른 지표 이름(FIN_RANK_LABEL)으로 보인다 */
+export const RANK_LABEL: Record<SelectionCriteria['rank']['by'], string> = {
+  marketCap: '시가총액 큰 순',
+  tradingValue: '거래대금 큰 순',
+  return: '수익률 높은 순',
+  lowVolatility: '변동성 낮은 순',
+  macroBeta: '민감도 큰 순',
+  flow: '수급 큰 순',
+  fin: '재무 순',
+};
 /** 재무 순 정렬의 지표 고르기(스펙 4.2) */
 export const FIN_RANK_LABEL: Record<FinMetric, string> = {
   per: 'PER 낮은 순',

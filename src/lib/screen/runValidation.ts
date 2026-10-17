@@ -132,7 +132,7 @@ const MACRO_KEYS: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
  * 재선정일 d(전 거래일 p)에 쓰는 환율·유가 값이 없는가.
  * - 조건을 켰거나 정렬에 쓰는 계열이 비었거나 p까지 공개된 값이 없다
  * - 흐름을 켰는데 계산할 수 없다
- * - 민감도를 켰거나, 흐름이 문턱 이상이라 β가 필요한데, 계열은 있어도 후보 전체의 β가 없다(앞부분 워밍업·구멍)
+ * - 민감도를 켰거나, 민감도 순으로 정렬하거나, 흐름이 문턱 이상이라 β가 필요한데, 계열은 있어도 후보 전체의 β가 없다(앞부분 워밍업·구멍)
  */
 function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, d: string, p: string, baskets: Basket[]): boolean {
   return MACRO_KEYS.some((key) => {
@@ -141,7 +141,7 @@ function macroGapAt(pre: Precomputed, criteria: SelectionCriteria, d: string, p:
     if (!m.beta.on && !m.trend.on && !ranked) return false;
     const s = pre.macro[key];
     if (s.d.length === 0 || lastKnown(s.known, p) < 0) return true;
-    let needBeta = m.beta.on;
+    let needBeta = m.beta.on || ranked; // 민감도 순이면 β가 없는 종목은 빠진다(select.ts)
     if (m.trend.on) {
       const t = trendAt(s, p, m.trend.lookback);
       if (Number.isNaN(t)) return true;

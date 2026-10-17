@@ -18,8 +18,7 @@ jobs:
       - run: pnpm check
       - run: pnpm check:e2e
       - run: pnpm test
-      - run: pnpm test:demo
-      - run: pnpm test:universe
+      # demo·universe 테스트도 tests/*.test.mjs에 들어 있어 한 번만 돈다
       - run: pnpm test:scripts
       - name: 유니버스 주 키 계산
         id: week
