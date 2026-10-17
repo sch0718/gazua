@@ -97,7 +97,7 @@
 ### 선정 기준 검증 2~4단계 (2026-10-16)
 조건 표(스펙 5장)에 줄을 더하는 구조로 붙인다. 각 단계는 따로 설계한다.
 
-**진행 상황: 2~4단계가 모두 끝났어요. 2단계(재무·가치)는 [설계](../specs/2026-10-17-fundamental-criteria-design.md), 브랜치 `feat/fundamentals`예요. 실연결 점검은 [live-check ㉕·㉖](../../live-check.md)이에요.** 4단계(환율·유가 영향도, 테마)는 끝났어요 ([설계](../specs/2026-10-16-macro-theme-criteria-design.md), 브랜치 `feat/macro-theme-criteria`). 3단계(투자자 매매동향)도 끝났어요([설계](../specs/2026-10-16-investor-flow-criteria-design.md), 브랜치 `feat/investor-flow`).  3단계의 실연결 점검은 [live-check ㉓·㉔](../../live-check.md)예요. 4단계의 실연결 점검은 [live-check ㉑·㉒·㉒-1](../../live-check.md)예요. 데이터 조사 결과는 [스펙 9장](../specs/2026-10-16-selection-criteria-validation-design.md)이다. 2·3단계 수집은 같은 스크립트에서 하고 앱은 수집 파일만 읽으므로 프록시 허용 목록을 바꿀 필요가 없다.
+**진행 상황: 2~4단계가 모두 끝났어요. 2단계(재무·가치)는 [설계](../specs/2026-10-17-fundamental-criteria-design.md), 브랜치 `feat/fundamentals`예요. 실연결 점검은 [live-check ㉕·㉖](../../live-check.md)이에요.** 4단계(환율·유가 영향도, 테마)는 끝났어요 ([설계](../specs/2026-10-16-macro-theme-criteria-design.md), 브랜치 `feat/macro-theme-criteria`). 3단계(투자자 매매동향)도 끝났어요([설계](../specs/2026-10-16-investor-flow-criteria-design.md), 브랜치 `feat/investor-flow`). 3단계의 실연결 점검은 [live-check ㉓·㉔](../../live-check.md)예요. 4단계의 실연결 점검은 [live-check ㉑·㉒·㉒-1](../../live-check.md)예요. 데이터 조사 결과는 [스펙 9장](../specs/2026-10-16-selection-criteria-validation-design.md)이다. 2·3단계 수집은 같은 스크립트에서 하고 앱은 수집 파일만 읽으므로 프록시 허용 목록을 바꿀 필요가 없다.
 - ~~2단계 재무·가치: KIS 재무 TR(재무비율·손익·대차). 결산년월은 있고 공시일은 없다. → 조건부 가능. 공시 지연 규칙(연간 +90일, 분기 +60일)이 필요하고, PER·PBR은 과거 종가 ÷ 그때 공시된 EPS·BPS로 계산한다. 이력 깊이는 실연결 확인이 필요하다. 정밀하게 하려면 DART(키·`corp_code` 매핑)가 필요하다.~~ → 해결: 2단계에서 만들었어요. 경로·필드·단위·깊이는 ㉕에서 확인해요.
 - ~~3단계 투자자 매매동향: KIS 종목별 투자자 일별(FHPTJ04160001). 날짜를 거슬러 조회하고 수량과 금액을 준다. → 가능. 최대 깊이는 실연결 확인이 필요하다. 반영은 하루 늦춘다.~~ → 해결: 3단계에서 만들었어요. 경로·필드·단위와 최대 깊이는 ㉓에서 확인해요.
 - ~~4단계 환율·유가 영향도: FRED CSV(DEXKOUS, DCOILWTICO, DCOILBRENTEU). 키가 필요 없고 1980년대부터 있다. → 가능. 수집 스크립트에서 함께 받는다(브라우저 CORS 문제 없음).~~ → 해결: 4단계에서 만들었어요.
@@ -127,7 +127,6 @@
 - 데모의 우량주 테스트 기준이 ROE 18 이상이에요. 217776이 한 때 19.9까지 내려가서 20으로 못 잡아요 · `tests/demo.test.mjs`
 - 테스트 도우미가 겹쳐요(`finStock`, FIN_BASE 자르기). 한 테스트 묶음은 id `'late'`를 이름 `'저PER'`에 다시 써요 · `src/lib/screen/*.test.ts`
 - `CriteriaEditor.svelte`가 약 770줄이에요 · 다음에 `RankSection`을 떼어내요.
-- 문구: ROE 도움말이 금액처럼 읽혀요. 부채비율 도움말에 "자본이 0 이하면 뺀다"는 말이 없어요 · `src/lib/ui/screen/screenText.ts` · 최종 정리에서 고칠 수 있으면 고쳐요.
 
 ### 4단계에서 미룬 것 (2026-10-16)
 `feat/macro-theme-criteria`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.

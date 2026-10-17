@@ -265,7 +265,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const updateFrom = prev ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
   // 수급 기간 하한: --flows-years N이면 오늘부터 N년 전, 아니면 일봉 시작
   const flowFloor = flowsYears ? (yearsBefore(today, flowsYears) > from ? yearsBefore(today, flowsYears) : from) : from;
-  // 재무 누적 가정(FIN_API.cumulative)이 바뀌면 진행분의 재무 줄은 다른 규칙으로 만든 값이라 이어 받지 않는다
+  // 재무 누적 가정(FIN_API.cumulative)이 바뀌면 헤더가 달라져 readPartial이 빈 결과를 돌려주므로 진행분 전체를 이어 받지 않는다
   const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);

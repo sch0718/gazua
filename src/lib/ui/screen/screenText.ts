@@ -79,9 +79,9 @@ export const FIN_PER_HELP = '주가가 1년 순이익의 몇 배인지예요. �
 export const FIN_GROWTH_HELP = '최근 4분기 합을 1년 전 4분기 합과 비교해요';
 // 아래 넷은 스펙에 없는 설명이다(조건 줄마다 한 줄 설명이 있어야 해서 PER·증가율 설명의 말투로 새로 썼다)
 export const FIN_PBR_HELP = '주가가 회사 순자산(자본)의 몇 배인지예요. 자본이 0 이하인 기업은 빠져요';
-export const FIN_ROE_HELP = '자본으로 1년(최근 4분기)에 순이익을 얼마나 냈는지예요';
+export const FIN_ROE_HELP = '최근 4분기 순이익이 평균 자본의 몇 %인지예요. 자본이 0 이하인 기업은 빠져요';
 export const FIN_OP_MARGIN_HELP = '최근 4분기 매출 중 영업이익이 차지하는 비율이에요';
-export const FIN_DEBT_HELP = '부채가 자본의 몇 %인지예요. 낮을수록 빚이 적어요';
+export const FIN_DEBT_HELP = '부채가 자본의 몇 %인지예요. 낮을수록 빚이 적어요. 자본이 0 이하인 기업은 빠져요';
 export const FIN_PROFITABLE_HELP = '최근 4분기 순이익 합이 0보다 큰 기업만 남겨요';
 /** 지표 이름(값 줄·기준 목록) */
 export const FIN_METRIC_LABEL: Record<FinMetric | 'debtRatio', string> = {
