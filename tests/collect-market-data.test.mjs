@@ -1840,6 +1840,22 @@ test('(FN16) 재무 누적 가정(FIN_API.cumulative)이 바뀌면 .partial을 �
   }
 });
 
+test('(FN16b) FIN_API의 다른 값(unit)이 바뀌어도 .partial을 이어 받지 않아 옛 금액과 섞이지 않는다', async () => {
+  const dir = tmpDir();
+  const saved = FIN_API.unit;
+  try {
+    const opts = await interruptedFin(dir); // 3종목 중 둘을 받고 셋째에서 치명 오류
+    FIN_API.unit = '백만 원';
+    const fake = fakeKis(finDataFor(40));
+    await collect({ ...opts, client: clientFor(fake) });
+    assert.equal(fake.calls.fin.length, 12, '옛 단위로 받은 재무 줄을 이어 받았어요');
+    assert.deepEqual([...new Set(fake.calls.fin.map((c) => c.symbol))].sort(), ['000010', '000020', '000030']);
+  } finally {
+    FIN_API.unit = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('(FN17) 재무 경로의 요청 URL·로그·오류·출력 파일에도 키와 토큰이 없다', async () => {
   const dir = tmpDir();
   try {

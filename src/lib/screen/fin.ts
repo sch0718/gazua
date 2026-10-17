@@ -83,6 +83,9 @@ export const finAscending = (m: FinMetric): boolean => m === 'per' || m === 'pbr
 // 0 이하·NaN이면 NaN: 나누는 값이 0 이하이면 계산 불가로 만든다
 const positive = (x: number): number => (x > 0 ? x : NaN);
 
+// 경계를 포함하는 비교(v >= 20)가 부동소수 오차로 빗나가지 않게 소수 9자리로 맞춘다. NaN·±Infinity는 그대로
+const r9 = (x: number): number => (Number.isFinite(x) ? Math.round(x * 1e9) / 1e9 : x);
+
 /**
  * p(YYYY-MM-DD)의 재무 지표. pIdx는 그 종목의 p 봉 인덱스(없으면 −1)로, 시가총액에 그 봉의 종가를 쓴다.
  * 재무가 없거나 p에 알려진 분기가 없으면 null.
@@ -106,13 +109,13 @@ export function finMetricsAt(pre: Precomputed, st: Pick<StockSeries, 'fin' | 'cl
   const cap = positive(close) * positive(st.shares);
   return {
     quarter: f.q[L],
-    per: cap / (positive(ni) * FIN_UNIT),
-    pbr: cap / (positive(eq) * FIN_UNIT),
-    roe: L >= 4 ? (ni / positive((eq + f.eq[L - 4]) / 2)) * 100 : NaN,
-    opMargin: (op / positive(rev)) * 100,
-    revGrowth: (rev / positive(yearAgo(f.rev)) - 1) * 100,
-    opGrowth: (op / positive(yearAgo(f.op)) - 1) * 100,
-    debtRatio: (f.debt[L] / positive(eq)) * 100,
+    per: r9(cap / (positive(ni) * FIN_UNIT)),
+    pbr: r9(cap / (positive(eq) * FIN_UNIT)),
+    roe: r9(L >= 4 ? (ni / positive((eq + f.eq[L - 4]) / 2)) * 100 : NaN),
+    opMargin: r9((op / positive(rev)) * 100),
+    revGrowth: r9((rev / positive(yearAgo(f.rev)) - 1) * 100),
+    opGrowth: r9((op / positive(yearAgo(f.op)) - 1) * 100),
+    debtRatio: r9((f.debt[L] / positive(eq)) * 100),
     ttmNi: ni,
   };
 }

@@ -184,7 +184,8 @@ function readPartial(path, header) {
         rec.updateFrom === header.updateFrom &&
         (rec.flowFrom ?? null) === (header.flowFrom ?? null) &&
         // 재무 줄이 없는 예전 진행분(이 필드가 없음)은 그대로 이어 받는다
-        (rec.finCumulative === undefined || rec.finCumulative === header.finCumulative);
+        (rec.finCumulative === undefined || rec.finCumulative === header.finCumulative) &&
+        (rec.finApi === undefined || rec.finApi === header.finApi);
       if (!ok) return empty;
     } else if (!ok) {
       return empty;
@@ -218,6 +219,13 @@ export async function writeGzipJson(path, file, { sink } = {}) {
     rmSync(path, { force: true, recursive: true });
     throw e;
   }
+}
+
+/** FIN_API 전체의 서명: 키 순서와 상관없이 같은 내용이면 같은 문자열. 함수는 소스 문자열로 */
+function finApiSignature() {
+  const norm = (v) =>
+    typeof v === 'function' ? String(v) : Array.isArray(v) ? v.map(norm) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, norm(v[k])])) : v;
+  return JSON.stringify(norm(FIN_API));
 }
 
 /**
@@ -265,8 +273,9 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const updateFrom = prev ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
   // 수급 기간 하한: --flows-years N이면 오늘부터 N년 전, 아니면 일봉 시작
   const flowFloor = flowsYears ? (yearsBefore(today, flowsYears) > from ? yearsBefore(today, flowsYears) : from) : from;
-  // 재무 누적 가정(FIN_API.cumulative)이 바뀌면 헤더가 달라져 readPartial이 빈 결과를 돌려주므로 진행분 전체를 이어 받지 않는다
-  const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative };
+  // FIN_API의 어느 값이든(경로·필드·단위·누적 여부) 바뀌면 헤더가 달라져 readPartial이 빈 결과를 돌려주므로
+  // 옛 규칙으로 받은 재무 줄을 이어 받지 않는다(고친 금액과 옛 금액이 섞이는 것을 막는다)
+  const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative, finApi: finApiSignature() };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);
   else {

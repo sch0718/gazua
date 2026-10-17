@@ -1034,6 +1034,12 @@ describe('selectAt: 재무 조건(스펙 3.2)', () => {
     expect(passes(ng)).toBe(false);
   });
 
+  it('경계는 부동소수 오차에 흔들리지 않는다: 영업이익이 정확히 20% 늘면 증가율 최소 20을 통과한다', () => {
+    const grown = finStock('G', { op: [5, 5, 5, 5, 6, 6, 6, 6] });
+    const c = finCond((f) => (f.opGrowth = { on: true, min: 20 }));
+    expect(finRun([grown], c).passed).toBe(1);
+  });
+
   it('values에는 켠 지표와 쓴 분기(YYYYMM 숫자)만 넣는다', () => {
     const r = finRun([A], finCond((f) => ((f.per = { on: true, min: 0, max: 15 }), (f.roe = { on: true, min: 10 }))));
     expect(r.picked).toEqual([{ symbol: 'A', values: { finPer: 5, finRoe: 20, finQuarter: 202409, marketCap: 1e9 } }]); // marketCap은 기본 정렬 값

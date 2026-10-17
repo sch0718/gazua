@@ -65,7 +65,8 @@ export function flowRatio(pre: Precomputed, st: Pick<StockSeries, 'flow'>, who: 
     const den = fl.tv[e + 1] - fl.tv[start];
     ratios = subjects.map((k) => {
       const net = fl.net[k]!;
-      return den > 0 ? (((net[e + 1] - net[start]) * FLOW_UNIT) / den) * 100 : NaN;
+      // 소수 9자리로 맞춰 경계(>= 최소)가 부동소수 오차로 빗나가지 않게 한다
+      return den > 0 ? Math.round((((net[e + 1] - net[start]) * FLOW_UNIT) / den) * 100 * 1e9) / 1e9 : NaN;
     });
   }
   return who === 'both' ? [ratios[0], ratios[1]] : ratios[0];
