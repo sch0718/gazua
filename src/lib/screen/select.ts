@@ -343,7 +343,9 @@ export function selectAt(
         break;
       case 'macroBeta': {
         const series = c.rank.series ?? 'usdkrw';
-        key = values[`${series}Beta`] = orNull(betaAt(pre, st, series, prevDay, p));
+        const b = betaAt(pre, st, series, prevDay, p);
+        if (Number.isNaN(b)) return; // 계산 불가인 종목은 정렬과 통과 수에서 뺀다(수급·재무 순과 같다)
+        key = values[`${series}Beta`] = b;
         break;
       }
       case 'flow': {

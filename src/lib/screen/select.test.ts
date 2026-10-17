@@ -735,13 +735,13 @@ describe('selectAt: 정렬 macroBeta', () => {
     return selectAt(DATES[295], precompute(mkFileV2(stocks, 300, { usdkrw: fx, wti }), c, null), c);
   };
 
-  it('고른 계열의 β 내림차순, β가 없으면 뒤. values에 그 계열 β', () => {
+  it('고른 계열의 β 내림차순, β가 없으면 정렬과 통과 수에서 뺀다. values에 그 계열 β', () => {
     const u = rank('usdkrw');
-    expect(symbols(u)).toEqual(['000003', '000002', '000001', '000004']);
+    expect(symbols(u)).toEqual(['000003', '000002', '000001']);
+    expect(u.passed).toBe(3);
     expect(u.picked[0].values).toEqual({ usdkrwBeta: expect.closeTo(2, 9) });
-    expect(u.picked[3].values).toEqual({ usdkrwBeta: null });
     const w = rank('wti');
-    expect(symbols(w)).toEqual(['000001', '000002', '000003', '000004']);
+    expect(symbols(w)).toEqual(['000001', '000002', '000003']);
     expect(Object.keys(w.picked[0].values)).toEqual(['wtiBeta']);
   });
 });

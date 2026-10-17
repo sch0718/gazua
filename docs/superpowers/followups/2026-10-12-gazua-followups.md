@@ -135,7 +135,7 @@
 - 키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.
 - `loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/screen/baskets.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.
 - 중분류 대장주 회귀 케이스가 모든 곳에서 0을 줘서 확인이 약함: 데모에 중분류 코드가 없어요 · `tests/fixtures/market-data-demo.json.gz`, `scripts/make-demo-market-data.mjs` · 데모에 중분류 코드를 넣어요.
-- 정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.
+- ~~정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.~~ → 해결: 민감도 순으로 정렬하면 β가 필요하다고 보고, 후보 전체에 β가 없는 재선정일에 `macroGap` 메모를 남겨요. (`feat/followups-4`)
 - PreviewPanel이 막힌 상태에서도 기준일 줄과 `.state` 스타일을 보여줌(보기만 어색함) · `src/lib/ui/screen/PreviewPanel.svelte`
 - 민감도를 켜면 봉마다 메모리가 약 24 B(β용 Float64 두 배열과 Int32 색인 두 배열)라 449만 봉이면 약 108 MB인데, 스펙 3.4는 72 MB로만 어림함 · `src/lib/screen` 사전 계산과 스펙 3.4 · 5년 실행에서 실제 사용량을 재고 스펙의 어림값을 고치거나 배열을 줄여요.
 - 테마를 가져올 때 데이터 파일 전체를 읽음 · `src/lib/marketData` · 테마 부분만 따로 읽는 길을 찾아요.
@@ -149,4 +149,4 @@
 - `Simulate.test`가 `StrategyEditor.svelte:201`에서 `binding_property_non_reactive` 경고를 찍음 · 3단계 이전부터 있었어요.
 - ~~정렬 고르기가 6개가 되어 좁은 폰에서 줄이 넘어감 · `src/lib/ui/screen/CriteriaEditor.svelte` · 모양을 다시 잡아요.~~ → 해결: `Segmented`에 `wrap`을 더해 600px 미만에서는 두 칸씩, 넓은 화면에서는 넘치면 다음 줄로 가요. 375px에서 가로 스크롤 없음을 확인했어요. (`feat/followups-4`)
 - KIS 수급 API의 경로·필드·단위는 `FLOW_API`의 가정이고 확인하지 못함 · `scripts/fetch-investor-flow.mjs` · 실연결 점검 ㉓에서 확인해 고쳐요.
-- 정렬이 `flow`일 때 통과 개수에 계산할 수 없는 종목이 빠짐. `macroBeta`는 그런 종목도 세므로 둘이 다름 · `src/lib/screen` · 어느 쪽에 맞출지 정해요.
+- ~~정렬이 `flow`일 때 통과 개수에 계산할 수 없는 종목이 빠짐. `macroBeta`는 그런 종목도 세므로 둘이 다름 · `src/lib/screen` · 어느 쪽에 맞출지 정해요.~~ → 해결 (결정): `macroBeta`도 수급·재무 순처럼 β가 없는 종목을 정렬과 통과 수에서 빼요. [4단계 스펙](../specs/2026-10-16-macro-theme-criteria-design.md) 3.3 정렬에 적었어요. (`feat/followups-4`)
