@@ -7,6 +7,16 @@ import {
   CONDITION_HELP,
   criteriaLine,
   dataAgeDays,
+  FIN_GAP_TEXT,
+  FIN_GROWTH_HELP,
+  FIN_LAG_HINT,
+  FIN_LAG_TEXT,
+  FIN_PER_HELP,
+  FIN_RANK_LABEL,
+  FIN_SHARES_TEXT,
+  finQuarterText,
+  finRunSnap,
+  finValueLines,
   FLOW_AMOUNT_HELP,
   FLOW_GAP_TEXT,
   FLOW_LAG_HINT,
@@ -225,6 +235,109 @@ describe('screenText (stage 3 investor flow)', () => {
     it('no flow values, no line; a missing number reads —', () => {
       expect(flowValueLines({ marketCap: 1e12 }, snap())).toEqual([]);
       expect(flowValueLines({ flowRatio: null }, snap())).toEqual(['외국인 순매수 20일 —']);
+    });
+  });
+});
+
+describe('screenText (fundamental criteria)', () => {
+  const finOnly = () => {
+    const c = newCriteria(NOW, null);
+    c.conditions.tradingValue.on = false;
+    c.conditions.rebound.on = false;
+    return c;
+  };
+
+  it('the list line counts the fin conditions: only fin on is not 조건 없음 (spec 4.3 example)', () => {
+    const c = finOnly();
+    c.conditions.fin.per.on = true;
+    c.conditions.fin.roe.on = true;
+    c.conditions.fin.debtRatio.on = true;
+    c.conditions.fin.profitable.on = true;
+    expect(criteriaLine(c)).toBe('KOSPI·KOSDAQ 주식 · PER 0~15 · ROE 10%↑ · 부채비율 100%↓ · 흑자 · 상위 10 · 매월');
+  });
+
+  it('the list line names every fin condition in the 가치·수익성·성장·안정성 order, with − for negatives', () => {
+    const c = finOnly();
+    c.conditions.fin = {
+      per: { on: true, min: 2, max: 12.5 },
+      pbr: { on: true, min: 0, max: 1.5 },
+      roe: { on: true, min: -5 },
+      opMargin: { on: true, min: 5 },
+      revGrowth: { on: true, min: 10 },
+      opGrowth: { on: true, min: 20 },
+      debtRatio: { on: true, max: 100 },
+      profitable: { on: false },
+    };
+    expect(criteriaLine(c)).toBe('KOSPI·KOSDAQ 주식 · PER 2~12.5 · PBR 0~1.5 · ROE −5%↑ · 영업이익률 5%↑ · 매출 증가율 10%↑ · 영업이익 증가율 20%↑ · 부채비율 100%↓ · 상위 10 · 매월');
+  });
+
+  it('the list line puts fin after macro and flow when they are on together', () => {
+    const c = newCriteria(NOW, null);
+    c.conditions.macro.usdkrw.beta = { on: true, min: 0.3, max: 5 };
+    c.conditions.flow.streak = { on: true, who: 'inst', minDays: 3 };
+    c.conditions.fin.pbr.on = true;
+    expect(criteriaLine(c)).toBe('KOSPI·KOSDAQ 주식 · 거래대금 10억↑ · 반등 10일 · 원/달러 민감도 0.3~5 · 기관 연속 3일↑ · PBR 0~1.5 · 상위 10 · 매월');
+  });
+
+  it('keeps the fundamental copy of spec 4.1·4.2·4.4 verbatim', () => {
+    expect(FIN_LAG_HINT).toBe('재무는 공시가 늦을 수 있어 분기 결산 60일, 연간 결산 100일 뒤부터 써요');
+    expect(FIN_PER_HELP).toBe('주가가 1년 순이익의 몇 배인지예요. 적자 기업은 빠져요');
+    expect(FIN_GROWTH_HELP).toBe('최근 4분기 합을 1년 전 4분기 합과 비교해요');
+    expect(FIN_RANK_LABEL).toEqual({ per: 'PER 낮은 순', pbr: 'PBR 낮은 순', roe: 'ROE 높은 순', opMargin: '영업이익률 높은 순', revGrowth: '매출 증가율 높은 순', opGrowth: '영업이익 증가율 높은 순' });
+    expect(FIN_LAG_TEXT).toBe('재무는 분기 결산 60일, 연간 결산 100일 뒤부터 써요');
+    expect(FIN_SHARES_TEXT).toBe('PER·PBR의 시가총액은 지금 상장주식수로 계산해서, 과거에 증자한 종목은 값이 조금 클 수 있어요');
+    expect(FIN_GAP_TEXT).toBe('재무 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요');
+  });
+
+  it('the quarter is the calendar quarter ceil(month ÷ 3) of the last used quarter end', () => {
+    expect(finQuarterText(202602)).toBe('2026년 1분기');
+    expect(finQuarterText(202603)).toBe('2026년 1분기');
+    expect(finQuarterText(202605)).toBe('2026년 2분기');
+    expect(finQuarterText(202606)).toBe('2026년 2분기');
+    expect(finQuarterText(202508)).toBe('2025년 3분기');
+    expect(finQuarterText(202511)).toBe('2025년 4분기');
+    expect(finQuarterText(202512)).toBe('2025년 4분기');
+  });
+
+  describe('fin value lines', () => {
+    const snap = (rank: Parameters<typeof finValueLines>[1]['rank'] = 'per', profitable = false) => ({ rank, profitable });
+
+    it('several metrics in one line with the quarter (spec 4.4 example), one decimal, % for the percent metrics', () => {
+      expect(finValueLines({ finPer: 8.34, finRoe: 14.21, finDebtRatio: 62, finQuarter: 202606 }, snap())).toEqual(['PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지)']);
+      expect(finValueLines({ finPbr: 0.55, finOpMargin: 20.06, finRevGrowth: 40, finOpGrowth: 61.25, finQuarter: 202511 }, snap())).toEqual(['PBR 0.6 · 영업이익률 20.1% · 매출 증가율 40% · 영업이익 증가율 61.3% (2025년 4분기까지)']);
+    });
+
+    it('negatives read −, and a −0.0 rounds to 0', () => {
+      expect(finValueLines({ finRoe: -3.25, finOpGrowth: -0.04, finQuarter: 202603 }, snap())).toEqual(['ROE −3.3% · 영업이익 증가율 0% (2026년 1분기까지)']);
+    });
+
+    it('a value that could not be computed reads —', () => {
+      expect(finValueLines({ finPer: null, finRoe: Number.NaN, finQuarter: 202605 }, snap())).toEqual(['PER — · ROE — (2026년 2분기까지)']);
+    });
+
+    it('흑자 shows when that condition was on at run time', () => {
+      expect(finValueLines({ finPer: 5, finQuarter: 202608 }, snap('per', true))).toEqual(['PER 5 · 흑자 (2026년 3분기까지)']);
+      expect(finValueLines({ finQuarter: 202608 }, snap('per', true))).toEqual(['흑자 (2026년 3분기까지)']);
+    });
+
+    it('the 재무 순 value gets its own line only when no condition already shows that metric', () => {
+      expect(finValueLines({ rankFin: 4.52, finQuarter: 202606 }, snap('per'))).toEqual(['PER 4.5 (2026년 2분기까지)']);
+      expect(finValueLines({ finPer: 4.5, rankFin: 4.5, finQuarter: 202606 }, snap('per'))).toEqual(['PER 4.5 (2026년 2분기까지)']);
+      expect(finValueLines({ finPer: 4.5, rankFin: 25.04, finQuarter: 202606 }, snap('roe'))).toEqual(['PER 4.5 (2026년 2분기까지)', 'ROE 25%']);
+    });
+
+    it('no fin values, no line', () => {
+      expect(finValueLines({ marketCap: 1e12 }, snap('per', true))).toEqual([]);
+    });
+
+    it('finRunSnap takes the rank metric and the 흑자 switch from the criteria; without rank.fin the metric is per', () => {
+      const c = newCriteria(NOW, null);
+      c.rank.fin = { metric: 'revGrowth' };
+      c.conditions.fin.profitable.on = true;
+      expect(finRunSnap(c)).toEqual({ rank: 'revGrowth', profitable: true });
+      delete c.rank.fin;
+      c.conditions.fin.profitable.on = false;
+      expect(finRunSnap(c)).toEqual({ rank: 'per', profitable: false });
     });
   });
 });

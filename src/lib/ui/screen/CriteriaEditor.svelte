@@ -9,10 +9,11 @@
   import type { MarketDataInfo, MarketSector, MarketThemeSummary } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
   import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX } from '../../screen/defaults';
+  import { rankFinOf } from '../../screen/fin';
   import { rankFlowOf } from '../../screen/precompute';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
-  import type { FlowWho, SelectionCriteria } from '../../screen/types';
+  import type { FinMetric, FlowWho, SelectionCriteria } from '../../screen/types';
   import { criteriaIssues, type Issue } from '../../screen/validate';
   import { PreviewError } from '../../screen/validationController.svelte';
   import { newStrategy } from '../../sim/defaults';
@@ -27,12 +28,13 @@
   import NumberField from '../simulate/editor/NumberField.svelte';
   import BasketPicker from './BasketPicker.svelte';
   import ConditionRow from './ConditionRow.svelte';
+  import FinConditions from './FinConditions.svelte';
   import FlowConditions from './FlowConditions.svelte';
   import MacroConditions from './MacroConditions.svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import PreviewPanel from './PreviewPanel.svelte';
   import SectorPicker from './SectorPicker.svelte';
-  import { CONDITION_HELP, CONDITION_LABEL, FLOW_WHO_LABEL, FLOW_WHO_ORDER, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
+  import { CONDITION_HELP, CONDITION_LABEL, FIN_METRIC_ORDER, FIN_RANK_LABEL, FLOW_WHO_LABEL, FLOW_WHO_ORDER, NO_DATA_RUN_REASON, poolScopeText, rebalanceLabel, SERIES_LABEL } from './screenText';
   import ThemePicker from './ThemePicker.svelte';
 
   const EOK_MAX = 10_000_000;
@@ -141,6 +143,7 @@
   const v1 = $derived(info !== null && (info.version ?? 1) < 2);
   const noMacro = $derived(info !== null && !info.hasMacro);
   const noFlow = $derived(info !== null && !info.hasFlow);
+  const noFin = $derived(info !== null && !info.hasFin);
   const dataInfo = $derived(info ? { hasMacro: !!info.hasMacro, hasFlow: !!info.hasFlow, hasFin: !!info.hasFin, themeCodes: v1 ? [] : themes?.map((t) => t.code) } : undefined);
   const issues = $derived(criteriaIssues(draft, app.strategies, dataInfo, app.baskets));
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
@@ -261,7 +264,8 @@
         return n ? `${n}개 켬` : '켠 조건 없음';
       }
       case 'rank':
-        return `상위 ${d.rank.take} · ${RANK_LABEL[d.rank.by]}`;
+        // 재무 순은 고른 지표 이름(`PER 낮은 순`)으로 보인다
+        return `상위 ${d.rank.take} · ${d.rank.by === 'fin' ? FIN_RANK_LABEL[rankFinOf(d)] : RANK_LABEL[d.rank.by]}`;
       case 'period':
         return `${rebalanceLabel(d.rebalance)} · ${d.period.from.replaceAll('-', '.')}~${d.period.to.replaceAll('-', '.')}`;
       case 'benchmarks':
@@ -487,6 +491,7 @@
         </ConditionRow>
         <MacroConditions macro={k.macro} unavailable={noMacro} {nf} update={(fn) => update((c) => fn(c.conditions.macro))} />
         <FlowConditions flow={k.flow} unavailable={noFlow} {nf} update={(fn) => update((c) => fn(c.conditions.flow))} />
+        <FinConditions fin={k.fin} unavailable={noFin} {nf} update={(fn) => update((c) => fn(c.conditions.fin))} />
       {:else if key === 'rank'}
         <Segmented
           wide
@@ -501,6 +506,7 @@
             { value: 'lowVolatility', label: '변동성 낮은 순' },
             { value: 'macroBeta', label: '민감도 큰 순' },
             { value: 'flow', label: '수급 순' },
+            { value: 'fin', label: RANK_LABEL.fin },
           ]}
         />
         {#if draft.rank.by === 'macroBeta'}
@@ -511,6 +517,21 @@
           >
             {#each SERIES as s (s)}
               <option value={s} selected={(draft.rank.series ?? 'usdkrw') === s}>{SERIES_LABEL[s]}</option>
+            {/each}
+          </select>
+        {:else if draft.rank.by === 'fin'}
+          <select
+            class="pick"
+            aria-label="재무 지표"
+            onchange={(e) => {
+              const v = e.currentTarget.value as FinMetric;
+              update((c) => {
+                c.rank.fin = { metric: FIN_METRIC_ORDER.includes(v) ? v : 'per' };
+              });
+            }}
+          >
+            {#each FIN_METRIC_ORDER as m (m)}
+              <option value={m} selected={rankFinOf(draft) === m}>{FIN_RANK_LABEL[m]}</option>
             {/each}
           </select>
         {:else if draft.rank.by === 'flow'}

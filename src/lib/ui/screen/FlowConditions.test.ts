@@ -69,7 +69,8 @@ describe('투자자 매매동향 소구역', () => {
     expect(field('최소 순매수 비율').value).toBe('1');
     expect(field('최대 순매수 비율').value).toBe('100');
     expect(field('최소 연속 일수').value).toBe('5');
-    expect(screen.queryByText('다시 수집하면 쓸 수 있어요')).toBeNull();
+    // 재무가 없는 v3라 재무·가치 소구역에는 안내가 있다. 매매동향 소구역에는 없다
+    expect(within(document.querySelector('.flow')!).queryByText('다시 수집하면 쓸 수 있어요')).toBeNull();
   });
 
   it('switches, subjects, days and range reach the saved criteria, and the summary counts them', async () => {

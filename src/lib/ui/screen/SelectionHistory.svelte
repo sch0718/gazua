@@ -3,13 +3,14 @@
   import type { ValidationResult } from '../../screen/runValidation';
   import { dotDate, returnClass, trendReturn } from '../simulate/simText';
   import type { MacroSeriesKey } from '../../screen/types';
-  import { FLOW_VALUE_KEYS, flowValueLines, MACRO_VALUE_KEYS, macroValueLines, NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText, type FlowRunSnap } from './screenText';
+  import { FIN_VALUE_KEYS, finValueLines, FLOW_VALUE_KEYS, flowValueLines, MACRO_VALUE_KEYS, macroValueLines, NOT_BOUGHT_TEXT, SOLD_AT_LAST_CLOSE_TEXT, valueText, type FinRunSnap, type FlowRunSnap } from './screenText';
 
   let {
     result,
     names,
     lookback,
     flow,
+    fin,
   }: {
     result: ValidationResult;
     names: Record<string, string>;
@@ -17,6 +18,8 @@
     lookback?: Partial<Record<MacroSeriesKey, number>>;
     /** 실행할 때 기준의 수급 주체·기간. 수급 값 줄의 이름에 쓴다 */
     flow: FlowRunSnap;
+    /** 실행할 때 기준의 재무 정렬 지표·흑자 조건. 재무 값 줄에 쓴다 */
+    fin: FinRunSnap;
   } = $props();
 
   let open = $state<Record<string, boolean>>({});
@@ -63,7 +66,7 @@
                   {#if sp?.soldAtLastClose}<div class="flag">{SOLD_AT_LAST_CLOSE_TEXT}</div>{/if}
                   {#if isOpen}
                     <dl class="vals">
-                      {#each Object.entries(p.values).filter(([k]) => !MACRO_VALUE_KEYS.has(k) && !FLOW_VALUE_KEYS.has(k)) as [k, v] (k)}
+                      {#each Object.entries(p.values).filter(([k]) => !MACRO_VALUE_KEYS.has(k) && !FLOW_VALUE_KEYS.has(k) && !FIN_VALUE_KEYS.has(k)) as [k, v] (k)}
                         {@const t = valueText(k, v)}
                         <div><dt>{t.label}</dt><dd class="num">{t.text}</dd></div>
                       {/each}
@@ -73,6 +76,9 @@
                     {/each}
                     {#each flowValueLines(p.values, flow) as line (line)}
                       <p class="mv num" data-flow-value>{line}</p>
+                    {/each}
+                    {#each finValueLines(p.values, fin) as line (line)}
+                      <p class="mv num" data-fin-value>{line}</p>
                     {/each}
                   {/if}
                 </li>

@@ -895,6 +895,26 @@ describe('Simulate 선정 기준 탭', () => {
     expect(document.querySelector('[data-flow-value]')!.textContent).toBe('외국인 2.1% · 기관 1.4% (10일) · 함께 연속 3일');
   });
 
+  it('the result names the 재무 순 value with the metric of the criteria that was run, and shows the fin notes', async () => {
+    const V4 = { ...FRESH, version: 4 as const, hasMacro: true, themeCount: 0, hasFlow: true, flowStocks: 7, hasFin: true, finStocks: 20 };
+    const { app, worker } = setupCriteria({ info: V4 as never, data: { themes: async () => [] } });
+    app.setCriteria(app.criteria.map((c) => ({ ...c, rank: { ...c.rank, by: 'fin' as const, fin: { metric: 'roe' as const } } })));
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(run);
+    // 실행 뒤 정렬 지표를 바꿔도 결과는 실행할 때의 지표를 쓴다
+    app.setCriteria(app.criteria.map((c) => ({ ...c, rank: { ...c.rank, fin: { metric: 'per' as const } } })));
+    const base = validationResult();
+    const values = { rankFin: 25.04, finQuarter: 202606 };
+    worker.onmessage?.({ data: { type: 'result', result: validationResult({ notes: ['finLag', 'finGap'], rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] }) } });
+    await waitFor(() => expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy());
+    expect(screen.getByText('재무는 분기 결산 60일, 연간 결산 100일 뒤부터 써요')).toBeTruthy();
+    expect(screen.getByText('재무 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+    expect(document.querySelector('[data-fin-value]')!.textContent).toBe('ROE 25% (2026년 2분기까지)');
+  });
+
   it('v2 data: the editor gets the theme list from the store, and 테마에서 가져오기 reads the theme symbols from the file', async () => {
     const V2 = { collectedAt: '2026-10-10T09:00:00+09:00', stocks: 30, range: RANGE, version: 2 as const, hasMacro: true, themeCount: 1 };
     const load = vi.fn(async () => ({ version: 2, themes: [{ code: 'T01', name: '반도체', symbols: ['005930', '000660'] }] }));

@@ -2,7 +2,8 @@
 import { rankFlowOf, sectorGroupCount } from '../../screen/precompute';
 import { ERROR_TEXT, type ValidationResult, type WorkerErrorCode } from '../../screen/runValidation';
 import type { MarketDataFile } from '../../marketData/format';
-import type { FlowWho, MacroSeriesKey, SelectionCriteria } from '../../screen/types';
+import { rankFinOf } from '../../screen/fin';
+import type { FinMetric, FlowWho, MacroSeriesKey, SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
 import { fmtReturnPct, trendReturn } from '../simulate/simText';
@@ -72,6 +73,42 @@ export const FLOW_LAG_HINT = '매매동향은 하루 늦게 반영해요(장 마
 export const FLOW_LAG_TEXT = '매매동향은 재선정일 이틀 전 거래일까지 써요';
 export const FLOW_GAP_TEXT = '수급 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요';
 
+/** 재무·가치(재무 스펙 4.1·4.2·4.4) */
+export const FIN_LAG_HINT = '재무는 공시가 늦을 수 있어 분기 결산 60일, 연간 결산 100일 뒤부터 써요';
+export const FIN_PER_HELP = '주가가 1년 순이익의 몇 배인지예요. 적자 기업은 빠져요';
+export const FIN_GROWTH_HELP = '최근 4분기 합을 1년 전 4분기 합과 비교해요';
+// 아래 넷은 스펙에 없는 설명이다(조건 줄마다 한 줄 설명이 있어야 해서 PER·증가율 설명의 말투로 새로 썼다)
+export const FIN_PBR_HELP = '주가가 회사 순자산(자본)의 몇 배인지예요. 자본이 0 이하인 기업은 빠져요';
+export const FIN_ROE_HELP = '자본으로 1년(최근 4분기)에 순이익을 얼마나 냈는지예요';
+export const FIN_OP_MARGIN_HELP = '최근 4분기 매출 중 영업이익이 차지하는 비율이에요';
+export const FIN_DEBT_HELP = '부채가 자본의 몇 %인지예요. 낮을수록 빚이 적어요';
+export const FIN_PROFITABLE_HELP = '최근 4분기 순이익 합이 0보다 큰 기업만 남겨요';
+/** 지표 이름(값 줄·기준 목록) */
+export const FIN_METRIC_LABEL: Record<FinMetric | 'debtRatio', string> = {
+  per: 'PER',
+  pbr: 'PBR',
+  roe: 'ROE',
+  opMargin: '영업이익률',
+  revGrowth: '매출 증가율',
+  opGrowth: '영업이익 증가율',
+  debtRatio: '부채비율',
+};
+export const FIN_PROFITABLE_LABEL = '흑자';
+/** 재무 순 정렬의 지표 고르기(스펙 4.2) */
+export const FIN_RANK_LABEL: Record<FinMetric, string> = {
+  per: 'PER 낮은 순',
+  pbr: 'PBR 낮은 순',
+  roe: 'ROE 높은 순',
+  opMargin: '영업이익률 높은 순',
+  revGrowth: '매출 증가율 높은 순',
+  opGrowth: '영업이익 증가율 높은 순',
+};
+export const FIN_METRIC_ORDER: FinMetric[] = ['per', 'pbr', 'roe', 'opMargin', 'revGrowth', 'opGrowth'];
+/** 결과 메모(재무 스펙 4.4) */
+export const FIN_LAG_TEXT = '재무는 분기 결산 60일, 연간 결산 100일 뒤부터 써요';
+export const FIN_SHARES_TEXT = 'PER·PBR의 시가총액은 지금 상장주식수로 계산해서, 과거에 증자한 종목은 값이 조금 클 수 있어요';
+export const FIN_GAP_TEXT = '재무 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요';
+
 /** 해석 메모(스펙 4.3·5.3·7) */
 export const THEME_SNAPSHOT_TEXT = '테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요';
 export const MACRO_LAG_TEXT = '환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요';
@@ -110,6 +147,13 @@ export function criteriaLine(c: SelectionCriteria, sectors: MarketDataFile['sect
   const fs = k.flow.streak;
   if (fa.on) on.push(`${FLOW_WHO_LABEL[fa.who]} 순매수 ${fa.days}일 ${signed(fa.minPct)}~${signed(fa.maxPct)}%`);
   if (fs.on) on.push(`${FLOW_WHO_LABEL[fs.who]} 연속 ${fs.minDays}일↑`);
+  const f = k.fin;
+  const L = FIN_METRIC_LABEL;
+  if (f.per.on) on.push(`${L.per} ${f.per.min}~${f.per.max}`);
+  if (f.pbr.on) on.push(`${L.pbr} ${f.pbr.min}~${f.pbr.max}`);
+  for (const m of ['roe', 'opMargin', 'revGrowth', 'opGrowth'] as const) if (f[m].on) on.push(`${L[m]} ${signed(f[m].min)}%↑`);
+  if (f.debtRatio.on) on.push(`${L.debtRatio} ${f.debtRatio.max}%↓`);
+  if (f.profitable.on) on.push(FIN_PROFITABLE_LABEL);
   parts.push(...(on.length ? on : ['조건 없음']));
   parts.push(`상위 ${c.rank.take}`, rebalanceLabel(c.rebalance));
   return parts.join(' · ');
@@ -257,6 +301,54 @@ export function flowValueLines(values: Record<string, number | boolean | null>, 
         : `${FLOW_WHO_LABEL[snap.rank.who]} 순매수 ${snap.rank.days}일 ${pct1(values.rankFlow)}`,
     );
   return out;
+}
+
+/** 실행할 때 기준의 재무 정렬 지표와 흑자 조건. 선정 이력은 이것으로 정렬 값의 이름을 붙인다 */
+export interface FinRunSnap {
+  rank: FinMetric;
+  profitable: boolean;
+}
+export function finRunSnap(c: SelectionCriteria): FinRunSnap {
+  return { rank: rankFinOf(c), profitable: c.conditions.fin.profitable.on };
+}
+/** 조건 값 키 → 지표. 순서가 값 줄의 순서다(가치 · 수익성 · 성장 · 안정성) */
+const FIN_CONDITION_KEYS: [string, FinMetric | 'debtRatio'][] = [
+  ['finPer', 'per'],
+  ['finPbr', 'pbr'],
+  ['finRoe', 'roe'],
+  ['finOpMargin', 'opMargin'],
+  ['finRevGrowth', 'revGrowth'],
+  ['finOpGrowth', 'opGrowth'],
+  ['finDebtRatio', 'debtRatio'],
+];
+/** 선정 이력의 재무 값 키(일반 값 목록에는 따로 나오지 않는다) */
+export const FIN_VALUE_KEYS = new Set([...FIN_CONDITION_KEYS.map(([k]) => k), 'rankFin', 'finQuarter']);
+/** 분기말 YYYYMM → `2026년 2분기`. 결산월 기준이 아니라 달력 분기 ceil(월 ÷ 3)이다(스펙 4.4) */
+export function finQuarterText(yyyymm: number): string {
+  return `${Math.floor(yyyymm / 100)}년 ${Math.ceil((yyyymm % 100) / 3)}분기`;
+}
+/** 소수 한 자리(끝의 .0은 뺀다), 음수는 `−`. 0으로 반올림되면 부호가 없다. 계산 불가는 `—` */
+const fin1 = (v: number | boolean | null | undefined, unit: string) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—';
+  const r = Math.round(Math.abs(v) * 10) / 10;
+  return `${v < 0 && r !== 0 ? MINUS : ''}${r}${unit}`;
+};
+const finText = (m: FinMetric | 'debtRatio', v: number | boolean | null | undefined) => `${FIN_METRIC_LABEL[m]} ${fin1(v, m === 'per' || m === 'pbr' ? '' : '%')}`;
+/**
+ * 선정 이력의 재무 값 줄(재무 스펙 4.4): `PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지)`.
+ * 괄호는 그 재선정일에 쓴 마지막 분기다. `재무 순` 정렬 값은 같은 지표의 조건 값이 없을 때만 따로 한 줄이다
+ */
+export function finValueLines(values: Record<string, number | boolean | null>, snap: FinRunSnap): string[] {
+  const has = (k: string) => k in values;
+  if (![...FIN_VALUE_KEYS].some(has)) return [];
+  const parts = FIN_CONDITION_KEYS.filter(([k]) => has(k)).map(([k, m]) => finText(m, values[k]));
+  if (snap.profitable) parts.push(FIN_PROFITABLE_LABEL);
+  const rankKey = FIN_CONDITION_KEYS.find(([, m]) => m === snap.rank)![0];
+  const rankLine = has('rankFin') && !has(rankKey) ? finText(snap.rank, values.rankFin) : null;
+  const q = values.finQuarter;
+  const until = typeof q === 'number' ? ` (${finQuarterText(q)}까지)` : '';
+  if (!parts.length) return rankLine ? [rankLine + until] : [];
+  return [parts.join(' · ') + until, ...(rankLine ? [rankLine] : [])];
 }
 
 /** 새 기준 이름: `새 기준`이 없으면 그대로, 있으면 비어 있는 가장 작은 번호 */
