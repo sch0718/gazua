@@ -82,7 +82,7 @@
     if (themes) return ' · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요';
     return ' · 다시 수집하면 환율·유가·테마도 쓸 수 있어요';
   }
-  const marketHas = (i: MarketDataInfo) => marketMacroThemes(i) + (i.hasFlow ? ' · 매매동향 포함' : '');
+  const marketHas = (i: MarketDataInfo) => marketMacroThemes(i) + (i.hasFlow ? ' · 매매동향 포함' : '') + (i.hasFin ? ' · 재무 포함' : '');
   const marketLine = (i: MarketDataInfo) =>
     `수집 ${i.collectedAt.slice(0, 10)} · ${i.stocks.toLocaleString('ko-KR')}종목 · ${i.range.from} ~ ${i.range.to}` + marketHas(i);
 

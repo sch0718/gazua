@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3 } from '../marketData/format';
+import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
 import { roundMoney } from '../sim/money';
 import { simulate } from '../sim/simulate';
@@ -353,7 +353,7 @@ describe('runValidation: 환율·유가와 테마·내 묶음', () => {
 
   it("v1 데이터인데 환율·유가 조건이 켜져 있으면 'no-macro' 오류. 꺼져 있으면 그대로 돈다", () => {
     const { macro: _m, themes: _t, ...rest } = structuredClone(v2);
-    const v1: MarketDataFileV1 = { ...rest, version: 1 };
+    const v1: MarketDataFileV1 = { ...rest, version: 1, stocks: (fixture as MarketDataFileV4).stocks.map(({ flow, fin, ...s }) => (void flow, void fin, s)) };
     const c = crit((c) => (c.conditions.macro.usdkrw.beta.on = true));
     expect(() => run(c, [], v1)).toThrow(ValidationError);
     expect(() => run(c, [], v1)).toThrow('이 데이터에는 환율·유가가 없어요');
@@ -449,9 +449,10 @@ describe('runValidation: 투자자 수급', () => {
   });
 
   it("수급이 없는 데이터(v1·v2, 또는 수급 있는 종목 0)인데 수급을 쓰면 'no-flow' 오류. 쓰지 않으면 그대로 돈다", () => {
-    const v3 = fixture as MarketDataFileV3;
-    const v2: MarketDataFileV2 = { ...v3, version: 2, stocks: v3.stocks.map(({ flow, ...s }) => (void flow, s)) };
-    const none: MarketDataFileV3 = { ...v3, stocks: v2.stocks };
+    // 데모는 v4라 fin·flow를 지워 v2를 만들고, 수급 있는 종목이 0인 v3도 만든다
+    const v4 = fixture as MarketDataFileV4;
+    const v2: MarketDataFileV2 = { ...v4, version: 2, stocks: v4.stocks.map(({ flow, fin, ...s }) => (void flow, void fin, s)) };
+    const none: MarketDataFileV3 = { ...v4, version: 3, stocks: v2.stocks };
     for (const data of [v2, none] as MarketDataFile[]) {
       for (const c of [crit(foreign), crit((c) => (c.rank = { by: 'flow', take: 5, flow: { who: 'foreign', days: 20 } }))]) {
         let caught: unknown;
@@ -463,6 +464,65 @@ describe('runValidation: 투자자 수급', () => {
         expect(caught).toBeInstanceOf(ValidationError);
         expect(errorCode(caught)).toBe('no-flow');
         expect((caught as Error).message).toBe('이 데이터에는 투자자 매매동향이 없어요');
+      }
+      expect(run(crit(), [], data).rebalances.length).toBe(DATES.length);
+    }
+  });
+
+  it('v4 파일의 수급도 v3와 똑같이 쓴다', () => {
+    const v3 = fixture as MarketDataFileV3;
+    const v4: MarketDataFileV4 = { ...v3, version: 4 };
+    const c = crit(foreign);
+    expect(run(c, [], v4).rebalances).toEqual(run(c, [], v3).rebalances);
+  });
+});
+
+describe('runValidation: 재무', () => {
+  const per = (c: SelectionCriteria) => (c.conditions.fin.per = { on: true, min: 0, max: 15 });
+  const rankFin = (metric: 'per' | 'pbr' | 'roe') => (c: SelectionCriteria) => (c.rank = { by: 'fin', take: 5, fin: { metric } });
+
+  it("재무 조건이나 재무 정렬을 쓰면 늘 'finLag' 메모", () => {
+    expect(run(crit()).notes).not.toContain('finLag');
+    expect(run(crit(per)).notes).toContain('finLag');
+    expect(run(crit(rankFin('roe'))).notes).toContain('finLag');
+    expect(run(crit((c) => (c.conditions.fin.profitable.on = true))).notes).toContain('finLag');
+  });
+
+  it("PER·PBR 조건이나 PER·PBR 정렬을 쓸 때만 'finShares' 메모", () => {
+    expect(run(crit()).notes).not.toContain('finShares');
+    expect(run(crit(per)).notes).toContain('finShares');
+    expect(run(crit((c) => (c.conditions.fin.pbr = { on: true, min: 0, max: 1.5 }))).notes).toContain('finShares');
+    expect(run(crit(rankFin('pbr'))).notes).toContain('finShares');
+    expect(run(crit(rankFin('per'))).notes).toContain('finShares');
+    expect(run(crit(rankFin('roe'))).notes).not.toContain('finShares');
+    expect(run(crit((c) => (c.conditions.fin.roe = { on: true, min: 10 }))).notes).not.toContain('finShares');
+  });
+
+  it("후보 전체가 재무 계산 불가인 재선정일이 있으면 'finGap'(재무가 늦게 시작한 종목만 후보)", () => {
+    const late: Basket[] = [{ id: 'late', name: '늦은 재무', updatedAt: NOW, symbols: ['103333'] }];
+    const value: Basket[] = [{ id: 'late', name: '저PER', updatedAt: NOW, symbols: ['114443'] }];
+    const base = (c: SelectionCriteria) => ((c.pool.baskets = ['late']), (c.pool.excludeManaged = false), (c.conditions.tradingValue.on = false));
+    const c = crit((c) => (base(c), per(c)));
+    expect(run(c, [], fixture, late).notes).toContain('finGap');
+    expect(run(c, [], fixture, value).notes).not.toContain('finGap');
+    expect(run(crit(base), [], fixture, late).notes).not.toContain('finGap');
+  });
+
+  it("재무가 없는 데이터(v1~v3, 또는 재무 있는 종목 0)인데 재무를 쓰면 'no-fin' 오류. 쓰지 않으면 그대로 돈다", () => {
+    const v4 = fixture as MarketDataFileV4;
+    const v3: MarketDataFileV3 = { ...v4, version: 3, stocks: v4.stocks.map(({ fin, ...s }) => (void fin, s)) };
+    const none: MarketDataFileV4 = { ...v4, stocks: v3.stocks };
+    for (const data of [v3, none] as MarketDataFile[]) {
+      for (const c of [crit(per), crit(rankFin('roe'))]) {
+        let caught: unknown;
+        try {
+          run(c, [], data);
+        } catch (e) {
+          caught = e;
+        }
+        expect(caught).toBeInstanceOf(ValidationError);
+        expect(errorCode(caught)).toBe('no-fin');
+        expect((caught as Error).message).toBe('이 데이터에는 재무 정보가 없어요');
       }
       expect(run(crit(), [], data).rebalances.length).toBe(DATES.length);
     }

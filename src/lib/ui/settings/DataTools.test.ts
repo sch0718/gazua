@@ -163,7 +163,7 @@ describe('DataTools', () => {
       await mount();
       expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
       await pick(demo());
-      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함 · 매매동향 포함')).toBeTruthy();
+      expect(await screen.findByText('수집 2026-10-16 · 30종목 · 2024-10-16 ~ 2026-10-15 · 환율·유가·테마 포함 · 매매동향 포함 · 재무 포함')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '지우기' }));
       await waitFor(() => expect(screen.queryByText(/^수집 /)).toBeNull());
       expect(await marketData.info()).toBeNull();
@@ -174,6 +174,10 @@ describe('DataTools', () => {
       j.version = 1;
       delete j.macro;
       delete j.themes;
+      j.stocks.forEach((st: any) => {
+        delete st.flow;
+        delete st.fin;
+      });
       await mount({ decompress: async () => JSON.stringify(j), estimate: roomy });
       await pick(demo());
       expect(
@@ -190,12 +194,41 @@ describe('DataTools', () => {
     }
     const asV2 = (j: any) => {
       j.version = 2;
-      j.stocks.forEach((st: any) => delete st.flow);
+      j.stocks.forEach((st: any) => {
+        delete st.flow;
+        delete st.fin;
+      });
     };
     const emptyMacro = (j: any) => (j.macro = { usdkrw: { d: [], v: [] }, wti: { d: [], v: [] } });
 
     it('v3 without any flow (--no-flows) keeps the plain macro/theme text', async () => {
+      await importVariant((j) => {
+        j.version = 3;
+        j.stocks.forEach((st: any) => {
+          delete st.flow;
+          delete st.fin;
+        });
+      });
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
+    });
+
+    it('v4 with flow but no fin names only flow', async () => {
+      await importVariant((j) => j.stocks.forEach((st: any) => delete st.fin));
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함 · 매매동향 포함`)).toBeTruthy();
+    });
+
+    it('v4 with fin but no flow names only fin', async () => {
       await importVariant((j) => j.stocks.forEach((st: any) => delete st.flow));
+      expect(await screen.findByText(`${base} · 환율·유가·테마 포함 · 재무 포함`)).toBeTruthy();
+    });
+
+    it('v4 with neither flow nor fin keeps the plain macro/theme text', async () => {
+      await importVariant((j) =>
+        j.stocks.forEach((st: any) => {
+          delete st.flow;
+          delete st.fin;
+        }),
+      );
       expect(await screen.findByText(`${base} · 환율·유가·테마 포함`)).toBeTruthy();
     });
 
@@ -241,7 +274,7 @@ describe('DataTools', () => {
 
     it('shows the newer-version message', async () => {
       const j = JSON.parse(await decompress(new Blob([gz])));
-      await mount({ decompress: async () => JSON.stringify({ ...j, version: 4 }), estimate: roomy });
+      await mount({ decompress: async () => JSON.stringify({ ...j, version: 5 }), estimate: roomy });
       await pick(demo());
       expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
     });

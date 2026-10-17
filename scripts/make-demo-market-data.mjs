@@ -16,6 +16,15 @@ export const FLOW_LATE_CODE = '113332'; // 수급 시작일이 기간 중간 (�
 export const FLOW_NONE_CODE = '069500'; // KODEX 200은 수급을 받지 못한 종목(flow 없음)
 export const FLOW_INST_STREAK = 10;
 
+// ── 재무 설계 종목(테스트·e2e가 가져다 쓴다). 수급·환율 민감도 설계 종목과 겹치지 않게 골랐다 ──
+// 값은 앱의 기본 검증 기간(2025-10-16 ~ 2026-10-15) 매월 재선정일에 공시 시점 규칙(분기 +60일, 연간 +100일)으로 본 값이다.
+// 저PER은 설계 PER 4.5(ROE 13%라 PBR 약 0.6)다. 주가가 오른 재선정일에도 PER이 10 아래에 머물게 5보다 조금 낮게 잡았다
+export const FIN_VALUE_CODES = ['114443', '115554', '213332']; // PER 약 5, PBR 약 0.6
+export const FIN_QUALITY_CODES = ['215554', '217776']; // ROE 약 25%, 영업이익률 약 20%
+export const FIN_GROWTH_CODES = ['219998', '107777']; // 매출 약 +40%/년, 영업이익 약 +60%/년
+export const FIN_LOSS_CODE = '211110'; // 적자(TTM 순이익 < 0)
+export const FIN_LATE_CODE = '103333'; // 재무가 데이터 기간 중간(2025년 3분기)부터 시작
+
 // mulberry32
 function rng(seed) {
   let a = seed >>> 0;
@@ -234,9 +243,77 @@ stocks.forEach((st, i) => {
   if (st.s !== FLOW_NONE_CODE) st.flow = flowFor(st, i);
 });
 
+// ── 재무(억 원, 12월 결산) ──
+// 일봉·수급 난수와 섞이지 않게 따로 시드한 난수로 만든다. 순이익은 그 분기 실적이 알려지는 날의 시가총액에서
+// 설계 PER로 거꾸로 구한다(TTM ≈ 시가총액 ÷ PER). 그래서 주가가 움직여도 PER이 설계값 근처에 머문다.
+// 자본은 설계 ROE로(자본 ≈ TTM 순이익 ÷ ROE), 매출·영업이익은 설계 이익률·성장률로 만든다.
+const FIN_FIRST = '202203';
+const FIN_LATE_FIRST = '202509';
+const FIN_LAST = '202606'; // 수집일(2026-10-16)에 나와 있는 마지막 분기
+function quarters(from, to) {
+  const out = [];
+  for (let m = +from.slice(0, 4) * 12 + +from.slice(4) - 1; ; m += 3) {
+    const ym = `${Math.floor(m / 12)}${String((m % 12) + 1).padStart(2, '0')}`;
+    if (ym > to) return out;
+    out.push(ym);
+  }
+}
+// 분기말(그 달 말일) + 연간 결산 분기 100일, 그 밖 60일 (스펙 2.3)
+const knownFrom = (ym, a) => new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(4), 0) + (a ? 100 : 60) * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+// date 이후 첫 봉의 종가(기간 앞이면 첫 봉, 뒤면 마지막 봉)
+function closeOnOrAfter(st, date) {
+  const k = st.d.findIndex((d) => d >= date);
+  return st.c[k < 0 ? st.c.length - 1 : k];
+}
+const r2 = (x) => Math.round(x * 100) / 100 + 0;
+function finFor(st, i) {
+  const r = rng(12000 + i);
+  const kind = FIN_VALUE_CODES.includes(st.s) ? 'value' : FIN_QUALITY_CODES.includes(st.s) ? 'quality' : FIN_GROWTH_CODES.includes(st.s) ? 'growth' : st.s === FIN_LOSS_CODE ? 'loss' : 'other';
+  const per = kind === 'value' ? 4.5 : 20 + r() * 10;
+  const roe = kind === 'value' ? 0.13 : kind === 'quality' ? 0.25 : kind === 'growth' ? 0.15 : 0.05 + r() * 0.08;
+  const margin = kind === 'quality' ? 0.2 : kind === 'value' ? 0.08 : 0.05 + r() * 0.06;
+  const debtRatio = 0.3 + r() * 1.2;
+  const q = quarters(st.s === FIN_LATE_CODE ? FIN_LATE_FIRST : FIN_FIRST, FIN_LAST);
+  const a = q.map((ym) => (ym.endsWith('12') ? 1 : 0));
+  // 그 분기가 알려지는 날의 시가총액(억 원) ÷ PER = 그때의 TTM 순이익 목표
+  const ttm = q.map((ym, k) => (closeOnOrAfter(st, knownFrom(ym, a[k])) * st.shares) / 1e8 / per);
+  const n = q.length;
+  const rev = [], op = [], ni = [], eq = [], debt = [];
+  // 매출 기준값: 마지막 분기의 순이익 목표를 순이익률(이익률 × 0.7)로 나눈 값
+  const base = ttm[n - 1] / 4 / (margin * 0.7);
+  for (let k = 0; k < n; k++) {
+    const years = (k - (n - 1)) / 4; // 마지막 분기가 0, 한 해 앞이 -1
+    const wobble = 1 + gauss(r) * 0.01;
+    let rv, o, x;
+    if (kind === 'growth') {
+      rv = base * 1.4 ** years;
+      o = rv * 0.12 * (1.6 / 1.4) ** years;
+      x = ttm[k] / 4;
+    } else if (kind === 'loss') {
+      rv = base * 1.02 ** years * wobble;
+      o = -rv * (0.06 + r() * 0.02);
+      x = -(ttm[k] / 4) * (0.6 + r() * 0.2);
+    } else {
+      rv = base * 1.03 ** years * wobble;
+      o = rv * margin * (1 + gauss(r) * 0.01);
+      x = (ttm[k] / 4) * (1 + gauss(r) * 0.01);
+    }
+    const e = kind === 'loss' ? ttm[k] / 0.06 : ttm[k] / roe;
+    rev.push(r2(rv)); op.push(r2(o)); ni.push(r2(x)); eq.push(r2(e)); debt.push(r2(e * debtRatio));
+  }
+  return { q, a, rev, op, ni, eq, debt };
+}
+for (const code of [...FIN_VALUE_CODES, ...FIN_QUALITY_CODES, ...FIN_GROWTH_CODES, FIN_LOSS_CODE, FIN_LATE_CODE]) {
+  if (!stocks.some((x) => x.s === code && x.t === 'STOCK')) throw new Error(`재무 설계 종목 ${code}이 없어요`);
+}
+// ETF·ETN은 재무제표가 없다(수집기도 STOCK만 받는다)
+stocks.forEach((st, i) => {
+  if (st.t === 'STOCK') st.fin = finFor(st, i);
+});
+
 const file = {
   format: 'gazua-market-data',
-  version: 3,
+  version: 4,
   collectedAt: '2026-10-16T09:00:00+09:00',
   source: 'kis',
   adjusted: true,

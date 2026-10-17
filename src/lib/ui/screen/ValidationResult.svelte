@@ -10,7 +10,7 @@
   import SelectionHistory from './SelectionHistory.svelte';
   import TodayPicks from './TodayPicks.svelte';
   import type { MacroSeriesKey } from '../../screen/types';
-  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, FLOW_GAP_TEXT, FLOW_LAG_TEXT, HELP_ALWAYS, MACRO_GAP_TEXT, MACRO_LAG_TEXT, SPARSE_TEXT, THEME_SNAPSHOT_TEXT, trendPp, vsIndex, WARMUP_TEXT, type FlowRunSnap } from './screenText';
+  import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, FIN_GAP_TEXT, FIN_LAG_TEXT, FIN_SHARES_TEXT, FLOW_GAP_TEXT, FLOW_LAG_TEXT, HELP_ALWAYS, MACRO_GAP_TEXT, MACRO_LAG_TEXT, SPARSE_TEXT, THEME_SNAPSHOT_TEXT, trendPp, vsIndex, WARMUP_TEXT, type FinRunSnap, type FlowRunSnap } from './screenText';
 
   let {
     app,
@@ -21,6 +21,7 @@
     theme,
     macro,
     flow,
+    fin,
   }: {
     app: App;
     result: ValidationResult;
@@ -33,6 +34,8 @@
     macro?: { used: boolean; lookback?: Partial<Record<MacroSeriesKey, number>> };
     /** 이 실행의 수급 주체·기간(실행할 때의 기준). 선정 이력의 수급 값에 이름을 붙인다 */
     flow: FlowRunSnap;
+    /** 이 실행의 재무 정렬 지표·흑자 조건(실행할 때의 기준). 선정 이력의 재무 값에 쓴다 */
+    fin: FinRunSnap;
   } = $props();
 
   interface Card {
@@ -77,6 +80,7 @@
   {#if note('sparseAxis')}<Banner tone="warn" message={SPARSE_TEXT} />{/if}
   {#if note('macroGap')}<Banner tone="warn" message={MACRO_GAP_TEXT} />{/if}
   {#if note('flowGap')}<Banner tone="warn" message={FLOW_GAP_TEXT} />{/if}
+  {#if note('finGap')}<Banner tone="warn" message={FIN_GAP_TEXT} />{/if}
 
   <TodayPicks {app} selection={result.today} {names} {criteriaName} />
 
@@ -118,7 +122,7 @@
   </section>
 
   <MarketTable {result} />
-  <SelectionHistory {result} {names} lookback={macro?.lookback} {flow} />
+  <SelectionHistory {result} {names} lookback={macro?.lookback} {flow} {fin} />
 
   <ul class="help" aria-label="결과 해석 도움말">
     {#each HELP_ALWAYS as line (line)}<li>{line}</li>{/each}
@@ -126,6 +130,8 @@
     {#if note('themeSnapshot')}<li>{THEME_SNAPSHOT_TEXT}</li>{/if}
     {#if macro?.used}<li>{MACRO_LAG_TEXT}</li>{/if}
     {#if note('flowLag')}<li>{FLOW_LAG_TEXT}</li>{/if}
+    {#if note('finLag')}<li>{FIN_LAG_TEXT}</li>{/if}
+    {#if note('finShares')}<li>{FIN_SHARES_TEXT}</li>{/if}
   </ul>
 </div>
 

@@ -7,17 +7,18 @@ import type { ValidationResult as Result } from '../../screen/runValidation';
 import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
 import { stats, validationResult } from './resultFixture';
-import type { FlowRunSnap } from './screenText';
+import type { FinRunSnap, FlowRunSnap } from './screenText';
 import ValidationResult from './ValidationResult.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../../chart/lwcStub')).lwcModule());
 
 const DEFAULT_FLOW: FlowRunSnap = { amount: { who: 'foreign', days: 20 }, streak: { who: 'inst' }, rank: { who: 'foreign', days: 20 } };
+const DEFAULT_FIN: FinRunSnap = { rank: 'per', profitable: false };
 let apps: App[] = [];
-function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } }; flow?: FlowRunSnap } = {}) {
+function setup(result: Result = validationResult(), names: Record<string, string> = {}, extra: { macro?: { used: boolean; lookback?: { usdkrw?: number; wti?: number } }; flow?: FlowRunSnap; fin?: FinRunSnap } = {}) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
   apps.push(app);
-  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, ...extra });
+  render(ValidationResult, { app, result, names, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN, ...extra });
   return app;
 }
 beforeEach(() => {
@@ -291,6 +292,44 @@ describe('ValidationResult', () => {
       await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
       expect([...document.querySelectorAll('[data-flow-value]')].map((e) => e.textContent)).toEqual(['외국인 순매수 20일 3.2% · 연속 5일']);
       expect(document.querySelector('.vals')!.textContent).not.toContain('flow');
+    });
+  });
+  describe('fundamental notes and values', () => {
+    const withPicks = (values: Record<string, number | boolean | null>) => {
+      const base = validationResult();
+      return validationResult({ rebalances: [{ ...base.rebalances[0], picked: [{ symbol: '000000', values }] }, base.rebalances[1]] });
+    };
+
+    it('finLag and finShares add their sentences to the help list (verbatim), and only with those notes', () => {
+      setup(validationResult({ notes: ['finLag', 'finShares'] }));
+      const help = squash(document.querySelector('.help')!);
+      expect(help).toContain('재무는 분기 결산 60일, 연간 결산 100일 뒤부터 써요');
+      expect(help).toContain('PER·PBR의 시가총액은 지금 상장주식수로 계산해서, 과거에 증자한 종목은 값이 조금 클 수 있어요');
+      document.body.innerHTML = '';
+      setup(validationResult({ notes: [] }));
+      const none = squash(document.querySelector('.help')!);
+      expect(none).not.toContain('연간 결산 100일');
+      expect(none).not.toContain('상장주식수로 계산해서');
+    });
+
+    it('finGap is a warning banner on top (verbatim)', () => {
+      setup(validationResult({ notes: ['finGap'] }));
+      expect([...document.querySelectorAll('.banner.warn')].map((b) => squash(b))).toEqual(['재무 데이터가 없는 구간이 있어 그 재선정일에는 고른 종목이 없거나 적어요']);
+      expect(squash(document.querySelector('.help')!)).not.toContain('재무 데이터가 없는');
+    });
+
+    it('expanding a history row shows PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지), not the raw keys', async () => {
+      setup(withPicks({ finPer: 8.34, finRoe: 14.2, finDebtRatio: 62, finQuarter: 202606 }));
+      expect(document.querySelector('[data-fin-value]')).toBeNull();
+      await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+      expect([...document.querySelectorAll('[data-fin-value]')].map((e) => e.textContent)).toEqual(['PER 8.3 · ROE 14.2% · 부채비율 62% (2026년 2분기까지)']);
+      expect(document.querySelector('.vals')!.textContent).not.toContain('fin');
+    });
+
+    it('the 재무 순 value is named by the run-time metric', async () => {
+      setup(withPicks({ rankFin: 61.25, finQuarter: 202611 }), {}, { fin: { rank: 'opGrowth', profitable: true } });
+      await fireEvent.click(screen.getByRole('button', { name: /통과 25개/ }));
+      expect([...document.querySelectorAll('[data-fin-value]')].map((e) => e.textContent)).toEqual(['흑자 (2026년 4분기까지)', '영업이익 증가율 61.3%']);
     });
   });
 });

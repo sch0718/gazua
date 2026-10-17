@@ -6,7 +6,7 @@ import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
 import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
 import { lastUsablePair, macroKnownFrom, rollingBeta } from './macro';
-import { DATES, lcg, mkFile, mkFileV2, mkFileV3, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, withFlow, ymd } from './testData';
+import { DATES, FIN_BASE, lcg, mkFile, mkFileV2, mkFileV3, mkFileV4, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, withFin, withFlow, ymd } from './testData';
 
 describe('tradingAxis', () => {
   it('지수 날짜 ∪ 종목 날짜를 YYYY-MM-DD 오름차순으로 낸다', () => {
@@ -173,13 +173,13 @@ describe('precompute', () => {
     const c = offCriteria();
     c.conditions.tradingValue.days = 7;
     const f = mkFile([mkStock('A', [1, 2, 3])], 3);
-    expect(precompute(f, c, null).params).toEqual({ tvDays: 7, maPeriod: null, volDays: 20, reboundEntryKey: null, betaDays: null, flow: null });
+    expect(precompute(f, c, null).params).toEqual({ tvDays: 7, maPeriod: null, volDays: 20, reboundEntryKey: null, betaDays: null, flow: null, fin: null });
     c.conditions.vsMa = { on: true, period: 9, side: 'below' };
     c.conditions.volatility = { on: true, days: 4, maxPct: 1 };
     const e = reboundEntry();
     const reordered = Object.fromEntries(Object.entries(e).reverse()) as typeof e;
     const params = precompute(f, c, e).params;
-    expect(params).toEqual({ tvDays: 7, maPeriod: 9, volDays: 4, reboundEntryKey: stableJson(e), betaDays: null, flow: null });
+    expect(params).toEqual({ tvDays: 7, maPeriod: 9, volDays: 4, reboundEntryKey: stableJson(e), betaDays: null, flow: null, fin: null });
     expect(stableJson(reordered)).toBe(params.reboundEntryKey);
     expect(JSON.parse(params.reboundEntryKey!)).toEqual(e);
   });
@@ -457,5 +457,44 @@ describe('precompute: 투자자 수급(스펙 3.5)', () => {
     c.conditions.flow.amount.on = true;
     expect(precompute(mkFileV2([mkStock('A', [1, 2, 3])], 3), c, null).stocks[0].flow).toBeNull();
     expect(precompute(mkFile([mkStock('A', [1, 2, 3])], 3), c, null).stocks[0].flow).toBeNull();
+  });
+});
+
+describe('precompute: 재무(스펙 3.4)', () => {
+  const file = () => mkFileV4([withFin(mkStock('A', [1, 2, 3]), FIN_BASE), mkStock('N', [1, 2, 3])], 3);
+  const perOn = () => {
+    const c = offCriteria();
+    c.conditions.fin.per.on = true;
+    return c;
+  };
+
+  it('재무 조건·정렬을 쓰지 않으면 재무 배열을 만들지 않는다(params.fin null)', () => {
+    const pre = precompute(file(), offCriteria(), null);
+    expect(pre.params.fin).toBeNull();
+    expect(pre.stocks.map((s) => s.fin)).toEqual([null, null]);
+  });
+
+  it('조건이나 정렬에 쓰면 종목마다 알려진 날 배열과 매출·영업이익·순이익 누적합(길이 n + 1)을 만든다', () => {
+    const rank = offCriteria();
+    rank.rank = { by: 'fin', take: 5, fin: { metric: 'roe' } };
+    for (const c of [perOn(), rank]) {
+      const pre = precompute(file(), c, null);
+      expect(pre.params.fin).toEqual({ used: true });
+      const f = pre.stocks[0].fin!;
+      expect(f.q).toEqual(FIN_BASE.q);
+      expect(f.known).toEqual(['20230410', '20230530', '20230829', '20231129', '20240409', '20240530', '20240829', '20241129']);
+      expect(f.rev).toBeInstanceOf(Float64Array);
+      expect([...f.rev]).toEqual([0, 6, 12, 18, 24, 31.5, 39, 46.5, 54]);
+      expect(f.op[8]).toBe(5);
+      expect(f.ni[8]).toBe(4);
+      expect(f.eq).toEqual(FIN_BASE.eq);
+      expect(f.debt).toEqual(FIN_BASE.debt);
+      expect(pre.stocks[1].fin).toBeNull(); // 재무가 없는 종목
+    }
+  });
+
+  it('v1~v3 데이터면 재무 배열이 없다', () => {
+    const st = mkStock('A', [1, 2, 3]);
+    for (const f of [mkFile([st], 3), mkFileV2([st], 3), mkFileV3([st], 3)]) expect(precompute(f, perOn(), null).stocks[0].fin).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 조건 하나: 이름 · 켜기 토글 · 한 줄 설명 · (아래에) 숫자 칸. 꺼도 칸은 흐리게 보이고 계속 고칠 수 있다.
+  // 조건 하나: 이름 · 켜기 토글 · 한 줄 설명 · (아래에, 있으면) 숫자 칸. 꺼도 칸은 흐리게 보이고 계속 고칠 수 있다.
   import type { Snippet } from 'svelte';
   import Toggle from '../components/Toggle.svelte';
 
@@ -21,7 +21,8 @@
     /** 포커스를 지키며 막을 때: aria-disabled만 켠다 */
     softDisabled?: boolean;
     describedby?: string;
-    children: Snippet;
+    /** 숫자 칸. 켜고 끄기만 있는 조건(흑자)은 없다 */
+    children?: Snippet;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 9);
@@ -33,7 +34,7 @@
     <Toggle id="cond-{uid}" label="{label} 사용" checked={on} onchange={ontoggle} {disabled} {softDisabled} {describedby} />
   </div>
   <p class="help">{help}</p>
-  <div class="fields">{@render children()}</div>
+  {#if children}<div class="fields">{@render children()}</div>{/if}
 </div>
 
 <style>

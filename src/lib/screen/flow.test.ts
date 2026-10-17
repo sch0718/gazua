@@ -116,6 +116,13 @@ describe('flowRatio: 순매수 비율(스펙 3.2)', () => {
     expect(flowRatio(x, b, 'foreign', 5, 20)).toBeNaN();
   });
 
+  it('경계는 부동소수 오차에 흔들리지 않는다: 순매수 9 / 거래대금 1e9가 정확히 0.9%이면 최소 0.9를 통과한다', () => {
+    const st = withFlow(mkStock('A', Array(N).fill(100)), 0, { f: seq(N, (j) => (j === E ? 9 : 0)) });
+    const c = amountCrit('foreign', 1, 0.9, 100);
+    expect(ratioOf(st, 'foreign', 1)).toBe(0.9);
+    expect(selectAt(D, pre([st], c), c).passed).toBe(1);
+  });
+
   it('미리 계산에 그 주체의 누적합이 없으면 던진다', () => {
     const c = amountCrit('foreign', 5);
     const x = pre([withFlow(mkStock('A', Array(N).fill(100)), 0, { f })], c);

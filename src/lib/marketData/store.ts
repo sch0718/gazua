@@ -1,6 +1,6 @@
 // 시장 데이터 파일(수집 스크립트 산출물)을 브라우저 IndexedDB에 하나만 보관한다. 기기 단위 데이터다(스펙 4).
 import { openDB, type DBSchema } from 'idb';
-import { hasMacroFormat, isV3, validateMarketData, type MarketDataFile } from './format';
+import { hasFlowFormat, hasMacroFormat, isV4, validateMarketData, type MarketDataFile } from './format';
 
 export type MarketSector = MarketDataFile['sectors'][number];
 /** 테마 선택 화면용 요약. 종목 목록은 본문에만 둔다. */
@@ -17,7 +17,7 @@ export interface MarketDataInfo {
   /** 저장된 파일이 풀린 크기(바이트). 교체할 때 여유 공간에 되돌려 셈한다. */
   bytes?: number;
   /** 파일 형식 버전. 이 필드가 생기기 전에 가져온 데이터는 1로 본다. */
-  version?: 1 | 2 | 3;
+  version?: 1 | 2 | 3 | 4;
   /** v2이고 환율·유가 계열 중 하나라도 값이 있다 */
   hasMacro?: boolean;
   /** 파일에 든 테마 수. 없던 시절의 요약은 0으로 읽는다. */
@@ -26,6 +26,10 @@ export interface MarketDataInfo {
   hasFlow?: boolean;
   /** 매매동향이 있는 종목 수. 없던 시절의 요약은 0으로 읽는다. */
   flowStocks?: number;
+  /** v4이고 재무가 있는 종목이 하나라도 있다. 없던 시절의 요약은 false로 읽는다. */
+  hasFin?: boolean;
+  /** 재무가 있는 종목 수. 없던 시절의 요약은 0으로 읽는다. */
+  finStocks?: number;
 }
 
 export type ImportResult =
@@ -110,7 +114,7 @@ export function openMarketData(): MarketDataStore {
     try {
       const got = (await d.get(STORE, INFO_KEY)) as MarketDataInfo | undefined;
       // 버전 필드가 생기기 전의 요약은 v1이다
-      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0, hasFlow: got.hasFlow ?? false, flowStocks: got.flowStocks ?? 0 } : null;
+      return got ? { ...got, version: got.version ?? 1, hasMacro: got.hasMacro ?? false, themeCount: got.themeCount ?? 0, hasFlow: got.hasFlow ?? false, flowStocks: got.flowStocks ?? 0, hasFin: got.hasFin ?? false, finStocks: got.finStocks ?? 0 } : null;
     } finally {
       d.close();
     }
@@ -179,7 +183,8 @@ export function openMarketData(): MarketDataStore {
 
     const data = check.data;
     const v2 = hasMacroFormat(data);
-    const flowStocks = isV3(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
+    const flowStocks = hasFlowFormat(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
+    const finStocks = isV4(data) ? data.stocks.filter((s) => s.fin !== undefined).length : 0;
     const next: MarketDataInfo = {
       collectedAt: data.collectedAt,
       stocks: data.stocks.length,
@@ -189,6 +194,8 @@ export function openMarketData(): MarketDataStore {
       themeCount: v2 ? data.themes.length : 0,
       hasFlow: flowStocks > 0,
       flowStocks,
+      hasFin: finStocks > 0,
+      finStocks,
       hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();

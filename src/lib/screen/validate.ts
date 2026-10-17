@@ -4,7 +4,7 @@ import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX, newCriteria } from './defaults';
 import type { Basket } from './baskets';
-import type { FlowWho, MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
+import type { FinMetric, FlowWho, MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -14,7 +14,8 @@ const realDate = (x: unknown): boolean =>
 
 const MARKETS: readonly Market[] = ['KOSPI', 'KOSDAQ'];
 const TYPES: readonly SecurityType[] = ['STOCK', 'ETF'];
-const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility', 'macroBeta', 'flow'];
+const RANKS: readonly RankBy[] = ['marketCap', 'tradingValue', 'return', 'lowVolatility', 'macroBeta', 'flow', 'fin'];
+const FIN_METRICS: readonly FinMetric[] = ['per', 'pbr', 'roe', 'opMargin', 'revGrowth', 'opGrowth'];
 const WHOS: readonly FlowWho[] = ['foreign', 'inst', 'indiv', 'both'];
 const SERIES: readonly MacroSeriesKey[] = ['usdkrw', 'wti'];
 const REBALANCES: readonly Rebalance[] = ['monthly', 'quarterly', 'semiannual'];
@@ -132,6 +133,16 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
   const fs = rec(fl.streak);
   const who = (x: unknown, def: FlowWho): FlowWho => pick(x, def, (y) => WHOS.includes(y as FlowWho));
 
+  const fn = rec(cd.fin);
+  const fper = rec(fn.per);
+  const fpbr = rec(fn.pbr);
+  const froe = rec(fn.roe);
+  const fom = rec(fn.opMargin);
+  const frg = rec(fn.revGrowth);
+  const fog = rec(fn.opGrowth);
+  const fdr = rec(fn.debtRatio);
+  const fpf = rec(fn.profitable);
+
   const conditions: SelectionCriteria['conditions'] = {
     marketCap: { on: bool(mc.on, dc.marketCap.on), minEok: num(mc.minEok, dc.marketCap.minEok, 0, EOK_MAX) },
     tradingValue: {
@@ -185,6 +196,16 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
         minDays: int(fs.minDays, dc.flow.streak.minDays, 1, 60),
       },
     },
+    fin: {
+      per: { on: bool(fper.on, dc.fin.per.on), min: num(fper.min, dc.fin.per.min, 0, 1000), max: num(fper.max, dc.fin.per.max, 0, 1000) },
+      pbr: { on: bool(fpbr.on, dc.fin.pbr.on), min: num(fpbr.min, dc.fin.pbr.min, 0, 100), max: num(fpbr.max, dc.fin.pbr.max, 0, 100) },
+      roe: { on: bool(froe.on, dc.fin.roe.on), min: num(froe.min, dc.fin.roe.min, -100, 100) },
+      opMargin: { on: bool(fom.on, dc.fin.opMargin.on), min: num(fom.min, dc.fin.opMargin.min, -100, 100) },
+      revGrowth: { on: bool(frg.on, dc.fin.revGrowth.on), min: num(frg.min, dc.fin.revGrowth.min, -100, 1000) },
+      opGrowth: { on: bool(fog.on, dc.fin.opGrowth.on), min: num(fog.min, dc.fin.opGrowth.min, -100, 1000) },
+      debtRatio: { on: bool(fdr.on, dc.fin.debtRatio.on), max: num(fdr.max, dc.fin.debtRatio.max, 0, 10000) },
+      profitable: { on: bool(fpf.on, dc.fin.profitable.on) },
+    },
   };
 
   const rk = rec(raw.rank);
@@ -199,11 +220,14 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
         : dSeries;
   const rf = rec(rk.flow);
   const dFlow = d.rank.flow ?? { who: 'foreign' as FlowWho, days: 20 };
+  const rfin = rec(rk.fin);
+  const dFin = d.rank.fin ?? { metric: 'per' as FinMetric };
   const rank = {
     by,
     take: int(rk.take, d.rank.take, 1, TAKE_MAX),
     series: rankSeries,
     flow: { who: who(rf.who, dFlow.who), days: int(rf.days, dFlow.days, 5, 120) },
+    fin: { metric: pick(rfin.metric, dFin.metric, (x) => FIN_METRICS.includes(x as FinMetric)) },
   };
 
   const p = rec(raw.period);
@@ -289,6 +313,7 @@ export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[])
 
 const NO_MACRO = '이 데이터에는 환율·유가가 없어요';
 const NO_FLOW = '이 데이터에는 투자자 매매동향이 없어요';
+const NO_FIN = '이 데이터에는 재무 정보가 없어요';
 
 /** 환율·유가 조건이 하나라도 켜져 있는가 */
 export const macroOn = (m: SelectionCriteria['conditions']['macro']): boolean =>
@@ -299,6 +324,11 @@ export const flowOn = (c: SelectionCriteria): boolean => c.conditions.flow.amoun
 /** 수급 조건을 켰거나 수급 순으로 정렬하는가 */
 export const usesFlow = (c: SelectionCriteria): boolean => flowOn(c) || c.rank.by === 'flow';
 
+/** 재무 조건이 하나라도 켜져 있는가 */
+export const finOn = (c: SelectionCriteria): boolean => Object.values(c.conditions.fin).some((x) => x.on);
+/** 재무 조건을 켰거나 재무 순으로 정렬하는가 */
+export const usesFin = (c: SelectionCriteria): boolean => finOn(c) || c.rank.by === 'fin';
+
 /**
  * dataInfo·baskets를 주면 데이터와 내 묶음에 기대는 검사를 더한다. 생략하면 건너뛴다(기존 호출 그대로).
  * baskets는 지금 프로필의 내 묶음 목록이다.
@@ -306,7 +336,7 @@ export const usesFlow = (c: SelectionCriteria): boolean => flowOn(c) || c.rank.b
 export function criteriaIssues(
   c: SelectionCriteria,
   strategies: Strategy[],
-  dataInfo?: { hasMacro: boolean; hasFlow: boolean; themeCodes?: string[] },
+  dataInfo?: { hasMacro: boolean; hasFlow: boolean; hasFin: boolean; themeCodes?: string[] },
   baskets?: Pick<Basket, 'id'>[],
 ): Issue[] {
   const out: Issue[] = [];
@@ -343,15 +373,22 @@ export function criteriaIssues(
     out.push({ section: 'conditions', text: '순매수 비율의 최소가 최대보다 커요', blocking: true });
   if (dataInfo && !dataInfo.hasFlow && usesFlow(c))
     out.push({ section: flowOn(c) ? 'conditions' : 'rank', text: NO_FLOW, blocking: true });
+  if (k.fin.per.on && k.fin.per.min > k.fin.per.max)
+    out.push({ section: 'conditions', text: 'PER 범위의 최소가 최대보다 커요', blocking: true });
+  if (k.fin.pbr.on && k.fin.pbr.min > k.fin.pbr.max)
+    out.push({ section: 'conditions', text: 'PBR 범위의 최소가 최대보다 커요', blocking: true });
+  if (dataInfo && !dataInfo.hasFin && usesFin(c))
+    out.push({ section: finOn(c) ? 'conditions' : 'rank', text: NO_FIN, blocking: true });
   if (baskets && c.pool.baskets.some((id) => !baskets.some((b) => b.id === id)))
     out.push({ section: 'pool', text: '지워진 내 묶음이 있어요. 다시 골라 주세요', blocking: false });
   const codes = dataInfo?.themeCodes;
   if (codes && c.pool.themes.some((t) => !codes.includes(t)))
     out.push({ section: 'pool', text: '지금 데이터에 없는 테마가 있어요', blocking: false });
 
-  const { macro, flow, ...simple } = k;
+  const { macro, flow, fin, ...simple } = k;
   void flow;
-  if (!macroOn(macro) && !flowOn(c) && !Object.values(simple).some((x) => x.on))
+  void fin;
+  if (!macroOn(macro) && !flowOn(c) && !finOn(c) && !Object.values(simple).some((x) => x.on))
     out.push({ section: 'conditions', text: '조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요', blocking: false });
   return out;
 }

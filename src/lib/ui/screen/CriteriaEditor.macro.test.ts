@@ -138,7 +138,7 @@ describe('v1 데이터(환율·유가·테마 없음)', () => {
   it('turns the FX/oil rows and the theme picker off with the re-collect hint', async () => {
     setup({ info: V1 });
     await open('후보 범위');
-    expect(screen.getAllByText('다시 수집하면 쓸 수 있어요')).toHaveLength(3); // 환율·유가 + 매매동향 + 테마
+    expect(screen.getAllByText('다시 수집하면 쓸 수 있어요')).toHaveLength(4); // 환율·유가 + 매매동향 + 재무 + 테마
     expect(sw('원/달러 민감도 사용').getAttribute('aria-disabled')).toBe('true');
     expect(field('원/달러 최소 민감도').matches(':disabled')).toBe(true); // 비활성 fieldset 안
     expect((screen.getByRole('searchbox', { name: '테마 검색' }) as HTMLInputElement).disabled).toBe(true);

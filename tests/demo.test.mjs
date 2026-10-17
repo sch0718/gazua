@@ -7,7 +7,20 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { FLOW_BOTH_CODE, FLOW_FOREIGN_CODES, FLOW_INST_CODES, FLOW_INST_STREAK, FLOW_LATE_CODE, FLOW_NONE_CODE, demoFile } from '../scripts/make-demo-market-data.mjs';
+import {
+  FIN_GROWTH_CODES,
+  FIN_LATE_CODE,
+  FIN_LOSS_CODE,
+  FIN_QUALITY_CODES,
+  FIN_VALUE_CODES,
+  FLOW_BOTH_CODE,
+  FLOW_FOREIGN_CODES,
+  FLOW_INST_CODES,
+  FLOW_INST_STREAK,
+  FLOW_LATE_CODE,
+  FLOW_NONE_CODE,
+  demoFile,
+} from '../scripts/make-demo-market-data.mjs';
 
 // tail=true면 마지막 'render();' 이후의 자동 시작 코드까지 실행한다(render는 스텁).
 function loadDemo(path,{tail=false}={}){
@@ -175,7 +188,7 @@ function ratio(stock, key, e, w = 20) {
 const last = (stock) => stock.d.length - 1;
 
 test('데모 v3: 외국인 순매수 설계 종목은 어느 날 20일 비율이 봐도 3% 이상이다', () => {
-  assert.equal(demoFile.version, 3);
+  assert.equal(demoFile.version, 4);
   for (const code of FLOW_FOREIGN_CODES) {
     const stock = st(code);
     assert.ok(stock.flow);
@@ -219,7 +232,7 @@ test('데모 v3: 설계하지 않은 종목은 외국인 비율이 0 주변이�
   }
 });
 
-test('데모 v3: 두 번 만들면 바이트가 같고 저장된 fixture와 내용이 같다', () => {
+test('데모 v4: 두 번 만들면 바이트가 같고 저장된 fixture와 내용이 같다', () => {
   const dir = mkdtempSync(join(tmpdir(), 'demo-'));
   try {
     const script = new URL('../scripts/make-demo-market-data.mjs', import.meta.url).pathname;
@@ -233,5 +246,129 @@ test('데모 v3: 두 번 만들면 바이트가 같고 저장된 fixture와 내�
     assert.deepEqual(JSON.parse(gunzipSync(a).toString('utf8')), JSON.parse(JSON.stringify(demoFile)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── 데모 시장 데이터 v4: 설계한 재무 종목 ─────────────────────────────
+// 앱의 fin.ts(Task 5)와 따로, 스펙 2.3·3.1을 그대로 옮긴 계산이다.
+const compact = (ms) => new Date(ms).toISOString().slice(0, 10).replaceAll('-', '');
+// 분기말(그 달 말일) + 연간 결산 분기 100일, 그 밖 60일
+const finKnownFrom = (ym, a) => compact(Date.UTC(+ym.slice(0, 4), +ym.slice(4, 6), 0) + (a ? 100 : 60) * 86_400_000);
+// 재선정일 d의 전 거래일 p에서 쓸 수 있는 지표. 계산 불가는 null
+function finAt(stock, p) {
+  const f = stock.fin;
+  if (!f) return null;
+  let L = -1;
+  for (let k = 0; k < f.q.length; k++) if (finKnownFrom(f.q[k], f.a[k]) < p) L = k;
+  const ttm = (key, end) => (end >= 3 ? f[key][end] + f[key][end - 1] + f[key][end - 2] + f[key][end - 3] : null);
+  const at = stock.d.indexOf(p);
+  const cap = at >= 0 ? stock.c[at] * stock.shares : null;
+  const ni = L >= 0 ? ttm('ni', L) : null;
+  const rev = L >= 0 ? ttm('rev', L) : null;
+  const op = L >= 0 ? ttm('op', L) : null;
+  const rev1 = L >= 4 ? ttm('rev', L - 4) : null;
+  const op1 = L >= 4 ? ttm('op', L - 4) : null;
+  const avgEq = L >= 4 ? (f.eq[L] + f.eq[L - 4]) / 2 : null;
+  return {
+    known: L + 1,
+    ni,
+    per: cap !== null && ni !== null && ni > 0 && stock.shares > 0 ? cap / (ni * 1e8) : null,
+    pbr: cap !== null && L >= 0 && f.eq[L] > 0 && stock.shares > 0 ? cap / (f.eq[L] * 1e8) : null,
+    roe: ni !== null && avgEq !== null && avgEq > 0 ? (ni / avgEq) * 100 : null,
+    opMargin: rev !== null && rev > 0 ? (op / rev) * 100 : null,
+    revGrowth: rev1 !== null && rev1 > 0 && rev !== null ? (rev / rev1 - 1) * 100 : null,
+    opGrowth: op1 !== null && op1 > 0 && op !== null ? (op / op1 - 1) * 100 : null,
+  };
+}
+// 앱의 기본 검증 기간(데이터 시작 1년 뒤 ~ 끝)의 매월 첫 거래일과 그 전 거래일 p
+const AXIS = demoFile.indices.find((i) => i.id === 'KOSPI').d;
+const PERIOD = { from: '20251016', to: '20261015' };
+const REBAL = AXIS.map((d, i) => ({ d, p: AXIS[i - 1] })).filter(({ d }, i) => d >= PERIOD.from && d <= PERIOD.to && (AXIS[i - 1] < PERIOD.from || d.slice(0, 6) !== AXIS[i - 1].slice(0, 6)));
+const LAST = REBAL.at(-1);
+const FIN_DESIGNED = [...FIN_VALUE_CODES, ...FIN_QUALITY_CODES, ...FIN_GROWTH_CODES, FIN_LOSS_CODE, FIN_LATE_CODE];
+
+test('데모 v4: 재무 설계 종목은 9개의 서로 다른 STOCK이고 수급·환율 설계 종목과 겹치지 않으며, STOCK만 재무가 있다', () => {
+  assert.equal(demoFile.version, 4);
+  assert.deepEqual([FIN_VALUE_CODES.length, FIN_QUALITY_CODES.length, FIN_GROWTH_CODES.length], [3, 2, 2]);
+  assert.equal(new Set(FIN_DESIGNED).size, 9);
+  const flowCodes = [...FLOW_FOREIGN_CODES, ...FLOW_INST_CODES, FLOW_BOTH_CODE, FLOW_LATE_CODE, FLOW_NONE_CODE];
+  const betaTheme = demoFile.themes.find((t) => t.name === '환율 수혜 대표').symbols;
+  const betaCodes = ['100000', '101111', '102222', '104444', '105555', '200000', '202222', '204444'];
+  assert.ok(betaTheme.every((c) => betaCodes.includes(c)));
+  for (const code of FIN_DESIGNED) {
+    assert.equal(st(code)?.t, 'STOCK', code);
+    assert.ok(!flowCodes.includes(code) && !betaCodes.includes(code), code);
+  }
+  for (const stock of demoFile.stocks) {
+    if (stock.t !== 'STOCK') assert.equal(stock.fin, undefined, stock.s);
+    else assert.ok(stock.fin, stock.s);
+  }
+});
+
+test('데모 v4: fin은 형식 규칙을 지키고 12월 결산(12월 분기만 a = 1)이다', () => {
+  const mon = (ym) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(4)) - 1;
+  for (const stock of demoFile.stocks.filter((x) => x.fin)) {
+    const f = stock.fin;
+    assert.ok(f.q.length >= 1 && f.q.every((x, i) => /^\d{4}(0[1-9]|1[0-2])$/.test(x) && (i === 0 || mon(x) - mon(f.q[i - 1]) === 3)), stock.s);
+    assert.deepEqual(f.a, f.q.map((q) => (q.endsWith('12') ? 1 : 0)), stock.s);
+    for (const k of ['rev', 'op', 'ni', 'eq', 'debt']) {
+      assert.equal(f[k].length, f.q.length);
+      assert.ok(f[k].every((x) => Number.isFinite(x) && Math.round(x * 100) / 100 === x), `${stock.s} ${k}`);
+    }
+    assert.ok(f.eq.every((x) => x > 0) && f.debt.every((x) => x >= 0) && f.rev.every((x) => x > 0), stock.s);
+  }
+});
+
+test('데모 v4: 마지막 재선정일에 설계 종목이 스펙 값 근처다(저PER·저PBR, 고ROE·고이익률, 고성장, 나머지 PER 15~40)', () => {
+  assert.equal(LAST.d, '20261001');
+  for (const code of FIN_VALUE_CODES) {
+    const m = finAt(st(code), LAST.p);
+    assert.ok(m.per > 3 && m.per <= 7, `${code} PER ${m.per}`);
+    assert.ok(m.pbr > 0.35 && m.pbr <= 0.85, `${code} PBR ${m.pbr}`);
+  }
+  for (const code of FIN_QUALITY_CODES) {
+    const m = finAt(st(code), LAST.p);
+    assert.ok(m.roe >= 20 && m.roe <= 32, `${code} ROE ${m.roe}`);
+    assert.ok(m.opMargin >= 18 && m.opMargin <= 22, `${code} 영업이익률 ${m.opMargin}`);
+  }
+  for (const code of FIN_GROWTH_CODES) {
+    const m = finAt(st(code), LAST.p);
+    assert.ok(m.revGrowth >= 30 && m.revGrowth <= 50, `${code} 매출 증가율 ${m.revGrowth}`);
+    assert.ok(m.opGrowth >= 45 && m.opGrowth <= 75, `${code} 영업이익 증가율 ${m.opGrowth}`);
+  }
+  const value = new Set([...FIN_VALUE_CODES, FIN_LOSS_CODE]);
+  for (const stock of demoFile.stocks.filter((x) => x.fin && !value.has(x.s))) {
+    const m = finAt(stock, LAST.p);
+    assert.ok(m.per >= 15 && m.per <= 40, `${stock.s} PER ${m.per}`);
+    if (!FIN_QUALITY_CODES.includes(stock.s)) assert.ok(m.roe === null || m.roe < 20, `${stock.s} ROE ${m.roe}`);
+    if (!FIN_GROWTH_CODES.includes(stock.s)) assert.ok(m.revGrowth === null || m.revGrowth < 30, `${stock.s} 매출 증가율 ${m.revGrowth}`);
+  }
+});
+
+test('데모 v4: 기본 기간의 모든 재선정일에 PER 10 이하인 종목은 정확히 저PER 설계 종목이다', () => {
+  assert.ok(REBAL.length >= 12);
+  for (const { d, p } of REBAL) {
+    const low = demoFile.stocks.filter((x) => x.fin && (finAt(x, p)?.per ?? Infinity) <= 10).map((x) => x.s).sort();
+    assert.deepEqual(low, [...FIN_VALUE_CODES].sort(), d);
+  }
+});
+
+test('데모 v4: 적자 종목은 모든 재선정일에 TTM 순이익이 0 이하라 PER이 계산 불가다', () => {
+  for (const { p } of REBAL) {
+    const m = finAt(st(FIN_LOSS_CODE), p);
+    assert.ok(m.ni !== null && m.ni <= 0, `${p} ${m.ni}`);
+    assert.equal(m.per, null);
+  }
+});
+
+test('데모 v4: 늦게 시작하는 종목은 첫 분기가 기간 중간이고, 나머지는 첫 재선정일에 알려진 분기가 12개 이상이다', () => {
+  const late = st(FIN_LATE_CODE);
+  const first = late.fin.q[0];
+  const at = late.d.findIndex((d) => d.slice(0, 6) >= first);
+  assert.ok(at > late.d.length * 0.4 && at < late.d.length * 0.6, `첫 분기 ${first} 위치 ${at}/${late.d.length}`);
+  assert.ok(finAt(late, REBAL[0].p).known < 4, '첫 재선정일에는 TTM을 구할 수 없다');
+  assert.ok(finAt(late, LAST.p).per !== null, '마지막 재선정일에는 PER을 구할 수 있다');
+  for (const stock of demoFile.stocks.filter((x) => x.fin && x.s !== FIN_LATE_CODE)) {
+    assert.ok(finAt(stock, REBAL[0].p).known >= 12, stock.s);
   }
 });

@@ -62,11 +62,30 @@ export interface MarketDataFileV3 extends Omit<MarketDataFileV2, 'version' | 'st
   stocks: (StockV1 & { flow?: FlowSeries })[];
 }
 
-export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2 | MarketDataFileV3;
+// 종목별 분기 재무(억 원). q는 분기말 YYYYMM으로 3개월 간격으로 이어진다(빠진 분기 없음).
+export interface FinSeries {
+  q: string[];
+  a: number[]; // 1 = 그 분기가 회계연도 마지막(연간 결산) 분기, 0 = 아님. 결산월 변경을 보존한다
+  rev: number[]; // 그 분기 하나의 매출액
+  op: number[]; // 그 분기 하나의 영업이익
+  ni: number[]; // 그 분기 하나의 당기순이익
+  eq: number[]; // 분기말 자본총계
+  debt: number[]; // 분기말 부채총계
+}
+
+export interface MarketDataFileV4 extends Omit<MarketDataFileV3, 'version' | 'stocks'> {
+  version: 4;
+  stocks: (MarketDataFileV3['stocks'][number] & { fin?: FinSeries })[];
+}
+
+export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2 | MarketDataFileV3 | MarketDataFileV4;
 
 export const isV3 = (f: MarketDataFile): f is MarketDataFileV3 => f.version === 3;
+export const isV4 = (f: MarketDataFile): f is MarketDataFileV4 => f.version === 4;
 // v2 이상이면 macro와 themes가 있다.
-export const hasMacroFormat = (f: MarketDataFile): f is MarketDataFileV2 | MarketDataFileV3 => f.version >= 2;
+export const hasMacroFormat = (f: MarketDataFile): f is MarketDataFileV2 | MarketDataFileV3 | MarketDataFileV4 => f.version >= 2;
+// v3 이상이면 종목에 flow가 있을 수 있다.
+export const hasFlowFormat = (f: MarketDataFile): f is MarketDataFileV3 | MarketDataFileV4 => f.version >= 3;
 
 export type MarketDataCheck =
   | { ok: true; data: MarketDataFile }
@@ -148,7 +167,7 @@ function macroCorrupt(m: Record<string, unknown>): boolean {
   return false;
 }
 
-// v3 flow: from이 d 안에 있고, 세 배열 길이가 같고 1 이상이며, 끝이 d를 넘지 않는다.
+// v3 이상 flow: from이 d 안에 있고, 세 배열 길이가 같고 1 이상이며, 끝이 d를 넘지 않는다.
 function flowCorrupt(s: Record<string, unknown>): boolean {
   if (s.flow === undefined) return false;
   const fl = s.flow;
@@ -161,18 +180,35 @@ function flowCorrupt(s: Record<string, unknown>): boolean {
   return !(['f', 'i', 'p'] as const).every((k) => isNumArray(fl[k], n) && (fl[k] as number[]).every(Number.isInteger));
 }
 
+// YYYYMM을 달 번호로. 형식이 틀리면 NaN
+const monthIndex = (ym: unknown): number =>
+  typeof ym === 'string' && /^\d{4}(0[1-9]|1[0-2])$/.test(ym) ? Number(ym.slice(0, 4)) * 12 + Number(ym.slice(4)) - 1 : NaN;
+
+// v4 fin: q가 1개 이상이고 YYYYMM이 정확히 3개월 간격, a는 0·1, 여섯 배열 길이가 q와 같고 값이 유한하다.
+function finCorrupt(s: Record<string, unknown>): boolean {
+  if (s.fin === undefined) return false;
+  const fin = s.fin;
+  if (!isObj(fin) || !Array.isArray(fin.q) || fin.q.length < 1) return true;
+  const m = fin.q.map(monthIndex);
+  if (!m.every((x, i) => Number.isFinite(x) && (i === 0 || x - m[i - 1] === 3))) return true;
+  const n = m.length;
+  if (!isNumArray(fin.a, n) || !fin.a.every((x) => x === 0 || x === 1)) return true;
+  return !(['rev', 'op', 'ni', 'eq', 'debt'] as const).every((k) => isNumArray(fin[k], n));
+}
+
 export function validateMarketData(x: unknown): MarketDataCheck {
   if (!isObj(x) || x.format !== 'gazua-market-data') return { ok: false, reason: 'format' };
   if (typeof x.version !== 'number') return { ok: false, reason: 'format' };
-  if (x.version > 3) return { ok: false, reason: 'version-newer' };
-  if (x.version !== 1 && x.version !== 2 && x.version !== 3) return { ok: false, reason: 'format' };
+  if (x.version > 4) return { ok: false, reason: 'version-newer' };
+  if (x.version !== 1 && x.version !== 2 && x.version !== 3 && x.version !== 4) return { ok: false, reason: 'format' };
   if (!Array.isArray(x.stocks) || !Array.isArray(x.indices) || !Array.isArray(x.sectors)) {
     return { ok: false, reason: 'format' };
   }
   if (!metaOk(x)) return { ok: false, reason: 'format' };
   if (x.version >= 2 && !v2ShapeOk(x)) return { ok: false, reason: 'format' };
   for (const s of x.stocks) if (!isObj(s) || stockCorrupt(s)) return { ok: false, reason: 'corrupt' };
-  if (x.version === 3) for (const s of x.stocks) if (flowCorrupt(s as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
+  if (x.version >= 3) for (const s of x.stocks) if (flowCorrupt(s as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
+  if (x.version >= 4) for (const s of x.stocks) if (finCorrupt(s as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
   for (const i of x.indices) if (!isObj(i) || indexCorrupt(i)) return { ok: false, reason: 'corrupt' };
   if (x.version >= 2 && macroCorrupt(x.macro as Record<string, unknown>)) return { ok: false, reason: 'corrupt' };
   return { ok: true, data: x as unknown as MarketDataFile };

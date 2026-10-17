@@ -30,8 +30,18 @@ describe('newCriteria', () => {
         amount: { on: false, who: 'foreign', days: 20, minPct: 1, maxPct: 100 },
         streak: { on: false, who: 'inst', minDays: 5 },
       },
+      fin: {
+        per: { on: false, min: 0, max: 15 },
+        pbr: { on: false, min: 0, max: 1.5 },
+        roe: { on: false, min: 10 },
+        opMargin: { on: false, min: 5 },
+        revGrowth: { on: false, min: 10 },
+        opGrowth: { on: false, min: 20 },
+        debtRatio: { on: false, max: 100 },
+        profitable: { on: false },
+      },
     });
-    expect(c.rank).toEqual({ by: 'marketCap', take: 10, series: 'usdkrw', flow: { who: 'foreign', days: 20 } });
+    expect(c.rank).toEqual({ by: 'marketCap', take: 10, series: 'usdkrw', flow: { who: 'foreign', days: 20 }, fin: { metric: 'per' } });
     expect(c.rebalance).toBe('monthly');
     expect(c.benchmarks).toEqual({ indices: ['KOSPI'], symbols: ['069500'] });
     expect(c.costs).toEqual({ feePct: 0.015 });
