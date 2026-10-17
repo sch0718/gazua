@@ -107,7 +107,7 @@
 ### 선정 기준 검증 1단계에서 남김 (2026-10-16)
 [설계](../specs/2026-10-16-selection-criteria-validation-design.md) · [계획](../plans/2026-10-16-selection-criteria-validation.md)의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
 
-- 해외식 색 관례에서 첫 ETF 선(`--s6`)이 상승색 초록과 거의 같음 · `src/lib/ui/screen/curveStyles.ts` · 관례에 따라 ETF 팔레트를 고르거나 선 모양으로 구분하고, `tokens.test`가 두 관례를 모두 보게 해요. 두 번째 ETF와 두 번째 지수가 같은 `--s3`(실선·점선으로 구분)인 것도 함께 정리해요.
+- ~~해외식 색 관례에서 첫 ETF 선(`--s6`)이 상승색 초록과 거의 같음 · `src/lib/ui/screen/curveStyles.ts` · 관례에 따라 ETF 팔레트를 고르거나 선 모양으로 구분하고, `tokens.test`가 두 관례를 모두 보게 해요. 두 번째 ETF와 두 번째 지수가 같은 `--s3`(실선·점선으로 구분)인 것도 함께 정리해요.~~ → 해결: ETF 선 전용 토큰 `--etf-1`·`--etf-2`를 두고 관례마다 골라요. 한국 관례는 초록·황토, 글로벌 관례는 파랑·황토예요(두 테마 모두 `--bg` 위 3:1 이상). 두 번째 ETF는 이제 지수 보라(`--s3`)와 겹치지 않아요. 관례를 바꾸면 차트가 색을 다시 읽어요. `tokens.test`가 두 관례 모두에서 등락색·지수 색과 다른지 봐요. (`feat/etf-line-colors`)
 - 같은 업종 이름이 시장마다 다른 레벨에 잡히면 업종 고르기에서 두 줄로 나뉨 · `precompute.ts`의 묶음 키 · 실연결 점검 ⑰에서 실제로 갈리는지 확인한 뒤 정해요.
 - 수집기: 토큰 발급 응답 본문 읽기 시간 초과가 `netFail`을 거치지 않음, `--update` 겹침 구간을 정확한 값으로 비교, 빈 구간에서 `output2`를 빼고 응답하면 재시도 후 실패로 셈(실연결 점검 ⑱을 첫 5년 수집 전에 먼저) · `scripts/kis-collect.mjs`, `scripts/collect-market-data.mjs`
 - 시장 데이터 검증기가 `managed`·`halted` 불리언을 확인하지 않고, o·h·l·v·tv에 0을 허용함 · `src/lib/marketData/format.ts` · 수집기만 파일을 만들어 영향이 작아요.

@@ -116,7 +116,8 @@
   <section aria-labelledby="eq-h">
     <h3 id="eq-h">자산 곡선</h3>
     {#key result}
-      <EquityChart initial={capital} {curves} {rebalanceDates} {theme} />
+      <!-- ETF 선 색(--etf-1)은 색 관례에 따라 달라서, 관례가 바뀌어도 색을 다시 읽게 함께 넘긴다 -->
+      <EquityChart initial={capital} {curves} {rebalanceDates} theme="{theme ?? ''}:{app.settings.colorConvention}" />
     {/key}
     <p class="cap">세로 눈금은 재선정일이에요</p>
   </section>
