@@ -248,7 +248,7 @@ interface Basket { id: string; name: string; updatedAt: number; symbols: string[
 ---
 
 ## 6. 수집 스크립트 변경
-- `scripts/fetch-fred.mjs`(새로 만듦): `fetchFredSeries(id, { fetchImpl, from, to })`를 둔다. CSV를 파싱하고 `.` 값은 버린다. 20초 시간 제한과 최대 3번 재시도가 있다.
+- `scripts/fetch-fred.mjs`(새로 만듦): `fetchFredSeries(id, { fetchImpl, from, to })`를 둔다. CSV를 파싱하고 `.` 값은 버린다. 20초 시간 제한과 최대 3번 재시도가 있다. 4xx(429 제외)는 다시 보내지 않고 바로 실패한다.
 - `scripts/parse-theme.mjs`(새로 만듦): `parseThemes(bytes) → { code, name, symbols }[]`. 실제 파일 2~3행으로 만든 fixture를 쓴다.
 - `collect-market-data.mjs`: 종목 수집 뒤에 macro와 themes를 받아 v2로 쓴다. 테마 종목은 파일에 있는 종목만 남기고, 비어 있는 테마는 버린다.
 - 요약 출력에 `환율 n일 · 유가 n일 · 테마 n개`를 더한다.
