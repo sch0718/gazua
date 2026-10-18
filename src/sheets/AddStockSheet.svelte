@@ -91,7 +91,7 @@
 
   function toggle(item: UniverseItem) {
     if (present.has(item.s)) {
-      if (grouped && removeWithUndo(app, groupId, item.s, item.n)) removed++;
+      if (grouped && removeWithUndo(app, groupId, item.s, item.n, () => buttonFor(item.s))) removed++;
       return;
     }
     if (mode === 'single') {
@@ -108,6 +108,12 @@
     if (addToGroup(app, groupId, item.s, now) !== 'added') return;
     app.addRecent(item.s);
     added++;
+  }
+
+  /** 되돌린 뒤 포커스를 돌려줄 그 종목의 버튼. 시트가 닫혔거나 목록에서 사라졌으면 없다. */
+  function buttonFor(symbol: string): HTMLElement | null {
+    if (!open) return null;
+    return [...document.querySelectorAll<HTMLElement>('button.addbtn')].find((b) => b.dataset.symbol === symbol) ?? null;
   }
 
   function footNote(a: number, r: number): string {
@@ -176,6 +182,7 @@
           <button
             type="button"
             class="addbtn"
+            data-symbol={item.s}
             class:done={has}
             class:pick={mode === 'single' && !has}
             aria-label="{item.n} {has ? (grouped ? '빼기' : '추가됨') : mode === 'single' ? '선택' : '추가'}"

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../lib/data/universe';
 import type { App } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
-import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
 import AddStockSheet from './AddStockSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 
@@ -102,6 +102,15 @@ describe('AddStockSheet', () => {
     expect(currentSnackbar()?.message).toBe('한미반도체을(를) 삭제했어요');
     currentSnackbar()?.action?.run();
     expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toContain('042700');
+  });
+
+  // PR #24 리뷰: 키보드로 되돌리면 포커스가 body로 빠졌다. 되돌린 종목의 버튼으로 돌려준다.
+  it('after 되돌리기 the focus goes back to the restored stock\'s button', async () => {
+    setup(EXAMPLE);
+    await search('ㅎㅁ');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '한미반도체 빼기' })));
+    runSnackbarAction();
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '한미반도체 빼기' })));
   });
 
   it('a full group still lets you remove an added stock, which frees a slot', async () => {
