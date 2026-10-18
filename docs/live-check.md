@@ -4,6 +4,7 @@
 
 - 준비: 프록시와 키가 연결된 상태(설정 › 연결 진단이 모두 통과). 장중·애프터마켓·휴장일을 나눠 보려면 시간을 달리해 여러 번 확인해야 해요.
 - 응답을 열어 볼 때는 키·토큰이 터미널 기록이나 이슈에 남지 않게 조심해요.
+- 토스 ⑤·⑩·⑫·⑭는 `scripts/toss-live-check.mjs`가 한 번에 받아 요약해요. 키는 저장소 루트의 `.env.toss`(커밋 안 됨)에 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`으로 적고, 허용 IP로 등록한 기기에서 `node --env-file=.env.toss scripts/toss-live-check.mjs`로 돌려요. 원본 응답은 `data/live-check/`에 남아요.
 
 ## ① KIS 분봉 시각이 봉의 끝인가
 
