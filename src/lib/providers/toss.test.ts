@@ -129,7 +129,7 @@ function memoryStore(): TokenStore {
   return { load: () => v, save: (t) => (v = t) };
 }
 
-const RATES = { MARKET_DATA: 12, MARKET_DATA_CHART: 16, STOCK: 4, MARKET_INFO: 2.4, MARKET_INDICATOR_CHART: 4 };
+const RATES = { MARKET_DATA: 12, MARKET_DATA_CHART: 16, STOCK: 4, MARKET_INFO: 2.4, MARKET_INDICATOR_CHART: 4, ACCOUNT: 1, ASSET: 1, SECTOR: 1 };
 function fastQueue(): RequestQueue {
   return createRequestQueue({ ratesPerSec: RATES, now: () => 0, sleep: async () => {} });
 }

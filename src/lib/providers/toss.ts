@@ -6,7 +6,18 @@ import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { createTokenManager } from './auth';
 import { ApiError } from './errors';
 import type { ProxyClient } from './http';
-import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenLock, TokenStore } from './types';
+import type {
+  CandleQuery,
+  GroupImportSource,
+  ImportSector,
+  ImportStock,
+  MarketDataProvider,
+  Quote,
+  StockMeta,
+  TokenInfo,
+  TokenLock,
+  TokenStore,
+} from './types';
 
 export interface TossDeps {
   client: ProxyClient;
@@ -28,6 +39,10 @@ export const TOSS_QUEUE_RATES = {
   STOCK: 4,
   MARKET_INFO: 2.4,
   MARKET_INDICATOR_CHART: 4,
+  // 관심그룹 가져오기. 사용자가 누를 때 몇 번만 부르므로 한도 표를 따로 두지 않고 낮게 잡는다.
+  ACCOUNT: 1,
+  ASSET: 1,
+  SECTOR: 1,
 } as const;
 
 type Group = keyof typeof TOSS_QUEUE_RATES;
@@ -100,7 +115,12 @@ interface Call {
   path: string;
   query: Record<string, string>;
   priority: Priority;
+  /** authorization 말고 더 보낼 헤더(보유 주식의 X-Tossinvest-Account). */
+  headers?: Record<string, string>;
 }
+
+/** 프록시 허용 목록과 같은 섹터 id 모양. 다른 값은 요청하지 않는다. */
+const SECTOR_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
 interface CandlePlan {
   group: Group;
@@ -189,7 +209,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
         usedToken = accessToken;
         const res = await client.request('toss', 'GET', call.path, {
           query: call.query,
-          headers: { authorization: `Bearer ${accessToken}` },
+          headers: { ...call.headers, authorization: `Bearer ${accessToken}` },
         });
         if (!isRecord(res.json) || !('result' in res.json)) throw upstream('Toss response has no result');
         return res.json.result;
@@ -339,8 +359,68 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     }
   }
 
+  const importStock = (row: Row): ImportStock => ({ symbol: text(row.symbol), name: text(row.name) || text(row.symbol) });
+
+  const groupImport: GroupImportSource = {
+    async holdings() {
+      const accounts = await api({ group: 'ACCOUNT', path: '/api/v1/accounts', query: {}, priority: 0 });
+      const rows = Array.isArray(accounts) ? accounts.filter(isRecord) : [];
+      // 지금은 종합매매(BROKERAGE)만 오지만, 다른 유형이 섞여 와도 종합매매를 고른다.
+      const account = rows.find((a) => a.accountType === 'BROKERAGE') ?? rows[0];
+      const seq = account ? text(account.accountSeq) : '';
+      if (seq === '') throw upstream('Toss has no brokerage account');
+      const result = await api({
+        group: 'ASSET',
+        path: '/api/v1/holdings',
+        query: {},
+        priority: 0,
+        headers: { 'x-tossinvest-account': seq },
+      });
+      const items = isRecord(result) && Array.isArray(result.items) ? result.items.filter(isRecord) : [];
+      const value = (r: Row) => (isRecord(r.marketValue) ? (toNumber(r.marketValue.amount) ?? -1) : -1);
+      return items
+        .filter((r) => r.marketCountry === 'KR' && text(r.symbol) !== '')
+        .map((r, i) => ({ r, i, v: value(r) }))
+        .sort((a, b) => b.v - a.v || a.i - b.i)
+        .map(({ r }) => importStock(r));
+    },
+
+    async sectors() {
+      const result = await api({ group: 'SECTOR', path: '/api/v1/sectors', query: {}, priority: 0 });
+      const rows = isRecord(result) && Array.isArray(result.sectors) ? result.sectors.filter(isRecord) : [];
+      const byId = new Map(rows.map((r) => [text(r.sectorId), r]));
+      const pathOf = (r: Row): string => {
+        const names = [text(r.name)];
+        let parent = r.parentSectorId;
+        for (let hops = 0; typeof parent === 'string' && hops < 5; hops++) {
+          const p = byId.get(parent);
+          if (!p) break;
+          names.unshift(text(p.name));
+          parent = p.parentSectorId;
+        }
+        return names.join(' › ');
+      };
+      return rows
+        .filter((r) => SECTOR_ID_RE.test(text(r.sectorId)))
+        .map((r): ImportSector => ({ id: text(r.sectorId), name: text(r.name), path: pathOf(r) }));
+    },
+
+    async sectorStocks(sectorId) {
+      if (!SECTOR_ID_RE.test(sectorId)) throw new Error(`invalid toss sector id: ${sectorId}`);
+      const result = await api({
+        group: 'SECTOR',
+        path: `/api/v1/sectors/${sectorId}/stocks`,
+        query: { marketCountry: 'KR' },
+        priority: 0,
+      });
+      const rows = isRecord(result) && Array.isArray(result.stocks) ? result.stocks.filter(isRecord) : [];
+      return rows.filter((r) => text(r.symbol) !== '').map(importStock);
+    },
+  };
+
   const provider: MarketDataProvider = {
     id: 'toss',
+    groupImport,
     getAccessToken: () => tokens.info(),
 
     capabilities: {

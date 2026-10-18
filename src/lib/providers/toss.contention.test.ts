@@ -13,7 +13,7 @@ import type { MarketDataProvider, TokenInfo, TokenLock, TokenStore } from './typ
 
 const START = kstEpoch('2026-10-16', '10:00:00');
 const POLL_MS = 10_000;
-const RATES = { MARKET_DATA: 12, MARKET_DATA_CHART: 16, STOCK: 4, MARKET_INFO: 2.4, MARKET_INDICATOR_CHART: 4 };
+const RATES = { MARKET_DATA: 12, MARKET_DATA_CHART: 16, STOCK: 4, MARKET_INFO: 2.4, MARKET_INDICATOR_CHART: 4, ACCOUNT: 1, ASSET: 1, SECTOR: 1 };
 
 /** 마지막으로 발급한 토큰만 받아 주는 토스 서버. 발급 시각을 남긴다. */
 function tossServer(clock: { now: number }) {

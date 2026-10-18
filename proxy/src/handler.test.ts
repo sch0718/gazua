@@ -29,7 +29,7 @@ describe('preflight and origin', () => {
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
     expect(res.headers.get('access-control-allow-methods')).toBe('GET, POST, OPTIONS');
     expect(res.headers.get('access-control-allow-headers')).toBe(
-      'authorization, appkey, appsecret, tr_id, tr_cont, custtype, content-type, x-proxy-token',
+      'authorization, appkey, appsecret, tr_id, tr_cont, custtype, content-type, x-proxy-token, x-tossinvest-account',
     );
     expect(res.headers.get('access-control-max-age')).toBe('600');
     expect(res.headers.get('vary')).toBe('Origin');
@@ -134,6 +134,32 @@ describe('allowlist', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
+  // 관심그룹 가져오기를 위해 계좌 목록·보유 주식 조회(GET)만 연다. 주문·매수가능금액·주문 조회는 계속 막는다.
+  it('keeps every other toss account and order path blocked', async () => {
+    const f = fakeFetch();
+    const cases: Array<[string, string]> = [
+      ['POST', '/toss/api/v1/orders'],
+      ['GET', '/toss/api/v1/orders'],
+      ['GET', '/toss/api/v1/orders/1'],
+      ['POST', '/toss/api/v1/orders/1/cancel'],
+      ['GET', '/toss/api/v1/conditional-orders'],
+      ['GET', '/toss/api/v1/buying-power'],
+      ['GET', '/toss/api/v1/sellable-quantity'],
+      ['POST', '/toss/api/v1/holdings'],
+      ['POST', '/toss/api/v1/accounts'],
+      ['GET', '/toss/api/v1/holdings/1'],
+      ['GET', '/toss/api/v1/sectors/1'],
+      ['GET', '/toss/api/v1/sectors/1/etfs'],
+      ['GET', '/toss/api/v1/sectors/a.b/stocks'],
+      ['GET', '/toss/api/v1/sectors//stocks'],
+    ];
+    for (const [method, path] of cases) {
+      const res = await handle(req(path, { method }), env, f);
+      expect(res.status, `${method} ${path}`).toBe(403);
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('blocks kis balance inquiry', async () => {
     const f = fakeFetch();
     const res = await handle(req('/kis/uapi/domestic-trading/v1/trading/inquire-balance'), env, f);
@@ -191,6 +217,11 @@ describe('allowlist', () => {
       ['GET', '/toss/api/v1/market-calendar/KR'],
       ['GET', '/toss/api/v1/market-indicators/KOSPI/candles'],
       ['GET', '/toss/api/v1/market-indicators/KOSDAQ/candles'],
+      ['GET', '/toss/api/v1/accounts'],
+      ['GET', '/toss/api/v1/holdings'],
+      ['GET', '/toss/api/v1/sectors'],
+      ['GET', '/toss/api/v1/sectors/100/stocks'],
+      ['GET', '/toss/api/v1/sectors/ab_C-9/stocks'],
       ['POST', '/kis/oauth2/tokenP'],
       ...[
         'inquire-price',
@@ -228,6 +259,7 @@ describe('forwarding', () => {
           tr_id: 'FHKST01010100',
           tr_cont: 'N',
           custtype: 'P',
+          'x-tossinvest-account': '1',
         },
       }),
       { ...env, PROXY_TOKEN: 's' },
@@ -237,7 +269,7 @@ describe('forwarding', () => {
     expect(f.mock.calls[0][1]?.method).toBe('GET');
     const sent = new Headers(f.mock.calls[0][1]?.headers);
     expect([...sent.keys()].sort()).toEqual(
-      ['appkey', 'appsecret', 'authorization', 'content-type', 'custtype', 'tr_cont', 'tr_id'],
+      ['appkey', 'appsecret', 'authorization', 'content-type', 'custtype', 'tr_cont', 'tr_id', 'x-tossinvest-account'],
     );
     expect(sent.get('authorization')).toBe('Bearer t');
   });

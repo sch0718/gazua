@@ -8,7 +8,7 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 - `{GET|POST} /{kis|toss}/{상위 경로}?{쿼리}` → 허용 목록에 있는 경로만 상위로 전달하고, 응답(상태·본문·`content-type`·`retry-after`·`x-ratelimit-remaining`·`tr_cont`)을 그대로 돌려줘요.
 - 확인 순서: 출처(`Origin`이 `ALLOWED_ORIGINS`에 있어야 함, 아니면 `403 origin-not-allowed`) → `X-Proxy-Token`(`PROXY_TOKEN`을 설정한 경우, 아니면 `401 proxy-token-invalid`) → 경로·메서드 허용 목록(아니면 `403 proxy-path-blocked`, 상위 호출 없음) → 전달.
 - 상위 네트워크 오류는 `502 upstream-unreachable`.
-- 주문·계좌 경로는 허용 목록에 없어서 항상 거절돼요.
+- 주문·주문 조회·매수가능금액 같은 계좌 경로는 허용 목록에 없어서 항상 거절돼요. 토스의 계좌 목록(`/api/v1/accounts`)과 보유 주식(`/api/v1/holdings`) **조회(GET)만** 관심그룹 가져오기용으로 열려 있고, 보유 주식에 필요한 `X-Tossinvest-Account` 헤더를 함께 전달해요.
 - 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
 
 ## 개발
