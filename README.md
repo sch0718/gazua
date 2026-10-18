@@ -31,7 +31,7 @@
 ### 토스증권
 
 1. 토스증권 WTS에서 Open API 키를 발급받아요.
-2. 토스 Open API는 **허용된 IP**에서만 호출돼요. 집 PC·NAS에서 프록시 컨테이너를 돌리고 Cloudflare Tunnel로 외부에 노출해요. 순서는 [proxy/README.md](proxy/README.md)의 `토스증권: Docker + Cloudflare Tunnel`이에요.
+2. 토스 Open API는 **허용된 IP**에서만 호출돼요. 집 PC·NAS에서 프록시 컨테이너를 돌리고 Cloudflare Tunnel로 외부에 노출해요. 순서는 [proxy/README.md](proxy/README.md)의 `토스증권: Docker + Cloudflare Tunnel`이에요. 맥이라면 Docker 없이 `토스증권: 맥에서 바로 돌리기`를 따라도 돼요.
 3. 집 공인 IP를 WTS의 허용 IP에 등록해요. IP가 바뀌면 다시 등록해야 해요(같은 문서의 `IP가 바뀌었을 때`).
 4. 앱 설정에서 토스를 고르고 프록시 URL(터널 주소), 프록시 토큰, 키를 넣어요. 토스는 통합 시세만 줘서 거래소 전환이 `통합`으로 고정돼요.
 
