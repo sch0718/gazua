@@ -9,6 +9,7 @@ export type ErrorCode =
   | 'invalid-credentials'
   | 'token-expired'
   | 'token-throttled'
+  | 'token-contended'
   | 'rate-limited'
   | 'timeout'
   | 'upstream'
@@ -105,6 +106,7 @@ const DESCRIPTIONS: Record<ErrorCode, ErrorDescription> = {
   },
   'token-expired': { title: '토큰을 다시 받는 중이에요' },
   'token-throttled': { title: 'KIS 토큰은 1분에 한 번만 받을 수 있어요' },
+  'token-contended': { title: '다른 기기나 탭에서 같은 토스 키로 토큰을 받고 있어요. 한 키는 한 곳에서만 써 주세요' },
   'rate-limited': { title: '잠시 천천히 불러오는 중' },
   timeout: { title: '응답이 늦어요', action: { label: '진단 열기', target: 'diagnostics' } },
   upstream: { title: '증권사 서버에서 오류가 났어요' },

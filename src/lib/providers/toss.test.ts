@@ -232,31 +232,36 @@ describe('toss provider: auth and errors', () => {
     expect(err.message).not.toContain(CLIENT_SECRET);
   });
 
-  it('on token-expired invalidates the token and retries the call once', async () => {
+  // 토스는 새로 받으면 이전 토큰을 바로 무효화한다. 이 탭이 막 받은 토큰이 무효가 되는 경합은 toss.contention.test.ts.
+  const restored = (accessToken = 'restored'): TokenInfo => ({ accessToken, expiresAt: SUN + DAY_MS });
+
+  it('on token-expired drops the restored token, issues one and retries the call once', async () => {
     let failed = false;
-    const { provider, client } = setup((c) => {
+    const { provider, client, store } = setup((c) => {
       if (c.method === 'GET' && !failed) {
         failed = true;
         throw new ApiError('token-expired');
       }
     });
+    store.save(restored());
     const [q] = await provider.getQuotes(['005930'], 'UNIFIED');
     expect(q.price).toBe(72000);
-    expect(client.calls.filter((c) => c.method === 'POST')).toHaveLength(2);
-    expect(client.dataCalls).toHaveLength(2);
+    expect(client.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    expect(client.dataCalls.map((c) => c.headers.authorization)).toEqual(['Bearer restored', 'Bearer test-access-token']);
   });
 
   it('gives up after a second token-expired', async () => {
-    const { provider, client } = setup((c) => {
+    const { provider, client, store } = setup((c) => {
       if (c.method === 'GET') throw new ApiError('token-expired');
     });
+    store.save(restored());
     await expect(provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'token-expired' });
     expect(client.dataCalls).toHaveLength(2);
   });
 
   describe('token revoked by a newer token', () => {
     const rotating = () => {
-      let n = 0;
+      let n = 1;
       return (c: Call): unknown => {
         if (c.method === 'POST') return { ...tokenFixture, access_token: `tok${++n}` };
         if (c.headers.authorization === 'Bearer tok1') throw new ApiError('token-expired');
@@ -265,7 +270,7 @@ describe('toss provider: auth and errors', () => {
     const posts = (client: { calls: Call[] }) => client.calls.filter((c) => c.method === 'POST').length;
 
     it('HTTP 401 token-revoked via the real proxy client: invalidates and retries once', async () => {
-      let n = 0;
+      let n = 1;
       const sent: { method: string; auth: string | null }[] = [];
       const fetchImpl = (async (_url: string, init: RequestInit) => {
         const headers = new Headers(init.headers);
@@ -280,22 +285,24 @@ describe('toss provider: auth and errors', () => {
         return json(ok(prices.result.slice(0, 1)));
       }) as unknown as typeof fetch;
       const client = createProxyClient({ baseUrl: 'https://proxy.test', fetchImpl });
-      const { provider } = setup(undefined, SUN, client);
+      const { provider, store } = setup(undefined, SUN, client);
+      store.save(restored('tok1'));
       const [q] = await provider.getQuotes(['005930'], 'UNIFIED');
       expect(q.price).toBe(72000);
-      expect(sent.filter((s) => s.method === 'POST')).toHaveLength(2);
-      expect(sent.filter((s) => s.method === 'GET')).toHaveLength(2);
+      expect(sent.filter((s) => s.method === 'POST')).toHaveLength(1);
+      expect(sent.filter((s) => s.method === 'GET').map((s) => s.auth)).toEqual(['Bearer tok1', 'Bearer tok2']);
     });
 
     it('parallel callers that all hit token-expired trigger one re-issue, not one each', async () => {
-      const { provider, client } = setup(rotating());
+      const { provider, client, store } = setup(rotating());
+      store.save(restored('tok1'));
       const batches = await Promise.all([
         provider.getQuotes(['005930'], 'UNIFIED'),
         provider.getQuotes(['000660'], 'UNIFIED'),
         provider.getQuotes(['069500'], 'UNIFIED'),
       ]);
       expect(batches.map((b) => b[0].price)).toEqual([72000, 198500, 36450]);
-      expect(posts(client)).toBe(2);
+      expect(posts(client)).toBe(1);
     });
   });
 

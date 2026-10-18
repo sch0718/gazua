@@ -7,7 +7,8 @@ const REFRESH_MARGIN_MS = 60_000;
  * 접근 토큰 관리자.
  * - 동시에 get()을 불러도 발급(issue)은 한 번만 일어난다.
  * - 발급이 실패하면 진행 중 표시를 지워 다음 get()이 다시 시도한다.
- * - invalidate() 이후의 get()은 저장소 값도 쓰지 않고 새로 발급한다.
+ * - 갖고 있는 토큰이 없거나 만료가 가까우면, 발급하기 전에 저장소를 다시 읽는다(같은 저장소를 쓰는 다른 탭이 받은 토큰).
+ * - invalidate(token)은 그 토큰(없으면 지금 토큰)을 버린다. 이후 저장소에 같은 토큰만 있으면 새로 발급한다.
  * - 발급에 성공하면 그 시각을 issuedAt에 기록한다(무효화된 발급도 증권사는 센다).
  */
 export function createTokenManager(
@@ -15,11 +16,17 @@ export function createTokenManager(
   store: TokenStore,
   now: () => number,
   issuedAt?: IssuedAtStore,
-): { get(): Promise<string>; info(): Promise<TokenInfo>; invalidate(): void; lastIssuedAt(): number | null } {
+): {
+  get(): Promise<string>;
+  info(): Promise<TokenInfo>;
+  invalidate(token?: string): void;
+  lastIssuedAt(): number | null;
+} {
   let current: TokenInfo | null = null;
   // 저장소에 쓰지 못해도 이 탭에서는 기억한다.
   let issuedHere: number | null = null;
-  let loaded = false;
+  // 서버가 거절한 토큰. 저장소에 남아 있어도 다시 쓰지 않는다.
+  const rejected = new Set<string>();
   let inflight: Promise<TokenInfo> | null = null;
   // invalidate()마다 올려서, 그 전에 시작한 발급 결과가 상태를 덮어쓰지 못하게 한다.
   let generation = 0;
@@ -57,11 +64,12 @@ export function createTokenManager(
   }
 
   async function info(): Promise<TokenInfo> {
-    if (!loaded) {
-      loaded = true;
-      current = store.load();
-    }
     if (fresh(current)) return current;
+    const stored = store.load();
+    if (fresh(stored) && !rejected.has(stored.accessToken)) {
+      current = stored;
+      return stored;
+    }
     return inflight ?? startIssue();
   }
 
@@ -71,10 +79,11 @@ export function createTokenManager(
     },
     /** get()과 같지만 만료 시각까지 돌려준다(연결 진단이 같은 토큰을 쓰도록). */
     info,
-    invalidate() {
+    invalidate(token) {
+      const bad = token ?? current?.accessToken;
+      if (bad !== undefined) rejected.add(bad);
       generation++;
       current = null;
-      loaded = true;
       inflight = null;
     },
     /** 이 탭 또는 저장소(새로고침 전·진단의 발급)에 남은 가장 늦은 발급 시각. 모르면 null. */

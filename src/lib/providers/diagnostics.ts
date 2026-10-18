@@ -72,6 +72,8 @@ const HINTS: Record<ErrorCode, string> = {
   'invalid-credentials': '키를 다시 확인해 주세요',
   'token-expired': '토큰이 바로 만료됐어요. 다시 진단해 주세요',
   'token-throttled': 'KIS 토큰은 1분에 한 번만 받을 수 있어요. 잠시 뒤 다시 진단해 주세요',
+  'token-contended':
+    '방금 받은 토큰이 다른 곳(다른 기기·탭·점검 스크립트)의 새 발급으로 무효가 됐어요. 같은 토스 키는 한 곳에서만 쓰고, 1분 뒤 다시 진단해 주세요',
   'rate-limited': '호출 한도에 걸렸어요. 잠시 뒤 다시 진단해 주세요',
   upstream: '증권사 서버에서 오류가 났어요. 잠시 뒤 다시 진단해 주세요',
 };

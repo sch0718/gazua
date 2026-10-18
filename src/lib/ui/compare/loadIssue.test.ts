@@ -140,6 +140,20 @@ describe('issueView', () => {
     });
   });
 
+  it('token contended (same Toss key elsewhere) → warn banner with seconds until the next re-issue', () => {
+    const title = '다른 기기나 탭에서 같은 토스 키로 토큰을 받고 있어요. 한 키는 한 곳에서만 써 주세요';
+    expect(issueView(issue({ code: 'token-contended', retryAfterMs: 30_000, at: NOW - 10_000 }), NOW)).toEqual({
+      kind: 'banner',
+      tone: 'warn',
+      text: `${title} · 20초 남았어요`,
+    });
+    expect(issueView(issue({ code: 'token-contended' }), NOW)).toEqual({ kind: 'banner', tone: 'warn', text: title });
+    const f = (code: LoadIssue['code']) => ({ code, at: NOW });
+    // 키가 틀린 것보다는 뒤, 일시적인 한도·만료보다는 앞.
+    expect(dominantFault([f('token-expired'), f('token-contended'), f('rate-limited')])?.code).toBe('token-contended');
+    expect(dominantFault([f('token-contended'), f('invalid-credentials')])?.code).toBe('invalid-credentials');
+  });
+
   it('timeout that passed the majority filter is a banner', () => {
     // 과반 판단은 issueFaults가 이미 했다: 여기 남은 timeout은 배너 대상이다.
     expect(issueView(issue({ code: 'timeout' }), NOW)).toMatchObject({ kind: 'banner', text: '응답이 늦어요' });
