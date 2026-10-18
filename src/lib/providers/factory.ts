@@ -6,7 +6,7 @@ import { createDemoProvider } from './demo';
 import { createProxyClient } from './http';
 import { createKisProvider } from './kis';
 import { TOSS_QUEUE_RATES, createTossProvider } from './toss';
-import type { IssuedAtStore, MarketDataProvider, TokenStore } from './types';
+import type { IssuedAtStore, MarketDataProvider, TokenLock, TokenStore } from './types';
 
 export interface ProviderFactoryDeps {
   now: () => number;
@@ -15,6 +15,8 @@ export interface ProviderFactoryDeps {
   tokenStore(provider: 'kis' | 'toss'): TokenStore;
   /** KIS 마지막 발급 시각 저장소(1분 제한 남은 초). 없으면 이 탭에서만 기억한다. */
   issuedAtStore?(provider: 'kis'): IssuedAtStore;
+  /** 같은 토큰 저장소를 쓰는 탭끼리 발급을 하나로 묶는 잠금. 없으면 탭 안에서만 묶는다. */
+  tokenLock?(provider: 'toss'): TokenLock | undefined;
 }
 
 /** KIS 초당 20건의 80%. 큐는 받은 값을 그대로 쓴다. */
@@ -54,6 +56,7 @@ export function createProvider(
     queue: createRequestQueue({ ratesPerSec: { ...TOSS_QUEUE_RATES } }),
     creds: toss,
     tokenStore: deps.tokenStore('toss'),
+    ...(deps.tokenLock?.('toss') ? { tokenLock: deps.tokenLock('toss') } : {}),
     now,
   });
 }

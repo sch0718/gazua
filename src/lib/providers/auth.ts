@@ -1,4 +1,4 @@
-import type { IssuedAtStore, TokenInfo, TokenStore } from './types';
+import type { IssuedAtStore, TokenInfo, TokenLock, TokenStore } from './types';
 
 /** 만료까지 이 시간(ms)보다 적게 남으면 새로 발급한다. */
 const REFRESH_MARGIN_MS = 60_000;
@@ -10,12 +10,15 @@ const REFRESH_MARGIN_MS = 60_000;
  * - 갖고 있는 토큰이 없거나 만료가 가까우면, 발급하기 전에 저장소를 다시 읽는다(같은 저장소를 쓰는 다른 탭이 받은 토큰).
  * - invalidate(token)은 그 토큰(없으면 지금 토큰)을 버린다. 이후 저장소에 같은 토큰만 있으면 새로 발급한다.
  * - 발급에 성공하면 그 시각을 issuedAt에 기록한다(무효화된 발급도 증권사는 센다).
+ * - lock이 있으면 발급과 저장을 그 잠금 안에서 한다. 잠금을 기다리는 동안 다른 탭이 받아 저장한 토큰이 있으면
+ *   발급하지 않고 그 토큰을 쓴다. 같은 저장소를 쓰는 탭이 동시에 발급해 무효가 된 토큰이 저장소를 덮어쓰지 않게 한다.
  */
 export function createTokenManager(
   issue: () => Promise<TokenInfo>,
   store: TokenStore,
   now: () => number,
   issuedAt?: IssuedAtStore,
+  lock?: TokenLock,
 ): {
   get(): Promise<string>;
   info(): Promise<TokenInfo>;
@@ -33,24 +36,39 @@ export function createTokenManager(
 
   const fresh = (t: TokenInfo | null): t is TokenInfo => t !== null && t.expiresAt - now() >= REFRESH_MARGIN_MS;
 
+  /** 저장소의 토큰이 쓸 만하면(만료 전·거절된 적 없음) 돌려준다. */
+  function usableStored(): TokenInfo | null {
+    const stored = store.load();
+    return fresh(stored) && !rejected.has(stored.accessToken) ? stored : null;
+  }
+
   function startIssue(): Promise<TokenInfo> {
     const mine = generation;
-    const p = issue().then(
-      (token) => {
-        issuedHere = now();
+    const issueAndSave = async (): Promise<TokenInfo> => {
+      // 잠금을 기다리는 동안 다른 탭이 받아 둔 토큰.
+      if (lock) {
+        const stored = usableStored();
+        if (stored) return stored;
+      }
+      const token = await issue();
+      issuedHere = now();
+      try {
+        issuedAt?.save(issuedHere);
+      } catch {
+        // 시각을 저장하지 못해도 토큰은 쓴다.
+      }
+      if (mine === generation) {
         try {
-          issuedAt?.save(issuedHere);
+          store.save(token);
         } catch {
-          // 시각을 저장하지 못해도 토큰은 쓴다.
+          // 저장 실패(용량 초과·시크릿 모드 등)가 유효한 토큰을 버리게 하지 않는다.
         }
-        if (mine === generation) {
-          current = token;
-          try {
-            store.save(token);
-          } catch {
-            // 저장 실패(용량 초과·시크릿 모드 등)가 유효한 토큰을 버리게 하지 않는다.
-          }
-        }
+      }
+      return token;
+    };
+    const p = (lock ? lock(issueAndSave) : issueAndSave()).then(
+      (token) => {
+        if (mine === generation) current = token;
         if (inflight === p) inflight = null;
         return token;
       },
@@ -65,8 +83,8 @@ export function createTokenManager(
 
   async function info(): Promise<TokenInfo> {
     if (fresh(current)) return current;
-    const stored = store.load();
-    if (fresh(stored) && !rejected.has(stored.accessToken)) {
+    const stored = usableStored();
+    if (stored) {
       current = stored;
       return stored;
     }

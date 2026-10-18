@@ -6,13 +6,15 @@ import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { createTokenManager } from './auth';
 import { ApiError } from './errors';
 import type { ProxyClient } from './http';
-import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
+import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenLock, TokenStore } from './types';
 
 export interface TossDeps {
   client: ProxyClient;
   queue: RequestQueue;
   creds: { clientId: string; clientSecret: string };
   tokenStore: TokenStore;
+  /** 같은 저장소를 쓰는 탭끼리 발급을 하나로 묶는다. 없으면 이 탭 안에서만 묶는다. */
+  tokenLock?: TokenLock;
   now: () => number;
 }
 
@@ -158,9 +160,9 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   async function issueToken(): Promise<TokenInfo> {
     const last = tokens.lastIssuedAt();
     const wait = last === null ? 0 : last + TOSS_REISSUE_INTERVAL_MS - now();
-    if (wait > 0) {
-      // 시계가 뒤로 가도 간격 이상 기다리게 하지 않는다.
-      throw new ApiError('token-contended', undefined, { retryAfterMs: Math.min(wait, TOSS_REISSUE_INTERVAL_MS) });
+    // 마지막 발급이 간격보다 먼 미래면 시계가 뒤로 간 것이다. 그 기록으로 막지 않는다(막으면 간격보다 오래 막힌다).
+    if (wait > 0 && wait <= TOSS_REISSUE_INTERVAL_MS) {
+      throw new ApiError('token-contended', undefined, { retryAfterMs: wait });
     }
     const res = await client.request('toss', 'POST', '/oauth2/token', {
       body: new URLSearchParams({
@@ -174,7 +176,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     return token;
   }
 
-  const tokens = createTokenManager(issueToken, deps.tokenStore, now);
+  const tokens = createTokenManager(issueToken, deps.tokenStore, now, undefined, deps.tokenLock);
   let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. `{ result }`를 벗겨 돌려준다. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */

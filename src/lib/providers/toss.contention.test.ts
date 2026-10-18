@@ -9,7 +9,7 @@ import { kstEpoch } from '../time/kst';
 import { ApiError } from './errors';
 import type { ProxyClient, ProxyResponse } from './http';
 import { createTossProvider, TOSS_REISSUE_INTERVAL_MS } from './toss';
-import type { MarketDataProvider, TokenInfo, TokenStore } from './types';
+import type { MarketDataProvider, TokenInfo, TokenLock, TokenStore } from './types';
 
 const START = kstEpoch('2026-10-16', '10:00:00');
 const POLL_MS = 10_000;
@@ -41,12 +41,23 @@ function memoryStore(): TokenStore {
   return { load: () => v, save: (t) => (v = t) };
 }
 
-function app(client: ProxyClient, tokenStore: TokenStore, clock: { now: number }): MarketDataProvider {
+/** 탭 간 잠금(navigator.locks.request)과 같은 동작: 한 번에 하나만 실행한다. */
+function mutex(): TokenLock {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (fn) => {
+    const run = tail.then(fn, fn);
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+
+function app(client: ProxyClient, tokenStore: TokenStore, clock: { now: number }, tokenLock?: TokenLock): MarketDataProvider {
   return createTossProvider({
     client,
     queue: createRequestQueue({ ratesPerSec: RATES, now: () => 0, sleep: async () => {} }),
     creds: { clientId: 'id', clientSecret: 'secret' },
     tokenStore,
+    ...(tokenLock ? { tokenLock } : {}),
     now: () => clock.now,
   });
 }
@@ -148,6 +159,46 @@ describe('toss token contention', () => {
     clock.now += TOSS_REISSUE_INTERVAL_MS;
     await client.request('toss', 'POST', '/oauth2/token');
     expect(await alternate([a, b], clock, 10)).toEqual([]);
+    expect(issuedAt).toHaveLength(3);
+  });
+
+  // PR #21 리뷰: 공유 저장소의 두 탭이 동시에 발급하고 먼저 보낸 응답이 늦게 오면, 무효가 된 토큰이 저장소를 덮어써
+  // 한 탭이 1분간 막혔다. 브라우저의 탭 간 잠금(Web Locks)으로 발급을 한 번에 하나로 묶고, 잠금 안에서 저장소를 다시 읽는다.
+  it('tabs sharing a store and a lock issue once even when they start together and the first reply is late', async () => {
+    const clock = { now: START };
+    const { client, issuedAt } = tossServer(clock);
+    let releaseFirst!: () => void;
+    const firstReply = new Promise<void>((r) => (releaseFirst = r));
+    const slowFirst: ProxyClient = {
+      async request(p, method, path, opts) {
+        const res = client.request(p, method, path, opts);
+        if (method === 'POST' && issuedAt.length === 1) await firstReply;
+        return res;
+      },
+    };
+    const shared = memoryStore();
+    const lock = mutex();
+    const a = app(slowFirst, shared, clock, lock);
+    const b = app(slowFirst, shared, clock, lock);
+    const qa = quote(a);
+    const qb = quote(b);
+    await Promise.resolve();
+    releaseFirst();
+    await expect(Promise.all([qa, qb])).resolves.toHaveLength(2);
+    expect(issuedAt).toHaveLength(1);
+    expect(shared.load()?.accessToken).toBe('tok1');
+    expect(await alternate([a, b], clock, 5)).toEqual([]);
+  });
+
+  // PR #21 리뷰: 발급 뒤 시계가 뒤로 가면 "마지막 발급"이 미래가 되어 1분보다 오래 막혔다. 간격보다 먼 미래면 시계가 바뀐 것으로 본다.
+  it('a clock moved backwards does not block re-issue for longer than the interval', async () => {
+    const clock = { now: START };
+    const { client, issuedAt } = tossServer(clock);
+    const a = app(client, memoryStore(), clock);
+    await quote(a);
+    await client.request('toss', 'POST', '/oauth2/token'); // 다른 곳의 발급이 a의 토큰을 무효화
+    clock.now -= 3_600_000; // 시계를 1시간 되돌림
+    await expect(quote(a)).resolves.toHaveLength(1);
     expect(issuedAt).toHaveLength(3);
   });
 
