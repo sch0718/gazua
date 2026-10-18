@@ -21,7 +21,7 @@ corepack pnpm --filter proxy build
 ## KIS: Cloudflare Worker
 
 1. `corepack pnpm --filter proxy exec wrangler login`
-2. `proxy/wrangler.toml`의 `[vars] ALLOWED_ORIGINS`를 앱 주소(예: `https://<사용자>.github.io`)로 바꿔요. 여러 개면 콤마로 구분하고, 경로 없이 출처만 정확히 적어요.
+2. `proxy/wrangler.toml`의 `[vars] ALLOWED_ORIGINS`를 앱 주소(예: `https://gazua.<도메인>`, 커스텀 도메인이 없으면 `https://<사용자>.github.io`)로 바꿔요. 여러 개면 콤마로 구분하고, 경로 없이 출처만 정확히 적어요.
 3. (선택) `corepack pnpm --filter proxy exec wrangler secret put PROXY_TOKEN`
 4. `corepack pnpm --filter proxy deploy:worker`
 5. 배포된 `https://gazua-proxy.<계정>.workers.dev/health`가 200을 주는지 확인해요.
@@ -35,7 +35,7 @@ corepack pnpm --filter proxy build
 1. Cloudflare Zero Trust에서 Tunnel을 만들고, Public Hostname이 `http://proxy:8787`을 가리키게 설정한 뒤 토큰을 복사해요.
 2. `proxy/.env`를 만들어요(커밋되지 않아요).
    ```
-   ALLOWED_ORIGINS=https://<사용자>.github.io
+   ALLOWED_ORIGINS=https://gazua.<도메인>
    PROXY_TOKEN=<임의의 긴 문자열>
    TUNNEL_TOKEN=<터널 토큰>
    ```
@@ -73,7 +73,7 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 3. 터널의 공개 호스트 이름을 추가해요. 하위 도메인은 `gazua-proxy`, 서비스 유형은 **HTTP**, URL은 **`localhost:8787`**이에요. Docker 방식의 `proxy:8787`은 compose 안에서만 통해요.
 4. `proxy/.env`를 만들어요(커밋되지 않아요). 이 방식에는 `TUNNEL_TOKEN`이 필요 없어요.
    ```
-   ALLOWED_ORIGINS=https://<사용자>.github.io
+   ALLOWED_ORIGINS=https://gazua.<도메인>
    PROXY_TOKEN=<openssl rand -hex 32로 만든 값>
    ```
 5. 로그인할 때 프록시가 자동으로 뜨게 설치해요. 빌드하고 LaunchAgent(`dev.gazua.proxy`)를 등록한 뒤 `/health`까지 확인해요.

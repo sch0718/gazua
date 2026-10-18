@@ -19,10 +19,10 @@ describe('pwaOptions', () => {
   it('does not answer non-app URLs (universe.json, assets) with the app shell', () => {
     const deny = wb.navigateFallbackDenylist ?? [];
     const denied = (path: string) => deny.some((re) => re.test(path));
-    expect(denied('/gazua/universe.json')).toBe(true);
-    expect(denied('/gazua/assets/index-abc.js')).toBe(true);
-    expect(denied('/gazua/')).toBe(false);
-    expect(denied('/gazua/compare/g1')).toBe(false);
+    expect(denied('/universe.json')).toBe(true);
+    expect(denied('/assets/index-abc.js')).toBe(true);
+    expect(denied('/')).toBe(false);
+    expect(denied('/compare/g1')).toBe(false);
   });
 
   it('precaches only the app shell, not fonts or the universe', () => {
@@ -35,7 +35,7 @@ describe('pwaOptions', () => {
       const api = new URL('https://proxy.example.workers.dev/kis/uapi/domestic-stock/v1/quotations/inquire-price');
       expect(match({ url: api, sameOrigin: false })).toBe(false);
       // 같은 출처 경로여도 시세 API 모양이면 담지 않는다.
-      expect(match({ url: new URL('https://x.github.io/gazua/kis/quotes.json'), sameOrigin: true })).toBe(false);
+      expect(match({ url: new URL('https://gazua.example.dev/kis/quotes.json'), sameOrigin: true })).toBe(false);
     }
   });
 });
