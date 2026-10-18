@@ -71,6 +71,30 @@ export interface MarketDataProvider {
     to: string,
     priority?: Priority,
   ): Promise<Candle[]>;
+  /** 관심그룹을 만들 재료(토스만). 공급자의 종목 코드를 그대로 돌려준다(앱 코드로 바꾸는 건 호출자). */
+  groupImport?: GroupImportSource;
+}
+
+/** 가져올 종목. symbol은 공급자의 코드(토스 ETN은 Q 없는 6자리). */
+export interface ImportStock {
+  symbol: string;
+  name: string;
+}
+
+export interface ImportSector {
+  id: string;
+  name: string;
+  /** 대분류부터 이은 이름(예: `IT › 반도체 › 메모리`) */
+  path: string;
+}
+
+export interface GroupImportSource {
+  /** 국내 보유 종목, 평가금액 큰 순. */
+  holdings(): Promise<ImportStock[]>;
+  /** 섹터 전체(대·중·소분류). */
+  sectors(): Promise<ImportSector[]>;
+  /** 섹터(하위 포함)의 국내 보통주, 시가총액 큰 순. */
+  sectorStocks(sectorId: string): Promise<ImportStock[]>;
 }
 
 /** 토큰 저장소. 잠금 모드면 메모리 구현을 쓴다. */

@@ -5,12 +5,15 @@
   import { moveGroup, renameGroup } from '../lib/state/watchlist';
   import Sheet from '../lib/ui/components/Sheet.svelte';
   import { deleteGroupWithUndo } from './groupActions';
+  import TossImport from './TossImport.svelte';
 
   // 그룹 관리 시트(스펙 7.3): 이름 바꾸기·순서·삭제(확인 + 되돌리기). 그룹은 하나 이상 남긴다.
   let { open, app, onclose }: { open: boolean; app: App; onclose: () => void } = $props();
 
   const groups = $derived(app.watchlists.groups);
   const lastOne = $derived(groups.length <= 1);
+  // 공급자가 그룹 재료를 줄 때만(토스) 가져오기를 보여 준다.
+  const importSource = $derived(app.provider.groupImport);
 
   let editing = $state<string | null>(null);
   let draft = $state('');
@@ -158,6 +161,10 @@
         <button type="button" class="btn danger" onclick={confirmDelete}>삭제</button>
       </div>
     </div>
+  {/if}
+
+  {#if importSource && open}
+    <TossImport {app} source={importSource} {onclose} />
   {/if}
 </Sheet>
 

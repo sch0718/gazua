@@ -35,6 +35,12 @@ afterEach(() => {
 });
 
 describe('GroupSheet', () => {
+  it('offers 토스에서 가져오기 only when the provider can import groups (not on demo data)', () => {
+    setup();
+    expect(screen.queryByRole('region', { name: '토스에서 가져오기' })).toBeNull();
+    expect(screen.queryByText('토스에서 가져오기')).toBeNull();
+  });
+
   it('lists the groups with their item counts', () => {
     setup();
     expect(screen.getByRole('dialog', { name: '그룹 관리' })).toBeTruthy();
