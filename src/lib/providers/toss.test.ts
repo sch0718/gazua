@@ -428,6 +428,29 @@ describe('toss provider: quotes', () => {
     expect(client.calls).toHaveLength(0);
   });
 
+  // live-check ⑩(2026-10-18): 토스는 ETN을 Q 없는 6자리로 받고 돌려준다. Q500023을 그대로 보내면 빈 result가 온다.
+  it('sends ETN codes without the Q prefix and maps the rows back to the app symbol', async () => {
+    const { provider, client } = setup((c) =>
+      c.path === '/api/v1/prices'
+        ? ok(
+            c.query.symbols
+              .split(',')
+              .filter((s) => !s.startsWith('Q'))
+              .map((s) => ({ symbol: s, timestamp: null, lastPrice: '14115', currency: 'KRW' })),
+          )
+        : undefined,
+    );
+    const quotes = await provider.getQuotes(['Q500023', '005930'], 'UNIFIED');
+    expect(client.dataCalls[0].query.symbols).toBe('500023,005930');
+    expect(quotes.map((q) => q.symbol)).toEqual(['Q500023', '005930']);
+  });
+
+  it('sends ETN codes without the Q prefix on candle requests', async () => {
+    const { provider, client } = setup();
+    await provider.getCandles({ ...dailyQuery('2026-10-06', '2026-10-08'), symbol: 'Q500023' });
+    expect(client.dataCalls[0].query.symbol).toBe('500023');
+  });
+
   it('fails as upstream when a requested symbol is missing from the response', async () => {
     const { provider } = setup((c) => (c.path === '/api/v1/prices' ? ok([]) : undefined));
     await expect(provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'upstream' });

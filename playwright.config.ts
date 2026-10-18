@@ -1,9 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
 // 프로덕션 빌드(vite preview)를 대상으로 4개 뷰포트에서 데모 흐름을 돌린다.
-// 앱은 base `/gazua/` 아래에서 해시 라우팅을 쓴다.
+// 앱은 도메인 루트(base `/`)에서 해시 라우팅을 쓴다.
 const PORT = 4173;
-const BASE_URL = `http://localhost:${PORT}/gazua/`;
+const BASE_URL = `http://localhost:${PORT}/`;
 
 export default defineConfig({
   testDir: 'tests/e2e',
