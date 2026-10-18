@@ -70,6 +70,14 @@ describe('TossImport', () => {
     expect(screen.queryByRole('button', { name: /그룹 만들기$/ })).toBeNull();
   });
 
+  // PR #25 리뷰: 가져온 국내 종목이 모두 앱에 없으면 뺀 개수가 안 보였다.
+  it('holdings: when every stock is unsupported it still says how many were left out', async () => {
+    setup({ holdings: async () => stocks(['999998', '999999']) });
+    await fireEvent.click(screen.getByRole('button', { name: '보유 종목' }));
+    await vi.waitFor(() => screen.getByText('넣을 수 있는 국내 종목이 없어요'));
+    expect(screen.getByText('지원하지 않는 종목 2개는 뺐어요')).toBeTruthy();
+  });
+
   it('sectors: shows top-level sectors, searches every level, and creates a group named after the sector', async () => {
     const sectorStocks = vi.fn(async () => stocks(['000660', '005930']));
     const { app } = setup({

@@ -117,6 +117,7 @@
     {@const p = load.value.plan}
     {#if p.symbols.length === 0}
       <p class="status">넣을 수 있는 국내 종목이 없어요</p>
+      {#if note(p)}<p class="status">{note(p)}</p>{/if}
     {:else}
       <p class="names">{load.value.names.join(', ')}</p>
       {#if note(p)}<p class="status">{note(p)}</p>{/if}
