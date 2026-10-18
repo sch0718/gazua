@@ -70,6 +70,11 @@ function requireUnified(venue: Venue): void {
   if (venue !== 'UNIFIED') throw new Error('toss supports UNIFIED only');
 }
 
+/** 앱의 ETN 코드(`Q` + 6자리)를 토스 코드(6자리)로. live-check ⑩: Q를 붙이면 시세·종목 정보가 빈 result로 온다. */
+function tossSymbol(symbol: string): string {
+  return /^Q\d{6}$/.test(symbol) ? symbol.slice(1) : symbol;
+}
+
 function securityTypeOf(type: string): SecurityType {
   return type === 'STOCK' || type === 'ETF' || type === 'ETN' || type === 'REIT' ? type : 'OTHER';
 }
@@ -192,7 +197,10 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     return result.filter(isRecord);
   }
 
-  /** 최신순 페이지를 nextBefore로 이어 받는다. 경계 봉이 한 번 겹치므로 종가가 같은지 확인한다. */
+  /**
+   * 최신순 페이지를 nextBefore로 이어 받는다. live-check ⑫(2026-10-18): nextBefore는 다음 페이지의 첫 봉 시각(포함)이고
+   * 앞 페이지의 가장 오래된 봉보다 1분 앞이라 페이지가 겹치지 않는다. 겹치는 봉이 오면 종가가 같은지 확인한다.
+   */
   async function pagesOnce(plan: CandlePlan, from: string, to: string, priority: Priority): Promise<Map<number, Candle>> {
     const { interval } = plan.query;
     const byT = new Map<number, Candle>();
@@ -259,7 +267,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     what: string,
     skipMissing = false,
   ): Promise<{ symbol: string; row: Row }[]> {
-    const unique = [...new Set(symbols)];
+    const unique = [...new Set(symbols.map(tossSymbol))];
     const pages = await Promise.all(
       chunk(unique, BATCH_SIZE).map((batch) =>
         api({ group, path, query: { symbols: batch.join(',') }, priority }).then((r) => resultRows(r, what)),
@@ -268,7 +276,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     const bySymbol = new Map<string, Row>();
     for (const row of pages.flat()) bySymbol.set(text(row.symbol), row);
     return symbols.flatMap((symbol) => {
-      const row = bySymbol.get(symbol);
+      const row = bySymbol.get(tossSymbol(symbol));
       if (row) return [{ symbol, row }];
       if (skipMissing) return [];
       throw upstream(`Toss ${what} response is missing a requested symbol`);
@@ -360,7 +368,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
 
     async getCandles(q: CandleQuery) {
       requireUnified(q.venue);
-      const query: CandlePlan['query'] = { symbol: q.symbol, interval: q.interval };
+      const query: CandlePlan['query'] = { symbol: tossSymbol(q.symbol), interval: q.interval };
       // 기본값도 true지만 수정주가 적용을 계약으로 고정한다.
       if (q.interval === '1d') query.adjusted = 'true';
       return candles({ group: 'MARKET_DATA_CHART', path: '/api/v1/candles', query }, q.from, q.to, q.priority ?? 1);
