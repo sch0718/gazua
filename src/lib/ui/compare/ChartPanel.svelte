@@ -66,6 +66,14 @@
     user-select: none;
     -webkit-user-select: none;
   }
+  /* PC(레일·사이드가 보이는 폭)는 차트를 더 높게 쓴다. 위의 머리말·조작 줄과 아래 범례(약 320px)를 빼고 남는 높이까지만 써서
+     노트북 화면(768px)에서도 범례가 화면 안에 들어오게 한다. */
+  @media (min-width: 1024px) {
+    .chart {
+      height: max(360px, min(62vh, 100vh - 320px));
+      height: max(360px, min(62dvh, 100dvh - 320px));
+    }
+  }
   .loading {
     position: absolute;
     top: 10px;

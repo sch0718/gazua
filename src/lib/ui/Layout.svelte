@@ -21,9 +21,8 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: 'bar' 'main' 'side';
     grid-template-rows: auto 1fr auto;
+    /* 넓은 PC 화면에서도 폭을 막지 않는다. 남는 폭은 가운데 열(차트)이 가져간다. 글 위주 화면은 각자 720px로 막는다. */
     width: 100%;
-    max-width: 1600px;
-    margin: 0 auto;
     flex: 1;
     min-height: 0;
   }
