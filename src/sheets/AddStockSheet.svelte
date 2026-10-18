@@ -7,10 +7,11 @@
   import Badge from '../lib/ui/components/Badge.svelte';
   import Sheet from '../lib/ui/components/Sheet.svelte';
   import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
-  import { FULL_MESSAGE, addToGroup } from './groupActions';
+  import { FULL_MESSAGE, addToGroup, removeWithUndo } from './groupActions';
   import { sharedUniverse } from './universeSource';
 
   // 종목 추가 시트(스펙 7.3, 9-5·6·7): 초성 검색, 최근 추가, 연속 추가, 8종목 한도.
+  // 관심 그룹에서는 이미 추가된 종목(✓)을 다시 누르면 뺀다(되돌리기 스낵바). 가득 찬 그룹에서도 뺄 수 있다.
   // 기본(group)은 관심 그룹에 더한다. 전략 편집에서는 같은 검색을 쓰되 고른 종목을 onpick으로만 알린다.
   //   single: 하나 고르면 닫는다(비교 종목). multi: picked를 표시하고 max까지 연달아 고른다(직접 고른 종목).
   let {
@@ -52,6 +53,7 @@
   let failed = $state(false);
   let query = $state('');
   let added = $state(0);
+  let removed = $state(0);
 
   function load() {
     failed = false;
@@ -67,6 +69,7 @@
     untrack(() => {
       query = '';
       added = 0;
+      removed = 0;
       if (!universe) load();
     });
   });
@@ -86,8 +89,11 @@
   });
   const rows = $derived(trimmed ? results : recentRows);
 
-  function add(item: UniverseItem) {
-    if (present.has(item.s)) return;
+  function toggle(item: UniverseItem) {
+    if (present.has(item.s)) {
+      if (grouped && removeWithUndo(app, groupId, item.s, item.n, () => buttonFor(item.s))) removed++;
+      return;
+    }
     if (mode === 'single') {
       onpick?.(item);
       onclose();
@@ -102,6 +108,19 @@
     if (addToGroup(app, groupId, item.s, now) !== 'added') return;
     app.addRecent(item.s);
     added++;
+  }
+
+  /** 되돌린 뒤 포커스를 돌려줄 그 종목의 버튼. 시트가 닫혔거나 목록에서 사라졌으면 없다. */
+  function buttonFor(symbol: string): HTMLElement | null {
+    if (!open) return null;
+    return [...document.querySelectorAll<HTMLElement>('button.addbtn')].find((b) => b.dataset.symbol === symbol) ?? null;
+  }
+
+  function footNote(a: number, r: number): string {
+    if (a > 0 && r > 0) return `이번에 ${a}개 추가, ${r}개 뺐어요`;
+    if (a > 0) return `이번에 ${a}개 추가했어요`;
+    if (r > 0) return `이번에 ${r}개 뺐어요`;
+    return grouped ? '여러 개를 연달아 추가하고, ✓를 누르면 빼요' : '여러 개를 연달아 추가할 수 있어요';
   }
 
   function parts(name: string): [string, string, string] {
@@ -163,12 +182,14 @@
           <button
             type="button"
             class="addbtn"
+            data-symbol={item.s}
             class:done={has}
             class:pick={mode === 'single' && !has}
-            aria-label="{item.n} {has ? '추가됨' : mode === 'single' ? '선택' : '추가'}"
+            aria-label="{item.n} {has ? (grouped ? '빼기' : '추가됨') : mode === 'single' ? '선택' : '추가'}"
+            title={has && grouped ? '눌러서 그룹에서 빼기' : undefined}
             aria-disabled={!has && full ? 'true' : undefined}
             aria-describedby={!has && full ? limitId : undefined}
-            onclick={() => add(item)}
+            onclick={() => toggle(item)}
           >
             {has ? '✓' : mode === 'single' ? '선택' : '＋'}
           </button>
@@ -179,7 +200,7 @@
 
   {#if mode !== 'single'}
     <div class="foot">
-      <span>{added > 0 ? `이번에 ${added}개 추가했어요` : '여러 개를 연달아 추가할 수 있어요'}</span>
+      <span>{footNote(added, removed)}</span>
       <button type="button" class="btn" onclick={onclose}>완료</button>
     </div>
   {/if}

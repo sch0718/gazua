@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../lib/data/universe';
 import type { App } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
-import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
 import AddStockSheet from './AddStockSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 
@@ -55,7 +55,7 @@ describe('AddStockSheet', () => {
     await search('ㅎㅁ');
     const row = await vi.waitFor(() => rowOf('한미반도체'));
     expect(within(row).getByText(/042700 · KOSPI · 이미 추가됨/)).toBeTruthy();
-    expect(within(row).getByRole('button', { name: '한미반도체 추가됨' }).textContent).toContain('✓');
+    expect(within(row).getByRole('button', { name: '한미반도체 빼기' }).textContent).toContain('✓');
     expect(row.querySelector('mark')?.textContent).toBe('한미');
     expect(within(rowOf('한미약품')).getByRole('button', { name: '한미약품 추가' }).textContent).toContain('＋');
   });
@@ -77,7 +77,7 @@ describe('AddStockSheet', () => {
 
   it('adding two in a row counts them in the footer, saves them and remembers them as recent', async () => {
     const { app, onclose } = setup(['005930']);
-    expect(screen.getByText('여러 개를 연달아 추가할 수 있어요')).toBeTruthy();
+    expect(screen.getByText('여러 개를 연달아 추가하고, ✓를 누르면 빼요')).toBeTruthy();
     await search('삼성');
     await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '삼성전기 추가' })));
     await search('에코');
@@ -89,6 +89,46 @@ describe('AddStockSheet', () => {
     expect(screen.getByText('반도체 그룹 · 3/8 · 5개 더 추가할 수 있어요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '완료' }));
     expect(onclose).toHaveBeenCalled();
+  });
+
+  it('tapping an already-added stock (✓) removes it from the group with an undo', async () => {
+    const { app } = setup(EXAMPLE);
+    await search('ㅎㅁ');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '한미반도체 빼기' })));
+    expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930', '000660', '000990']);
+    expect(within(rowOf('한미반도체')).getByRole('button', { name: '한미반도체 추가' }).textContent).toContain('＋');
+    expect(screen.getByText('반도체 그룹 · 3/8 · 5개 더 추가할 수 있어요')).toBeTruthy();
+    expect(screen.getByText('이번에 1개 뺐어요')).toBeTruthy();
+    expect(currentSnackbar()?.message).toBe('한미반도체을(를) 삭제했어요');
+    currentSnackbar()?.action?.run();
+    expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toContain('042700');
+  });
+
+  // PR #24 리뷰: 키보드로 되돌리면 포커스가 body로 빠졌다. 되돌린 종목의 버튼으로 돌려준다.
+  it('after 되돌리기 the focus goes back to the restored stock\'s button', async () => {
+    setup(EXAMPLE);
+    await search('ㅎㅁ');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '한미반도체 빼기' })));
+    runSnackbarAction();
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '한미반도체 빼기' })));
+  });
+
+  it('a full group still lets you remove an added stock, which frees a slot', async () => {
+    const { app } = setup(['005930', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8']);
+    await search('삼성');
+    const remove = await vi.waitFor(() => screen.getByRole('button', { name: '삼성전자 빼기' }));
+    expect(remove.getAttribute('aria-disabled')).toBeNull();
+    await fireEvent.click(remove);
+    expect(app.watchlists.groups[0].items).toHaveLength(7);
+    expect(screen.getByRole('button', { name: '삼성전기 추가' }).getAttribute('aria-disabled')).toBeNull();
+  });
+
+  it('the footer counts additions and removals together', async () => {
+    setup(['005930']);
+    await search('삼성');
+    await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '삼성전기 추가' })));
+    await fireEvent.click(screen.getByRole('button', { name: '삼성전자 빼기' }));
+    expect(screen.getByText('이번에 1개 추가, 1개 뺐어요')).toBeTruthy();
   });
 
   it('an empty query lists the recent additions, most recent first', async () => {

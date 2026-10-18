@@ -40,9 +40,17 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await expect(sheet.getByRole('button', { name: '삼성전기 추가', exact: true })).toBeVisible();
   await shot(page, testInfo, '2-add-sheet');
   await sheet.getByRole('button', { name: '삼성전기 추가', exact: true }).click();
-  await expect(sheet.getByRole('button', { name: '삼성전기 추가됨', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: '삼성전기 빼기', exact: true })).toBeVisible();
   await expect(sheet).toContainText('5/8');
   await expect(sheet).toContainText('이번에 1개 추가했어요');
+  // 추가된 종목(✓)을 다시 누르면 빠지고, ＋로 다시 넣을 수 있다
+  await sheet.getByRole('button', { name: '삼성전기 빼기', exact: true }).click();
+  await expect(sheet).toContainText('4/8');
+  await expect(sheet).toContainText('이번에 1개 추가, 1개 뺐어요');
+  // 키보드로 되돌리면 포커스가 되돌린 종목의 버튼으로 돌아온다
+  await page.getByRole('button', { name: '되돌리기' }).press('Enter');
+  await expect(sheet).toContainText('5/8');
+  await expect(sheet.getByRole('button', { name: '삼성전기 빼기', exact: true })).toBeFocused();
   await sheet.getByRole('button', { name: '완료' }).click();
   await expect(sheet).toBeHidden();
   await expect(leaderboardRows(page)).toHaveCount(5);
