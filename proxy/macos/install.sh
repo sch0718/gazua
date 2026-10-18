@@ -20,7 +20,9 @@ fi
 
 # 프록시와 같은 파서(node --env-file)로 읽은 값을 검사해요. `PROXY_TOKEN=""`나 주석만 있는 줄은 빈 값이라
 # 프록시가 토큰 검사를 끈 채로 떠요. 통과하면 첫 번째 허용 출처를 출력해 아래 인증 확인에 써요.
-if [[ ! -f $ENV_FILE ]] || ! ORIGIN=$("$NODE" --env-file="$ENV_FILE" -e '
+# --env-file은 이미 있는 환경변수를 덮어쓰지 않으니, 셸에 export된 값이 파일의 빈 값을 가리지 않게 env -i로 비워요.
+# LaunchAgent도 셸 환경 없이 파일 값만으로 떠요.
+if [[ ! -f $ENV_FILE ]] || ! ORIGIN=$(env -i "$NODE" --env-file="$ENV_FILE" -e '
   const t = (process.env.PROXY_TOKEN ?? "").trim();
   const o = (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!t || !o.length) process.exit(1);
@@ -78,11 +80,14 @@ launchctl bootstrap "gui/$UID" "$PLIST"
 
 for _ in {1..10}; do
   if curl -fsS -m 2 http://localhost:8787/health >/dev/null 2>&1; then
-    # /health는 토큰 없이도 200이라, 토큰 없는 시세 요청이 401로 막히는지도 확인해요(상류는 부르지 않아요).
-    code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -H "Origin: $ORIGIN" http://localhost:8787/toss/api/v1/prices)
-    if [[ $code != 401 ]]; then
+    # /health는 토큰 없이도 200이라, 토큰 없는 시세 요청을 프록시가 직접 막는지도 확인해요.
+    # 인증이 꺼져 있으면 요청이 상류로 가고 상류의 401이 그대로 오므로, 상태 코드만이 아니라 프록시의 오류 코드를 봐요.
+    resp=$(curl -s -w $'\n%{http_code}' -m 5 -H "Origin: $ORIGIN" http://localhost:8787/toss/api/v1/prices || true)
+    code=${resp##*$'\n'}
+    body=${resp%$'\n'*}
+    if [[ $code != 401 || $body != *'"code":"proxy-token-invalid"'* ]]; then
       launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
-      echo "토큰 없는 요청이 $code 로 응답했어요(401이어야 해요). 서비스를 내렸어요. proxy/.env의 PROXY_TOKEN을 확인해 주세요." >&2
+      echo "토큰 없는 요청을 프록시가 막지 않았어요(응답 $code). 서비스를 내렸어요. proxy/.env의 PROXY_TOKEN을 확인해 주세요." >&2
       exit 1
     fi
     echo "설치했어요. 로그: $LOG"
