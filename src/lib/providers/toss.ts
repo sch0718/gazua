@@ -6,13 +6,15 @@ import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { createTokenManager } from './auth';
 import { ApiError } from './errors';
 import type { ProxyClient } from './http';
-import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
+import type { CandleQuery, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenLock, TokenStore } from './types';
 
 export interface TossDeps {
   client: ProxyClient;
   queue: RequestQueue;
   creds: { clientId: string; clientSecret: string };
   tokenStore: TokenStore;
+  /** 같은 저장소를 쓰는 탭끼리 발급을 하나로 묶는다. 없으면 이 탭 안에서만 묶는다. */
+  tokenLock?: TokenLock;
   now: () => number;
 }
 
@@ -29,6 +31,13 @@ export const TOSS_QUEUE_RATES = {
 } as const;
 
 type Group = keyof typeof TOSS_QUEUE_RATES;
+
+/**
+ * 이 탭이 토큰을 다시 받는 최소 간격. 토스는 client당 토큰이 하나뿐이라 새로 받으면 이전 토큰이 바로 무효(401 token-revoked)다.
+ * 같은 키를 다른 기기·탭(저장소를 같이 쓰지 않는 곳)에서도 쓰면 서로의 토큰을 계속 무효화하므로, 그동안은 발급하지 않고
+ * token-contended로 알린다(2026-10-18 실연결 관찰).
+ */
+export const TOSS_REISSUE_INTERVAL_MS = 60_000;
 
 const BATCH_SIZE = 200;
 const CANDLE_PAGE_SIZE = '200';
@@ -149,6 +158,12 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   const { client, queue, creds, now } = deps;
 
   async function issueToken(): Promise<TokenInfo> {
+    const last = tokens.lastIssuedAt();
+    const wait = last === null ? 0 : last + TOSS_REISSUE_INTERVAL_MS - now();
+    // 마지막 발급이 간격보다 먼 미래면 시계가 뒤로 간 것이다. 그 기록으로 막지 않는다(막으면 간격보다 오래 막힌다).
+    if (wait > 0 && wait <= TOSS_REISSUE_INTERVAL_MS) {
+      throw new ApiError('token-contended', undefined, { retryAfterMs: wait });
+    }
     const res = await client.request('toss', 'POST', '/oauth2/token', {
       body: new URLSearchParams({
         grant_type: 'client_credentials',
@@ -161,7 +176,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     return token;
   }
 
-  const tokens = createTokenManager(issueToken, deps.tokenStore, now);
+  const tokens = createTokenManager(issueToken, deps.tokenStore, now, undefined, deps.tokenLock);
   let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. `{ result }`를 벗겨 돌려준다. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */
@@ -184,9 +199,10 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     } catch (e) {
       if (!(e instanceof ApiError) || e.code !== 'token-expired') throw e;
       // 같은 토큰으로 동시에 실패한 호출들이 서로의 재발급을 지우지 않게, 토큰당 한 번만 무효화한다.
+      // 같은 저장소를 쓰는 다른 탭이 새 토큰을 받아 두었으면 발급하지 않고 그 토큰으로 다시 시도한다.
       if (usedToken === undefined || usedToken !== lastInvalidated) {
         lastInvalidated = usedToken;
-        tokens.invalidate();
+        tokens.invalidate(usedToken);
       }
       return attempt('|retry');
     }

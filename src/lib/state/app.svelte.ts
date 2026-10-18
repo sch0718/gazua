@@ -7,6 +7,7 @@ import {
   type SeriesSnapshots,
 } from '../data/candleService';
 import { createProvider } from '../providers/factory';
+import { webTokenLock } from '../providers/tokenLock';
 import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
 import { applyColorConvention, applyTheme } from '../ui/theme';
 import {
@@ -298,6 +299,8 @@ export function createApp(deps: AppDeps): App {
       fetchImpl,
       tokenStore: (p) => tokenStoreFor(id, p, generation),
       issuedAtStore: (p) => issuedAtStoreFor(id, p),
+      // 토큰을 localStorage에 같이 두는 탭끼리 발급을 하나로 묶는다. 잠금 모드는 탭마다 메모리 저장소라 묶을 것이 없다.
+      tokenLock: (p) => (lockMode() ? undefined : webTokenLock(`${STORAGE_PREFIX}${id}:token-lock:${p}`)),
     });
   }
 

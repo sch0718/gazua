@@ -101,6 +101,7 @@ export function errorText(e: unknown): string {
       case 'timeout':
         return '연결할 수 없어요';
       case 'rate-limited':
+      case 'token-contended':
       case 'token-throttled':
         return '잠시 후 다시 불러올게요';
     }

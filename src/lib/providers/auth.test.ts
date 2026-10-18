@@ -110,6 +110,33 @@ describe('createTokenManager', () => {
     expect(store.saved).toEqual([{ accessToken: 'new', expiresAt: 2_000_000 }]);
   });
 
+  it('after invalidate(token), uses a different fresh token another tab saved instead of issuing', async () => {
+    const store = memoryStore({ accessToken: 'mine', expiresAt: 1_000_000 });
+    const issue = vi.fn(async () => ({ accessToken: 'new', expiresAt: 2_000_000 }));
+    const mgr = createTokenManager(issue, store, () => 0);
+    expect(await mgr.get()).toBe('mine');
+    store.save({ accessToken: 'other-tab', expiresAt: 1_500_000 });
+    mgr.invalidate('mine');
+    expect(await mgr.get()).toBe('other-tab');
+    expect(issue).not.toHaveBeenCalled();
+    // 거절한 토큰은 저장소에 다시 나타나도 쓰지 않는다.
+    mgr.invalidate('other-tab');
+    store.save({ accessToken: 'mine', expiresAt: 1_000_000 });
+    expect(await mgr.get()).toBe('new');
+  });
+
+  it('re-reads the store before refreshing a token that is about to expire', async () => {
+    let now = 0;
+    const store = memoryStore({ accessToken: 'a', expiresAt: 100_000 });
+    const issue = vi.fn(async () => ({ accessToken: 'issued', expiresAt: now + 100_000 }));
+    const mgr = createTokenManager(issue, store, () => now);
+    expect(await mgr.get()).toBe('a');
+    store.save({ accessToken: 'refreshed-elsewhere', expiresAt: 200_000 });
+    now = 50_000; // a는 60초 미만 남음
+    expect(await mgr.get()).toBe('refreshed-elsewhere');
+    expect(issue).not.toHaveBeenCalled();
+  });
+
   it('issues when the stored token is about to expire', async () => {
     const store = memoryStore({ accessToken: 'old', expiresAt: 30_000 });
     const issue = vi.fn(async () => ({ accessToken: 'new', expiresAt: 1_000_000 }));

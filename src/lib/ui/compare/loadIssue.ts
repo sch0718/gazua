@@ -38,6 +38,7 @@ const PRIORITY: ErrorCode[] = [
   'proxy-token-invalid',
   'ip-not-allowed',
   'invalid-credentials',
+  'token-contended',
   'token-throttled',
   'rate-limited',
   'timeout',
@@ -94,6 +95,7 @@ export function issueView(issue: LoadIssue | null, now: number): IssueView | nul
       };
     case 'rate-limited':
       return { kind: 'toolbar', text: d.title };
+    case 'token-contended':
     case 'token-throttled': {
       const left = issue.retryAfterMs === undefined ? 0 : Math.ceil((issue.at + issue.retryAfterMs - now) / 1000);
       return { kind: 'banner', tone: 'warn', text: left > 0 ? `${d.title} · ${left}초 남았어요` : d.title };
