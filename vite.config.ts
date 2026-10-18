@@ -5,6 +5,7 @@ import { devCspPlugin } from './csp.config';
 import { pwaOptions } from './pwa.config';
 
 export default defineConfig({
-  base: '/gazua/',
+  // 커스텀 도메인(gazua.sch0718.dev)의 루트에서 서비스한다. GitHub Pages Settings › Custom domain과 함께 바꾼다.
+  base: '/',
   plugins: [svelte(), VitePWA(pwaOptions), devCspPlugin],
 });

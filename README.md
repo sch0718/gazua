@@ -2,7 +2,7 @@
 
 관심종목을 한 차트에 나란히 놓고 비교하는 모바일 우선 웹앱이에요. GitHub Pages에 정적 사이트로 배포하고, 시세는 증권사 Open API(한국투자증권·토스증권)에서 받아와요.
 
-- 데모: <https://sch0718.github.io/gazua/> (저장소에서 GitHub Pages를 켠 뒤에 열려요. [배포](#배포) 참고)
+- 주소: <https://gazua.sch0718.dev/> (GitHub Pages + 커스텀 도메인. [배포](#배포) 참고)
 - 설정과 API 키는 각자 브라우저(localStorage)에만 저장해요. 서버에는 아무것도 올라가지 않아요.
 - 증권사 키가 없어도 **데모 데이터**로 모든 화면을 써 볼 수 있어요.
 
@@ -86,7 +86,7 @@ Node 22 이상이 필요해요. 패키지 관리자는 `package.json`의 `packag
 
 ```bash
 corepack pnpm install
-corepack pnpm dev          # 개발 서버 (http://localhost:5173/gazua/)
+corepack pnpm dev          # 개발 서버 (http://localhost:5173/)
 corepack pnpm test         # 단위·컴포넌트 테스트 (TZ=America/New_York으로 돌려요)
 corepack pnpm check        # svelte-check 타입 검사
 corepack pnpm test:demo    # 초기 PoC(poc/) 회귀 테스트
@@ -107,8 +107,13 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
 
 1. 저장소 **Settings › Pages › Build and deployment › Source**를 `GitHub Actions`로 바꿔요.
 2. 비공개 저장소에서 Pages를 쓰려면 유료 플랜이 필요해요.
-3. 배포 주소가 `https://<사용자>.github.io/gazua/`가 되도록 저장소 이름은 `gazua`로 맞춰요(`vite.config.ts`의 `base`).
-4. 프록시의 `ALLOWED_ORIGINS`에 `https://<사용자>.github.io`를 넣어요.
+3. 앱은 도메인 루트에서 열려요(`vite.config.ts`의 `base: '/'`). 커스텀 도메인을 이렇게 붙여요.
+   - Cloudflare DNS에 `CNAME gazua → <사용자>.github.io`를 **DNS 전용(회색 구름)**으로 추가해요. 대상은 내 도메인이 아니라 `github.io` 주소예요.
+   - GitHub 계정 Settings › Pages에서 도메인을 인증(TXT 레코드)해 두면 다른 사람이 가로챌 수 없어요.
+   - 저장소 Settings › Pages › Custom domain에 `gazua.<도메인>`을 넣고, 인증서가 나오면 **Enforce HTTPS**를 켜요. `.dev`는 HTTPS로만 열려요.
+   - 커스텀 도메인 없이 `https://<사용자>.github.io/gazua/`로 쓰려면 `base`를 `/gazua/`로 되돌려요. 도메인 지정과 `base`는 함께 바꿔야 해요. 하나만 바뀌면 화면 파일 경로가 어긋나 빈 화면이 떠요.
+4. 프록시의 `ALLOWED_ORIGINS`에 앱 출처(`https://gazua.<도메인>`)를 넣어요.
+5. 주소(출처)가 바뀌면 브라우저 저장소가 따로라 그룹·설정·키·시장 데이터가 따라오지 않아요. 옛 주소에서 설정 › 데이터 › 내보내기 한 파일을 새 주소에서 가져와요.
 
 ## 문서
 
