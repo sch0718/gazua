@@ -4,7 +4,7 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 
 ## HTTP 계약
 
-- `GET /health` → `200 {"ok":true,"providers":["kis","toss"]}`
+- `GET /health` → `200 {"ok":true,"providers":["kis","toss"],"originAllowed":true|false}`. 비밀값이 없어서 **어느 출처에서나 읽혀요**(허용하지 않은 출처에는 `access-control-allow-origin: *`). 앱 연결 진단이 "터널이 끊겨 프록시까지 닿지 않음"과 "이 출처를 허용하지 않음"을 구분하는 데 써요. 다른 경로는 허용한 출처만 받아요.
 - `{GET|POST} /{kis|toss}/{상위 경로}?{쿼리}` → 허용 목록에 있는 경로만 상위로 전달하고, 응답(상태·본문·`content-type`·`retry-after`·`x-ratelimit-remaining`·`tr_cont`)을 그대로 돌려줘요.
 - 확인 순서: 출처(`Origin`이 `ALLOWED_ORIGINS`에 있어야 함, 아니면 `403 origin-not-allowed`) → `X-Proxy-Token`(`PROXY_TOKEN`을 설정한 경우, 아니면 `401 proxy-token-invalid`) → 경로·메서드 허용 목록(아니면 `403 proxy-path-blocked`, 상위 호출 없음) → 전달.
 - 상위 네트워크 오류는 `502 upstream-unreachable`.
@@ -92,6 +92,7 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 
 | 증상 | 원인 |
 |---|---|
+| 앱 진단 ②에서 "프록시까지 닿지 않았어요" 또는 `/health`가 `error code: 1033`(530) | 터널이 끊겼어요. `cloudflared` 로그에 `Invalid tunnel secret`이 보이면 Cloudflare에서 터널 토큰이 바뀐 거예요. 새 토큰을 `/Library/Application Support/com.cloudflare.cloudflared/token`에 넣고 `sudo launchctl kickstart -k system/com.cloudflare.cloudflared`로 다시 띄워요 |
 | `/health`가 `error code: 502` | 터널은 붙었는데 `localhost:8787`에 프록시가 없어요. `lsof -nP -iTCP:8787 -sTCP:LISTEN`로 확인하고, `cloudflared` 로그(`/Library/Logs/com.cloudflare.cloudflared.err.log`)에 `connection refused`가 보이면 프록시를 띄워요 |
 | 앱 진단 `401 proxy-token-invalid` | 앱의 프록시 토큰과 `.env`의 `PROXY_TOKEN`이 달라요. 앱은 끝 4자리만 보여 주니 모르면 새로 만들어 양쪽을 바꿔요 |
 | 앱 진단 `403 origin-not-allowed` | `ALLOWED_ORIGINS`에 경로나 끝 `/`가 붙었어요. 출처만 적어요 |

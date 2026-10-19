@@ -64,9 +64,11 @@ export async function handle(
   const originAllowed = origin !== null && allowedOrigins(env).includes(origin);
 
   if (url.pathname === '/health') {
-    const headers = originAllowed ? corsHeaders(origin) : new Headers();
+    // 비밀값이 없는 응답이라 어느 출처에서나 읽게 한다. 앱 진단은 이걸로 "프록시까지 닿지 않음(터널 끊김)"과
+    // "이 출처를 허용하지 않음"을 구분한다. 다른 경로는 그대로 허용한 출처만 받는다.
+    const headers = originAllowed ? corsHeaders(origin) : new Headers({ 'access-control-allow-origin': '*' });
     headers.set('content-type', 'application/json');
-    return new Response(JSON.stringify({ ok: true, providers: ['kis', 'toss'] }), { status: 200, headers });
+    return new Response(JSON.stringify({ ok: true, providers: ['kis', 'toss'], originAllowed }), { status: 200, headers });
   }
 
   if (!originAllowed) return errorResponse(403, 'origin-not-allowed', null);

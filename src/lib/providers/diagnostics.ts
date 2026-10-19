@@ -81,6 +81,11 @@ const HINTS: Record<ErrorCode, string> = {
 const corsHint = (origin: string) =>
   origin ? `프록시 ALLOWED_ORIGINS에 ${origin}을 넣어 주세요` : '프록시 ALLOWED_ORIGINS에 현재 주소를 넣어 주세요';
 
+/** ② /health를 읽지 못했을 때. 지금 프록시는 /health를 어느 출처에나 열어 두므로 대개 터널이 끊긴 것이다. */
+const unreachedHint = (origin: string) =>
+  '프록시까지 닿지 않았어요. Cloudflare 터널(cloudflared)이 연결돼 있는지 확인해 주세요. ' +
+  `터널이 정상이면 프록시 ALLOWED_ORIGINS에 ${origin || '현재 주소'}${origin ? '이' : '가'} 있는지 확인해 주세요`;
+
 /** 단계 실패. code·hint만 담는다. */
 class StepFailure extends Error {
   constructor(
@@ -99,14 +104,6 @@ const filled = (v: string | undefined): v is string => !!v && v.trim() !== '';
 function positive(v: unknown): boolean {
   const n = Number(text(v).trim());
   return text(v).trim() !== '' && Number.isFinite(n) && n > 0;
-}
-
-async function readJson(res: Response): Promise<unknown> {
-  try {
-    return JSON.parse(await res.text());
-  } catch {
-    return null;
-  }
 }
 
 function codeOf(e: unknown): ErrorCode {
@@ -134,7 +131,11 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
   const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl, typeErrorCode: 'cors-blocked' });
   let token: TokenInfo | null = null;
 
-  async function health(init: RequestInit): Promise<Response> {
+  /**
+   * /health를 부른다. ②(no-cors가 아닌 요청)는 본문까지 같은 제한 시간 안에서 읽는다:
+   * 헤더 뒤에 본문 전송이 멈추면 제한 시간이 끝날 때 읽기가 중단돼 timeout이 된다.
+   */
+  async function health(init: RequestInit): Promise<{ res: Response; json: unknown }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
@@ -142,7 +143,16 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       // ①의 no-cors 생존 확인은 follow로 둔다: Fetch 표준상 no-cors + manual은 네트워크 오류이고,
       // 이 요청에는 키·토큰이 없어 따라가도 넘길 자격증명이 없다.
       const redirect: RequestRedirect = init.mode === 'no-cors' ? 'follow' : 'manual';
-      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect });
+      const res = await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect });
+      if (init.mode === 'no-cors' || isRedirect(res)) return { res, json: null };
+      let json: unknown = null;
+      try {
+        json = JSON.parse(await res.text());
+      } catch {
+        // 제한 시간에 읽기가 중단됐으면 timeout이다. JSON이 아니면 내용 없이 본다.
+        if (controller.signal.aborted) throw new StepFailure('timeout');
+      }
+      return { res, json };
     } catch (e) {
       if (controller.signal.aborted) throw new StepFailure('timeout');
       throw e;
@@ -162,19 +172,24 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         throw new StepFailure('proxy-unreachable');
       }
     },
-    // ② 일반 요청이 TypeError면 프록시가 이 출처를 허용하지 않는 것이다.
+    // ② 프록시는 /health를 어느 출처에서나 읽게 하고 이 출처의 허용 여부(originAllowed)를 알려 준다.
+    //    읽지 못하면(TypeError) ①을 통과했어도 프록시까지 닿지 않은 것이다: ①의 no-cors 요청은 터널이 끊겨
+    //    Cloudflare가 돌려준 오류 페이지(530)에도 성공한다. 옛 프록시는 허용하지 않은 출처에 CORS 헤더를 주지 않아
+    //    같은 증상이므로 안내에 둘 다 적는다.
     //    사용자 지정 헤더(프록시 토큰)는 붙이지 않는다: 사전 요청이 생기는데 /health는 그 헤더를 허용하지 않는다.
     //    프록시 토큰은 ③에서 확인된다.
     2: async () => {
-      let res: Response;
+      let reply: { res: Response; json: unknown };
       try {
-        res = await health({});
+        reply = await health({});
       } catch (e) {
         if (e instanceof StepFailure) throw e;
-        throw new StepFailure('cors-blocked');
+        throw new StepFailure('proxy-unreachable', unreachedHint(origin));
       }
+      const { res, json } = reply;
       if (isRedirect(res)) throw new StepFailure('proxy-redirect');
-      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, await readJson(res), provider));
+      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, json, provider));
+      if (isRecord(json) && json.originAllowed === false) throw new StepFailure('cors-blocked');
     },
     3: async () => {
       if (args.tokenSource) {
@@ -259,7 +274,8 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         error: code,
         hint: own ?? (cors ? corsHint(origin) : HINTS[code]),
       };
-      if (cors && origin) patch.copy = origin;
+      // ②에서 프록시까지 닿지 않았을 때도 옛 프록시의 출처 미허용일 수 있어 출처를 복사할 수 있게 둔다.
+      if ((cors || (id === 2 && code === 'proxy-unreachable')) && origin) patch.copy = origin;
       update(id, patch);
       steps = steps.map((s) => (s.id > id ? { ...s, status: 'skipped' } : { ...s }));
       onStep(steps);

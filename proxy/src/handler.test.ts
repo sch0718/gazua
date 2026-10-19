@@ -64,15 +64,26 @@ describe('/health', () => {
   it('returns 200 with CORS headers for an allowed origin', async () => {
     const res = await handle(req('/health'), env, fakeFetch());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'] });
+    expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: true });
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
   });
 
-  it('returns 200 without CORS headers otherwise', async () => {
-    const res = await handle(req('/health', { origin: null }), env, fakeFetch());
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'] });
+  // 비밀값이 없는 응답이라 어느 출처에서나 읽게 한다. 앱 진단이 "터널이 끊김"과 "출처를 허용하지 않음"을 구분하는 데 쓴다.
+  it('is readable from any origin and says whether that origin is allowed', async () => {
+    for (const origin of ['https://evil.example', null]) {
+      const res = await handle(req('/health', { origin }), env, fakeFetch());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false });
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    }
+  });
+
+  it('opening /health does not open other paths to a disallowed origin', async () => {
+    const f = fakeFetch();
+    const res = await handle(req('/toss/api/v1/prices', { origin: 'https://evil.example' }), env, f);
+    expect(res.status).toBe(403);
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    expect(f).not.toHaveBeenCalled();
   });
 });
 
