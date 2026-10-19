@@ -45,7 +45,7 @@ describe('node server', () => {
   it('ignores a malformed Host header and keeps serving', async () => {
     const bad = await get('/health', { host: 'a b' });
     expect(bad.status).toBe(200);
-    expect(JSON.parse(bad.body)).toEqual({ ok: true, providers: ['kis', 'toss'] });
+    expect(JSON.parse(bad.body)).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false });
   });
 
   it('answers 400 bad-request when the request cannot be converted, and stays alive', async () => {

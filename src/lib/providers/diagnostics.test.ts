@@ -117,7 +117,9 @@ describe('runDiagnostics', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
-  it('① ok · ② TypeError → cors-blocked with the origin to allow, later steps skipped', async () => {
+  // ①의 no-cors 요청은 Cloudflare 오류 페이지(터널 끊김 530)에도 성공한다. /health는 어느 출처에서나 읽히므로,
+  // ②에서 읽지 못하면 프록시까지 닿지 않은 것이다(옛 프록시라면 출처 미허용일 수도 있어 둘 다 안내한다).
+  it('① ok · ② TypeError → proxy not reached (tunnel down), with the origin to check, later steps skipped', async () => {
     const f = fakeFetch({
       health: () => {
         throw new TypeError('Failed to fetch');
@@ -125,10 +127,20 @@ describe('runDiagnostics', () => {
     });
     const steps = await run('kis', KIS, f).done;
     expect(steps[0].status).toBe('ok');
+    expect(steps[1]).toMatchObject({ status: 'fail', error: 'proxy-unreachable', copy: ORIGIN });
+    expect(steps[1].hint).toBe(
+      `프록시까지 닿지 않았어요. Cloudflare 터널(cloudflared)이 연결돼 있는지 확인해 주세요. 터널이 정상이면 프록시 ALLOWED_ORIGINS에 ${ORIGIN}이 있는지 확인해 주세요`,
+    );
+    expect(steps[2].status).toBe('skipped');
+    expect(steps[3].status).toBe('skipped');
+  });
+
+  it('② /health says this origin is not allowed → cors-blocked with the origin to allow', async () => {
+    const f = fakeFetch({ health: () => json({ ok: true, providers: ['kis', 'toss'], originAllowed: false }, 200) });
+    const steps = await run('kis', KIS, f).done;
     expect(steps[1]).toMatchObject({ status: 'fail', error: 'cors-blocked', copy: ORIGIN });
     expect(steps[1].hint).toBe(`프록시 ALLOWED_ORIGINS에 ${ORIGIN}을 넣어 주세요`);
     expect(steps[2].status).toBe('skipped');
-    expect(steps[3].status).toBe('skipped');
   });
 
   it('② non-2xx with a proxy error code is classified', async () => {
@@ -254,7 +266,9 @@ describe('runDiagnostics', () => {
       },
     });
     const steps = await runDiagnostics({ proxyUrl: PROXY, provider: 'kis', secrets: KIS, fetchImpl: f, origin: '', onStep: () => {} });
-    expect(steps[1].hint).toBe('프록시 ALLOWED_ORIGINS에 현재 주소를 넣어 주세요');
+    expect(steps[1].hint).toBe(
+      '프록시까지 닿지 않았어요. Cloudflare 터널(cloudflared)이 연결돼 있는지 확인해 주세요. 터널이 정상이면 프록시 ALLOWED_ORIGINS에 현재 주소가 있는지 확인해 주세요',
+    );
     expect(steps[1].copy).toBeUndefined();
   });
 

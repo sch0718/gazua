@@ -81,6 +81,11 @@ const HINTS: Record<ErrorCode, string> = {
 const corsHint = (origin: string) =>
   origin ? `프록시 ALLOWED_ORIGINS에 ${origin}을 넣어 주세요` : '프록시 ALLOWED_ORIGINS에 현재 주소를 넣어 주세요';
 
+/** ② /health를 읽지 못했을 때. 지금 프록시는 /health를 어느 출처에나 열어 두므로 대개 터널이 끊긴 것이다. */
+const unreachedHint = (origin: string) =>
+  '프록시까지 닿지 않았어요. Cloudflare 터널(cloudflared)이 연결돼 있는지 확인해 주세요. ' +
+  `터널이 정상이면 프록시 ALLOWED_ORIGINS에 ${origin || '현재 주소'}${origin ? '이' : '가'} 있는지 확인해 주세요`;
+
 /** 단계 실패. code·hint만 담는다. */
 class StepFailure extends Error {
   constructor(
@@ -162,7 +167,10 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         throw new StepFailure('proxy-unreachable');
       }
     },
-    // ② 일반 요청이 TypeError면 프록시가 이 출처를 허용하지 않는 것이다.
+    // ② 프록시는 /health를 어느 출처에서나 읽게 하고 이 출처의 허용 여부(originAllowed)를 알려 준다.
+    //    읽지 못하면(TypeError) ①을 통과했어도 프록시까지 닿지 않은 것이다: ①의 no-cors 요청은 터널이 끊겨
+    //    Cloudflare가 돌려준 오류 페이지(530)에도 성공한다. 옛 프록시는 허용하지 않은 출처에 CORS 헤더를 주지 않아
+    //    같은 증상이므로 안내에 둘 다 적는다.
     //    사용자 지정 헤더(프록시 토큰)는 붙이지 않는다: 사전 요청이 생기는데 /health는 그 헤더를 허용하지 않는다.
     //    프록시 토큰은 ③에서 확인된다.
     2: async () => {
@@ -171,10 +179,12 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         res = await health({});
       } catch (e) {
         if (e instanceof StepFailure) throw e;
-        throw new StepFailure('cors-blocked');
+        throw new StepFailure('proxy-unreachable', unreachedHint(origin));
       }
       if (isRedirect(res)) throw new StepFailure('proxy-redirect');
       if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, await readJson(res), provider));
+      const body = await readJson(res);
+      if (isRecord(body) && body.originAllowed === false) throw new StepFailure('cors-blocked');
     },
     3: async () => {
       if (args.tokenSource) {
@@ -259,7 +269,8 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
         error: code,
         hint: own ?? (cors ? corsHint(origin) : HINTS[code]),
       };
-      if (cors && origin) patch.copy = origin;
+      // ②에서 프록시까지 닿지 않았을 때도 옛 프록시의 출처 미허용일 수 있어 출처를 복사할 수 있게 둔다.
+      if ((cors || (id === 2 && code === 'proxy-unreachable')) && origin) patch.copy = origin;
       update(id, patch);
       steps = steps.map((s) => (s.id > id ? { ...s, status: 'skipped' } : { ...s }));
       onStep(steps);
