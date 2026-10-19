@@ -106,14 +106,6 @@ function positive(v: unknown): boolean {
   return text(v).trim() !== '' && Number.isFinite(n) && n > 0;
 }
 
-async function readJson(res: Response): Promise<unknown> {
-  try {
-    return JSON.parse(await res.text());
-  } catch {
-    return null;
-  }
-}
-
 function codeOf(e: unknown): ErrorCode {
   if (e instanceof StepFailure) return e.code;
   if (e instanceof ApiError) return e.code;
@@ -139,7 +131,11 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
   const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl, typeErrorCode: 'cors-blocked' });
   let token: TokenInfo | null = null;
 
-  async function health(init: RequestInit): Promise<Response> {
+  /**
+   * /health를 부른다. ②(no-cors가 아닌 요청)는 본문까지 같은 제한 시간 안에서 읽는다:
+   * 헤더 뒤에 본문 전송이 멈추면 제한 시간이 끝날 때 읽기가 중단돼 timeout이 된다.
+   */
+  async function health(init: RequestInit): Promise<{ res: Response; json: unknown }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
     try {
@@ -147,7 +143,16 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       // ①의 no-cors 생존 확인은 follow로 둔다: Fetch 표준상 no-cors + manual은 네트워크 오류이고,
       // 이 요청에는 키·토큰이 없어 따라가도 넘길 자격증명이 없다.
       const redirect: RequestRedirect = init.mode === 'no-cors' ? 'follow' : 'manual';
-      return await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect });
+      const res = await fetchImpl(`${base}/health`, { ...init, signal: controller.signal, redirect });
+      if (init.mode === 'no-cors' || isRedirect(res)) return { res, json: null };
+      let json: unknown = null;
+      try {
+        json = JSON.parse(await res.text());
+      } catch {
+        // 제한 시간에 읽기가 중단됐으면 timeout이다. JSON이 아니면 내용 없이 본다.
+        if (controller.signal.aborted) throw new StepFailure('timeout');
+      }
+      return { res, json };
     } catch (e) {
       if (controller.signal.aborted) throw new StepFailure('timeout');
       throw e;
@@ -174,17 +179,17 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
     //    사용자 지정 헤더(프록시 토큰)는 붙이지 않는다: 사전 요청이 생기는데 /health는 그 헤더를 허용하지 않는다.
     //    프록시 토큰은 ③에서 확인된다.
     2: async () => {
-      let res: Response;
+      let reply: { res: Response; json: unknown };
       try {
-        res = await health({});
+        reply = await health({});
       } catch (e) {
         if (e instanceof StepFailure) throw e;
         throw new StepFailure('proxy-unreachable', unreachedHint(origin));
       }
+      const { res, json } = reply;
       if (isRedirect(res)) throw new StepFailure('proxy-redirect');
-      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, await readJson(res), provider));
-      const body = await readJson(res);
-      if (isRecord(body) && body.originAllowed === false) throw new StepFailure('cors-blocked');
+      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, json, provider));
+      if (isRecord(json) && json.originAllowed === false) throw new StepFailure('cors-blocked');
     },
     3: async () => {
       if (args.tokenSource) {

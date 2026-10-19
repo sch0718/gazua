@@ -143,6 +143,31 @@ describe('runDiagnostics', () => {
     expect(steps[2].status).toBe('skipped');
   });
 
+  // PR #26 리뷰: 헤더는 왔는데 본문 전송이 멈추면 ②가 끝나지 않았다. 본문까지 8초 제한 안에서 읽는다.
+  it('② a /health body that stalls after the headers times out instead of hanging', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const f = fakeFetch({
+        health: (_url, init) => {
+          const body = new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(new TextEncoder().encode('{"ok":'));
+              init?.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')));
+            },
+          });
+          return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+        },
+      });
+      const { done } = run('kis', KIS, f);
+      await vi.advanceTimersByTimeAsync(8000);
+      const steps = await done;
+      expect(steps[1]).toMatchObject({ status: 'fail', error: 'timeout' });
+      expect(steps[2].status).toBe('skipped');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('② non-2xx with a proxy error code is classified', async () => {
     const f = fakeFetch({ health: () => json({ error: { code: 'origin-not-allowed' } }, 403) });
     const steps = await run('kis', KIS, f).done;
