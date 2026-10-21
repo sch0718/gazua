@@ -91,11 +91,8 @@ for _ in {1..10}; do
       exit 1
     fi
     # git pull로 프록시 코드가 바뀌면 이 스크립트를 다시 돌리게 저장소 hook(.githooks)을 켠다.
-    # 다른 hook 경로를 이미 쓰고 있으면 건드리지 않는다.
-    if [[ -z $(git -C "$REPO_DIR" config --get core.hooksPath 2>/dev/null) ]]; then
-      git -C "$REPO_DIR" config core.hooksPath .githooks &&
-        echo "git pull로 프록시 코드가 바뀌면 자동으로 다시 설치하도록 켰어요(.githooks)."
-    fi
+    # 다른 hook 경로나 .git/hooks의 hook을 이미 쓰고 있으면 건드리지 않고 방법만 알려 준다.
+    sh "${0:A:h}/enable-hooks.sh" "$REPO_DIR" || true
     echo "설치했어요. 로그: $LOG"
     exit 0
   fi

@@ -1,6 +1,6 @@
 #!/bin/sh
 # proxy 코드가 바뀐 병합·rebase 뒤에, 이 기기에 프록시 LaunchAgent가 설치돼 있으면 install.sh를 다시 돌린다
-# (빌드 → 재시작 → 토큰 검사). post-merge·post-rewrite가 부른다. 실패해도 git 동작은 막지 않는다.
+# (빌드 → 재시작 → 토큰 검사). post-merge·post-rewrite·post-checkout(rebase 중)이 부른다. 실패해도 git 동작은 막지 않는다.
 # 사용: proxy-auto-update <이전 커밋> <새 커밋>
 # 테스트용 덮어쓰기: GAZUA_PROXY_PLIST, GAZUA_PROXY_INSTALL
 set -u

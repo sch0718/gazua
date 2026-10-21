@@ -1,0 +1,8 @@
+#!/bin/sh
+# rebase가 새 기준 커밋으로 checkout한 뒤. 다시 적용할 커밋이 남았으면 끝에 post-rewrite가 불리니 넘기고,
+# 남은 커밋이 없으면(로컬 커밋이 전부 생략됐거나 앞으로 감기만 하면) post-rewrite가 불리지 않으니 여기서 부른다.
+# 그냥 브랜치를 바꾸는 checkout·switch에는 아무것도 하지 않는다. $1은 rebase 전 커밋이다.
+todo="$(git rev-parse --git-path rebase-merge)/git-rebase-todo"
+[ "${3:-}" = 1 ] && [ -f "$todo" ] || exit 0
+grep -Eq '^[[:space:]]*(p|pick|r|reword|e|edit|s|squash|f|fixup|m|merge)([[:space:]]|$)' "$todo" && exit 0
+exec "$(git rev-parse --show-toplevel)/.githooks/proxy-auto-update" "$1" "$2"

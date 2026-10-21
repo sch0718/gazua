@@ -64,6 +64,15 @@ describe('proxy auto-update hook', () => {
     assert.equal(r.runs(), 1);
   });
 
+  it('a fast-forward that changes proxy code re-runs install.sh once', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.commit('proxy/src/handler.ts', 'v2');
+    r.git('switch', '-q', 'main');
+    r.git('merge', '-q', '--ff-only', 'feat');
+    assert.equal(r.runs(), 1);
+  });
+
   it('a fast-forward that changes only other files does nothing', () => {
     const r = repo();
     r.git('switch', '-q', '-c', 'feat');
@@ -95,6 +104,66 @@ describe('proxy auto-update hook', () => {
     assert.equal(r.runs(), 1);
   });
 
+  it('git pull --rebase with a local commit re-runs install.sh once', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.commit('docs/a.md', 'mine');
+    r.git('switch', '-q', 'main');
+    r.commit('proxy/src/handler.ts', 'v2');
+    r.git('switch', '-q', 'feat');
+    r.git('pull', '-q', '--rebase', '.', 'main');
+    assert.equal(r.runs(), 1);
+  });
+
+  it('a rebase whose local proxy commits are replayed still re-runs install.sh only once', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.commit('proxy/node/server.ts', 'mine');
+    r.git('switch', '-q', 'main');
+    r.commit('proxy/src/handler.ts', 'v2');
+    r.git('switch', '-q', 'feat');
+    r.git('pull', '-q', '--rebase', '.', 'main');
+    assert.equal(r.runs(), 1);
+  });
+
+  // 로컬 커밋이 이미 상대 쪽에 있어 전부 생략되면 post-rewrite가 불리지 않는다(리뷰 재현).
+  it('git pull --rebase that skips every local commit re-runs install.sh once', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.commit('docs/a.md', 'mine');
+    r.git('switch', '-q', 'main');
+    r.commit('proxy/src/handler.ts', 'v2');
+    r.git('cherry-pick', 'feat');
+    r.git('switch', '-q', 'feat');
+    r.git('pull', '-q', '--rebase', '.', 'main');
+    assert.equal(r.git('rev-parse', 'HEAD'), r.git('rev-parse', 'main'));
+    assert.equal(r.runs(), 1);
+  });
+
+  it('git rebase·pull --rebase with nothing to rewrite (branch behind upstream) re-runs install.sh once each', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.git('switch', '-q', 'main');
+    r.commit('proxy/tsconfig.json', '{}');
+    r.git('switch', '-q', 'feat');
+    r.git('rebase', '-q', 'main');
+    assert.equal(r.runs(), 1);
+    r.git('switch', '-q', 'main');
+    r.commit('proxy/src/handler.ts', 'v3');
+    r.git('switch', '-q', 'feat');
+    r.git('pull', '-q', '--rebase', '.', 'main');
+    assert.equal(r.runs(), 2);
+  });
+
+  it('switching branches does not re-run install.sh', () => {
+    const r = repo();
+    r.git('switch', '-q', '-c', 'feat');
+    r.commit('proxy/src/handler.ts', 'v2');
+    r.git('switch', '-q', 'main');
+    r.git('switch', '-q', 'feat');
+    assert.equal(r.runs(), 0);
+  });
+
   it('a failing install.sh does not fail the merge', () => {
     const r = repo({ installerFails: true });
     r.git('switch', '-q', '-c', 'feat');
@@ -102,5 +171,54 @@ describe('proxy auto-update hook', () => {
     r.git('switch', '-q', 'main');
     assert.doesNotThrow(() => r.git('merge', '-q', '--ff-only', 'feat'));
     assert.equal(r.runs(), 1);
+  });
+});
+
+// install.sh가 끝에 부르는 hook 켜기. .git/hooks에 사용자 hook이 있으면 core.hooksPath를 바꿔 끄지 않는다.
+describe('enable-hooks.sh', () => {
+  const ENABLE = new URL('../proxy/macos/enable-hooks.sh', import.meta.url).pathname;
+
+  function plainRepo() {
+    const dir = mkdtempSync(join(tmpdir(), 'gazua-enable-'));
+    dirs.push(dir);
+    const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+    git('init', '-q');
+    const hooks = git('rev-parse', '--path-format=absolute', '--git-path', 'hooks');
+    mkdirSync(hooks, { recursive: true });
+    const run = () => execFileSync('sh', [ENABLE, dir], { encoding: 'utf8' });
+    const hooksPath = () => {
+      try {
+        return git('config', '--get', 'core.hooksPath');
+      } catch {
+        return '';
+      }
+    };
+    return { git, hooks, run, hooksPath };
+  }
+
+  it('turns on .githooks when .git/hooks has only samples', () => {
+    const r = plainRepo();
+    writeFileSync(join(r.hooks, 'pre-commit.sample'), '#!/bin/sh\n');
+    chmodSync(join(r.hooks, 'pre-commit.sample'), 0o755);
+    writeFileSync(join(r.hooks, 'notes.txt'), 'not executable');
+    r.run();
+    assert.equal(r.hooksPath(), '.githooks');
+  });
+
+  it('leaves core.hooksPath alone and explains how when a user hook exists', () => {
+    const r = plainRepo();
+    writeFileSync(join(r.hooks, 'pre-commit'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(r.hooks, 'pre-commit'), 0o755);
+    const out = r.run();
+    assert.equal(r.hooksPath(), '');
+    assert.match(out, /pre-commit/);
+    assert.match(out, /core\.hooksPath \.githooks/);
+  });
+
+  it('does not touch a hook path that is already set', () => {
+    const r = plainRepo();
+    r.git('config', 'core.hooksPath', 'my-hooks');
+    r.run();
+    assert.equal(r.hooksPath(), 'my-hooks');
   });
 });

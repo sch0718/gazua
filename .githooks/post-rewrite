@@ -1,4 +1,5 @@
 #!/bin/sh
-# git pull --rebase·rebase 뒤(amend는 제외). ORIG_HEAD는 rebase 전 커밋이다.
+# git pull --rebase·rebase가 커밋을 다시 적용한 뒤(amend는 제외). ORIG_HEAD는 rebase 전 커밋이다.
+# 다시 적용할 커밋이 없던 rebase는 post-checkout이 맡는다.
 [ "${1:-}" = rebase ] || exit 0
 exec "$(git rev-parse --show-toplevel)/.githooks/proxy-auto-update" ORIG_HEAD HEAD
