@@ -83,7 +83,8 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 6. 이 맥의 공인 IP를 토스 허용 IP에 등록해요(위 `토스 허용 IP 등록`). 토스로 나가는 요청은 터널이 아니라 이 맥에서 바로 나가요.
 7. `https://gazua-proxy.<도메인>/health`가 200을 주면 앱 설정의 프록시 URL에 그 주소를, 프록시 토큰에 `PROXY_TOKEN` 값을 넣어요.
 
-- 프록시 코드를 바꾸거나 `.env`를 고친 뒤에는 `proxy/macos/install.sh`를 다시 실행해요. 다시 빌드하고 재시작해요.
+- `install.sh`는 저장소 hook(`git config core.hooksPath .githooks`)도 켜요. 그 뒤로는 `git pull`(병합·rebase)로 프록시 코드(`proxy/src`·`proxy/node`·`proxy/package.json`·`proxy/tsconfig.json`·`install.sh`)가 바뀌면 hook이 `install.sh`를 다시 돌려 새 버전으로 재시작해요. 프록시가 설치되지 않은 기기에서는 아무것도 하지 않고, 실패해도 `git pull`은 막지 않아요. 이미 다른 hook 경로를 쓰고 있으면 켜지 않아요.
+- `.env`를 고친 뒤에는 `proxy/macos/install.sh`를 직접 다시 실행해요(hook은 코드 변경만 봐요).
 - 로그는 `~/Library/Logs/gazua-proxy.log`예요. 지우려면 `proxy/macos/uninstall.sh`를 실행해요.
 - 맥이 잠자기에 들어가면 프록시도 응답하지 않아요.
 - 앱은 프록시 URL을 하나만 받는데, 이 프록시는 `/kis/...` 경로도 처리해요. KIS로 바꿀 때도 같은 주소와 토큰을 써요.
