@@ -99,6 +99,27 @@ corepack pnpm --filter proxy test
 
 모든 시각 계산은 KST 고정이라 기기 시간대와 무관해요. 테스트가 `America/New_York`으로 도는 것도 그걸 확인하려는 거예요.
 
+### 클라우드 세션 (Claude Code on the web)
+
+클라우드 세션은 매번 새 Ubuntu 가상 머신에서 시작해요. Node 22·pnpm·git은 기본으로 있어요.
+
+- **의존성**: 저장소의 `.claude/settings.json` SessionStart hook(`.claude/hooks/session-start.sh`)이 `CLAUDE_CODE_REMOTE=true`일 때만 `corepack pnpm install --frozen-lockfile`을 돌려요. 락파일이 그대로면 건너뛰어요. 로컬 세션에서는 아무것도 하지 않아요.
+- **도구는 클라우드 환경 설정에서 넣어요**(claude.ai/code › 환경 선택 › 설정). 설정 스크립트는 첫 세션에 한 번 돌고 결과가 캐시돼요.
+  - 네트워크: Custom + "Also include default list of common package managers", 그리고 `new.real.download.dws.co.kr`(종목 유니버스), `cdn.playwright.dev`, `playwright.download.prss.microsoft.com`, `playwright.azureedge.net`
+  - 환경 변수: `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`
+  - 설정 스크립트:
+    ```bash
+    #!/bin/bash
+    set -e
+    export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+    apt-get update -qq && apt-get install -y -qq zsh
+    corepack enable || true
+    npx -y playwright@1.63.0 install --with-deps chromium
+    chmod -R a+rX /opt/ms-playwright
+    ```
+  - Playwright 버전은 `pnpm-lock.yaml`의 `@playwright/test`와 맞춰요. 바뀌면 설정 스크립트도 고쳐요.
+- 증권사 키·프록시 토큰은 클라우드 환경에 넣지 않아요. 테스트는 모두 녹화된 응답으로 돌아요.
+
 ## 배포
 
 GitHub Pages로 배포해요. 워크플로는 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)이고 `main`에 push할 때, 수동 실행할 때, 그리고 평일 06:00(KST)에 돌아요. 평일 아침 실행은 종목 유니버스를 새로 받아 다시 배포하는 용도예요.
