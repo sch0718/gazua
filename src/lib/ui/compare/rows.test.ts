@@ -6,7 +6,7 @@ import type { VenueMode } from '../../market/tradable';
 import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { buildRows, isSuspended, rowSeries, sortRows, valueAt, withQuote, type RowSource } from './rows';
+import { buildRows, isSuspended, orderRows, rowSeries, sortRows, valueAt, withQuote, type RowSource } from './rows';
 
 const at = (hhmm: string) => kstEpoch('2026-10-12', `${hhmm}:00`);
 const bar = (t: number, c: number): Candle => ({ t, o: c, h: c, l: c, c, v: 1 });
@@ -189,6 +189,16 @@ describe('buildRows', () => {
     const [r] = buildRows([src('A', { item: item('A', { colorSlot: 5, hidden: true }) })], { now: NOW_R, scrubT: null, venueMode: 'AUTO' });
     expect(r.slot).toBe(5);
     expect(r.hidden).toBe(true);
+  });
+});
+
+describe('orderRows', () => {
+  const r = (symbol: string, value: number | null) => ({ symbol, value });
+  it('value sorts by value (and honors frozen); mine keeps the input order', () => {
+    const rows = [r('A', 1), r('B', 3), r('C', null)];
+    expect(orderRows(rows, 'value', null).map((x) => x.symbol)).toEqual(['B', 'A', 'C']);
+    expect(orderRows(rows, 'value', ['C', 'A', 'B']).map((x) => x.symbol)).toEqual(['C', 'A', 'B']);
+    expect(orderRows(rows, 'mine', ['C', 'B', 'A']).map((x) => x.symbol)).toEqual(['A', 'B', 'C']);
   });
 });
 

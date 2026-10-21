@@ -199,6 +199,40 @@ test('group sheet: delete a group, Tab to 되돌리기, Enter → focus lands on
   await expect(sheet.getByRole('button', { name: '새 그룹 2 삭제' })).toBeFocused();
 });
 
+test('정렬 전환: 내 순서에서 Alt+↓로 옮긴 순서가 리더보드에 보이고, 새로고침 뒤에도 남는다', async ({ page }, testInfo) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  const board = leaderboard(page);
+  const symbols = () => leaderboardRows(page).evaluateAll((lis) => lis.map((li) => li.getAttribute('data-symbol')));
+
+  // 값 순에서는 Alt+↓가 순서를 바꾸지 않고 안내한다. 시세로 다시 정렬되지 않게 키보드 포커스로 순서를 고정한 뒤에 읽는다.
+  const top = leaderboardRows(page).first().locator('.main-btn');
+  await top.press('Shift');
+  const before = await symbols();
+  await top.press('Alt+ArrowDown');
+  await expect(board.getByRole('status')).toContainText('내 순서에서 바꿀 수 있어요');
+  expect(await symbols()).toEqual(before);
+
+  await board.getByRole('button', { name: '내 순서' }).click();
+  await expect(board.getByRole('button', { name: '내 순서' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(board).toContainText('내 순서 · 4/8');
+  await expect(board.getByRole('status')).toHaveText('');
+  expect(await symbols()).toEqual(['005930', '000660', '042700', '000990']);
+  await expectNoHorizontalScroll(page);
+  await shot(page, testInfo, 'board-order-mine');
+
+  const first = leaderboardRows(page).first().locator('.main-btn');
+  await first.press('Alt+ArrowDown');
+  await expect.poll(symbols).toEqual(['000660', '005930', '042700', '000990']);
+  await expect(page.locator('[aria-label="리더보드"] li[data-symbol="005930"] .main-btn')).toBeFocused();
+
+  await page.reload();
+  await expect(leaderboardRows(page)).toHaveCount(4);
+  await expect(leaderboard(page).getByRole('button', { name: '내 순서' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await symbols()).toEqual(['000660', '005930', '042700', '000990']);
+});
+
 test('다크 모드 비교 화면 스크린샷', async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await openApp(page);

@@ -14,6 +14,7 @@ const ENUMS: Partial<Record<keyof Settings, readonly unknown[]>> = {
   benchmark: ['AUTO', 'KOSPI', 'KOSDAQ'],
   theme: ['system', 'light', 'dark'],
   colorConvention: ['kr', 'global'],
+  boardOrder: ['value', 'mine'],
 };
 
 function validField(key: keyof Settings, v: unknown): boolean {

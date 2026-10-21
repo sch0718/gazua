@@ -163,6 +163,21 @@ describe('importData', () => {
     expect('evil' in s).toBe(false);
   });
 
+  it('keeps a valid leaderboard order and drops an invalid one to the default', () => {
+    const { st } = source();
+    const imp = (boardOrder: unknown) =>
+      importData(
+        st,
+        JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: { boardOrder }, watchlists: LISTS }),
+      );
+    const mine = imp('mine');
+    const bad = imp('random');
+    expect(mine.ok && bad.ok).toBe(true);
+    if (!mine.ok || !bad.ok) return;
+    expect(loadSettings(st, mine.profileId).boardOrder).toBe('mine');
+    expect(loadSettings(st, bad.profileId).boardOrder).toBe('value');
+  });
+
   it('a period the app cannot step through ([ ] shortcuts), e.g. W9, falls back to the default', () => {
     const { st } = source();
     const json = JSON.stringify({

@@ -823,13 +823,36 @@ describe('Compare sheets', () => {
       expect(order()).toEqual([C, B, A]);
     });
 
-    it('Alt+Arrow while held still moves the row', async () => {
-      await setup({ [A]: 0, [B]: 0, [C]: 0 });
+    it('값 순: Alt+Arrow does not move the row and says where to reorder', async () => {
+      const { app } = await setup({ [A]: 0, [B]: 0, [C]: 0 });
+      expect(order()).toEqual([A, B, C]);
+      mainOf(A).focus();
+      await fireEvent.keyDown(mainOf(A), { key: 'ArrowDown', altKey: true });
+      expect(order()).toEqual([A, B, C]);
+      expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual([A, B, C]);
+      expect(board().getByRole('status').textContent).toContain('내 순서에서 바꿀 수 있어요');
+    });
+
+    it('내 순서: rows keep the group order as values change, the choice is saved, and Alt+Arrow moves the row', async () => {
+      const pct = { [A]: 1, [B]: 2, [C]: 3 };
+      const { app, valueText } = await setup(pct);
+      expect(order()).toEqual([C, B, A]);
+      await fireEvent.click(board().getByRole('button', { name: '내 순서' }));
+      expect(app.settings.boardOrder).toBe('mine');
+      expect(order()).toEqual([A, B, C]);
+      expect(board().getByText('내 순서 · 3/8')).toBeTruthy();
+      Object.assign(pct, { [A]: 5 });
+      refreshQuotes();
+      await vi.waitFor(() => expect(within(mainOf(A)).getByText(valueText(A))).toBeTruthy(), { timeout: 3000 });
       expect(order()).toEqual([A, B, C]);
       mainOf(A).focus();
       await fireEvent.keyDown(mainOf(A), { key: 'ArrowDown', altKey: true });
       expect(order()).toEqual([B, A, C]);
+      expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual([B, A, C]);
       expect(document.activeElement).toBe(mainOf(A));
+      await fireEvent.click(board().getByRole('button', { name: '값 순' }));
+      expect(app.settings.boardOrder).toBe('value');
+      expect(order()).toEqual([A, C, B]);
     });
   });
 

@@ -32,6 +32,7 @@ function setup(rows: LeaderRow[], over: Record<string, unknown> = {}) {
     ontogglehidden: vi.fn(),
     onreorder: vi.fn(),
     onopenadd: vi.fn(),
+    onorderchange: vi.fn(),
     ...over,
   };
   const view = render(Leaderboard, props);
@@ -383,7 +384,7 @@ describe('Leaderboard', () => {
   });
 
   it('Alt+ArrowUp/Down on a focused row moves it next to its neighbor', async () => {
-    const props = setup([row('A', 3), row('B', 2), row('C', 1)]);
+    const props = setup([row('A', 3), row('B', 2), row('C', 1)], { boardOrder: 'mine' });
     await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowDown', altKey: true });
     expect(props.onreorder).toHaveBeenCalledWith('B', 'C');
     await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowUp', altKey: true });
@@ -395,7 +396,7 @@ describe('Leaderboard', () => {
   it('long press (500ms) then drag onto another row reorders', async () => {
     vi.useFakeTimers();
     try {
-      const props = setup([row('A', 3), row('B', 2), row('C', 1)]);
+      const props = setup([row('A', 3), row('B', 2), row('C', 1)], { boardOrder: 'mine' });
       const items = screen.getAllByRole('listitem');
       items.forEach((li, i) => {
         li.getBoundingClientRect = () => ({ top: i * 60, bottom: i * 60 + 60, left: 0, right: 300, height: 60, width: 300, x: 0, y: i * 60, toJSON: () => ({}) });
@@ -417,7 +418,7 @@ describe('Leaderboard', () => {
   it('after a touch drag that produced no click, the next tap still selects', async () => {
     vi.useFakeTimers();
     try {
-      const props = setup([row('A', 3), row('B', 2)]);
+      const props = setup([row('A', 3), row('B', 2)], { boardOrder: 'mine' });
       screen.getAllByRole('listitem').forEach((li, i) => {
         li.getBoundingClientRect = () => ({ top: i * 60, bottom: i * 60 + 60, left: 0, right: 300, height: 60, width: 300, x: 0, y: i * 60, toJSON: () => ({}) });
       });
@@ -440,7 +441,7 @@ describe('Leaderboard', () => {
   it('a short press does not start a drag', async () => {
     vi.useFakeTimers();
     try {
-      const props = setup([row('A', 3), row('B', 2)]);
+      const props = setup([row('A', 3), row('B', 2)], { boardOrder: 'mine' });
       const handle = mainBtn('A');
       await fireEvent.pointerDown(handle, { clientX: 10, clientY: 30, pointerId: 1 });
       vi.advanceTimersByTime(200);
@@ -449,5 +450,71 @@ describe('Leaderboard', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('정렬 전환(값 순 / 내 순서)', () => {
+    const toggle = (name: string) => screen.getByRole('button', { name });
+    const status = () => screen.getByRole('status');
+
+    it('값 순 is the default: the header names the metric and 값 순 is pressed', () => {
+      setup([row('A', 1), row('B', 3)]);
+      expect(screen.getByText('등락률 순 · 2/8')).toBeTruthy();
+      expect(toggle('값 순').getAttribute('aria-pressed')).toBe('true');
+      expect(toggle('내 순서').getAttribute('aria-pressed')).toBe('false');
+      expect(within(screen.getByRole('group', { name: '정렬' })).getAllByRole('button')).toHaveLength(2);
+    });
+
+    it('내 순서 keeps the group order whatever the values, and ignores frozenOrder', () => {
+      setup([row('A', 1), row('B', 3), row('C', null), row('D', 2)], { boardOrder: 'mine', frozenOrder: ['D', 'C', 'B', 'A'] });
+      expect(order()).toEqual(['A', 'B', 'C', 'D']);
+      expect(screen.getByText('내 순서 · 4/8')).toBeTruthy();
+      expect(toggle('내 순서').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('pressing a toggle reports the new order; pressing the current one does nothing', async () => {
+      const props = setup([row('A', 1)]);
+      await fireEvent.click(toggle('값 순'));
+      expect(props.onorderchange).not.toHaveBeenCalled();
+      await fireEvent.click(toggle('내 순서'));
+      expect(props.onorderchange).toHaveBeenCalledWith('mine');
+    });
+
+    it('in 값 순, Alt+ArrowUp/Down does not reorder and explains where to reorder', async () => {
+      const props = setup([row('A', 3), row('B', 2)]);
+      expect(status().textContent).toBe('');
+      await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowUp', altKey: true });
+      expect(props.onreorder).not.toHaveBeenCalled();
+      expect(status().textContent).toBe('값 순에서는 순서를 바꿀 수 없어요 · 내 순서에서 바꿀 수 있어요');
+    });
+
+    it('in 값 순, a long press shows the hint for 4 seconds, does not drag and does not select', async () => {
+      vi.useFakeTimers();
+      try {
+        const props = setup([row('A', 3), row('B', 2)]);
+        screen.getAllByRole('listitem').forEach((li, i) => {
+          li.getBoundingClientRect = () => ({ top: i * 60, bottom: i * 60 + 60, left: 0, right: 300, height: 60, width: 300, x: 0, y: i * 60, toJSON: () => ({}) });
+        });
+        const handle = mainBtn('A');
+        await fireEvent.pointerDown(handle, { clientX: 10, clientY: 30, pointerId: 1 });
+        vi.advanceTimersByTime(500);
+        await fireEvent.pointerMove(handle, { clientX: 10, clientY: 90, pointerId: 1 });
+        await fireEvent.pointerUp(handle, { clientX: 10, clientY: 90, pointerId: 1 });
+        await fireEvent.click(handle);
+        expect(props.onreorder).not.toHaveBeenCalled();
+        expect(props.onselect).not.toHaveBeenCalled();
+        expect(status().textContent).toContain('내 순서에서 바꿀 수 있어요');
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(status().textContent).toBe('');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('switching the order clears the hint', async () => {
+      const props = setup([row('A', 3), row('B', 2)]);
+      await fireEvent.keyDown(mainBtn('B'), { key: 'ArrowUp', altKey: true });
+      await props.rerender({ boardOrder: 'mine' });
+      expect(status().textContent).toBe('');
+    });
   });
 });

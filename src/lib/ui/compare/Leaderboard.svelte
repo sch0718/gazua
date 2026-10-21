@@ -9,16 +9,19 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import Badge from '../components/Badge.svelte';
   import { fmtWon, trendClass } from '../format';
   import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
-  import { sortRows, type LeaderRow } from './rows';
+  import type { BoardOrder } from '../../state/schema';
+  import { orderRows, type LeaderRow } from './rows';
 
-  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 내림차순, 고정 중(스크럽·키보드 포커스)에는 frozenOrder를 지킨다.
+  // 리더보드(범례 겸용, 스펙 7.2-6·7). 값 순이면 값 내림차순, 고정 중(스크럽·키보드 포커스)에는 frozenOrder를 지킨다.
+  // 내 순서면 rows(그룹 종목) 순서 그대로이고, 그때만 끌기·Alt+↑↓로 순서를 바꾼다.
   let {
     rows,
     frozenOrder,
+    boardOrder = 'value',
     unit,
     conv,
     metricLabel,
@@ -30,9 +33,12 @@
     onreorder,
     onopenadd,
     onfocuswithin,
+    onorderchange,
   }: {
     rows: LeaderRow[];
     frozenOrder: string[] | null;
+    /** 값 순(기본) 또는 내 순서 */
+    boardOrder?: BoardOrder;
     unit: MetricUnit;
     conv: 'kr' | 'global';
     metricLabel: string;
@@ -48,12 +54,38 @@
     onopenadd: () => void;
     /** 포커스가 목록 안으로 들어오면 그때 보이는 순서를, 목록 밖으로 나가면 null을 알린다. */
     onfocuswithin?: (order: string[] | null) => void;
+    /** 머리줄의 `값 순`·`내 순서`로 정렬을 바꾼다. */
+    onorderchange?: (order: BoardOrder) => void;
   } = $props();
 
   const LONG_PRESS_MS = 500;
   const MOVE_TOLERANCE_PX = 8;
 
-  const ordered = $derived(sortRows(rows, frozenOrder));
+  const HINT_MS = 4000;
+  const REORDER_HINT = '값 순에서는 순서를 바꿀 수 없어요 · 내 순서에서 바꿀 수 있어요';
+
+  const ordered = $derived(orderRows(rows, boardOrder, frozenOrder));
+
+  // 값 순에서 길게 누르거나 Alt+↑↓를 누르면 순서를 바꾸는 대신 어디서 바꾸는지 알린다. 정렬을 바꾸면 지운다.
+  let hint = $state('');
+  let hintTimer: ReturnType<typeof setTimeout> | undefined;
+  function showReorderHint() {
+    hint = REORDER_HINT;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => (hint = ''), HINT_MS);
+  }
+  // 키보드 고정 중에 정렬을 바꾸면(클릭이 포커스를 주지 않는 브라우저) 예전 정렬의 고정 순서가 남지 않게 새 정렬로 다시 고정한다.
+  let prevOrder = untrack(() => boardOrder);
+  $effect(() => {
+    if (boardOrder === prevOrder) return;
+    prevOrder = boardOrder;
+    clearTimeout(hintTimer);
+    hint = '';
+    untrack(() => {
+      if (focusInside) onfocuswithin?.(orderRows(rows, boardOrder, null).map((r) => r.symbol));
+    });
+  });
+  onDestroy(() => clearTimeout(hintTimer));
 
   let listEl: HTMLUListElement;
   let addBtn: HTMLButtonElement;
@@ -228,6 +260,12 @@
       y: e.clientY,
       timer: setTimeout(() => {
         press = null;
+        if (boardOrder !== 'mine') {
+          // 끌기와 같이 뗀 뒤의 click은 상세를 열지 않는다.
+          suppressClick = true;
+          showReorderHint();
+          return;
+        }
         dragging = symbol;
         dropTarget = symbol;
         try {
@@ -278,6 +316,10 @@
     suppressClick = false;
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
+    if (boardOrder !== 'mine') {
+      showReorderHint();
+      return;
+    }
     const i = ordered.findIndex((r) => r.symbol === symbol);
     const neighbor = ordered[i + (e.key === 'ArrowUp' ? -1 : 1)];
     if (neighbor) onreorder(symbol, neighbor.symbol);
@@ -299,7 +341,20 @@
 
 <section class="board" aria-label="리더보드">
   <div class="board-head">
-    <span>{metricLabel} 순 · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span>
+    <span class="head-label"
+      >{boardOrder === 'mine' ? '내 순서' : `${metricLabel} 순`} · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span
+    >
+    <div class="seg" role="group" aria-label="정렬">
+      {#each [['value', '값 순'], ['mine', '내 순서']] as const as [id, label] (id)}
+        <button
+          type="button"
+          aria-pressed={boardOrder === id}
+          onclick={() => {
+            if (boardOrder !== id) onorderchange?.(id);
+          }}>{label}</button
+        >
+      {/each}
+    </div>
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -333,7 +388,8 @@
           {onpointerup}
           {onpointercancel}
           oncontextmenu={(e) => {
-            if (press || dragging) e.preventDefault();
+            // 길게 누른 뒤(끌기·값 순 안내)에도 브라우저 메뉴를 띄우지 않는다.
+            if (press || dragging || suppressClick) e.preventDefault();
           }}
         >
           <span class="nm">
@@ -353,11 +409,13 @@
       </li>
     {/each}
   </ul>
+  <p class="hint" role="status">{hint}</p>
 </section>
 
 <style>
   .board-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -365,6 +423,40 @@
     font-size: var(--fs-sub);
     color: var(--t2);
     font-weight: 700;
+  }
+  .head-label {
+    flex: 1;
+    min-width: 0;
+  }
+  .seg {
+    display: inline-flex;
+    flex: none;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--r-chip);
+    background: var(--seg-card-track);
+  }
+  .seg button {
+    padding: 6px 10px;
+    min-height: 32px;
+    border-radius: var(--r-chip);
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--t2);
+    white-space: nowrap;
+  }
+  .seg button[aria-pressed='true'] {
+    background: var(--seg-card-on);
+    color: var(--t1);
+  }
+  .hint {
+    margin: 0;
+    padding: 0 8px;
+    font-size: var(--fs-sub);
+    color: var(--warn);
+  }
+  .hint:not(:empty) {
+    padding-block: 6px;
   }
   .btn-add {
     background: var(--t1);
