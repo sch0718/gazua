@@ -1,0 +1,29 @@
+#!/bin/sh
+# proxy 코드가 바뀐 병합·rebase 뒤에, 이 기기에 프록시 LaunchAgent가 설치돼 있으면 install.sh를 다시 돌린다
+# (빌드 → 재시작 → 토큰 검사). post-merge·post-rewrite·post-checkout(rebase 중)이 부른다. 실패해도 git 동작은 막지 않는다.
+# 사용: proxy-auto-update <이전 커밋> <새 커밋>
+# 테스트용 덮어쓰기: GAZUA_PROXY_PLIST, GAZUA_PROXY_INSTALL
+set -u
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+plist=${GAZUA_PROXY_PLIST:-$HOME/Library/LaunchAgents/dev.gazua.proxy.plist}
+installer=${GAZUA_PROXY_INSTALL:-$top/proxy/macos/install.sh}
+
+[ -f "$plist" ] || exit 0
+git rev-parse -q --verify "$1^{commit}" >/dev/null || exit 0
+
+# install.sh가 읽는 것: 프록시 소스·빌드 설정, 그리고 install.sh 자신.
+changed=$(git diff --name-only "$1" "$2" -- proxy/src proxy/node proxy/package.json proxy/tsconfig.json proxy/macos/install.sh) || exit 0
+[ -n "$changed" ] || exit 0
+
+# GUI 앱(에디터 등)에서 pull하면 PATH에 node·corepack이 없을 수 있다.
+PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+echo "gazua: 프록시 코드가 바뀌어 다시 설치해요 (proxy/macos/install.sh)"
+if "$installer"; then
+  echo "gazua: 프록시를 새 버전으로 다시 띄웠어요"
+else
+  echo "gazua: 프록시를 다시 설치하지 못했어요. 직접 실행해 주세요: proxy/macos/install.sh" >&2
+fi
+exit 0

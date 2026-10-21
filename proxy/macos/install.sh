@@ -90,6 +90,9 @@ for _ in {1..10}; do
       echo "토큰 없는 요청을 프록시가 막지 않았어요(응답 $code). 서비스를 내렸어요. proxy/.env의 PROXY_TOKEN을 확인해 주세요." >&2
       exit 1
     fi
+    # git pull로 프록시 코드가 바뀌면 이 스크립트를 다시 돌리게 저장소 hook(.githooks)을 켠다.
+    # 다른 hook 경로나 .git/hooks의 hook을 이미 쓰고 있으면 건드리지 않고 방법만 알려 준다.
+    sh "${0:A:h}/enable-hooks.sh" "$REPO_DIR" || true
     echo "설치했어요. 로그: $LOG"
     exit 0
   fi

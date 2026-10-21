@@ -1,0 +1,3 @@
+#!/bin/sh
+# git pull·merge 뒤. ORIG_HEAD는 병합 전 커밋이다.
+exec "$(git rev-parse --show-toplevel)/.githooks/proxy-auto-update" ORIG_HEAD HEAD

@@ -83,7 +83,10 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 6. 이 맥의 공인 IP를 토스 허용 IP에 등록해요(위 `토스 허용 IP 등록`). 토스로 나가는 요청은 터널이 아니라 이 맥에서 바로 나가요.
 7. `https://gazua-proxy.<도메인>/health`가 200을 주면 앱 설정의 프록시 URL에 그 주소를, 프록시 토큰에 `PROXY_TOKEN` 값을 넣어요.
 
-- 프록시 코드를 바꾸거나 `.env`를 고친 뒤에는 `proxy/macos/install.sh`를 다시 실행해요. 다시 빌드하고 재시작해요.
+- `install.sh`는 저장소 hook(`git config core.hooksPath .githooks`)도 켜요. 그 뒤로는 `git pull`(병합·앞으로 감기·rebase)로 프록시 코드(`proxy/src`·`proxy/node`·`proxy/package.json`·`proxy/tsconfig.json`·`install.sh`)가 바뀌면 hook이 `install.sh`를 한 번 다시 돌려 새 버전으로 재시작해요. 로컬 커밋이 이미 상대 쪽에 있어 rebase가 모두 생략하는 경우도 `post-checkout`이 잡아요(브랜치만 바꾸는 checkout에는 반응하지 않아요). 프록시가 설치되지 않은 기기에서는 아무것도 하지 않고, 실패해도 `git pull`은 막지 않아요.
+- 다른 hook 경로를 이미 쓰고 있거나 `.git/hooks`에 직접 둔 hook(`.sample` 말고 실행 가능한 파일)이 있으면, 그 hook이 꺼지지 않게 hook 경로를 바꾸지 않고 켜는 방법만 알려 줘요(`proxy/macos/enable-hooks.sh`). 기존 hook이 필요 없으면 `git config core.hooksPath .githooks`로, 계속 쓰려면 `.git/hooks`의 `post-merge`·`post-rewrite`·`post-checkout`에서 `.githooks`의 같은 이름 hook을 `"$@"`와 함께 불러요.
+- 자동 반영은 기본 rebase 방식(merge 백엔드) 기준이에요. `git rebase --apply`로 커밋이 전부 생략되면 hook이 불리지 않으니 `install.sh`를 직접 실행해요.
+- `.env`를 고친 뒤에는 `proxy/macos/install.sh`를 직접 다시 실행해요(hook은 코드 변경만 봐요).
 - 로그는 `~/Library/Logs/gazua-proxy.log`예요. 지우려면 `proxy/macos/uninstall.sh`를 실행해요.
 - 맥이 잠자기에 들어가면 프록시도 응답하지 않아요.
 - 앱은 프록시 URL을 하나만 받는데, 이 프록시는 `/kis/...` 경로도 처리해요. KIS로 바꿀 때도 같은 주소와 토큰을 써요.
