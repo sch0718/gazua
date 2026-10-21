@@ -206,9 +206,11 @@ test('정렬 전환: 내 순서에서 Alt+↓로 옮긴 순서가 리더보드�
   const board = leaderboard(page);
   const symbols = () => leaderboardRows(page).evaluateAll((lis) => lis.map((li) => li.getAttribute('data-symbol')));
 
-  // 값 순에서는 Alt+↓가 순서를 바꾸지 않고 안내한다
+  // 값 순에서는 Alt+↓가 순서를 바꾸지 않고 안내한다. 시세로 다시 정렬되지 않게 키보드 포커스로 순서를 고정한 뒤에 읽는다.
+  const top = leaderboardRows(page).first().locator('.main-btn');
+  await top.press('Shift');
   const before = await symbols();
-  await leaderboardRows(page).first().locator('.main-btn').press('Alt+ArrowDown');
+  await top.press('Alt+ArrowDown');
   await expect(board.getByRole('status')).toContainText('내 순서에서 바꿀 수 있어요');
   expect(await symbols()).toEqual(before);
 
