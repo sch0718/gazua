@@ -143,6 +143,15 @@ export function buildRows(
   });
 }
 
+/** 리더보드에 보이는 순서. 내 순서는 입력(그룹 종목) 순서 그대로라 고정할 것이 없다. 값 순은 sortRows. */
+export function orderRows<T extends { symbol: string; value: number | null }>(
+  rows: T[],
+  order: 'value' | 'mine',
+  frozen: string[] | null,
+): T[] {
+  return order === 'mine' ? rows : sortRows(rows, frozen);
+}
+
 /** 값 내림차순(값 없음은 맨 뒤, 같으면 입력 순서). frozen이 있으면 그 순서를 지키고 나머지를 뒤에 붙인다. */
 export function sortRows<T extends { symbol: string; value: number | null }>(rows: T[], frozen: string[] | null): T[] {
   const byValue = rows

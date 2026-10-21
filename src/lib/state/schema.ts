@@ -7,6 +7,9 @@ export interface Period {
   n: number;
 }
 
+/** 리더보드 정렬: 지표 값 순, 또는 그룹 종목 순서(끌어 바꾼 순서) 그대로. */
+export type BoardOrder = 'value' | 'mine';
+
 export type MetricId = 'change' | 'drawdown' | 'excess' | 'rvol' | 'mcap' | 'volatility' | 'rsi';
 
 export interface Settings {
@@ -18,6 +21,7 @@ export interface Settings {
   benchmark: 'AUTO' | 'KOSPI' | 'KOSDAQ';
   theme: 'system' | 'light' | 'dark';
   colorConvention: 'kr' | 'global';
+  boardOrder: BoardOrder;
   lastGroupId: string | null;
   keyLock: boolean;
   /** false until the first-run onboarding has been completed. */
@@ -62,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   benchmark: 'AUTO',
   theme: 'system',
   colorConvention: 'kr',
+  boardOrder: 'value',
   lastGroupId: null,
   keyLock: false,
   onboarded: false,

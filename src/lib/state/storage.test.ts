@@ -172,6 +172,7 @@ describe('DEFAULT_SETTINGS', () => {
       metric: 'change',
       theme: 'system',
       colorConvention: 'kr',
+      boardOrder: 'value',
       keyLock: false,
       onboarded: false,
     });

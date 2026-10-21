@@ -275,9 +275,8 @@
     const from = group.items.findIndex((i) => i.symbol === symbol);
     const to = group.items.findIndex((i) => i.symbol === target);
     if (from < 0 || to < 0) return;
+    // 리더보드가 내 순서일 때만 온다. 그 순서는 고정 없이 그룹 순서 그대로라 focusOrder를 다시 잡지 않는다.
     saveGroup(moveItem(group, from, to));
-    // 키보드로 옮기면(Alt+↑↓) 포커스가 목록 안이다. 직접 옮긴 것이니 새 순서로 다시 고정한다.
-    if (focusOrder) focusOrder = sortRows(rows, null).map((r) => r.symbol);
   }
 
   function addGroup() {
@@ -489,6 +488,7 @@
     bind:this={board}
     {rows}
     {frozenOrder}
+    boardOrder={app.settings.boardOrder}
     {unit}
     conv={app.settings.colorConvention}
     metricLabel={metricDef.label}
@@ -500,6 +500,7 @@
     onreorder={reorder}
     onopenadd={() => (openSheet = 'add')}
     onfocuswithin={(order) => (focusOrder = order)}
+    onorderchange={(o) => app.updateSettings({ boardOrder: o })}
   />
   {#if wide && group}
     {#if selected && items.some((i) => i.symbol === selected)}
