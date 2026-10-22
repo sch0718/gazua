@@ -23,13 +23,13 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   // 온보딩 → 데모 → 예시 그룹
   await enterDemo(page);
   await loadExampleGroup(page);
-  await expect(leaderboard(page)).toContainText('4/8');
+  await expect(leaderboard(page)).toContainText('4/10');
   await expectNoHorizontalScroll(page);
   await shot(page, testInfo, '1-example-group');
 
   // 종목 추가: 영문 이름은 초성이 없으니 코드·이름 일부로 찾는다
   const sheet = await openAddSheet(page);
-  await expect(sheet).toContainText('4/8');
+  await expect(sheet).toContainText('4/10');
   const search = sheet.getByRole('searchbox', { name: '종목 검색' });
   await search.fill('kodex');
   await expect(sheet.getByRole('button', { name: 'KODEX 200 추가', exact: true })).toBeVisible();
@@ -41,20 +41,20 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await shot(page, testInfo, '2-add-sheet');
   await sheet.getByRole('button', { name: '삼성전기 추가', exact: true }).click();
   await expect(sheet.getByRole('button', { name: '삼성전기 빼기', exact: true })).toBeVisible();
-  await expect(sheet).toContainText('5/8');
+  await expect(sheet).toContainText('5/10');
   await expect(sheet).toContainText('이번에 1개 추가했어요');
   // 추가된 종목(✓)을 다시 누르면 빠지고, ＋로 다시 넣을 수 있다
   await sheet.getByRole('button', { name: '삼성전기 빼기', exact: true }).click();
-  await expect(sheet).toContainText('4/8');
+  await expect(sheet).toContainText('4/10');
   await expect(sheet).toContainText('이번에 1개 추가, 1개 뺐어요');
   // 키보드로 되돌리면 포커스가 되돌린 종목의 버튼으로 돌아온다
   await page.getByRole('button', { name: '되돌리기' }).press('Enter');
-  await expect(sheet).toContainText('5/8');
+  await expect(sheet).toContainText('5/10');
   await expect(sheet.getByRole('button', { name: '삼성전기 빼기', exact: true })).toBeFocused();
   await sheet.getByRole('button', { name: '완료' }).click();
   await expect(sheet).toBeHidden();
   await expect(leaderboardRows(page)).toHaveCount(5);
-  await expect(leaderboard(page)).toContainText('5/8');
+  await expect(leaderboard(page)).toContainText('5/10');
 
   // 기간: 주 → 2주
   await page.getByRole('radio', { name: '주', exact: true }).click();
@@ -216,7 +216,7 @@ test('정렬 전환: 내 순서에서 Alt+↓로 옮긴 순서가 리더보드�
 
   await board.getByRole('button', { name: '내 순서' }).click();
   await expect(board.getByRole('button', { name: '내 순서' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(board).toContainText('내 순서 · 4/8');
+  await expect(board).toContainText('내 순서 · 4/10');
   await expect(board.getByRole('status')).toHaveText('');
   expect(await symbols()).toEqual(['005930', '000660', '042700', '000990']);
   await expectNoHorizontalScroll(page);

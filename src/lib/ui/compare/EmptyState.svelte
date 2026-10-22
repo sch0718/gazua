@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { MAX_ITEMS } from '../../state/watchlist';
   // 그룹에 종목이 없을 때(스펙 7.2 빈 상태).
   let { onadd, onexample }: { onadd: () => void; onexample: () => void } = $props();
 </script>
 
 <div class="empty">
   <b>비교할 종목을 추가해 보세요</b>
-  <p>한 차트에 최대 8종목까지 나란히 비교할 수 있어요.</p>
+  <p>한 차트에 최대 {MAX_ITEMS}종목까지 나란히 비교할 수 있어요.</p>
   <div class="row">
     <button type="button" class="btn" data-empty-add onclick={onadd}>＋ 종목 추가</button>
     <button type="button" class="btn ghost" onclick={onexample}>예시 그룹 불러오기</button>

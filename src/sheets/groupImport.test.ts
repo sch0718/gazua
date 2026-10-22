@@ -3,12 +3,12 @@ import type { UniverseItem } from '../lib/data/universe';
 import { planGroup, withNewGroup } from './groupImport';
 
 const U = (s: string, t: UniverseItem['t'] = 'STOCK'): UniverseItem => ({ s, n: s, m: 'KOSPI', t });
-const UNIVERSE = ['005930', '000660', '042700', '000990', '128940', '009150', '069500', '247540', '035420'].map((s) => U(s));
+const UNIVERSE = ['005930', '000660', '042700', '000990', '128940', '009150', '069500', '247540', '035420', '005380', '051910'].map((s) => U(s));
 
 describe('planGroup', () => {
-  it('keeps the given order and takes the first 8', () => {
+  it('keeps the given order and takes the first 10', () => {
     const stocks = UNIVERSE.map((u) => ({ symbol: u.s, name: u.n }));
-    expect(planGroup(stocks, UNIVERSE)).toEqual({ symbols: UNIVERSE.slice(0, 8).map((u) => u.s), found: 9, unknown: 0 });
+    expect(planGroup(stocks, UNIVERSE)).toEqual({ symbols: UNIVERSE.slice(0, 10).map((u) => u.s), found: 11, unknown: 0 });
   });
 
   it('maps a Toss ETN code (no Q) to the app code and counts unknown codes', () => {

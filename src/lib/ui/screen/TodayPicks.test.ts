@@ -12,6 +12,11 @@ import TodayPicks from './TodayPicks.svelte';
 let apps: App[] = [];
 const selection = validationResult().today;
 const symbols = selection.picked.map((p) => p.symbol);
+/** 관심 그룹 한도(MAX_ITEMS)보다 많은 선별 결과 */
+const twelve = {
+  ...selection,
+  picked: Array.from({ length: MAX_ITEMS + 2 }, (_, i) => ({ ...selection.picked[0], symbol: `10${String(i).padStart(4, '0')}` })),
+};
 
 function setup(groups = [{ id: 'g1', name: '반도체', items: itemsOf(['005930', '000660', '035420', '051910', '068270']) }], sel = selection) {
   const app = makeTestApp({ groups, now: NOW });
@@ -32,14 +37,14 @@ describe('TodayPicks', () => {
     expect(screen.getByText(symbols[1], { selector: 'span.nm' })).toBeTruthy();
   });
 
-  it('makes a new group named after the criteria with the top 8 of 10 and says 상위 8개만 넣었어요', async () => {
-    const app = setup();
+  it('makes a new group named after the criteria with the top MAX_ITEMS and says 상위 N개만 넣었어요', async () => {
+    const app = setup(undefined, twelve);
     await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
     expect((screen.getByRole('textbox', { name: '새 그룹 이름' }) as HTMLInputElement).value).toBe('반등 기준');
     await fireEvent.click(screen.getByRole('button', { name: '새 그룹으로 만들기' }));
     const g = app.watchlists.groups.find((x) => x.name === '반등 기준')!;
-    expect(g.items.map((i) => i.symbol)).toEqual(symbols.slice(0, MAX_ITEMS));
-    expect(screen.getByText('상위 8개만 넣었어요')).toBeTruthy();
+    expect(g.items.map((i) => i.symbol)).toEqual(twelve.picked.slice(0, MAX_ITEMS).map((p) => p.symbol));
+    expect(screen.getByText(`상위 ${MAX_ITEMS}개만 넣었어요`)).toBeTruthy();
   });
 
   it('does not say it cut anything when all picks fit', async () => {
@@ -56,20 +61,20 @@ describe('TodayPicks', () => {
     await fireEvent.click(screen.getByRole('button', { name: /반도체/ }));
     const g = app.watchlists.groups[0];
     expect(g.items).toHaveLength(MAX_ITEMS);
-    expect(g.items.slice(5).map((i) => i.symbol)).toEqual(symbols.slice(0, 3));
-    expect(screen.getByText('상위 3개만 넣었어요')).toBeTruthy();
+    expect(g.items.slice(5).map((i) => i.symbol)).toEqual(symbols.slice(0, MAX_ITEMS - 5));
+    expect(screen.getByText(`상위 ${MAX_ITEMS - 5}개만 넣었어요`)).toBeTruthy();
   });
 
   it('a full group cannot be chosen, and symbols already in the group do not use a slot', async () => {
-    const full = { id: 'full', name: '가득', items: itemsOf(Array.from({ length: 8 }, (_, i) => `10000${i}`)) };
+    const full = { id: 'full', name: '가득', items: itemsOf(Array.from({ length: MAX_ITEMS }, (_, i) => `1000${String(i).padStart(2, '0')}`)) };
     const part = { id: 'part', name: '일부', items: itemsOf([symbols[0], '200000']) };
     const app = setup([full, part]);
     await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
     expect((screen.getByRole('button', { name: /가득/ }) as HTMLButtonElement).disabled).toBe(true);
     await fireEvent.click(screen.getByRole('button', { name: /일부/ }));
     const g = app.watchlists.groups.find((x) => x.id === 'part')!;
-    expect(g.items.map((i) => i.symbol)).toEqual([symbols[0], '200000', ...symbols.slice(1, 7)]);
-    expect(screen.getByText(/'일부'에 6개를 넣었어요\(이미 있던 1개는 건너뛰었어요\)/)).toBeTruthy();
+    expect(g.items.map((i) => i.symbol)).toEqual([symbols[0], '200000', ...symbols.slice(1, MAX_ITEMS - 1)]);
+    expect(screen.getByText(new RegExp(`'일부'에 ${MAX_ITEMS - 2}개를 넣었어요\\(이미 있던 1개는 건너뛰었어요\\)`))).toBeTruthy();
   });
 
   it('an empty name falls back to the criteria name', async () => {

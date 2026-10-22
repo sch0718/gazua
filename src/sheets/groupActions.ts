@@ -3,6 +3,7 @@
 import type { Group, Watchlists } from '../lib/state/schema';
 import {
   GroupFullError,
+  MAX_ITEMS,
   addItem,
   deleteGroup,
   removeItem,
@@ -20,7 +21,7 @@ export interface WatchlistStore {
   setWatchlists(w: Watchlists): void;
 }
 
-export const FULL_MESSAGE = '한 차트에 8개까지 비교할 수 있어요';
+export const FULL_MESSAGE = `한 차트에 ${MAX_ITEMS}개까지 비교할 수 있어요`;
 const UNDO = '되돌리기';
 
 /** 되돌리기 뒤 포커스할 요소를 찾는다(없으면 null). */

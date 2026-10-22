@@ -18,10 +18,10 @@ import type { Group, WatchItem, Watchlists } from './schema';
 type Slot = WatchItem['colorSlot'];
 const item = (symbol: string, colorSlot: Slot): WatchItem => ({ symbol, colorSlot, hidden: false, addedAt: 0 });
 const emptyGroup: Group = { id: 'g0', name: '빈 그룹', items: [] };
-const full8: Group = {
-  id: 'g8',
+const full10: Group = {
+  id: 'g10',
   name: '가득',
-  items: (['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'] as const).map((s, i) => item(s, (i + 1) as Slot)),
+  items: (['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'] as const).map((s, i) => item(s, (i + 1) as Slot)),
 };
 const g3: Group = { id: 'g3', name: '셋', items: [item('A', 1), item('B', 2), item('C', 3)] };
 const w2: Watchlists = {
@@ -44,14 +44,20 @@ describe('items', () => {
     expect(addItem(emptyGroup, 'A', 123).items[0]).toEqual({ symbol: 'A', colorSlot: 1, hidden: false, addedAt: 123 });
   });
 
-  it('9th item throws GroupFullError', () => {
-    expect(MAX_ITEMS).toBe(8);
-    expect(() => addItem(full8, 'X', 0)).toThrow(GroupFullError);
+  it('the 9th and 10th items get color slots 9 and 10', () => {
+    let g = { ...emptyGroup };
+    for (const s of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']) g = addItem(g, s, 0);
+    expect(g.items.map((i) => i.colorSlot)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it('11th item throws GroupFullError', () => {
+    expect(MAX_ITEMS).toBe(10);
+    expect(() => addItem(full10, 'X', 0)).toThrow(GroupFullError);
   });
 
   it('adding a duplicate returns the group as is', () => {
     expect(addItem(g3, 'B', 5)).toEqual(g3);
-    expect(addItem(full8, 'S1', 5)).toEqual(full8);
+    expect(addItem(full10, 'S1', 5)).toEqual(full10);
   });
 
   it('removeItem reports the removed item and its index; unknown symbol throws', () => {
@@ -78,8 +84,8 @@ describe('items', () => {
     expect(restoreItem(g, removed).items.find((i) => i.symbol === 'B')!.colorSlot).toBe(4);
   });
 
-  it('restore into a full group throws GroupFullError (8-item limit and unique slots hold)', () => {
-    const { group, removed } = removeItem(full8, 'S1');
+  it('restore into a full group throws GroupFullError (10-item limit and unique slots hold)', () => {
+    const { group, removed } = removeItem(full10, 'S1');
     const g = addItem(group, 'X', 0);
     expect(() => restoreItem(g, removed)).toThrow(GroupFullError);
   });

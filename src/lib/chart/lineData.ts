@@ -6,7 +6,7 @@ import { kstEpoch } from '../time/kst';
 export type LineDatum = { time: number } | { time: number; value: number };
 export type ColoredLineDatum = LineDatum & { color?: string };
 
-export type SeriesSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type SeriesSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 /** 차트·세션 레인에 넘기는 종목 한 개. slot이 색(--s{slot})을 정한다. */
 export interface ChartSeriesInput {

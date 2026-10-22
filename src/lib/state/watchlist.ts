@@ -1,6 +1,6 @@
 import type { Group, WatchItem, Watchlists } from './schema';
 
-export const MAX_ITEMS = 8;
+export const MAX_ITEMS = 10;
 
 export class GroupFullError extends Error {
   constructor() {
@@ -10,7 +10,7 @@ export class GroupFullError extends Error {
 }
 
 type Slot = WatchItem['colorSlot'];
-const SLOTS: readonly Slot[] = [1, 2, 3, 4, 5, 6, 7, 8];
+const SLOTS: readonly Slot[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 function lowestFreeSlot(items: readonly WatchItem[]): Slot {
   const used = new Set(items.map((i) => i.colorSlot));

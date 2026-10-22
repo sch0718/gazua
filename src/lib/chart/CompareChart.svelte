@@ -71,7 +71,7 @@
   const MAX_DIRECT_LABELS = 4;
   const LABEL_MIN_GAP = 14;
   const LIGHT = {
-    s: ['#eb6834', '#1baf7a', '#4a3aa7', '#eda100', '#e87ba4', '#008300', '#2a78d6', '#e34948'],
+    s: ['#eb6834', '#1baf7a', '#4a3aa7', '#eda100', '#e87ba4', '#008300', '#2a78d6', '#e34948', '#9a4fb8', '#c2185b'],
     t1: '#111317',
     t3: '#676d77',
     grid: 'rgba(17,19,23,.07)',

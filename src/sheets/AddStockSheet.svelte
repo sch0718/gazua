@@ -10,7 +10,7 @@
   import { FULL_MESSAGE, addToGroup, removeWithUndo } from './groupActions';
   import { sharedUniverse } from './universeSource';
 
-  // 종목 추가 시트(스펙 7.3, 9-5·6·7): 초성 검색, 최근 추가, 연속 추가, 8종목 한도.
+  // 종목 추가 시트(스펙 7.3, 9-5·6·7): 초성 검색, 최근 추가, 연속 추가, 10종목 한도.
   // 관심 그룹에서는 이미 추가된 종목(✓)을 다시 누르면 뺀다(되돌리기 스낵바). 가득 찬 그룹에서도 뺄 수 있다.
   // 기본(group)은 관심 그룹에 더한다. 전략 편집에서는 같은 검색을 쓰되 고른 종목을 onpick으로만 알린다.
   //   single: 하나 고르면 닫는다(비교 종목). multi: picked를 표시하고 max까지 연달아 고른다(직접 고른 종목).
