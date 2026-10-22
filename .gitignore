@@ -10,4 +10,4 @@ playwright-report/
 test-results/
 coverage/
 .superpowers/
-data/
+/data/
