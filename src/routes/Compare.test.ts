@@ -74,7 +74,7 @@ describe('Compare (demo provider)', () => {
     for (const name of ['삼성전자', 'SK하이닉스', '한미반도체', 'DB하이텍']) {
       expect(within(rowOf(name)).getByText(/[▲▼]|0\.00%/)).toBeTruthy();
     }
-    expect(screen.getByText('등락률 순 · 4/8')).toBeTruthy();
+    expect(screen.getByText('등락률 순 · 4/10')).toBeTruthy();
     expect(screen.getByText('오늘 · 등락률 · 기준 전일 종가')).toBeTruthy();
     // 4종목 × (점선 + 실선)
     expect(lwcCharts.at(-1)?.series.length).toBe(8);
@@ -242,7 +242,7 @@ describe('Compare sheets', () => {
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
     await fireEvent.click(board().getByRole('button', { name: '＋ 종목 추가' }));
     const dialog = screen.getByRole('dialog', { name: '종목 추가' });
-    expect(within(dialog).getByText('반도체 그룹 · 4/8 · 4개 더 추가할 수 있어요')).toBeTruthy();
+    expect(within(dialog).getByText('반도체 그룹 · 4/10 · 6개 더 추가할 수 있어요')).toBeTruthy();
   });
 
   it('below 1024 a row opens the detail sheet; deleting closes it and removes the row', async () => {
@@ -840,7 +840,7 @@ describe('Compare sheets', () => {
       await fireEvent.click(board().getByRole('button', { name: '내 순서' }));
       expect(app.settings.boardOrder).toBe('mine');
       expect(order()).toEqual([A, B, C]);
-      expect(board().getByText('내 순서 · 3/8')).toBeTruthy();
+      expect(board().getByText('내 순서 · 3/10')).toBeTruthy();
       Object.assign(pct, { [A]: 5 });
       refreshQuotes();
       await vi.waitFor(() => expect(within(mainOf(A)).getByText(valueText(A))).toBeTruthy(), { timeout: 3000 });

@@ -11,7 +11,7 @@ import TossImport from './TossImport.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 
 const NOW = kstEpoch('2026-10-16', '10:00:00');
-const CODES = ['005930', '000660', '042700', '000990', '128940', '009150', '069500', '247540', '035420'];
+const CODES = ['005930', '000660', '042700', '000990', '128940', '009150', '069500', '247540', '035420', '005380', '051910'];
 const UNIVERSE: UniverseItem[] = [
   ...CODES.map((s, i): UniverseItem => ({ s, n: `종목${i + 1}`, m: 'KOSPI', t: 'STOCK' })),
   { s: 'Q500023', n: '콩 ETN', m: 'KOSPI', t: 'ETN' },
@@ -40,18 +40,18 @@ afterEach(() => {
 });
 
 describe('TossImport', () => {
-  it('holdings: previews up to 8 by value, maps the ETN code, and creates a new group', async () => {
+  it('holdings: previews up to 10 by value, maps the ETN code, and creates a new group', async () => {
     const { app, onclose } = setup({ holdings: async () => stocks(['500023', ...CODES, 'AAPL']) });
     await fireEvent.click(screen.getByRole('button', { name: '보유 종목' }));
     const create = await vi.waitFor(() => screen.getByRole('button', { name: "'토스 보유' 그룹 만들기" }));
     expect(screen.getByText(/^콩 ETN, 종목1, /)).toBeTruthy();
-    expect(screen.getByText('10개 중 큰 순서로 8개만 넣어요 · 지원하지 않는 종목 1개는 뺐어요')).toBeTruthy();
+    expect(screen.getByText('12개 중 큰 순서로 10개만 넣어요 · 지원하지 않는 종목 1개는 뺐어요')).toBeTruthy();
     await fireEvent.click(create);
     const groups = app.watchlists.groups;
     expect(groups).toHaveLength(2);
     expect(groups[0].items.map((i) => i.symbol)).toEqual(['005930']);
     expect(groups[1].name).toBe('토스 보유');
-    expect(groups[1].items.map((i) => i.symbol)).toEqual(['Q500023', ...CODES.slice(0, 7)]);
+    expect(groups[1].items.map((i) => i.symbol)).toEqual(['Q500023', ...CODES.slice(0, 9)]);
     expect(currentSnackbar()?.message).toBe("'토스 보유' 그룹을 만들었어요");
     expect(onclose).toHaveBeenCalled();
     expect(location.hash).toBe(`#/compare/${groups[1].id}`);

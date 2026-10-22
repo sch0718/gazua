@@ -19,7 +19,7 @@ const DAY = '2026-10-12';
 const at = (hhmm: string) => kstEpoch(DAY, `${hhmm}:00`);
 const sessions = sessionsForDay({ date: DAY, isOpen: true });
 const EXAMPLE = ['005930', '000660', '042700', '000990'];
-const EIGHT = ['005930', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8'];
+const TEN = ['005930', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10'];
 
 const SAMSUNG: StockMeta = {
   symbol: '005930',
@@ -112,14 +112,14 @@ describe('StockDetailSheet', () => {
     expect(screen.getByRole('status').textContent).toContain('되돌렸어요');
   });
 
-  it('undo race: delete from 8, add another, 되돌리기 → still 8 with unique slots and an explanation', async () => {
-    const { app } = setup({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(EIGHT) }] });
+  it('undo race: delete from 10, add another, 되돌리기 → still 10 with unique slots and an explanation', async () => {
+    const { app } = setup({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(TEN) }] });
     await fireEvent.click(screen.getByRole('button', { name: '삭제' }));
     app.setWatchlists({ groups: [addItem(g1(app), 'Z9', 2)] });
     await undo();
-    expect(g1(app).items).toHaveLength(8);
+    expect(g1(app).items).toHaveLength(10);
     expect(g1(app).items.map((i) => i.symbol)).not.toContain('005930');
-    expect(new Set(g1(app).items.map((i) => i.colorSlot)).size).toBe(8);
+    expect(new Set(g1(app).items.map((i) => i.colorSlot)).size).toBe(10);
     expect(screen.getByRole('status').textContent).toContain('그룹이 가득 차서 되돌릴 수 없어요');
   });
 
@@ -148,27 +148,27 @@ describe('StockDetailSheet', () => {
   it('그룹 이동 moves the stock to the chosen group', async () => {
     const { app, onclose } = setup();
     await fireEvent.click(screen.getByRole('button', { name: '그룹 이동' }));
-    await fireEvent.click(screen.getByRole('button', { name: '배당 (0/8)' }));
+    await fireEvent.click(screen.getByRole('button', { name: '배당 (0/10)' }));
     expect(g1(app).items.map((i) => i.symbol)).not.toContain('005930');
     expect(app.watchlists.groups[1].items.map((i) => i.symbol)).toEqual(['005930']);
     expect(screen.getByRole('status').textContent).toContain("'배당' 그룹으로 옮겼어요");
     expect(onclose).toHaveBeenCalled();
   });
 
-  it('그룹 이동 into a full group is refused with the 8-limit message', async () => {
+  it('그룹 이동 into a full group is refused with the 10-limit message', async () => {
     const { app } = setup({
       groups: [
         { id: 'g1', name: '반도체', items: itemsOf(['005930']) },
-        { id: 'g2', name: '배당', items: itemsOf(EIGHT.slice(1).concat('B8')) },
+        { id: 'g2', name: '배당', items: itemsOf(TEN.slice(1).concat('B8')) },
       ],
     });
     await fireEvent.click(screen.getByRole('button', { name: '그룹 이동' }));
-    const full = screen.getByRole('button', { name: '배당 (8/8)' });
+    const full = screen.getByRole('button', { name: '배당 (10/10)' });
     expect(full.getAttribute('aria-disabled')).toBe('true');
     expect(document.getElementById(full.getAttribute('aria-describedby')!)?.textContent).toBe('가득 참');
     await fireEvent.click(full);
     expect(g1(app).items.map((i) => i.symbol)).toEqual(['005930']);
-    expect(screen.getByRole('status').textContent).toContain('한 차트에 8개까지 비교할 수 있어요');
+    expect(screen.getByRole('status').textContent).toContain('한 차트에 10개까지 비교할 수 있어요');
   });
 
   it('inline (≥1024) renders in place without a dialog', () => {

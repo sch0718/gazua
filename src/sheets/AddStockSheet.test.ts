@@ -20,7 +20,7 @@ const UNIVERSE: UniverseItem[] = [
   { s: '247540', n: '에코프로비엠', m: 'KOSDAQ', t: 'STOCK' },
 ];
 const EXAMPLE = ['005930', '000660', '042700', '000990'];
-const EIGHT = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8'];
+const TEN = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10'];
 
 let apps: App[] = [];
 function setup(symbols: string[], opts: { recent?: string[]; load?: () => Promise<UniverseItem[]> } = {}) {
@@ -50,7 +50,7 @@ afterEach(() => {
 describe('AddStockSheet', () => {
   it('ㅎㅁ finds 한미반도체 (already in the group) with the match highlighted; subtitle counts the group', async () => {
     setup(EXAMPLE);
-    expect(screen.getByText('반도체 그룹 · 4/8 · 4개 더 추가할 수 있어요')).toBeTruthy();
+    expect(screen.getByText('반도체 그룹 · 4/10 · 6개 더 추가할 수 있어요')).toBeTruthy();
     await vi.waitFor(() => expect(screen.getByRole('searchbox', { name: '종목 검색' }).hasAttribute('data-autofocus')).toBe(true));
     await search('ㅎㅁ');
     const row = await vi.waitFor(() => rowOf('한미반도체'));
@@ -61,10 +61,10 @@ describe('AddStockSheet', () => {
   });
 
   it('a full group disables every ＋ and says why', async () => {
-    setup(EIGHT);
+    setup(TEN);
     await search('삼성');
     await vi.waitFor(() => rowOf('삼성전자'));
-    const note = screen.getByText('한 차트에 8개까지 비교할 수 있어요');
+    const note = screen.getByText('한 차트에 10개까지 비교할 수 있어요');
     const plus = screen.getAllByRole('button', { name: /추가$/ });
     expect(plus.length).toBeGreaterThan(0);
     for (const b of plus) {
@@ -72,7 +72,7 @@ describe('AddStockSheet', () => {
       expect(b.getAttribute('aria-describedby')).toBe(note.id);
     }
     await fireEvent.click(plus[0]);
-    expect(currentSnackbar()?.message).toBe('한 차트에 8개까지 비교할 수 있어요');
+    expect(currentSnackbar()?.message).toBe('한 차트에 10개까지 비교할 수 있어요');
   });
 
   it('adding two in a row counts them in the footer, saves them and remembers them as recent', async () => {
@@ -86,7 +86,7 @@ describe('AddStockSheet', () => {
     expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930', '009150', '247540']);
     expect(app.watchlists.groups[0].items.map((i) => i.colorSlot)).toEqual([1, 2, 3]);
     expect(app.recent).toEqual(['247540', '009150']);
-    expect(screen.getByText('반도체 그룹 · 3/8 · 5개 더 추가할 수 있어요')).toBeTruthy();
+    expect(screen.getByText('반도체 그룹 · 3/10 · 7개 더 추가할 수 있어요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '완료' }));
     expect(onclose).toHaveBeenCalled();
   });
@@ -97,7 +97,7 @@ describe('AddStockSheet', () => {
     await fireEvent.click(await vi.waitFor(() => screen.getByRole('button', { name: '한미반도체 빼기' })));
     expect(app.watchlists.groups[0].items.map((i) => i.symbol)).toEqual(['005930', '000660', '000990']);
     expect(within(rowOf('한미반도체')).getByRole('button', { name: '한미반도체 추가' }).textContent).toContain('＋');
-    expect(screen.getByText('반도체 그룹 · 3/8 · 5개 더 추가할 수 있어요')).toBeTruthy();
+    expect(screen.getByText('반도체 그룹 · 3/10 · 7개 더 추가할 수 있어요')).toBeTruthy();
     expect(screen.getByText('이번에 1개 뺐어요')).toBeTruthy();
     expect(currentSnackbar()?.message).toBe('한미반도체을(를) 삭제했어요');
     currentSnackbar()?.action?.run();
@@ -114,12 +114,12 @@ describe('AddStockSheet', () => {
   });
 
   it('a full group still lets you remove an added stock, which frees a slot', async () => {
-    const { app } = setup(['005930', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8']);
+    const { app } = setup(['005930', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10']);
     await search('삼성');
     const remove = await vi.waitFor(() => screen.getByRole('button', { name: '삼성전자 빼기' }));
     expect(remove.getAttribute('aria-disabled')).toBeNull();
     await fireEvent.click(remove);
-    expect(app.watchlists.groups[0].items).toHaveLength(7);
+    expect(app.watchlists.groups[0].items).toHaveLength(9);
     expect(screen.getByRole('button', { name: '삼성전기 추가' }).getAttribute('aria-disabled')).toBeNull();
   });
 

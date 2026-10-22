@@ -1,5 +1,6 @@
 // 저장된·가져온 설정과 관심종목의 검증. 가져오기(exportImport)와 저장소 읽기(profileStore)가 함께 쓴다.
 import { PERIOD_COUNTS } from '../market/periods';
+import { MAX_ITEMS } from './watchlist';
 import { normalizeProxyUrl } from '../ui/settings/connection';
 import { DEFAULT_SETTINGS, type Group, type PeriodUnit, type Settings, type WatchItem, type Watchlists } from './schema';
 
@@ -65,14 +66,14 @@ function validItem(v: unknown): v is WatchItem {
     typeof v.colorSlot === 'number' &&
     Number.isInteger(v.colorSlot) &&
     v.colorSlot >= 1 &&
-    v.colorSlot <= 8 &&
+    v.colorSlot <= MAX_ITEMS &&
     typeof v.hidden === 'boolean' &&
     typeof v.addedAt === 'number'
   );
 }
 
 /**
- * 맞는 그룹·종목만 남긴다: 그룹 id는 겹치지 않고, 한 그룹 안에서 종목과 색 슬롯은 겹치지 않으며 8개까지.
+ * 맞는 그룹·종목만 남긴다: 그룹 id는 겹치지 않고, 한 그룹 안에서 종목과 색 슬롯은 겹치지 않으며 MAX_ITEMS(10)개까지.
  * repaired: 무언가를 버렸다. 모양부터 틀리면(groups 배열 없음) null.
  */
 export function sanitizeWatchlists(v: unknown): { watchlists: Watchlists; repaired: boolean } | null {
@@ -90,7 +91,7 @@ export function sanitizeWatchlists(v: unknown): { watchlists: Watchlists; repair
     const slots = new Set<number>();
     const items: WatchItem[] = [];
     for (const i of g.items) {
-      if (!validItem(i) || symbols.has(i.symbol) || slots.has(i.colorSlot) || items.length >= 8) {
+      if (!validItem(i) || symbols.has(i.symbol) || slots.has(i.colorSlot) || items.length >= MAX_ITEMS) {
         repaired = true;
         continue;
       }

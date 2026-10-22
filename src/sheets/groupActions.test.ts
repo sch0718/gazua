@@ -33,7 +33,7 @@ function store(initial: Watchlists): WatchlistStore & { switchTo(id: string, w: 
 }
 const symbolsOf = (s: WatchlistStore, id = 'g1') => s.watchlists.groups.find((g) => g.id === id)!.items.map((i) => i.symbol);
 const slotsOf = (s: WatchlistStore, id = 'g1') => s.watchlists.groups.find((g) => g.id === id)!.items.map((i) => i.colorSlot);
-const EIGHT = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+const TEN = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 
 afterEach(() => dismissSnackbar());
 
@@ -43,9 +43,9 @@ describe('addToGroup', () => {
     expect(addToGroup(s, 'g1', 'B', 5)).toBe('added');
     expect(symbolsOf(s)).toEqual(['A', 'B']);
     expect(addToGroup(s, 'g1', 'B', 5)).toBe('present');
-    const full = store({ groups: [group('g1', EIGHT)] });
+    const full = store({ groups: [group('g1', TEN)] });
     expect(addToGroup(full, 'g1', 'Z', 5)).toBe('full');
-    expect(symbolsOf(full)).toEqual(EIGHT);
+    expect(symbolsOf(full)).toEqual(TEN);
     expect(currentSnackbar()?.message).toBe(FULL_MESSAGE);
     expect(addToGroup(s, 'nope', 'Z', 5)).toBe('missing');
   });
@@ -64,14 +64,14 @@ describe('removeWithUndo', () => {
     expect(currentSnackbar()?.message).toBe('되돌렸어요');
   });
 
-  it('undo into a group that filled up meanwhile is refused and leaves 8 unique slots', () => {
-    const s = store({ groups: [group('g1', EIGHT)] });
+  it('undo into a group that filled up meanwhile is refused and leaves 10 unique slots', () => {
+    const s = store({ groups: [group('g1', TEN)] });
     removeWithUndo(s, 'g1', 'C', 'C');
     const g = s.watchlists.groups[0];
     s.setWatchlists({ groups: [addItem(g, 'Z', 9)] });
     runSnackbarAction();
-    expect(symbolsOf(s)).toEqual(['A', 'B', 'D', 'E', 'F', 'G', 'H', 'Z']);
-    expect(new Set(slotsOf(s)).size).toBe(8);
+    expect(symbolsOf(s)).toEqual(['A', 'B', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'Z']);
+    expect(new Set(slotsOf(s)).size).toBe(10);
     expect(currentSnackbar()?.message).toBe('그룹이 가득 차서 되돌릴 수 없어요');
   });
 
@@ -116,10 +116,10 @@ describe('moveToGroup', () => {
   });
 
   it('refuses when the target is full and keeps both groups', () => {
-    const s = store({ groups: [group('g1', ['Z']), group('g2', EIGHT)] });
+    const s = store({ groups: [group('g1', ['Z']), group('g2', TEN)] });
     expect(moveToGroup(s, 'g1', 'g2', 'Z', 7)).toBe('full');
     expect(symbolsOf(s, 'g1')).toEqual(['Z']);
-    expect(symbolsOf(s, 'g2')).toEqual(EIGHT);
+    expect(symbolsOf(s, 'g2')).toEqual(TEN);
     expect(currentSnackbar()?.message).toBe(FULL_MESSAGE);
   });
 

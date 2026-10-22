@@ -116,14 +116,14 @@ describe('Leaderboard', () => {
 
   it('header: 등락률 순 · n/8 and ＋ 종목 추가; scrubbing adds the time', async () => {
     const props = setup([row('A', 1), row('B', 2)], { count: 4 });
-    expect(screen.getByText('등락률 순 · 4/8')).toBeTruthy();
+    expect(screen.getByText('등락률 순 · 4/10')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '＋ 종목 추가' }));
     expect(props.onopenadd).toHaveBeenCalledTimes(1);
   });
 
   it('header while scrubbing shows the scrub time value', () => {
     setup([row('A', 1)], { count: 1, scrubLabel: '14:32' });
-    expect(screen.getByText('등락률 순 · 1/8 · 14:32 값')).toBeTruthy();
+    expect(screen.getByText('등락률 순 · 1/10 · 14:32 값')).toBeTruthy();
   });
 
   it('a re-sort that moves the focused row keeps focus on it', async () => {
@@ -458,7 +458,7 @@ describe('Leaderboard', () => {
 
     it('값 순 is the default: the header names the metric and 값 순 is pressed', () => {
       setup([row('A', 1), row('B', 3)]);
-      expect(screen.getByText('등락률 순 · 2/8')).toBeTruthy();
+      expect(screen.getByText('등락률 순 · 2/10')).toBeTruthy();
       expect(toggle('값 순').getAttribute('aria-pressed')).toBe('true');
       expect(toggle('내 순서').getAttribute('aria-pressed')).toBe('false');
       expect(within(screen.getByRole('group', { name: '정렬' })).getAllByRole('button')).toHaveLength(2);
@@ -467,7 +467,7 @@ describe('Leaderboard', () => {
     it('내 순서 keeps the group order whatever the values, and ignores frozenOrder', () => {
       setup([row('A', 1), row('B', 3), row('C', null), row('D', 2)], { boardOrder: 'mine', frozenOrder: ['D', 'C', 'B', 'A'] });
       expect(order()).toEqual(['A', 'B', 'C', 'D']);
-      expect(screen.getByText('내 순서 · 4/8')).toBeTruthy();
+      expect(screen.getByText('내 순서 · 4/10')).toBeTruthy();
       expect(toggle('내 순서').getAttribute('aria-pressed')).toBe('true');
     });
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 오늘 기준 선별(스펙 7.4-1): 상위 N개와 `관심 그룹으로 만들기`. 관심 그룹은 최대 8종목이라 위에서부터 채운다.
+  // 오늘 기준 선별(스펙 7.4-1): 상위 N개와 `관심 그룹으로 만들기`. 관심 그룹은 최대 MAX_ITEMS종목이라 위에서부터 채운다.
   import type { Selection } from '../../screen/select';
   import type { App } from '../../state/app.svelte';
   import { NAME_MAX } from '../../screen/defaults';

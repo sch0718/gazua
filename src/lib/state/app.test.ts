@@ -187,7 +187,7 @@ describe('createApp — banners', () => {
           name: '반도체',
           items: [
             { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 },
-            { symbol: '000660', colorSlot: 9, hidden: false, addedAt: 1 },
+            { symbol: '000660', colorSlot: 11, hidden: false, addedAt: 1 },
             { symbol: '005930', colorSlot: 2, hidden: false, addedAt: 1 },
           ],
         },

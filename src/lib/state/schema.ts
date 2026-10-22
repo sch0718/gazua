@@ -30,7 +30,7 @@ export interface Settings {
 
 export interface WatchItem {
   symbol: string;
-  colorSlot: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  colorSlot: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   hidden: boolean;
   addedAt: number;
 }

@@ -9,6 +9,7 @@
 </script>
 
 <script lang="ts">
+  import { MAX_ITEMS } from '../../state/watchlist';
   import { onDestroy, untrack } from 'svelte';
   import Badge from '../components/Badge.svelte';
   import { fmtWon, trendClass } from '../format';
@@ -342,7 +343,7 @@
 <section class="board" aria-label="리더보드">
   <div class="board-head">
     <span class="head-label"
-      >{boardOrder === 'mine' ? '내 순서' : `${metricLabel} 순`} · {count}/8{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span
+      >{boardOrder === 'mine' ? '내 순서' : `${metricLabel} 순`} · {count}/{MAX_ITEMS}{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span
     >
     <div class="seg" role="group" aria-label="정렬">
       {#each [['value', '값 순'], ['mine', '내 순서']] as const as [id, label] (id)}

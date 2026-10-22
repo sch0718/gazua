@@ -18,7 +18,7 @@ export interface PickGroupResult {
 export const freeSlots = (app: App, groupId: string): number =>
   Math.max(0, MAX_ITEMS - (app.watchlists.groups.find((g) => g.id === groupId)?.items.length ?? MAX_ITEMS));
 
-/** 컷 안내. 새 그룹은 `상위 8개만 넣었어요`, 기존 그룹은 빈자리 수로 */
+/** 컷 안내. 새 그룹은 `상위 N개만 넣었어요`, 기존 그룹은 빈자리 수로 */
 export const cutText = (room: number) => `상위 ${room}개만 넣었어요`;
 
 function fill(app: App, groupId: string, symbols: string[], now: number): PickGroupResult {
