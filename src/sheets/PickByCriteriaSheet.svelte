@@ -52,6 +52,8 @@
   let error = $state<string | null>(null);
   /** 미리보기 요청 번호. 후보·기준이 바뀌거나 시트를 열고 닫으면 올려서, 늦게 끝난 이전 계산을 버린다. */
   let run = 0;
+  /** 시트를 열 때마다 올린다. 이전에 연 시트에서 시작한 비동기 작업(보유 종목 담기)의 결과를 버린다. */
+  let session = 0;
   /** 종목 목록을 받는 중이면 다시 부르지 않는다. 실패하면 null로 두어 다음에 열 때 다시 받는다. */
   let loadingUniverse = false;
 
@@ -74,6 +76,7 @@
     const isOpen = open;
     untrack(() => {
       run++;
+      session++;
       progress = null;
       if (!isOpen) return;
       candidates = [];
@@ -121,12 +124,14 @@
   async function addHoldings() {
     const source = app.provider.groupImport;
     if (!source) return;
+    const mine = session;
     notice = '토스 보유 종목을 불러오는 중';
     try {
       const [list, u] = await Promise.all([source.holdings(), loadItems()]);
+      if (mine !== session) return;
       addMany(planGroup(list, u, MAX_CANDIDATES).symbols, '토스 보유 종목');
     } catch {
-      notice = '토스 보유 종목을 불러오지 못했어요';
+      if (mine === session) notice = '토스 보유 종목을 불러오지 못했어요';
     }
   }
 

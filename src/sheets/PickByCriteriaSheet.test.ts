@@ -140,4 +140,28 @@ describe('PickByCriteriaSheet', () => {
     await fireEvent.input(screen.getByRole('searchbox', { name: '후보 종목 검색' }), { target: { value: '삼성' } });
     await vi.waitFor(() => screen.getByRole('button', { name: /삼성전자/ }));
   });
+
+  // Codex 리뷰(PR #32) 4: 닫기 전에 시작한 토스 보유 종목 담기는 다시 연 시트에 들어가지 않는다.
+  it('a holdings import still running when the sheet closes does not land in the reopened sheet', async () => {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
+    apps.push(app);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (app.provider as { groupImport?: unknown }).groupImport = {
+      holdings: async () => {
+        await gate;
+        return [{ symbol: '005930', name: '삼성전자' }];
+      },
+      sectors: async () => [],
+      sectorStocks: async () => [],
+    };
+    const view = render(PickByCriteriaSheet, { open: true, app, onclose: vi.fn(), now: () => NOW, loadItems: async () => UNIVERSE });
+    await fireEvent.click(screen.getByRole('button', { name: '토스 보유 종목 담기' }));
+    await view.rerender({ open: false });
+    await view.rerender({ open: true });
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText('0/30')).toBeTruthy();
+    expect(screen.queryByText(/토스 보유 종목에서/)).toBeNull();
+  });
 });
