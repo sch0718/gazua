@@ -49,17 +49,39 @@
   let progress = $state<{ done: number; total: number } | null>(null);
   let name = $state('');
   let notice = $state<string | null>(null);
+  let error = $state<string | null>(null);
+  /** 미리보기 요청 번호. 후보·기준이 바뀌거나 시트를 열고 닫으면 올려서, 늦게 끝난 이전 계산을 버린다. */
   let run = 0;
+  /** 종목 목록을 받는 중이면 다시 부르지 않는다. 실패하면 null로 두어 다음에 열 때 다시 받는다. */
+  let loadingUniverse = false;
 
+  function loadUniverse() {
+    if (universe || loadingUniverse) return;
+    loadingUniverse = true;
+    loadItems().then(
+      (u) => {
+        universe = u;
+        loadingUniverse = false;
+      },
+      () => {
+        loadingUniverse = false;
+      },
+    );
+  }
+
+  // 시트는 닫혀도 남아 있다(CompareSheets). 열 때마다 새로 시작하고, 열고 닫을 때 진행 중인 미리보기를 버린다.
   $effect(() => {
-    if (!open) return;
+    const isOpen = open;
     untrack(() => {
+      run++;
+      progress = null;
+      if (!isOpen) return;
       candidates = [];
       query = '';
       preview = null;
-      progress = null;
       notice = null;
-      if (!universe) loadItems().then((u) => (universe = u), () => (universe = []));
+      error = null;
+      loadUniverse();
     });
   });
 
@@ -74,6 +96,7 @@
     run++;
     preview = null;
     progress = null;
+    error = null;
   }
 
   /** 앞에서부터 빈자리만큼 담는다. 몇 개를 담았고 몇 개가 넘쳤는지 알린다. */
@@ -112,21 +135,32 @@
     const symbols = [...candidates];
     progress = { done: 0, total: symbols.length };
     preview = null;
+    error = null;
     const { cache, memo } = app.data;
-    const rows = await rankCandidates({
-      provider: app.provider,
-      cache,
-      memo,
-      now: now(),
-      venueMode: app.settings.venueMode,
-      benchmark: app.settings.benchmark,
-      symbols,
-      metric,
-      period: PERIODS[periodIdx].period,
-      onProgress: (done, total) => {
-        if (mine === run) progress = { done, total };
-      },
-    });
+    let rows: RankRow[];
+    try {
+      rows = await rankCandidates({
+        provider: app.provider,
+        cache,
+        memo,
+        now: now(),
+        venueMode: app.settings.venueMode,
+        benchmark: app.settings.benchmark,
+        symbols,
+        metric,
+        period: PERIODS[periodIdx].period,
+        onProgress: (done, total) => {
+          if (mine === run) progress = { done, total };
+        },
+      });
+    } catch {
+      // 종목 정보부터 받지 못한 경우(연결·키 문제). 종목별 실패는 rankCandidates가 행으로 돌려준다.
+      if (mine === run) {
+        progress = null;
+        error = '종목 정보를 받지 못했어요. 다시 시도해 주세요';
+      }
+      return;
+    }
     if (mine !== run) return;
     progress = null;
     preview = orderRanked(rows, direction);
@@ -209,6 +243,9 @@
     <button type="button" class="btn" disabled={candidates.length === 0 || progress !== null} onclick={runPreview}>미리보기</button>
   </section>
 
+  {#if error}
+    <p class="hint err" role="alert">{error}</p>
+  {/if}
   {#if progress}
     <p class="hint" role="status">계산 중 {progress.done}/{progress.total}</p>
   {:else if preview}
@@ -247,6 +284,9 @@
     font-size: 12px;
     color: var(--t2);
     margin: 6px 20px;
+  }
+  .hint.err {
+    color: var(--err);
   }
   section .hint {
     margin: 6px 0;

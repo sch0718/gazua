@@ -92,4 +92,52 @@ describe('PickByCriteriaSheet', () => {
     await fireEvent.click(screen.getByRole('button', { name: '작은 순' }));
     expect(screen.queryByRole('button', { name: /개로 새 그룹 만들기$/ })).toBeNull();
   });
+
+  // Codex 리뷰(PR #32) 1: 종목 정보 요청이 실패하면 진행 표시에 멈추지 않고 알린 뒤 다시 시도할 수 있다.
+  it('a failed stock-meta request ends the preview with a message and the button works again', async () => {
+    const { app } = setup();
+    vi.spyOn(app.provider, 'getStockMeta').mockRejectedValueOnce(new Error('offline'));
+    await fireEvent.click(screen.getByRole('button', { name: "'반도체' 담기" }));
+    await fireEvent.click(screen.getByRole('button', { name: '미리보기' }));
+    await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('종목 정보를 받지 못했어요. 다시 시도해 주세요'));
+    expect(screen.queryByText(/계산 중/)).toBeNull();
+    expect((screen.getByRole('button', { name: '미리보기' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // Codex 리뷰(PR #32) 2: 계산 중에 닫았다 다시 열면 이전 계산 결과가 새 시트에 나오지 않는다.
+  it('a preview still running when the sheet closes does not show up after reopening', async () => {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: itemsOf(CODES.slice(0, 3)) }], now: NOW });
+    apps.push(app);
+    const real = app.provider.getStockMeta.bind(app.provider);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(app.provider, 'getStockMeta').mockImplementationOnce(async (s) => {
+      await gate;
+      return real(s);
+    });
+    const view = render(PickByCriteriaSheet, { open: true, app, onclose: vi.fn(), now: () => NOW, loadItems: async () => UNIVERSE });
+    await fireEvent.click(screen.getByRole('button', { name: "'반도체' 담기" }));
+    await fireEvent.click(screen.getByRole('button', { name: '미리보기' }));
+    await view.rerender({ open: false });
+    await view.rerender({ open: true });
+    release();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.queryByRole('list', { name: '순위' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /개로 새 그룹 만들기$/ })).toBeNull();
+    expect(screen.getByText('0/30')).toBeTruthy();
+  });
+
+  // Codex 리뷰(PR #32) 3: 종목 목록을 처음에 받지 못했어도 다시 열면 다시 받는다.
+  it('a failed universe load is retried on the next open', async () => {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
+    apps.push(app);
+    const loadItems = vi.fn<() => Promise<UniverseItem[]>>().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(UNIVERSE);
+    const view = render(PickByCriteriaSheet, { open: true, app, onclose: vi.fn(), now: () => NOW, loadItems });
+    await vi.waitFor(() => expect(loadItems).toHaveBeenCalledTimes(1));
+    await view.rerender({ open: false });
+    await view.rerender({ open: true });
+    await vi.waitFor(() => expect(loadItems).toHaveBeenCalledTimes(2));
+    await fireEvent.input(screen.getByRole('searchbox', { name: '후보 종목 검색' }), { target: { value: '삼성' } });
+    await vi.waitFor(() => screen.getByRole('button', { name: /삼성전자/ }));
+  });
 });
