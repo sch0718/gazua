@@ -112,7 +112,10 @@ corepack pnpm --filter proxy test
     #!/bin/bash
     set -e
     export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-    apt-get update -qq && apt-get install -y -qq zsh
+    export DEBIAN_FRONTEND=noninteractive
+    # 이미지에 있는 /etc/zsh/zshrc 때문에 dpkg가 묻다가 멈추지 않게 기존 설정을 유지한다. zsh는 문법 검사용이라 실패해도 계속한다.
+    apt-get update -qq
+    apt-get install -y -qq -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold zsh || echo "zsh 설치 실패(계속 진행)"
     corepack enable || true
     npx -y playwright@1.63.0 install --with-deps chromium
     chmod -R a+rX /opt/ms-playwright
