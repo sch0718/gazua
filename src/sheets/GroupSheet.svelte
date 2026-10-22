@@ -2,13 +2,24 @@
   import { tick } from 'svelte';
   import type { App } from '../lib/state/app.svelte';
   import type { Group } from '../lib/state/schema';
-  import { moveGroup, renameGroup } from '../lib/state/watchlist';
+  import { MAX_ITEMS, moveGroup, renameGroup } from '../lib/state/watchlist';
   import Sheet from '../lib/ui/components/Sheet.svelte';
   import { deleteGroupWithUndo } from './groupActions';
   import TossImport from './TossImport.svelte';
 
   // 그룹 관리 시트(스펙 7.3): 이름 바꾸기·순서·삭제(확인 + 되돌리기). 그룹은 하나 이상 남긴다.
-  let { open, app, onclose }: { open: boolean; app: App; onclose: () => void } = $props();
+  let {
+    open,
+    app,
+    onclose,
+    onpick,
+  }: {
+    open: boolean;
+    app: App;
+    onclose: () => void;
+    /** 조건으로 골라 새 그룹 만들기 시트로 바꾼다(없으면 버튼을 숨긴다). */
+    onpick?: () => void;
+  } = $props();
 
   const groups = $derived(app.watchlists.groups);
   const lastOne = $derived(groups.length <= 1);
@@ -163,6 +174,13 @@
     </div>
   {/if}
 
+  {#if onpick}
+    <div class="pick-entry">
+      <button type="button" class="entry" onclick={onpick}>조건으로 골라 새 그룹 만들기</button>
+      <p class="sub">후보를 최대 30개 담고 지표로 순위를 매겨 상위 {MAX_ITEMS}개로 새 그룹을 만들어요</p>
+    </div>
+  {/if}
+
   {#if importSource && open}
     <TossImport {app} source={importSource} {onclose} />
   {/if}
@@ -265,5 +283,23 @@
   .btn.danger {
     background: var(--err);
     color: #fff;
+  }
+  .pick-entry {
+    border-top: 1px solid var(--line);
+    margin: 8px 12px 0;
+    padding: 14px 8px 0;
+  }
+  .entry {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .pick-entry .sub {
+    padding: 6px 0 0;
   }
 </style>
