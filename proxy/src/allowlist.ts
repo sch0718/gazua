@@ -21,9 +21,11 @@ const RULES: Record<Provider, Rules> = {
       '/api/v1/stocks': ['GET'],
       '/api/v1/market-calendar/KR': ['GET'],
       // 관심그룹 가져오기(읽기 전용): 계좌 목록 → 보유 주식, 섹터 목록 → 섹터 구성 종목.
-      // 주문·주문 조회·매수가능금액 같은 나머지 계좌 경로는 열지 않는다.
       '/api/v1/accounts': ['GET'],
       '/api/v1/holdings': ['GET'],
+      // 내 성과(읽기 전용): 주문 목록 조회만. 사용자가 허락한 예외다. 같은 경로의 POST(주문 생성)와
+      // 주문 상세·정정·취소, 조건주문, 매수가능금액·매도가능수량·수수료 같은 나머지 계좌 경로는 열지 않는다.
+      '/api/v1/orders': ['GET'],
       '/api/v1/sectors': ['GET'],
     },
     patterns: [

@@ -8,7 +8,11 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 - `{GET|POST} /{kis|toss}/{상위 경로}?{쿼리}` → 허용 목록에 있는 경로만 상위로 전달하고, 응답(상태·본문·`content-type`·`retry-after`·`x-ratelimit-remaining`·`tr_cont`)을 그대로 돌려줘요.
 - 확인 순서: 출처(`Origin`이 `ALLOWED_ORIGINS`에 있어야 함, 아니면 `403 origin-not-allowed`) → `X-Proxy-Token`(`PROXY_TOKEN`을 설정한 경우, 아니면 `401 proxy-token-invalid`) → 경로·메서드 허용 목록(아니면 `403 proxy-path-blocked`, 상위 호출 없음) → 전달.
 - 상위 네트워크 오류는 `502 upstream-unreachable`.
-- 주문·주문 조회·매수가능금액 같은 계좌 경로는 허용 목록에 없어서 항상 거절돼요. 토스의 계좌 목록(`/api/v1/accounts`)과 보유 주식(`/api/v1/holdings`) **조회(GET)만** 관심그룹 가져오기용으로 열려 있고, 보유 주식에 필요한 `X-Tossinvest-Account` 헤더를 함께 전달해요.
+- 주문·매수가능금액 같은 계좌 경로는 허용 목록에 없어서 항상 거절돼요. 예외로 열린 토스 경로는 **조회(GET)만** 받아요.
+  - 계좌 목록(`/api/v1/accounts`)과 보유 주식(`/api/v1/holdings`): 관심그룹 가져오기와 내 성과의 수량 대조에 써요.
+  - 주문 목록(`/api/v1/orders`): 내 성과의 체결 내역을 받는 데 써요. 사용자가 허락한 예외예요. 같은 경로의 `POST`(주문 생성)는 막아요. 주문 상세·정정·취소(`/api/v1/orders/{id}`, `…/modify`, `…/cancel`), 조건주문(`/api/v1/conditional-orders`), 매수가능금액(`/api/v1/buying-power`), 매도가능수량, 수수료 경로도 계속 막아요.
+  - 보유 주식과 주문 목록에 필요한 `X-Tossinvest-Account` 헤더를 함께 전달해요.
+- 이 프록시를 고칠 때 허용 목록을 더 넓히지 마세요. 주문 경로가 열리면 토큰만으로 주문이 나갈 수 있어요.
 - 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
 
 ## 개발
