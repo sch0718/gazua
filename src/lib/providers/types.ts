@@ -73,6 +73,46 @@ export interface MarketDataProvider {
   ): Promise<Candle[]>;
   /** 관심그룹을 만들 재료(토스만). 공급자의 종목 코드를 그대로 돌려준다(앱 코드로 바꾸는 건 호출자). */
   groupImport?: GroupImportSource;
+  /** 내 성과에 쓸 계좌 내역(토스·데모). 읽기 전용이다. */
+  account?: AccountSource;
+}
+
+/** 체결이 있는 종료 주문 한 건(주문 하나가 한 행, 여러 번 나눠 체결되면 합친 값). symbol은 공급자의 코드. */
+export interface AccountOrder {
+  orderId: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  /** 원래 상태 값(FILLED·CANCELED 등). 모르는 값도 그대로 둔다 */
+  status: string;
+  /** 'KRW'가 아니면 계산에서 뺀다 */
+  currency: string;
+  /** ISO 8601(KST) */
+  orderedAt: string;
+  /** 마지막 체결 시각(ISO 8601, KST). 없으면 null */
+  filledAt: string | null;
+  /** 체결 수량 */
+  quantity: number;
+  /** 평균 체결가 */
+  price: number;
+  /** 체결 금액 */
+  amount: number;
+  commission: number;
+  tax: number;
+}
+
+export interface AccountHolding {
+  symbol: string;
+  name: string;
+  quantity: number;
+}
+
+export interface AccountSource {
+  /** 계좌를 구분하는 값(토스 accountSeq). 캐시 키에만 쓰고 화면·로그에는 보이지 않는다. */
+  accountId(): Promise<string>;
+  /** 종료된 주문 중 체결이 있는 것. from/to는 주문일(KST, 양끝 포함), 없으면 전체 기간. onPage는 지금까지 받은 행 수. */
+  closedOrders(opts?: { from?: string; to?: string; onPage?: (rows: number) => void }): Promise<AccountOrder[]>;
+  /** 국내 보유 수량 */
+  holdings(): Promise<AccountHolding[]>;
 }
 
 /** 가져올 종목. symbol은 공급자의 코드(토스 ETN은 Q 없는 6자리). */
