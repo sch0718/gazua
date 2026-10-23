@@ -595,6 +595,12 @@ describe('kis provider: daily candles', () => {
     expect(candles[2]).toEqual({ t: dayT('2026-10-08'), o: 70900, h: 71500, l: 70500, c: 71200, v: 12000000, value: 12000000 * 71200 });
   });
 
+  it('asks for original prices (FID_ORG_ADJ_PRC 1) when unadjusted prices are asked for', async () => {
+    const { provider, client } = setup();
+    await provider.getCandles({ symbol: '005930', venue: 'KRX', interval: '1d', from: '2026-10-06', to: '2026-10-08', adjusted: false });
+    expect(client.dataCalls[0].query).toMatchObject({ FID_ORG_ADJ_PRC: '1' });
+  });
+
   describe('paging beyond 100 rows', () => {
     const START = '2025-01-01';
     const days = Array.from({ length: 250 }, (_, i) => addDays(START, i)); // ascending

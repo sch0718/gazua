@@ -60,7 +60,7 @@ function factorIn({ lo, hi, logEst }: FactorRange): number {
 }
 
 /**
- * 하루치 체결로 정한 배율(스펙 2.6). 실제 계산은 dayFactors가 날짜를 이어 붙여 정한다(아래).
+ * 원주가 일봉이 없을 때 하루치 체결로 추정한 배율(스펙 2.6).
  * 그날 체결가가 모두 수정 일봉 범위(여유 3%) 안이면 1, 아니면 공통 구간에서 가장 둥근 비율.
  */
 export function splitFactorForDay(prices: number[], bar: Candle | undefined): number {
@@ -68,65 +68,67 @@ export function splitFactorForDay(prices: number[], bar: Candle | undefined): nu
   return r ? factorIn(r) : 1;
 }
 
+/** 체결가가 그날 수정 일봉 범위(여유 3%) 밖인 체결이 있는지. 있으면 원주가 일봉을 받아 배율을 정확히 구한다 */
+export function needsRawPrices(trades: Trade[], candles: Candle[]): boolean {
+  const byDate = new Map(candles.map((c) => [kstDate(c.t), c]));
+  return trades.some((t) => splitFactor(t.price, byDate.get(t.date)) !== 1);
+}
+
 /** 체결 하나만 볼 때의 배율(splitFactorForDay와 같은 규칙) */
 export const splitFactor = (price: number, bar: Candle | undefined): number => splitFactorForDay([price], bar);
 
+/** 원주가 ÷ 수정주가 비율을 둥근 비율로 맞출 때의 여유(수정주가의 원 단위 반올림 오차) */
+const RAW_RATIO_TOLERANCE = 0.005;
+
+/** 원주가 종가 ÷ 수정 종가 → 배율. ±0.5% 안의 가장 둥근 비율(1.1000022 → 1.1, 1:3 병합 → 정확히 1/3), 없으면 비율 그대로 */
+function factorFromRaw(raw: number, adjusted: number): number {
+  const r = raw / adjusted;
+  return factorIn({ lo: r * (1 - RAW_RATIO_TOLERANCE), hi: r * (1 + RAW_RATIO_TOLERANCE), logEst: Math.log(r) });
+}
+
 /**
- * 종목·날짜마다 배율(키 `종목|날짜`). 배율은 권리 변동이 있을 때만 바뀌므로, 날짜순으로 구간이 계속 겹치는 날들을
- * 한 묶음으로 보고 묶음의 공통 구간에서 배율 하나를 고른다(PR 리뷰: 한 번의 4:1 분할 전 매수일 [3.8, 4.2]와
- * 매도일 [3.7, 5.2]가 각자 고르면 4와 5로 갈린다). 구간이 끊기는 날부터 새 묶음이다. 봉이 없는 날은 1이고 묶음을 끊지 않는다.
+ * 종목·날짜마다 배율(키 `종목|날짜`, 스펙 2.6).
+ * - 그날 원주가 일봉과 수정 일봉이 다 있으면 원주가 종가 ÷ 수정 종가. 권리 변동이 날짜마다 정확히 반영된다.
+ * - 없으면 그날 체결가로 추정한다(splitFactorForDay). 날짜를 이어 묶지 않는다: 범위가 겹친다고 권리 변동이 없었다고 볼 수 없다
+ *   (PR 리뷰: 10% 무상증자 전후 범위가 겹친다). 그래서 컨트롤러는 체결가가 수정 일봉 밖인 종목의 원주가 일봉을 받는다.
  */
-function dayFactors(trades: Trade[], barOf: (symbol: string, date: string) => Candle | undefined): Map<string, number> {
-  const prices = new Map<string, Map<string, number[]>>();
+function dayFactors(
+  trades: Trade[],
+  barOf: (symbol: string, date: string) => Candle | undefined,
+  rawOf: (symbol: string, date: string) => Candle | undefined,
+): Map<string, number> {
+  const prices = new Map<string, number[]>();
   for (const t of trades) {
-    const byDate = prices.get(t.symbol) ?? new Map<string, number[]>();
-    byDate.set(t.date, [...(byDate.get(t.date) ?? []), t.price]);
-    prices.set(t.symbol, byDate);
+    const k = `${t.symbol}|${t.date}`;
+    prices.set(k, [...(prices.get(k) ?? []), t.price]);
   }
   const out = new Map<string, number>();
-  for (const [symbol, byDate] of prices) {
-    let group: { lo: number; hi: number; logs: number[]; keys: string[] } | null = null;
-    const close = () => {
-      if (!group) return;
-      const logEst = group.logs.reduce((a, b) => a + b, 0) / group.logs.length;
-      const f = factorIn({ lo: group.lo, hi: group.hi, logEst });
-      for (const k of group.keys) out.set(k, f);
-      group = null;
-    };
-    for (const date of [...byDate.keys()].sort()) {
-      const key = `${symbol}|${date}`;
-      const r = dayRange(byDate.get(date)!, barOf(symbol, date));
-      if (!r) {
-        out.set(key, 1);
-        continue;
-      }
-      if (group && Math.max(group.lo, r.lo) <= Math.min(group.hi, r.hi)) {
-        group.lo = Math.max(group.lo, r.lo);
-        group.hi = Math.min(group.hi, r.hi);
-        group.logs.push(r.logEst);
-        group.keys.push(key);
-      } else {
-        close();
-        group = { lo: r.lo, hi: r.hi, logs: [r.logEst], keys: [key] };
-      }
-    }
-    close();
+  for (const [k, ps] of prices) {
+    const [symbol, date] = k.split('|');
+    const adj = barOf(symbol, date);
+    const raw = rawOf(symbol, date);
+    out.set(k, adj && raw && adj.c > 0 && raw.c > 0 ? factorFromRaw(raw.c, adj.c) : splitFactorForDay(ps, adj));
   }
   return out;
 }
 
-/** 체결마다 분할 배율(orderId → 배율). 시세가 없는 종목은 1. 수량 대조가 같은 단위로 세려고 쓴다 */
-export function splitFactors(trades: Trade[], stocks: Map<string, StockSeries>): Map<string, number> {
-  const bars = new Map<string, Map<string, Candle>>();
-  const barOf = (symbol: string, date: string) => {
-    let byDate = bars.get(symbol);
+/** 날짜 → 봉(종목별로 한 번만 만든다) */
+function barIndex(pick: (s: StockSeries) => Candle[] | undefined, stocks: Map<string, StockSeries>) {
+  const cache = new Map<string, Map<string, Candle>>();
+  return (symbol: string, date: string): Candle | undefined => {
+    let byDate = cache.get(symbol);
     if (!byDate) {
-      byDate = new Map((stocks.get(symbol)?.candles ?? []).map((c) => [kstDate(c.t), c]));
-      bars.set(symbol, byDate);
+      const s = stocks.get(symbol);
+      byDate = new Map((s ? (pick(s) ?? []) : []).map((c) => [kstDate(c.t), c]));
+      cache.set(symbol, byDate);
     }
     return byDate.get(date);
   };
-  const byDay = dayFactors(trades, barOf);
+}
+
+/** 체결마다 분할 배율(orderId → 배율). 시세가 없는 종목은 1. 수량 대조가 같은 단위로 세려고 쓴다 */
+export function splitFactors(trades: Trade[], stocks: Map<string, StockSeries>): Map<string, number> {
+  const byDay = dayFactors(trades, barIndex((s) => s.candles, stocks), barIndex((s) => s.raw, stocks));
   return new Map(trades.map((t) => [t.orderId, byDay.get(`${t.symbol}|${t.date}`) ?? 1]));
 }
 
@@ -199,7 +201,8 @@ export function buildTimeline(
     const px = closeLookup(stock.candles);
     const bench = benches.get(symbol) ?? null;
     const bpx = bench && bench.candles.length > 0 ? closeLookup(bench.candles) : null;
-    const factors = dayFactors(list, (_s, date) => px.bar(date));
+    const rawBar = barIndex((x) => x.raw, new Map([[symbol, stock]]));
+    const factors = dayFactors(list, (_s, date) => px.bar(date), rawBar);
 
     // 보유는 수정주가 기준 단위로만 센다. 분할 전에 산 10주(배율 2)와 분할 뒤에 판 20주(배율 1)가 같은 20단위다
     let units = 0;

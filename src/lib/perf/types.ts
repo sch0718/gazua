@@ -39,7 +39,10 @@ export interface BenchSeries {
 
 export interface StockSeries {
   name: string;
+  /** 수정주가 일봉 */
   candles: Candle[];
+  /** 원주가 일봉(있으면). 분할 배율을 원주가 종가 ÷ 수정 종가로 정확히 구한다(스펙 2.6) */
+  raw?: Candle[];
 }
 
 /** 종목 하나의 날짜별 값과 현금흐름. 날짜 인덱스는 Timeline.days 기준. */

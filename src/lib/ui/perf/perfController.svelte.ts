@@ -3,7 +3,7 @@
 import type { Candle } from '../../data/metrics';
 import { benchIdsFor, benchShell } from '../../perf/compose';
 import { normalizeOrders } from '../../perf/ledger';
-import { splitFactors } from '../../perf/portfolio';
+import { needsRawPrices, splitFactors } from '../../perf/portfolio';
 import { createMemoryOrderCache, orderCacheKey, syncOrders, type OrderCache } from '../../perf/orderCache';
 import { reconcile, type Reconciliation } from '../../perf/reconcile';
 import type { BenchChoice, BenchSeries, StockSeries, Trade } from '../../perf/types';
@@ -24,6 +24,8 @@ export interface PerfData {
   series: Map<string, BenchSeries>;
   /** 받지 못한 벤치마크 id */
   failedBench: string[];
+  /** 분할이 있는 것 같은데 원주가 일봉을 받지 못해 배율을 체결가로 추정한 종목 */
+  estimatedSplits: string[];
   holdings: AccountHolding[] | null;
   reconcile: Reconciliation;
   syncedAt: number;
@@ -166,6 +168,22 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
         step();
       }
 
+      // 체결가가 수정 일봉 밖인 종목(분할·병합·무상증자가 있었던 종목)만 원주가 일봉을 더 받는다(스펙 2.6)
+      const estimatedSplits: string[] = [];
+      for (const [symbol, s] of stocks) {
+        const own = trades.filter((t) => t.symbol === symbol);
+        if (!needsRawPrices(own, s.candles)) continue;
+        try {
+          const raw = (await provider.getCandles({ symbol, venue, interval: '1d', from, to, priority: PRIORITY, adjusted: false })).filter(validBar);
+          if (raw.length > 0) stocks.set(symbol, { ...s, raw });
+          else estimatedSplits.push(symbol);
+        } catch (e) {
+          if (e instanceof Cancelled) throw e;
+          estimatedSplits.push(symbol);
+        }
+        alive();
+      }
+
       const series = new Map<string, BenchSeries>();
       const failedBench: string[] = [];
       for (const b of benchIds) {
@@ -187,6 +205,7 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
           stocks,
           series,
           failedBench,
+          estimatedSplits,
           holdings,
           reconcile: reconcile(trades, holdings, splitFactors(trades, stocks)),
           syncedAt: synced.syncedAt,

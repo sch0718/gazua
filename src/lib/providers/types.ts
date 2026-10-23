@@ -44,6 +44,11 @@ export interface CandleQuery {
   to: string;
   /** 요청 큐 우선순위. 기본 1 */
   priority?: Priority;
+  /**
+   * 일봉의 수정주가 적용 여부. 기본 true. false면 그날 실제 가격(원주가)이다.
+   * 내 성과가 체결가와 수정 일봉의 분할 배율을 정확히 구하려고 쓴다(스펙 2.6). 분봉에는 영향이 없다.
+   */
+  adjusted?: boolean;
 }
 
 export interface MarketDataProvider {

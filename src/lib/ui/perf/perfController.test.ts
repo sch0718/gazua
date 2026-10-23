@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMemoryOrderCache } from '../../perf/orderCache';
+import { splitFactors } from '../../perf/portfolio';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
 import type { MarketDataProvider } from '../../providers/types';
@@ -207,5 +208,42 @@ describe('perfController', () => {
     release();
     await done(ctl);
     expect(takenAt).toEqual([false]);
+  });
+
+  // PR 리뷰: 분할 배율은 원주가 일봉으로 정확히 구한다. 체결가가 수정 일봉 밖인 종목만 더 받는다
+  it('fetches raw daily bars only for symbols whose fills fall outside the adjusted bars', async () => {
+    const calls: string[] = [];
+    // 005930은 모든 거래 뒤에 2:1 분할이 있었던 것처럼: 수정 일봉은 원주가의 절반
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        calls.push(`${q.symbol}:${q.adjusted === false ? 'raw' : 'adj'}`);
+        const bars = await base.getCandles(q);
+        if (q.symbol !== '005930' || q.adjusted === false) return bars;
+        return bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 }));
+      },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(calls.filter((c) => c.endsWith(':raw'))).toEqual(['005930:raw']);
+    expect(s.data.stocks.get('005930')?.raw?.length).toBeGreaterThan(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    const buy = s.data.trades.find((t) => t.symbol === '005930')!;
+    expect(splitFactors(s.data.trades, s.data.stocks).get(buy.orderId)).toBe(2);
+  });
+
+  it('names symbols whose split factor had to be estimated because raw bars failed', async () => {
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        if (q.adjusted === false) throw new ApiError('timeout');
+        const bars = await base.getCandles(q);
+        if (q.symbol !== '005930') return bars;
+        return bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 }));
+      },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.estimatedSplits).toEqual(['005930']);
   });
 });

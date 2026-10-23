@@ -135,3 +135,17 @@ describe('Performance: switching benchmarks quickly', () => {
     expect(app.settings.perfBenchmark).toBe('229200');
   });
 });
+
+describe('Performance: estimated split factors', () => {
+  it('says which stocks had their split factor estimated without raw prices', async () => {
+    setup((base) => ({
+      ...base,
+      getCandles: async (q) => {
+        if (q.adjusted === false) throw new ApiError('timeout');
+        const bars = await base.getCandles(q);
+        return q.symbol === '005930' ? bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 })) : bars;
+      },
+    }));
+    expect(await screen.findByText('원주가를 받지 못해 분할 배율을 체결가로 추정했어요: 삼성전자', {}, { timeout: 5000 })).toBeTruthy();
+  });
+});

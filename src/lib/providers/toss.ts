@@ -561,8 +561,8 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     async getCandles(q: CandleQuery) {
       requireUnified(q.venue);
       const query: CandlePlan['query'] = { symbol: tossSymbol(q.symbol), interval: q.interval };
-      // 기본값도 true지만 수정주가 적용을 계약으로 고정한다.
-      if (q.interval === '1d') query.adjusted = 'true';
+      // 기본값도 true지만 수정주가 적용을 계약으로 고정한다. 내 성과는 분할 배율을 구하려고 원주가(false)도 받는다.
+      if (q.interval === '1d') query.adjusted = q.adjusted === false ? 'false' : 'true';
       return candles({ group: 'MARKET_DATA_CHART', path: '/api/v1/candles', query }, q.from, q.to, q.priority ?? 1);
     },
 

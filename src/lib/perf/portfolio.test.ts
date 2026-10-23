@@ -218,10 +218,13 @@ describe('buildTimeline', () => {
   });
 
   // PR 리뷰: 한 번의 분할 전 거래들은 날짜가 달라도 같은 배율이어야 한다(4:1 분할 전 매수·매도가 4와 5로 갈리면 안 된다)
-  it('trades on different days before one 4:1 split share one factor', () => {
+  // PR 리뷰: 범위만으로는 날짜가 다른 체결의 배율을 정할 수 없다(4:1 분할 전 매수일·매도일, 10% 무상증자 전후).
+  // 원주가 일봉이 있으면 배율 = 원주가 종가 ÷ 수정 종가로 정확히 구한다.
+  it('trades on different days before one 4:1 split share one factor (from raw daily bars)', () => {
     const stock: StockSeries = {
       name: '에이',
       candles: [bar('2026-03-02', 100, 102, 98), bar('2026-03-03', 125, 130, 100), bar('2026-03-04', 126)],
+      raw: [bar('2026-03-02', 400, 408, 392), bar('2026-03-03', 500, 520, 400), bar('2026-03-04', 504)],
     };
     const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 10, price: 400, amount: 4_000, commission: 0 });
     const sell = trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty: 10, price: 500, amount: 5_000, commission: 0 });
@@ -233,6 +236,40 @@ describe('buildTimeline', () => {
     expect(viewOf(tl, 0, 2).actual.profit).toBe(1_000);
     const factors = splitFactors([buy, sell], stocks({ A: stock }));
     expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([4, 4]);
+  });
+
+  it('a 10% bonus issue between two trades gives 1.1 before and 1 after (from raw daily bars)', () => {
+    const stock: StockSeries = {
+      name: '에이',
+      candles: [bar('2026-03-02', 100, 105, 95), bar('2026-03-03', 100)],
+      raw: [bar('2026-03-02', 110, 115.5, 104.5), bar('2026-03-03', 100)],
+    };
+    const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 10, price: 110, amount: 1_100, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty: 11, price: 100, amount: 1_100, commission: 0 });
+    const idx: BenchSeries = { ...INDEX, candles: series({ '2026-03-02': 1000, '2026-03-03': 1010 }) };
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => idx);
+    const t = tl.tracks[0];
+    expect(t.excessQty).toBe(0);
+    expect(t.events[1].actual).toBe(1_100);
+    expect(viewOf(tl, 0, 1).actual.profit).toBe(0);
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([1.1, 1]);
+    expect(reconcile([buy, sell], [], factors).bySymbol.get('A')).toEqual({ status: 'ok', computed: 0, held: 0 });
+  });
+
+  it('without raw bars it estimates each day on its own (the 10% bonus case still comes out right)', () => {
+    const stock: StockSeries = { name: '에이', candles: [bar('2026-03-02', 100, 105, 95), bar('2026-03-03', 100)] };
+    const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 10, price: 110, amount: 1_100, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty: 11, price: 100, amount: 1_100, commission: 0 });
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([1.1, 1]);
+  });
+
+  it('snaps a raw ÷ adjusted ratio off by won rounding to the round ratio', () => {
+    // 원주가 50,500 ÷ 1.1 = 45,909.09… → 수정 종가 45,909
+    const stock: StockSeries = { name: '에이', candles: [bar('2026-03-02', 45_909)], raw: [bar('2026-03-02', 50_500)] };
+    const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 1, price: 50_500, amount: 50_500 });
+    expect(splitFactors([buy], stocks({ A: stock })).get(buy.orderId)).toBe(1.1);
   });
 
   it('a split between two trades still gives each side its own factor', () => {
