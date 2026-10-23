@@ -3,6 +3,7 @@
 import type { Candle } from '../../data/metrics';
 import { benchIdsFor, benchShell } from '../../perf/compose';
 import { normalizeOrders } from '../../perf/ledger';
+import { splitFactors } from '../../perf/portfolio';
 import { createMemoryOrderCache, orderCacheKey, syncOrders, type OrderCache } from '../../perf/orderCache';
 import { reconcile, type Reconciliation } from '../../perf/reconcile';
 import type { BenchChoice, BenchSeries, StockSeries, Trade } from '../../perf/types';
@@ -114,6 +115,8 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
         onPage: (rows) => {
           if (id === runId) state = { kind: 'loading', stage: 'orders', rows };
         },
+        // 받는 사이 화면을 떠났으면(취소) 계좌 내역을 저장하지 않는다
+        persist: () => id === runId,
       });
       alive();
       const { trades, foreign } = normalizeOrders(synced.orders);
@@ -183,7 +186,7 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
           series,
           failedBench,
           holdings,
-          reconcile: reconcile(trades, holdings),
+          reconcile: reconcile(trades, holdings, splitFactors(trades, stocks)),
           syncedAt: synced.syncedAt,
           pendingBench: null,
         },

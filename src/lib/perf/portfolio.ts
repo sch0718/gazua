@@ -10,6 +10,52 @@ import type { BenchSeries, StockSeries, Timeline, Track, TrackEvent, Trade } fro
 export const DEFAULT_FEE_RATE = 0.00015;
 /** 체결가가 그날 수정 일봉의 [저가 × 0.97, 고가 × 1.03] 밖이면 분할로 본다(스펙 2.6) */
 const SPLIT_MARGIN = 0.03;
+/** 분할 배율을 찾을 때 쓰는 가장 큰 분모(1:100 병합까지) */
+const SPLIT_MAX_DENOMINATOR = 100;
+/** 매도가 남은 단위를 이만큼 이내로만 넘으면 전량 매도로 본다(부동소수점 오차) */
+const UNIT_EPS = 1e-9;
+
+/**
+ * 실제 체결 1주가 수정주가 기준 몇 단위인지(스펙 2.6). 체결가가 그날 수정 일봉 범위(여유 3%) 안이면 1.
+ * 밖이면 범위 [체결가 ÷ (고가 × 1.03), 체결가 ÷ (저가 × 0.97)]에 드는 가장 간단한 비율(분모가 가장 작고,
+ * 같은 분모면 체결가 ÷ 종가에 가장 가까운 것)을 쓴다. 그래야 분할 전에 산 수량과 분할 뒤에 판 수량이 정확히 맞는다
+ * (2:1 분할이면 1.99가 아니라 2). 맞는 비율이 없으면 체결가 ÷ 종가.
+ */
+export function splitFactor(price: number, bar: Candle | undefined): number {
+  if (!bar) return 1;
+  const lo = price / (bar.h * (1 + SPLIT_MARGIN));
+  const hi = price / (bar.l * (1 - SPLIT_MARGIN));
+  if (lo <= 1 && 1 <= hi) return 1;
+  const est = price / bar.c;
+  for (let d = 1; d <= SPLIT_MAX_DENOMINATOR; d++) {
+    const first = Math.ceil(lo * d - 1e-9);
+    const last = Math.floor(hi * d + 1e-9);
+    if (first > last || last <= 0) continue;
+    const n = Math.min(last, Math.max(first, Math.round(est * d), 1));
+    return n / d;
+  }
+  return est;
+}
+
+/** 체결마다 분할 배율(orderId → 배율). 시세가 없는 종목은 1. 수량 대조가 같은 단위로 세려고 쓴다 */
+export function splitFactors(trades: Trade[], stocks: Map<string, StockSeries>): Map<string, number> {
+  const bars = new Map<string, Map<string, Candle>>();
+  const out = new Map<string, number>();
+  for (const t of trades) {
+    const candles = stocks.get(t.symbol)?.candles;
+    if (!candles) {
+      out.set(t.orderId, 1);
+      continue;
+    }
+    let byDate = bars.get(t.symbol);
+    if (!byDate) {
+      byDate = new Map(candles.map((c) => [kstDate(c.t), c]));
+      bars.set(t.symbol, byDate);
+    }
+    out.set(t.orderId, splitFactor(t.price, byDate.get(t.date)));
+  }
+  return out;
+}
 
 /** 날짜 → 종가 조회. 그날 봉이 없으면 직전 종가, 그 전 봉도 없으면 처음 종가. 봉이 없으면 null. */
 function closeLookup(candles: Candle[]): { at(date: string): number | null; bar(date: string): Candle | undefined } {
@@ -81,8 +127,8 @@ export function buildTimeline(
     const bench = benches.get(symbol) ?? null;
     const bpx = bench && bench.candles.length > 0 ? closeLookup(bench.candles) : null;
 
-    let units = 0; // 수정주가 기준 보유 단위
-    let qty = 0; // 기록된 실제 보유 수량
+    // 보유는 수정주가 기준 단위로만 센다. 분할 전에 산 10주(배율 2)와 분할 뒤에 판 20주(배율 1)가 같은 20단위다
+    let units = 0;
     let vUnits = 0;
     let splitAdjusted = false;
     let excessQty = 0;
@@ -99,14 +145,9 @@ export function buildTimeline(
         const bp = bpx?.at(day) ?? null;
         if (t.side === 'BUY') {
           const cost = t.amount + t.commission + t.tax;
-          const b = px.bar(day);
-          let factor = 1;
-          if (b && (t.price < b.l * (1 - SPLIT_MARGIN) || t.price > b.h * (1 + SPLIT_MARGIN))) {
-            factor = t.price / b.c;
-            splitAdjusted = true;
-          }
+          const factor = splitFactor(t.price, px.bar(day));
+          if (factor !== 1) splitAdjusted = true;
           units += t.qty * factor;
-          qty += t.qty;
           let v: number | null = null;
           if (bench && bp !== null) {
             vUnits += bench.kind === 'index' ? cost / bp : cost / (bp * (1 + feeRateOf(t)));
@@ -114,12 +155,18 @@ export function buildTimeline(
           } else uncompared++;
           events.push({ i, trade: t, actual: -cost, virtual: v, excessQty: 0 });
         } else {
-          const sold = Math.min(t.qty, qty);
-          const excess = t.qty - sold;
+          const factor = splitFactor(t.price, px.bar(day));
+          if (factor !== 1) splitAdjusted = true;
+          const want = t.qty * factor;
+          // 남은 단위를 오차 이내로만 넘으면 전량 매도
+          const full = units > 0 && want >= units * (1 - UNIT_EPS);
+          const sold = full ? units : Math.min(want, units);
+          // 기록된 수량을 넘은 몫(이 매도의 주식 수 기준). 오차는 버린다
+          const excess = full && want <= units * (1 + UNIT_EPS) ? 0 : Math.max(0, Math.round(((want - sold) / factor) * 1e6) / 1e6);
           excessQty += excess;
-          const share = t.qty > 0 ? sold / t.qty : 0;
+          const share = want > 0 ? Math.min(1, sold / want) : 0;
           const proceeds = roundMoney((t.amount - t.commission - t.tax) * share);
-          const f = qty > 0 ? sold / qty : 0;
+          const f = full ? 1 : units > 0 ? sold / units : 0;
           let v: number | null = null;
           if (bench && bp !== null) {
             const soldUnits = f >= 1 ? vUnits : vUnits * f;
@@ -130,8 +177,7 @@ export function buildTimeline(
                 : gross - gross * feeRateOf(t) - (gross * sellTaxPct(day, bench.market, true)) / 100;
             vUnits = f >= 1 ? 0 : vUnits - soldUnits;
           } else uncompared++;
-          units = f >= 1 ? 0 : units * (1 - f);
-          qty -= sold;
+          units = f >= 1 ? 0 : units - sold;
           events.push({ i, trade: t, actual: proceeds, virtual: v, excessQty: excess });
         }
       }

@@ -40,4 +40,13 @@ describe('reconcile', () => {
     expect(r.unrecorded).toEqual([]);
     expect(r.mismatches).toBe(0);
   });
+
+  it('counts in post-split shares when given split factors', () => {
+    // 분할 전 10주(배율 2) 매수, 분할 뒤 5주 매도 → 지금 15주
+    const trades = [t('A', 'BUY', 10), t('A', 'SELL', 5)];
+    const factors = new Map([[trades[0].orderId, 2], [trades[1].orderId, 1]]);
+    const r = reconcile(trades, [{ symbol: 'A', name: '에이', quantity: 15 }], factors);
+    expect(r.bySymbol.get('A')).toEqual({ status: 'ok', computed: 15, held: 15 });
+    expect(r.mismatches).toBe(0);
+  });
 });

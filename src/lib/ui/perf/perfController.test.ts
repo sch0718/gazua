@@ -150,4 +150,27 @@ describe('perfController', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(ctl.state.kind).toBe('idle');
   });
+
+  // PR 리뷰: 화면을 떠난(취소한) 뒤 늦게 끝난 주문 응답이 계좌 내역을 다시 저장하면 안 된다
+  it('does not save orders that arrive after the load was cancelled', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const { ctl, orderCache } = setup((base) => ({
+      id: 'toss',
+      account: {
+        ...base.account!,
+        closedOrders: async (o) => {
+          await gate;
+          return base.account!.closedOrders(o);
+        },
+      },
+    }));
+    ctl.load('AUTO');
+    await vi.waitFor(() => expect(ctl.state.kind).toBe('loading'));
+    ctl.cancel();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ctl.state.kind).toBe('idle');
+    expect(await orderCache.get('p1|toss|demo')).toBeUndefined();
+  });
 });

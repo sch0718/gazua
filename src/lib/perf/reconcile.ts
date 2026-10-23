@@ -13,9 +13,17 @@ export interface Reconciliation {
   mismatches: number;
 }
 
-export function reconcile(trades: Trade[], holdings: AccountHolding[] | null): Reconciliation {
+/**
+ * factors(orderId → 분할 배율)를 주면 체결 수량을 지금 주식 수로 바꿔 더한다(분할 전에 산 10주는 2:1 분할 뒤 20주).
+ * 보유 수량은 지금 주식 수라 그래야 분할한 종목이 `맞지 않음`으로 잘못 뜨지 않는다.
+ */
+export function reconcile(trades: Trade[], holdings: AccountHolding[] | null, factors?: Map<string, number>): Reconciliation {
   const computed = new Map<string, number>();
-  for (const t of trades) computed.set(t.symbol, (computed.get(t.symbol) ?? 0) + (t.side === 'BUY' ? t.qty : -t.qty));
+  for (const t of trades) {
+    const q = t.qty * (factors?.get(t.orderId) ?? 1);
+    const next = (computed.get(t.symbol) ?? 0) + (t.side === 'BUY' ? q : -q);
+    computed.set(t.symbol, Math.round(next * 1e6) / 1e6);
+  }
   const held = holdings ? new Map(holdings.map((h) => [h.symbol, h.quantity])) : null;
   const bySymbol: Reconciliation['bySymbol'] = new Map();
   let mismatches = 0;

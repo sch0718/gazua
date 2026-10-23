@@ -197,8 +197,11 @@ export function createApp(deps: AppDeps): App {
   const storedOrders = deps.orderCache ?? createOrderCache('gazua-account');
   // 키 잠금 중에는 주문 내역을 기기에 남기지 않는다.
   const sessionOrders = createMemoryOrderCache();
+  // 지울 때마다 올린다. 그 전에 내준 캐시는 더 이상 쓰지 않는다(진행 중이던 주문 받기가 끝나도 다시 저장하지 않게).
+  let orderEpoch = 0;
   /** 이 프로필의 주문 캐시를 지운다(저장된 것과 메모리 모두). 실패해도 다른 작업을 막지 않는다. */
   const forgetOrders = (id: string) => {
+    orderEpoch++;
     void storedOrders.removeProfile(id).catch(() => {});
     void sessionOrders.removeProfile(id).catch(() => {});
   };
@@ -511,8 +514,19 @@ export function createApp(deps: AppDeps): App {
     get data() {
       return data;
     },
-    get orderCache() {
-      return lockMode() ? sessionOrders : storedOrders;
+    get orderCache(): OrderCache {
+      const target = lockMode() ? sessionOrders : storedOrders;
+      const epoch = orderEpoch;
+      return {
+        get: (k) => target.get(k),
+        // 내준 뒤 주문 내역을 지웠으면(키 삭제·잠금·프로필 삭제·캐시 비우기) 저장하지 않는다
+        put: (k, v) => (epoch === orderEpoch ? target.put(k, v) : Promise.resolve()),
+        // 캐시 비우기: 지우고 세대를 올려, 진행 중이던 받기가 다시 저장하지 못하게 한다
+        removeProfile: (id) => {
+          orderEpoch++;
+          return Promise.all([storedOrders.removeProfile(id), sessionOrders.removeProfile(id)]).then(() => {});
+        },
+      };
     },
     get banners() {
       void storageTick;
@@ -771,6 +785,7 @@ export function createApp(deps: AppDeps): App {
       if (!locked) return;
       secrets = null;
       memoryTokens.clear();
+      orderEpoch++;
       void sessionOrders.removeProfile(activeId()).catch(() => {});
       rebuild();
       route = { name: 'unlock' };

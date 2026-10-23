@@ -90,7 +90,7 @@ export function createOrderCache(dbName = 'gazua-account'): OrderCache {
 
 /**
  * 캐시가 있으면 마지막으로 받은 날 7일 전부터 받아 orderId로 덮어써 합친다. full이면 처음부터 받는다.
- * 캐시를 읽거나 쓰지 못해도 받은 주문으로 계속한다.
+ * 캐시를 읽거나 쓰지 못해도 받은 주문으로 계속한다. persist가 false를 돌려주면(받는 사이 취소됨) 저장하지 않는다.
  */
 export async function syncOrders(args: {
   source: AccountSource;
@@ -99,6 +99,8 @@ export async function syncOrders(args: {
   now: number;
   full?: boolean;
   onPage?: (rows: number) => void;
+  /** 저장 직전에 확인한다. 받는 동안 화면을 떠났으면 false */
+  persist?: () => boolean;
 }): Promise<{ orders: AccountOrder[]; syncedAt: number }> {
   const { source, cache, key, now } = args;
   let entry: OrderCacheEntry | undefined;
@@ -109,6 +111,6 @@ export async function syncOrders(args: {
   for (const o of entry?.orders ?? []) byId.set(o.orderId, o);
   for (const o of fresh) byId.set(o.orderId, o);
   const orders = [...byId.values()].sort((a, b) => a.orderedAt.localeCompare(b.orderedAt) || a.orderId.localeCompare(b.orderId));
-  await cache.put(key, { orders, syncedAt: now, syncedThrough: kstDate(now) }).catch(() => {});
+  if (args.persist?.() ?? true) await cache.put(key, { orders, syncedAt: now, syncedThrough: kstDate(now) }).catch(() => {});
   return { orders, syncedAt: now };
 }

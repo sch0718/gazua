@@ -1364,9 +1364,12 @@ describe('order cache (내 성과)', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
     const { app, stored } = makeWith(backing);
-    expect(app.orderCache).toBe(stored);
+    await app.orderCache.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toEqual(entry);
     await app.setSecrets(SECRETS, 'correct horse');
-    expect(app.orderCache).not.toBe(stored);
+    await app.orderCache.put('p1|toss|4', entry);
+    expect(await app.orderCache.get('p1|toss|4')).toEqual(entry);
+    expect(await stored.get('p1|toss|4')).toBeUndefined();
   });
 
   it('turning the key lock on, clearing keys, and deleting a profile remove that profile’s orders', async () => {
@@ -1394,5 +1397,26 @@ describe('order cache (내 성과)', () => {
     expect(make(backing).settings.perfBenchmark).toBe('069500');
     seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, perfBenchmark: 'NASDAQ' });
     expect(make(backing).settings.perfBenchmark).toBeNull();
+  });
+
+  // PR 리뷰: 키를 지우거나 잠금을 켠 뒤에는, 그 전에 시작한 주문 받기가 끝나도 다시 저장하지 않는다
+  it('a cache handed out before the keys were cleared or locked no longer saves', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app, stored } = makeWith(backing);
+    await app.setSecrets(SECRETS);
+    const before = app.orderCache;
+    app.clearSecrets();
+    await before.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+
+    const again = app.orderCache;
+    await app.setSecrets(SECRETS, 'correct horse');
+    await again.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+    // 새로 받은 캐시(잠금 중이라 탭 메모리)는 그대로 쓴다
+    await app.orderCache.put('p1|toss|3', entry);
+    expect(await app.orderCache.get('p1|toss|3')).toEqual(entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
   });
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { kstEpoch } from '../time/kst';
-import { buildTimeline } from './portfolio';
+import { buildTimeline, splitFactor } from './portfolio';
+import { viewOf } from './view';
 import type { BenchSeries, StockSeries, Trade } from './types';
 
 const bar = (date: string, c: number, h = c, l = c): Candle => ({ t: kstEpoch(date, '00:00:00'), o: c, h, l, c, v: 1 });
@@ -156,6 +157,62 @@ describe('buildTimeline', () => {
     expect(t.splitAdjusted).toBe(true);
     // 3일째는 지수에만 봉이 있어 직전 종가를 쓴다
     expect(t.actual).toEqual([2000, 2200, 2200]);
+  });
+
+  // PR 리뷰: 분할 전에 산 수량과 분할 뒤에 판 수량은 단위가 다르다. 보유는 수정주가 기준 단위로만 센다.
+  describe('a sell after a split', () => {
+    // 3/2에 200원에 10주(수정 일봉은 100 근처) → 2:1 분할 → 이듬해 110원에 판다
+    const split: StockSeries = {
+      name: '에이',
+      candles: [bar('2025-03-03', 100, 105, 95), bar('2026-03-03', 110, 112, 108)],
+    };
+    const buy = trade({ date: '2025-03-03', orderedAt: '2025-03-03T09:00:00+09:00', price: 200, amount: 2000, commission: 0 });
+    const sell = (qty: number) =>
+      trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty, price: 110, amount: 110 * qty, commission: 0 });
+    const idx: BenchSeries = { ...INDEX, candles: series({ '2025-03-03': 1000, '2026-03-03': 1100 }) };
+
+    it('selling all 20 post-split shares is a full sell, not an oversell', () => {
+      const tl = buildTimeline([buy, sell(20)], stocks({ A: split }), () => idx);
+      const t = tl.tracks[0];
+      expect(t.excessQty).toBe(0);
+      expect(t.events[1].actual).toBe(2200);
+      expect(t.actual).toEqual([2000, 0]);
+      expect(t.virtual).toEqual([2000, 0]);
+      const v = viewOf(tl, 0, 1);
+      expect(v.actual.profit).toBe(200);
+      expect(v.actual.irr).toBeCloseTo(0.1, 6);
+    });
+
+    it('selling 10 of the 20 post-split shares keeps half of both positions', () => {
+      const tl = buildTimeline([buy, sell(10)], stocks({ A: split }), () => idx);
+      const t = tl.tracks[0];
+      expect(t.excessQty).toBe(0);
+      expect(t.events[1].actual).toBe(1100);
+      expect(t.actual[1]).toBe(1100);
+      expect(t.virtual[1]).toBeCloseTo(1100, 6);
+    });
+
+    it('an oversell after a split is counted in post-split shares', () => {
+      const tl = buildTimeline([buy, sell(25)], stocks({ A: split }), () => idx);
+      const t = tl.tracks[0];
+      expect(t.excessQty).toBe(5);
+      expect(t.events[1].actual).toBe(2200);
+    });
+  });
+
+  describe('splitFactor', () => {
+    it('is 1 inside the bar (with a 3% margin) and the simplest ratio that fits outside it', () => {
+      expect(splitFactor(108, bar('2026-03-02', 100, 105, 95))).toBe(1);
+      // 200원 체결, 수정 봉 95~105 → 2:1 분할(반올림 오차 없이 2)
+      expect(splitFactor(201, bar('2026-03-02', 100, 105, 95))).toBe(2);
+      // 50:1 분할
+      expect(splitFactor(2_650_000, bar('2018-04-02', 53_000, 54_000, 52_300))).toBe(50);
+      // 무상증자 0.5주 배정(1.5배)
+      expect(splitFactor(15_000, bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(1.5);
+      // 10:1 병합
+      expect(splitFactor(1_000, bar('2026-03-02', 10_000, 10_300, 9_800))).toBe(0.1);
+      expect(splitFactor(200, undefined)).toBe(1);
+    });
   });
 
   it('does not adjust a fill inside the bar range (with a 3% margin)', () => {
