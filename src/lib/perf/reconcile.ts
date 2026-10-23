@@ -21,9 +21,10 @@ export function reconcile(trades: Trade[], holdings: AccountHolding[] | null, fa
   const computed = new Map<string, number>();
   for (const t of trades) {
     const q = t.qty * (factors?.get(t.orderId) ?? 1);
-    const next = (computed.get(t.symbol) ?? 0) + (t.side === 'BUY' ? q : -q);
-    computed.set(t.symbol, Math.round(next * 1e6) / 1e6);
+    computed.set(t.symbol, (computed.get(t.symbol) ?? 0) + (t.side === 'BUY' ? q : -q));
   }
+  // 소수점 오차는 다 더한 뒤 한 번만 맞춘다(거래마다 반올림하면 1/3주 30번이 9.99999주가 된다)
+  for (const [symbol, c] of computed) computed.set(symbol, Math.round(c * 1e6) / 1e6);
   const held = holdings ? new Map(holdings.map((h) => [h.symbol, h.quantity])) : null;
   const bySymbol: Reconciliation['bySymbol'] = new Map();
   let mismatches = 0;

@@ -27,14 +27,16 @@ function roundest(lo: number, hi: number, est: number): number | null {
   return null;
 }
 
-/**
- * 그날 실제 체결 1주가 수정주가 기준 몇 단위인지(스펙 2.6). 배율은 그날의 권리 변동이라 같은 날 체결은 모두 같은 값을 쓴다.
- * 체결가가 모두 그날 수정 일봉 범위(여유 3%) 안이면 1. 아니면 체결마다 [체결가 ÷ (고가 × 1.03), 체결가 ÷ (저가 × 0.97)]의
- * 공통 구간(없으면 합친 구간)에서 가장 둥근 비율을 쓴다(50:1 분할이면 체결가가 조금 달라도 50). 1보다 작으면(병합) 역수로
- * 찾아 1:3 병합이 정확히 1/3이 된다. 맞는 비율이 없으면 체결가 ÷ 종가의 기하평균.
- */
-export function splitFactorForDay(prices: number[], bar: Candle | undefined): number {
-  if (!bar || prices.length === 0) return 1;
+/** 그날 체결가들이 말해 주는 배율 구간. 체결마다 [체결가 ÷ (고가 × 1.03), 체결가 ÷ (저가 × 0.97)]의 공통 구간(없으면 합친 구간) */
+interface FactorRange {
+  lo: number;
+  hi: number;
+  /** 체결가 ÷ 종가의 로그 평균(같은 간격의 후보 중 고를 때 쓴다) */
+  logEst: number;
+}
+
+function dayRange(prices: number[], bar: Candle | undefined): FactorRange | null {
+  if (!bar || prices.length === 0) return null;
   const los = prices.map((p) => p / (bar.h * (1 + SPLIT_MARGIN)));
   const his = prices.map((p) => p / (bar.l * (1 - SPLIT_MARGIN)));
   let lo = Math.max(...los);
@@ -43,8 +45,13 @@ export function splitFactorForDay(prices: number[], bar: Candle | undefined): nu
     lo = Math.min(...los);
     hi = Math.max(...his);
   }
+  return { lo, hi, logEst: prices.reduce((x, p) => x + Math.log(p / bar.c), 0) / prices.length };
+}
+
+/** 구간에 1이 들면 1, 아니면 가장 둥근 비율(1보다 작으면 역수로 찾아 1:3 병합이 정확히 1/3). 없으면 추정값 */
+function factorIn({ lo, hi, logEst }: FactorRange): number {
   if (lo <= 1 && 1 <= hi) return 1;
-  const est = Math.exp(prices.reduce((x, p) => x + Math.log(p / bar.c), 0) / prices.length);
+  const est = Math.exp(logEst);
   if (hi < 1) {
     const inv = roundest(1 / hi, 1 / lo, 1 / est);
     return inv === null ? est : 1 / inv;
@@ -52,20 +59,58 @@ export function splitFactorForDay(prices: number[], bar: Candle | undefined): nu
   return roundest(lo, hi, est) ?? est;
 }
 
+/**
+ * 하루치 체결로 정한 배율(스펙 2.6). 실제 계산은 dayFactors가 날짜를 이어 붙여 정한다(아래).
+ * 그날 체결가가 모두 수정 일봉 범위(여유 3%) 안이면 1, 아니면 공통 구간에서 가장 둥근 비율.
+ */
+export function splitFactorForDay(prices: number[], bar: Candle | undefined): number {
+  const r = dayRange(prices, bar);
+  return r ? factorIn(r) : 1;
+}
+
 /** 체결 하나만 볼 때의 배율(splitFactorForDay와 같은 규칙) */
 export const splitFactor = (price: number, bar: Candle | undefined): number => splitFactorForDay([price], bar);
 
-/** 종목·날짜마다 그날 체결로 배율을 정한다(키 `종목|날짜`) */
+/**
+ * 종목·날짜마다 배율(키 `종목|날짜`). 배율은 권리 변동이 있을 때만 바뀌므로, 날짜순으로 구간이 계속 겹치는 날들을
+ * 한 묶음으로 보고 묶음의 공통 구간에서 배율 하나를 고른다(PR 리뷰: 한 번의 4:1 분할 전 매수일 [3.8, 4.2]와
+ * 매도일 [3.7, 5.2]가 각자 고르면 4와 5로 갈린다). 구간이 끊기는 날부터 새 묶음이다. 봉이 없는 날은 1이고 묶음을 끊지 않는다.
+ */
 function dayFactors(trades: Trade[], barOf: (symbol: string, date: string) => Candle | undefined): Map<string, number> {
-  const prices = new Map<string, number[]>();
+  const prices = new Map<string, Map<string, number[]>>();
   for (const t of trades) {
-    const k = `${t.symbol}|${t.date}`;
-    prices.set(k, [...(prices.get(k) ?? []), t.price]);
+    const byDate = prices.get(t.symbol) ?? new Map<string, number[]>();
+    byDate.set(t.date, [...(byDate.get(t.date) ?? []), t.price]);
+    prices.set(t.symbol, byDate);
   }
   const out = new Map<string, number>();
-  for (const [k, ps] of prices) {
-    const [symbol, date] = k.split('|');
-    out.set(k, splitFactorForDay(ps, barOf(symbol, date)));
+  for (const [symbol, byDate] of prices) {
+    let group: { lo: number; hi: number; logs: number[]; keys: string[] } | null = null;
+    const close = () => {
+      if (!group) return;
+      const logEst = group.logs.reduce((a, b) => a + b, 0) / group.logs.length;
+      const f = factorIn({ lo: group.lo, hi: group.hi, logEst });
+      for (const k of group.keys) out.set(k, f);
+      group = null;
+    };
+    for (const date of [...byDate.keys()].sort()) {
+      const key = `${symbol}|${date}`;
+      const r = dayRange(byDate.get(date)!, barOf(symbol, date));
+      if (!r) {
+        out.set(key, 1);
+        continue;
+      }
+      if (group && Math.max(group.lo, r.lo) <= Math.min(group.hi, r.hi)) {
+        group.lo = Math.max(group.lo, r.lo);
+        group.hi = Math.min(group.hi, r.hi);
+        group.logs.push(r.logEst);
+        group.keys.push(key);
+      } else {
+        close();
+        group = { lo: r.lo, hi: r.hi, logs: [r.logEst], keys: [key] };
+      }
+    }
+    close();
   }
   return out;
 }

@@ -173,4 +173,39 @@ describe('perfController', () => {
     expect(ctl.state.kind).toBe('idle');
     expect(await orderCache.get('p1|toss|demo')).toBeUndefined();
   });
+
+  // PR 리뷰: 계좌 식별을 기다리는 사이 다른 탭에서 지우면, 그 뒤에 받은 캐시(새 세대)로 저장해서는 안 된다
+  it('takes the order cache before asking for the account, not after', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let resolved = false;
+    const base = createDemoProvider({ seed: 1, now: () => NOW });
+    const provider: MarketDataProvider = {
+      ...base,
+      id: 'toss',
+      account: {
+        ...base.account!,
+        accountId: async () => {
+          await gate;
+          resolved = true;
+          return base.account!.accountId();
+        },
+      },
+    };
+    const cache = createMemoryOrderCache();
+    const takenAt: boolean[] = [];
+    const app = {
+      provider,
+      get orderCache() {
+        takenAt.push(resolved);
+        return cache;
+      },
+      profileId: 'p1',
+    };
+    const ctl = createPerfController(app, { now: () => NOW });
+    ctl.load('AUTO');
+    release();
+    await done(ctl);
+    expect(takenAt).toEqual([false]);
+  });
 });

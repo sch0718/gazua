@@ -217,6 +217,33 @@ describe('buildTimeline', () => {
     expect(reconcile([buy, sell], [], factors).bySymbol.get(buy.symbol)).toEqual({ status: 'ok', computed: 0, held: 0 });
   });
 
+  // PR 리뷰: 한 번의 분할 전 거래들은 날짜가 달라도 같은 배율이어야 한다(4:1 분할 전 매수·매도가 4와 5로 갈리면 안 된다)
+  it('trades on different days before one 4:1 split share one factor', () => {
+    const stock: StockSeries = {
+      name: '에이',
+      candles: [bar('2026-03-02', 100, 102, 98), bar('2026-03-03', 125, 130, 100), bar('2026-03-04', 126)],
+    };
+    const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 10, price: 400, amount: 4_000, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty: 10, price: 500, amount: 5_000, commission: 0 });
+    const idx: BenchSeries = { ...INDEX, candles: series({ '2026-03-02': 1000, '2026-03-03': 1010, '2026-03-04': 1020 }) };
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => idx);
+    const t = tl.tracks[0];
+    expect(t.excessQty).toBe(0);
+    expect(t.events[1].actual).toBe(5_000);
+    expect(viewOf(tl, 0, 2).actual.profit).toBe(1_000);
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([4, 4]);
+  });
+
+  it('a split between two trades still gives each side its own factor', () => {
+    // 3/2에 2:1 분할 전 200원 매수, 분할 뒤 3/3에 110원 매도
+    const stock: StockSeries = { name: '에이', candles: [bar('2026-03-02', 100, 105, 95), bar('2026-03-03', 110, 112, 108)] };
+    const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 10, price: 200, amount: 2_000, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', orderedAt: '2026-03-03T09:00:00+09:00', qty: 20, price: 110, amount: 2_200, commission: 0 });
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([2, 1]);
+  });
+
   describe('splitFactor', () => {
     it('is 1 inside the bar (with a 3% margin) and the simplest ratio that fits outside it', () => {
       expect(splitFactor(108, bar('2026-03-02', 100, 105, 95))).toBe(1);

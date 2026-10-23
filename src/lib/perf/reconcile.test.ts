@@ -49,4 +49,11 @@ describe('reconcile', () => {
     expect(r.bySymbol.get('A')).toEqual({ status: 'ok', computed: 15, held: 15 });
     expect(r.mismatches).toBe(0);
   });
+
+  // PR 리뷰: 거래마다 반올림하면 1:3 병합 전 1주씩 30번 산 계좌가 9.99999주가 된다
+  it('does not round each step: thirty 1/3 shares add up to exactly 10', () => {
+    const trades = Array.from({ length: 30 }, (_, i) => ({ ...t('A', 'BUY', 1), orderId: `b${i}` }));
+    const factors = new Map(trades.map((x) => [x.orderId, 1 / 3]));
+    expect(reconcile(trades, [{ symbol: 'A', name: '에이', quantity: 10 }], factors).bySymbol.get('A')).toEqual({ status: 'ok', computed: 10, held: 10 });
+  });
 });

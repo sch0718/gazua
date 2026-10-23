@@ -21,9 +21,10 @@
 
   const current = $derived(isOpenToday ? sessionLabelAt(sessions, now) : null);
 
-  const status = $derived.by((): { live: boolean; text: string } => {
+  /** label은 장중 세션 이름(아주 좁은 화면에서는 숨기고 시각만 보인다) */
+  const status = $derived.by((): { live: boolean; text: string; label?: string; time?: string } => {
     if (!isOpenToday) return { live: false, text: '휴장' };
-    if (current) return { live: true, text: `${current.label} · ${kstTime(now)}` };
+    if (current) return { live: true, text: `${current.label} · ${kstTime(now)}`, label: current.label, time: kstTime(now) };
     const firstStart = sessions.length > 0 ? Math.min(...sessions.map((s) => s.start)) : -Infinity;
     return { live: false, text: now < firstStart ? '◌ 장 시작 전' : '◌ 장 마감' };
   });
@@ -50,7 +51,7 @@
   aria-label="{status.text.replace(/^◌ /, '')} · 오늘 세션 시간표 보기"
   onclick={() => (open = true)}
 >
-  {#if status.live}<span class="dot" aria-hidden="true">●</span>{/if}{status.text}
+  {#if status.live}<span class="dot" aria-hidden="true">●</span>{/if}{#if status.label !== undefined}<span class="label">{status.label} · </span>{status.time}{:else}{status.text}{/if}
 </button>
 
 <Sheet {open} title="오늘 세션 (KST)" onclose={() => (open = false)}>
@@ -88,6 +89,15 @@
     content: '';
     position: absolute;
     inset: -5px -2px;
+  }
+  /* 폭 360px 미만(320px 폰)에서는 세션 이름을 숨겨 앱 바의 그룹 탭 자리를 남긴다. 이름은 aria-label에 그대로 있다 */
+  @media (max-width: 359px) {
+    .label {
+      display: none;
+    }
+    .chip-status {
+      padding: 7px 9px;
+    }
   }
   .dot {
     color: var(--ok);

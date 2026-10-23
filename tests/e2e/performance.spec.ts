@@ -53,3 +53,15 @@ test('내 성과 화면에 심각한 접근성 위반이 없다(표 보기 포�
   await page.getByRole('button', { name: /삼성전자/ }).click();
   await expectNoSeriousViolations(page, '내 성과(펼침)');
 });
+
+// PR 리뷰: 내 성과 아이콘이 더해져도 320px 비교 화면에서 그룹 탭(전환·추가·관리)이 보여야 한다
+test('320px 비교 화면에서도 그룹 탭이 보인다', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.getByRole('banner').getByRole('button', { name: '비교로 돌아가기' }).click();
+  const tabs = page.locator('header.bar .tabs');
+  await expect(tabs).toBeVisible();
+  const width = await tabs.evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBeGreaterThanOrEqual(36);
+  await expect(page.getByRole('button', { name: '새 그룹' })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+});

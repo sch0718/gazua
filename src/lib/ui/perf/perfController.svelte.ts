@@ -101,14 +101,16 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
       if (id !== runId) throw new Cancelled();
     };
     const demo = provider.id === 'demo';
+    // 캐시는 받기를 시작할 때 한 번만 얻는다. 기다리는 사이 다른 탭이나 이 탭에서 주문 내역을 지우면
+    // 이 캐시의 쓰기가 막힌다(그 뒤에 얻으면 지운 뒤의 새 세대라 다시 저장하게 된다). 데모 계좌는 저장하지 않는다
+    const cache = demo ? createMemoryOrderCache() : app.orderCache;
     try {
       state = { kind: 'loading', stage: 'orders', rows: 0 };
       const accountId = await account.accountId();
       alive();
       const synced = await syncOrders({
         source: account,
-        // 데모 계좌는 저장하지 않는다
-        cache: demo ? createMemoryOrderCache() : app.orderCache,
+        cache,
         key: orderCacheKey(app.profileId, provider.id, accountId),
         now: now(),
         full,
