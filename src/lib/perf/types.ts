@@ -1,8 +1,9 @@
 import type { Candle } from '../data/metrics';
 import type { TaxMarket } from '../sim/tax';
+import type { PerfBenchmark } from '../state/schema';
 
 /** 화면의 벤치마크 선택. AUTO는 종목마다 그 시장 지수다. */
-export type BenchChoice = 'AUTO' | 'KOSPI' | 'KOSDAQ' | '069500' | '229200';
+export type BenchChoice = PerfBenchmark;
 
 export const BENCH_CHOICES: readonly { id: BenchChoice; label: string }[] = [
   { id: 'AUTO', label: '자동(시장 지수)' },

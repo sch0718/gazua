@@ -1,4 +1,4 @@
-export type RouteName = 'compare' | 'simulate' | 'settings' | 'onboarding' | 'unlock' | 'profiles';
+export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'onboarding' | 'unlock' | 'profiles';
 
 export type SettingsSection = 'connection' | 'diagnostics' | 'data';
 
@@ -17,7 +17,7 @@ export interface Route {
   section?: SettingsSection;
 }
 
-/** `#/compare/:groupId`, `#/simulate/:strategyId`, `#/settings`, `#/onboarding`. 그 밖의 해시는 null. */
+/** `#/compare/:groupId`, `#/simulate/:strategyId`, `#/performance`, `#/settings`, `#/onboarding`. 그 밖의 해시는 null. */
 export function parseHash(hash: string): Route | null {
   const compare = /^#\/compare(?:\/([^/?#]+))?\/?$/.exec(hash);
   if (compare) {
@@ -47,6 +47,7 @@ export function parseHash(hash: string): Route | null {
       return { name: 'simulate' };
     }
   }
+  if (/^#\/performance\/?$/.test(hash)) return { name: 'performance' };
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   if (/^#\/onboarding\/?$/.test(hash)) return { name: 'onboarding' };
   return null;
@@ -64,6 +65,8 @@ export function hashFor(r: Route): string | null {
         return r.view === 'result' ? `${base}/result` : base;
       }
       return r.strategyId ? `#/simulate/${encodeURIComponent(r.strategyId)}` : '#/simulate';
+    case 'performance':
+      return '#/performance';
     case 'settings':
       return '#/settings';
     case 'onboarding':

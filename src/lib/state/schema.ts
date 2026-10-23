@@ -10,6 +10,8 @@ export interface Period {
 /** 리더보드 정렬: 지표 값 순, 또는 그룹 종목 순서(끌어 바꾼 순서) 그대로. */
 export type BoardOrder = 'value' | 'mine';
 
+export type PerfBenchmark = 'AUTO' | 'KOSPI' | 'KOSDAQ' | '069500' | '229200';
+
 export type MetricId = 'change' | 'drawdown' | 'excess' | 'rvol' | 'mcap' | 'volatility' | 'rsi';
 
 export interface Settings {
@@ -22,6 +24,8 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   colorConvention: 'kr' | 'global';
   boardOrder: BoardOrder;
+  /** 내 성과의 벤치마크. null이면 benchmark(AUTO·KOSPI·KOSDAQ)를 따른다. 069500 KODEX 200, 229200 KODEX 코스닥150 */
+  perfBenchmark: PerfBenchmark | null;
   lastGroupId: string | null;
   keyLock: boolean;
   /** false until the first-run onboarding has been completed. */
@@ -67,6 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   colorConvention: 'kr',
   boardOrder: 'value',
+  perfBenchmark: null,
   lastGroupId: null,
   keyLock: false,
   onboarded: false,

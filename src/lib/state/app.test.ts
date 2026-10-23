@@ -7,6 +7,7 @@ import { newCriteria } from '../screen/defaults';
 import { newBasket } from '../screen/baskets';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
+import { createMemoryOrderCache } from '../perf/orderCache';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
@@ -1347,5 +1348,51 @@ describe('simulate route', () => {
     expect(app.routeNotice).toBe('전략을 찾을 수 없어요');
     app.clearRouteNotice();
     expect(app.routeNotice).toBeNull();
+  });
+});
+
+describe('order cache (내 성과)', () => {
+  const entry = { orders: [], syncedAt: 1, syncedThrough: '2026-10-01' };
+  function makeWith(backing: Storage | null) {
+    const stored = createMemoryOrderCache();
+    const app = createApp({ storage: createSafeStorage(backing), now, orderCache: stored });
+    apps.push(app);
+    return { app, stored };
+  }
+
+  it('uses the stored cache without a key lock, and a tab-only cache with one', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app, stored } = makeWith(backing);
+    expect(app.orderCache).toBe(stored);
+    await app.setSecrets(SECRETS, 'correct horse');
+    expect(app.orderCache).not.toBe(stored);
+  });
+
+  it('turning the key lock on, clearing keys, and deleting a profile remove that profile’s orders', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    const { app, stored } = makeWith(backing);
+    await stored.put('p1|toss|3', entry);
+    await stored.put('p2|toss|3', entry);
+    app.deleteProfile('p2');
+    await vi.waitFor(async () => expect(await stored.get('p2|toss|3')).toBeUndefined());
+    expect(await stored.get('p1|toss|3')).toEqual(entry);
+    await app.setSecrets(SECRETS, 'correct horse');
+    await vi.waitFor(async () => expect(await stored.get('p1|toss|3')).toBeUndefined());
+    await stored.put('p1|toss|3', entry);
+    app.clearSecrets();
+    await vi.waitFor(async () => expect(await stored.get('p1|toss|3')).toBeUndefined());
+  });
+
+  it('remembers the performance benchmark and rejects unknown values', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app } = makeWith(backing);
+    expect(app.settings.perfBenchmark).toBeNull();
+    app.updateSettings({ perfBenchmark: '069500' });
+    expect(make(backing).settings.perfBenchmark).toBe('069500');
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, perfBenchmark: 'NASDAQ' });
+    expect(make(backing).settings.perfBenchmark).toBeNull();
   });
 });

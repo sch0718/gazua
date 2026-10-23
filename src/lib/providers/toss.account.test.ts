@@ -181,9 +181,9 @@ describe('toss account: closed orders', () => {
   it('passes a blocked proxy path error through', async () => {
     const { account } = setup({
       '/api/v1/accounts': ACCOUNTS,
-      '/api/v1/orders': () => new ApiError('proxy-path-blocked', undefined, { status: 403 }),
+      '/api/v1/orders': () => new ApiError('path-blocked', undefined, { status: 403 }),
     });
-    await expect(account.closedOrders()).rejects.toMatchObject({ code: 'proxy-path-blocked' });
+    await expect(account.closedOrders()).rejects.toMatchObject({ code: 'path-blocked' });
   });
 });
 
