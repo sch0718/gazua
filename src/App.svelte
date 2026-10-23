@@ -11,6 +11,7 @@
   import StatusChip from './lib/ui/StatusChip.svelte';
   import Compare from './routes/Compare.svelte';
   import Onboarding from './routes/Onboarding.svelte';
+  import Performance from './routes/Performance.svelte';
   import ProfilePicker from './routes/ProfilePicker.svelte';
   import Simulate from './routes/Simulate.svelte';
   import Settings from './routes/Settings.svelte';
@@ -95,6 +96,8 @@
     <Compare {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />
   {:else if route.name === 'simulate'}
     <Simulate {app} {barEnd} />
+  {:else if route.name === 'performance'}
+    <Performance {app} {barEnd} />
   {:else}
     <Settings {app} {barEnd} />
   {/if}
@@ -105,6 +108,20 @@
   {#if !compact}
     <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
   {/if}
+  <button
+    type="button"
+    class="icon-btn"
+    class:on={route.name === 'performance'}
+    aria-label="내 성과"
+    aria-current={route.name === 'performance' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'performance' })}
+  >
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M7 15l3-3 2 2 5-5" />
+    </svg>
+  </button>
   <button
     type="button"
     class="icon-btn"
