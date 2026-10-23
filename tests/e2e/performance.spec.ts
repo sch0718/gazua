@@ -48,7 +48,7 @@ test('내 성과: 데모 계좌 → 벤치마크·기간 바꾸기 → 종목 �
 
 test('내 성과 화면에 심각한 접근성 위반이 없다(표 보기 포함)', async ({ page }) => {
   await expectNoSeriousViolations(page, '내 성과');
-  await page.getByRole('button', { name: '표 보기' }).click();
+  await page.getByRole('button', { name: '표 보기', exact: true }).click();
   await expect(page.getByRole('table', { name: '날짜별 평가금액과 회수액' })).toBeAttached();
   await page.getByRole('button', { name: /삼성전자/ }).click();
   await expectNoSeriousViolations(page, '내 성과(펼침)');

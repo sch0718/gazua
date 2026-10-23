@@ -125,7 +125,9 @@
     {showTable ? '표 닫기' : '표 보기'}
   </button>
   {#if showTable}
-    <div class="table-wrap">
+    <!-- 스크롤되는 표는 키보드로도 스크롤할 수 있게 포커스를 받는다 -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="table-wrap" tabindex="0" role="region" aria-label="날짜별 값 표">
       <table>
         <caption class="sr-only">날짜별 평가금액과 회수액</caption>
         <thead>

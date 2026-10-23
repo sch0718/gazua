@@ -1,9 +1,10 @@
 <script lang="ts">
   // 내 성과(스펙 4장): 토스 계좌의 체결 주문을 같은 날 같은 금액으로 벤치마크를 산 경우와 비교한다.
   import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import { benchLabel, benchOfFor } from '../lib/perf/compose';
   import { buildTimeline } from '../lib/perf/portfolio';
-  import { BENCH_CHOICES, type BenchChoice } from '../lib/perf/types';
+  import { BENCH_CHOICES, type BenchChoice, type SideSummary } from '../lib/perf/types';
   import { periodRanges, viewOf } from '../lib/perf/view';
   import type { App } from '../lib/state/app.svelte';
   import { kstHHMM } from '../lib/ui/compare/compareText';
@@ -34,6 +35,14 @@
     { now: untrack(() => now) },
   );
   onDestroy(() => ctl.cancel());
+
+  // 폰 폭(<600)에서는 앱 바에 상태 칩을 그리지 않는다(제목과 아이콘 3개가 들어가야 한다). 시뮬레이션과 같다.
+  const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
+  const compact = $derived(compactQuery?.current ?? false);
+
+  /** 카드 아래 줄: `+60,218원 · 기간 +2.2%` */
+  const subLine = (s: SideSummary) =>
+    [signedWon(s.profit), periodText(s)].filter(Boolean).join(' · ');
 
   const choice = $derived<BenchChoice>(app.settings.perfBenchmark ?? app.settings.benchmark);
   let rangeId = $state('all');
@@ -79,7 +88,7 @@
   {#snippet bar()}
     <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
     <span class="title">내 성과</span>
-    {@render barEnd(false)}
+    {@render barEnd(compact)}
   {/snippet}
 
   {#snippet main()}
@@ -145,12 +154,12 @@
             <div class="card">
               <h3>내 IRR</h3>
               <p class="big num {signClass(view.actual.irr)}">{irrText(view.actual.irr)}</p>
-              <p class="sub num">{signedWon(view.actual.profit)}{#if periodText(view.actual)} · {periodText(view.actual)}{/if}</p>
+              <p class="sub num">{subLine(view.actual)}</p>
             </div>
             <div class="card">
               <h3>{benchName} IRR</h3>
               <p class="big num {signClass(view.virtual.irr)}">{irrText(view.virtual.irr)}</p>
-              <p class="sub num">{signedWon(view.virtual.profit)}{#if periodText(view.virtual)} · {periodText(view.virtual)}{/if}</p>
+              <p class="sub num">{subLine(view.virtual)}</p>
             </div>
             <div class="card">
               <h3>초과</h3>
@@ -323,9 +332,10 @@
   }
   .card .big {
     margin: 4px 0 2px;
-    font-size: 20px;
+    /* 폰의 세 칸에서도 `+10.3%p`가 한 줄에 들어가게 폭에 맞춰 줄인다 */
+    font-size: clamp(15px, 4.4vw, 20px);
     font-weight: 700;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
   }
   .card .sub {
     margin: 0;
