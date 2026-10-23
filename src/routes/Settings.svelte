@@ -1,6 +1,7 @@
 <script lang="ts">
   // 설정 화면(스펙 7.4, 목업 ⑤): 공급자 → 연결 → 연결 진단 → 키 보호 → 표시 → 데이터 → 프로필.
   import type { Snippet } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import type { App } from '../lib/state/app.svelte';
   import type { Settings } from '../lib/state/schema';
   import Segmented from '../lib/ui/components/Segmented.svelte';
@@ -13,7 +14,11 @@
   import Profiles from '../lib/ui/settings/Profiles.svelte';
   import ProviderCards from '../lib/ui/settings/ProviderCards.svelte';
 
-  let { app, barEnd }: { app: App; barEnd: Snippet } = $props();
+  let { app, barEnd }: { app: App; barEnd: Snippet<[boolean]> } = $props();
+
+  // 폰 폭(<600)에서는 앱 바에 상태 칩을 그리지 않는다(제목과 아이콘 3개가 들어가야 한다). 시뮬레이션·내 성과와 같다.
+  const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
+  const compact = $derived(compactQuery?.current ?? false);
 
   // 비교 화면의 오류 배너(`진단 열기`·`키 다시 입력`)로 들어오면 그 구역으로 옮기고 제목에 초점을 둔다.
   const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag', data: 'set-data' } as const;
@@ -48,7 +53,7 @@
     </button>
     <span class="title">설정</span>
     <span class="spacer"></span>
-    {@render barEnd()}
+    {@render barEnd(compact)}
   {/snippet}
 
   {#snippet main()}

@@ -103,7 +103,7 @@
   {/if}
 </div>
 
-<!-- compact(시뮬레이션의 폰 폭)이면 상태 칩을 뺀다. 다른 화면은 인자 없이 부른다. -->
+<!-- compact(시뮬레이션·내 성과·설정의 폰 폭)이면 상태 칩을 뺀다. 비교 화면은 인자 없이 부른다. -->
 {#snippet barEnd(compact: boolean = false)}
   {#if !compact}
     <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
