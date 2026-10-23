@@ -15,6 +15,7 @@
 - 차트와 같은 값을 시각×종목 표로 보는 `표 보기`
 - 키보드 단축키: `/` 종목 검색 · `[` `]` 기간 이동 · `M` 지표 선택 · `V` 거래소 순환 · `H` 선택 종목 숨기기 · `?` 도움말
 - 매매 규칙 시뮬레이션: 관심종목에 내 매수·매도 규칙을 적용해 과거 성과를 보유·지수·ETF와 비교
+- 내 성과(토스): 토스 계좌의 체결된 주문을 받아, 같은 날 같은 금액으로 지수(KOSPI·KOSDAQ)나 지수 ETF(KODEX 200·KODEX 코스닥150)를 샀을 때와 비교. IRR·초과수익·종목별 기여도·연도별 보기, 보유 수량 대조
 - 설치형 웹앱(PWA). 앱 셸만 캐시하고 시세 요청은 캐시하지 않아요.
 
 ## 데이터 공급자별 준비
@@ -35,6 +36,9 @@
 3. 집 공인 IP를 WTS의 허용 IP에 등록해요. IP가 바뀌면 다시 등록해야 해요(같은 문서의 `IP가 바뀌었을 때`).
 4. 앱 설정에서 토스를 고르고 프록시 URL(터널 주소), 프록시 토큰, 키를 넣어요. 토스는 통합 시세만 줘서 거래소 전환이 `통합`으로 고정돼요.
 5. 그룹 관리 › `토스에서 가져오기`로 보유 종목(평가금액 큰 순)이나 토스 섹터(시가총액 큰 순)로 새 그룹을 만들 수 있어요. 토스 공식 API에는 관심종목 조회가 없어서 토스 앱의 관심종목은 가져올 수 없어요. 한 그룹에 8종목까지라 앞의 8개만 넣어요.
+6. 상단 바의 `내 성과`에서 토스 계좌의 체결 주문으로 성과를 시장과 비교해요. 프록시가 주문 목록 **조회**(`GET /api/v1/orders`)를 전달해야 해서, 이 기능이 생기기 전에 띄운 프록시는 새 버전으로 바꿔요.
+   - 토스 API에는 입출금·배당·입고 내역이 없고 시간외 종가 주문도 조회되지 않아요. 그래서 계산은 체결된 주문만으로 하고, 주문을 더한 수량이 보유 수량과 다르면 `맞지 않음`으로 알려요.
+   - 받은 주문 내역은 이 기기의 IndexedDB(`gazua-account`)에 남겨 다음에는 이어 받아요. 키 잠금을 켜면 저장하지 않고, 키를 지우면 함께 지워요.
 
 ## 시장 데이터 수집
 
@@ -148,10 +152,12 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
 
 - 설계: [docs/superpowers/specs/2026-10-11-stock-compare-design.md](docs/superpowers/specs/2026-10-11-stock-compare-design.md)
 - 시뮬레이션 설계: [docs/superpowers/specs/2026-10-12-backtest-simulation-design.md](docs/superpowers/specs/2026-10-12-backtest-simulation-design.md)
+- 내 성과 설계: [docs/superpowers/specs/2026-10-23-account-performance-design.md](docs/superpowers/specs/2026-10-23-account-performance-design.md)
 - 선정 기준 검증 설계: [docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md](docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md)
 - 화면 목업: [docs/design/2026-10-11-mockups.html](docs/design/2026-10-11-mockups.html)
 - 구현 계획: [docs/superpowers/plans/2026-10-11-gazua.md](docs/superpowers/plans/2026-10-11-gazua.md)
 - 시뮬레이션 구현 계획: [docs/superpowers/plans/2026-10-12-backtest-simulation.md](docs/superpowers/plans/2026-10-12-backtest-simulation.md)
+- 내 성과 구현 계획: [docs/superpowers/plans/2026-10-23-account-performance.md](docs/superpowers/plans/2026-10-23-account-performance.md)
 - 시뮬레이션 화면 리뷰와 처리 결과: [docs/design/2026-10-13-simulation-ui-review.md](docs/design/2026-10-13-simulation-ui-review.md)
 - 실연결 점검 목록: [docs/live-check.md](docs/live-check.md)
 - 프록시: [proxy/README.md](proxy/README.md)

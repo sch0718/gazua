@@ -135,9 +135,12 @@ describe('DataTools', () => {
     const { app, estimate } = await setup();
     expect(await screen.findByText('1.5 MB')).toBeTruthy();
     const clear = vi.spyOn(app.data.cache, 'clear');
+    const orders = vi.spyOn(app.orderCache, 'removeProfile');
     estimate.mockResolvedValue(0);
     await fireEvent.click(screen.getByRole('button', { name: '캐시 비우기' }));
     await waitFor(() => expect(clear).toHaveBeenCalled());
+    // 내 성과의 주문 내역도 이 프로필 것만 지운다
+    expect(orders).toHaveBeenCalledWith(app.meta.activeProfileId);
     expect(await screen.findByText('0.0 MB')).toBeTruthy();
   });
 

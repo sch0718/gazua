@@ -61,11 +61,15 @@
     const next = BENCH_CHOICES.find((c) => c.id === v)?.id;
     if (!next) return;
     app.updateSettings({ perfBenchmark: next });
-    ctl.useBench(next);
   }
 
   const data = $derived(ctl.state.kind === 'done' ? ctl.state.data : null);
   const pending = $derived(data?.pendingBench ?? null);
+  // 고른 벤치마크의 시리즈가 없으면 받는다. 다른 시리즈를 받는 중이면 끝난 뒤 다시 돈다(useBench는 있으면 아무것도 안 한다)
+  $effect(() => {
+    const c = choice;
+    if (data && pending === null) untrack(() => ctl.useBench(c));
+  });
   const timeline = $derived(
     data && pending === null ? buildTimeline(data.trades, data.stocks, benchOfFor(choice, data.metas, data.series), { names: data.names }) : null,
   );

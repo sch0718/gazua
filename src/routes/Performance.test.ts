@@ -111,3 +111,27 @@ describe('Performance', () => {
     await waitFor(() => expect(cards()).toBeTruthy(), { timeout: 5000 });
   });
 });
+
+describe('Performance: switching benchmarks quickly', () => {
+  it('fetches the last choice after an earlier ETF finishes loading', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const fetched: string[] = [];
+    const app = setup((base) => ({
+      ...base,
+      getCandles: async (q) => {
+        if (q.symbol === '069500') await gate;
+        if (q.symbol === '069500' || q.symbol === '229200') fetched.push(q.symbol);
+        return base.getCandles(q);
+      },
+    }));
+    await waitFor(() => expect(cards()).toBeTruthy(), { timeout: 5000 });
+    await fireEvent.change(screen.getByLabelText('벤치마크'), { target: { value: '069500' } });
+    await screen.findByText('KODEX 200 시세를 받는 중이에요');
+    await fireEvent.change(screen.getByLabelText('벤치마크'), { target: { value: '229200' } });
+    release();
+    await waitFor(() => expect(within(cards()).getByText('KODEX 코스닥150 IRR')).toBeTruthy(), { timeout: 5000 });
+    expect(fetched).toEqual(['069500', '229200']);
+    expect(app.settings.perfBenchmark).toBe('229200');
+  });
+});
