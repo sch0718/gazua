@@ -1419,4 +1419,31 @@ describe('order cache (내 성과)', () => {
     expect(await app.orderCache.get('p1|toss|3')).toEqual(entry);
     expect(await stored.get('p1|toss|3')).toBeUndefined();
   });
+
+  // PR 리뷰: 다른 탭에서 키를 지우거나(storage 이벤트) 캐시를 비워도(BroadcastChannel) 이 탭의 진행 중인 받기가 다시 저장하지 않는다
+  it('keys cleared in another tab stop this tab from saving', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const { app, stored } = makeWith(backing);
+    const inFlight = app.orderCache;
+    backing.removeItem('gazua:v1:p:p1:secrets');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets', oldValue: JSON.stringify(SECRETS), newValue: null }));
+    await inFlight.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+  });
+
+  it('orders forgotten in another tab stop this tab from saving', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const a = makeWith(backing);
+    const b = createApp({ storage: createSafeStorage(backing), now, orderCache: a.stored });
+    apps.push(b);
+    const inFlight = b.orderCache;
+    await a.app.orderCache.removeProfile('p1');
+    // 채널 메시지는 비동기로 닿는다
+    await new Promise((r) => setTimeout(r, 30));
+    await inFlight.put('p1|toss|3', entry);
+    expect(await a.stored.get('p1|toss|3')).toBeUndefined();
+  });
 });

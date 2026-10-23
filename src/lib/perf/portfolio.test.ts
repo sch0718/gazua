@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { kstEpoch } from '../time/kst';
-import { buildTimeline, splitFactor } from './portfolio';
+import { buildTimeline, splitFactor, splitFactors } from './portfolio';
+import { reconcile } from './reconcile';
 import { viewOf } from './view';
 import type { BenchSeries, StockSeries, Trade } from './types';
 
@@ -200,6 +201,22 @@ describe('buildTimeline', () => {
     });
   });
 
+  // PR 리뷰: 같은 날 체결은 같은 분할 배율이어야 한다(배율은 그날의 권리 변동이지 체결마다 다르지 않다)
+  it('a buy and a sell on the same day before a 50:1 split share one factor', () => {
+    const stock: StockSeries = { name: '에이', candles: [bar('2018-04-02', 100, 104, 96), bar('2018-04-03', 101)] };
+    const buy = trade({ date: '2018-04-02', orderedAt: '2018-04-02T09:00:00+09:00', qty: 10, price: 5000, amount: 50_000, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2018-04-02', orderedAt: '2018-04-02T14:00:00+09:00', qty: 10, price: 5200, amount: 52_000, commission: 0 });
+    const idx: BenchSeries = { ...INDEX, candles: series({ '2018-04-02': 1000, '2018-04-03': 1010 }) };
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => idx);
+    const t = tl.tracks[0];
+    expect(t.excessQty).toBe(0);
+    expect(t.events[1].actual).toBe(52_000);
+    expect(viewOf(tl, 0, 1).actual.profit).toBe(2_000);
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([50, 50]);
+    expect(reconcile([buy, sell], [], factors).bySymbol.get(buy.symbol)).toEqual({ status: 'ok', computed: 0, held: 0 });
+  });
+
   describe('splitFactor', () => {
     it('is 1 inside the bar (with a 3% margin) and the simplest ratio that fits outside it', () => {
       expect(splitFactor(108, bar('2026-03-02', 100, 105, 95))).toBe(1);
@@ -212,6 +229,11 @@ describe('buildTimeline', () => {
       // 10:1 병합
       expect(splitFactor(1_000, bar('2026-03-02', 10_000, 10_300, 9_800))).toBe(0.1);
       expect(splitFactor(200, undefined)).toBe(1);
+      // 범위 안의 가장 둥근 비율: 5200원 체결(추정 52)도 50:1 분할로 본다
+      expect(splitFactor(5200, bar('2018-04-02', 100, 104, 96))).toBe(50);
+      // 3:1 분할과 1:3 병합
+      expect(splitFactor(30_300, bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(3);
+      expect(splitFactor(3_000, bar('2026-03-02', 9_000, 9_200, 8_900))).toBeCloseTo(1 / 3, 12);
     });
   });
 

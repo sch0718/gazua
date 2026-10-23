@@ -198,10 +198,19 @@ export function createApp(deps: AppDeps): App {
   // 키 잠금 중에는 주문 내역을 기기에 남기지 않는다.
   const sessionOrders = createMemoryOrderCache();
   // 지울 때마다 올린다. 그 전에 내준 캐시는 더 이상 쓰지 않는다(진행 중이던 주문 받기가 끝나도 다시 저장하지 않게).
+  // 다른 탭이 지워도 올린다: 키 항목의 storage 이벤트(onStorage)와, IndexedDB만 지우는 캐시 비우기를 알리는 채널.
   let orderEpoch = 0;
+  const orderChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('gazua-account') : null;
+  orderChannel?.addEventListener('message', () => {
+    orderEpoch++;
+  });
+  const invalidateOrders = () => {
+    orderEpoch++;
+    orderChannel?.postMessage('forget');
+  };
   /** 이 프로필의 주문 캐시를 지운다(저장된 것과 메모리 모두). 실패해도 다른 작업을 막지 않는다. */
   const forgetOrders = (id: string) => {
-    orderEpoch++;
+    invalidateOrders();
     void storedOrders.removeProfile(id).catch(() => {});
     void sessionOrders.removeProfile(id).catch(() => {});
   };
@@ -444,6 +453,8 @@ export function createApp(deps: AppDeps): App {
     const id = activeId();
     // 이 프로필의 키 항목 자체가 바뀐 경우에만 반응한다(다른 설정 쓰기·clear()는 잠금 상태를 바꾸지 않는다).
     if (e.key !== STORAGE_PREFIX + profileKeys.secrets(id)) return;
+    // 다른 탭이 키를 바꾸거나 지웠다: 진행 중이던 주문 받기가 지운 내역을 다시 저장하지 않게 한다
+    orderEpoch++;
     const raw = storage.readBacking<unknown>(profileKeys.secrets(id), null);
     if (isLocked(raw)) {
       if (locked !== null && JSON.stringify(locked) === JSON.stringify(raw)) return;
@@ -523,7 +534,7 @@ export function createApp(deps: AppDeps): App {
         put: (k, v) => (epoch === orderEpoch ? target.put(k, v) : Promise.resolve()),
         // 캐시 비우기: 지우고 세대를 올려, 진행 중이던 받기가 다시 저장하지 못하게 한다
         removeProfile: (id) => {
-          orderEpoch++;
+          invalidateOrders();
           return Promise.all([storedOrders.removeProfile(id), sessionOrders.removeProfile(id)]).then(() => {});
         },
       };
@@ -785,7 +796,7 @@ export function createApp(deps: AppDeps): App {
       if (!locked) return;
       secrets = null;
       memoryTokens.clear();
-      orderEpoch++;
+      invalidateOrders();
       void sessionOrders.removeProfile(activeId()).catch(() => {});
       rebuild();
       route = { name: 'unlock' };
@@ -817,6 +828,7 @@ export function createApp(deps: AppDeps): App {
     destroy() {
       win?.removeEventListener('hashchange', onHashChange);
       win?.removeEventListener('storage', onStorage);
+      orderChannel?.close();
     },
   };
 }

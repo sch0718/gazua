@@ -10,51 +10,79 @@ import type { BenchSeries, StockSeries, Timeline, Track, TrackEvent, Trade } fro
 export const DEFAULT_FEE_RATE = 0.00015;
 /** 체결가가 그날 수정 일봉의 [저가 × 0.97, 고가 × 1.03] 밖이면 분할로 본다(스펙 2.6) */
 const SPLIT_MARGIN = 0.03;
-/** 분할 배율을 찾을 때 쓰는 가장 큰 분모(1:100 병합까지) */
-const SPLIT_MAX_DENOMINATOR = 100;
 /** 매도가 남은 단위를 이만큼 이내로만 넘으면 전량 매도로 본다(부동소수점 오차) */
 const UNIT_EPS = 1e-9;
+/** 분할 배율 후보의 간격. 앞에 있을수록 둥근 수다(50:1 분할, 2:1 분할, 0.5주 무상증자 1.5배 …) */
+const ROUND_STEPS = [100, 50, 25, 20, 10, 5, 2, 1, 0.5, 0.25, 0.2, 0.1];
+
+/** [lo, hi] 안의 가장 둥근 수(ROUND_STEPS 순서). 같은 간격이면 est에 가장 가까운 것. 없으면 null */
+function roundest(lo: number, hi: number, est: number): number | null {
+  for (const step of ROUND_STEPS) {
+    const first = Math.ceil(lo / step - 1e-9);
+    const last = Math.floor(hi / step + 1e-9);
+    if (first > last || last <= 0) continue;
+    const n = Math.min(last, Math.max(first, Math.round(est / step), 1));
+    return Math.round(n * step * 1e6) / 1e6;
+  }
+  return null;
+}
 
 /**
- * 실제 체결 1주가 수정주가 기준 몇 단위인지(스펙 2.6). 체결가가 그날 수정 일봉 범위(여유 3%) 안이면 1.
- * 밖이면 범위 [체결가 ÷ (고가 × 1.03), 체결가 ÷ (저가 × 0.97)]에 드는 가장 간단한 비율(분모가 가장 작고,
- * 같은 분모면 체결가 ÷ 종가에 가장 가까운 것)을 쓴다. 그래야 분할 전에 산 수량과 분할 뒤에 판 수량이 정확히 맞는다
- * (2:1 분할이면 1.99가 아니라 2). 맞는 비율이 없으면 체결가 ÷ 종가.
+ * 그날 실제 체결 1주가 수정주가 기준 몇 단위인지(스펙 2.6). 배율은 그날의 권리 변동이라 같은 날 체결은 모두 같은 값을 쓴다.
+ * 체결가가 모두 그날 수정 일봉 범위(여유 3%) 안이면 1. 아니면 체결마다 [체결가 ÷ (고가 × 1.03), 체결가 ÷ (저가 × 0.97)]의
+ * 공통 구간(없으면 합친 구간)에서 가장 둥근 비율을 쓴다(50:1 분할이면 체결가가 조금 달라도 50). 1보다 작으면(병합) 역수로
+ * 찾아 1:3 병합이 정확히 1/3이 된다. 맞는 비율이 없으면 체결가 ÷ 종가의 기하평균.
  */
-export function splitFactor(price: number, bar: Candle | undefined): number {
-  if (!bar) return 1;
-  const lo = price / (bar.h * (1 + SPLIT_MARGIN));
-  const hi = price / (bar.l * (1 - SPLIT_MARGIN));
-  if (lo <= 1 && 1 <= hi) return 1;
-  const est = price / bar.c;
-  for (let d = 1; d <= SPLIT_MAX_DENOMINATOR; d++) {
-    const first = Math.ceil(lo * d - 1e-9);
-    const last = Math.floor(hi * d + 1e-9);
-    if (first > last || last <= 0) continue;
-    const n = Math.min(last, Math.max(first, Math.round(est * d), 1));
-    return n / d;
+export function splitFactorForDay(prices: number[], bar: Candle | undefined): number {
+  if (!bar || prices.length === 0) return 1;
+  const los = prices.map((p) => p / (bar.h * (1 + SPLIT_MARGIN)));
+  const his = prices.map((p) => p / (bar.l * (1 - SPLIT_MARGIN)));
+  let lo = Math.max(...los);
+  let hi = Math.min(...his);
+  if (lo > hi) {
+    lo = Math.min(...los);
+    hi = Math.max(...his);
   }
-  return est;
+  if (lo <= 1 && 1 <= hi) return 1;
+  const est = Math.exp(prices.reduce((x, p) => x + Math.log(p / bar.c), 0) / prices.length);
+  if (hi < 1) {
+    const inv = roundest(1 / hi, 1 / lo, 1 / est);
+    return inv === null ? est : 1 / inv;
+  }
+  return roundest(lo, hi, est) ?? est;
+}
+
+/** 체결 하나만 볼 때의 배율(splitFactorForDay와 같은 규칙) */
+export const splitFactor = (price: number, bar: Candle | undefined): number => splitFactorForDay([price], bar);
+
+/** 종목·날짜마다 그날 체결로 배율을 정한다(키 `종목|날짜`) */
+function dayFactors(trades: Trade[], barOf: (symbol: string, date: string) => Candle | undefined): Map<string, number> {
+  const prices = new Map<string, number[]>();
+  for (const t of trades) {
+    const k = `${t.symbol}|${t.date}`;
+    prices.set(k, [...(prices.get(k) ?? []), t.price]);
+  }
+  const out = new Map<string, number>();
+  for (const [k, ps] of prices) {
+    const [symbol, date] = k.split('|');
+    out.set(k, splitFactorForDay(ps, barOf(symbol, date)));
+  }
+  return out;
 }
 
 /** 체결마다 분할 배율(orderId → 배율). 시세가 없는 종목은 1. 수량 대조가 같은 단위로 세려고 쓴다 */
 export function splitFactors(trades: Trade[], stocks: Map<string, StockSeries>): Map<string, number> {
   const bars = new Map<string, Map<string, Candle>>();
-  const out = new Map<string, number>();
-  for (const t of trades) {
-    const candles = stocks.get(t.symbol)?.candles;
-    if (!candles) {
-      out.set(t.orderId, 1);
-      continue;
-    }
-    let byDate = bars.get(t.symbol);
+  const barOf = (symbol: string, date: string) => {
+    let byDate = bars.get(symbol);
     if (!byDate) {
-      byDate = new Map(candles.map((c) => [kstDate(c.t), c]));
-      bars.set(t.symbol, byDate);
+      byDate = new Map((stocks.get(symbol)?.candles ?? []).map((c) => [kstDate(c.t), c]));
+      bars.set(symbol, byDate);
     }
-    out.set(t.orderId, splitFactor(t.price, byDate.get(t.date)));
-  }
-  return out;
+    return byDate.get(date);
+  };
+  const byDay = dayFactors(trades, barOf);
+  return new Map(trades.map((t) => [t.orderId, byDay.get(`${t.symbol}|${t.date}`) ?? 1]));
 }
 
 /** 날짜 → 종가 조회. 그날 봉이 없으면 직전 종가, 그 전 봉도 없으면 처음 종가. 봉이 없으면 null. */
@@ -126,6 +154,7 @@ export function buildTimeline(
     const px = closeLookup(stock.candles);
     const bench = benches.get(symbol) ?? null;
     const bpx = bench && bench.candles.length > 0 ? closeLookup(bench.candles) : null;
+    const factors = dayFactors(list, (_s, date) => px.bar(date));
 
     // 보유는 수정주가 기준 단위로만 센다. 분할 전에 산 10주(배율 2)와 분할 뒤에 판 20주(배율 1)가 같은 20단위다
     let units = 0;
@@ -145,7 +174,7 @@ export function buildTimeline(
         const bp = bpx?.at(day) ?? null;
         if (t.side === 'BUY') {
           const cost = t.amount + t.commission + t.tax;
-          const factor = splitFactor(t.price, px.bar(day));
+          const factor = factors.get(`${symbol}|${day}`) ?? 1;
           if (factor !== 1) splitAdjusted = true;
           units += t.qty * factor;
           let v: number | null = null;
@@ -155,7 +184,7 @@ export function buildTimeline(
           } else uncompared++;
           events.push({ i, trade: t, actual: -cost, virtual: v, excessQty: 0 });
         } else {
-          const factor = splitFactor(t.price, px.bar(day));
+          const factor = factors.get(`${symbol}|${day}`) ?? 1;
           if (factor !== 1) splitAdjusted = true;
           const want = t.qty * factor;
           // 남은 단위를 오차 이내로만 넘으면 전량 매도
