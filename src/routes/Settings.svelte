@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { helpSeen } from '../lib/help/seen';
   // 설정 화면(스펙 7.4, 목업 ⑤): 공급자 → 연결 → 연결 진단 → 키 보호 → 표시 → 데이터 → 프로필.
   import type { Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
@@ -19,6 +20,7 @@
   // 폰 폭(<600)에서는 앱 바에 상태 칩을 그리지 않는다(제목과 아이콘 3개가 들어가야 한다). 시뮬레이션·내 성과와 같다.
   const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
   const compact = $derived(compactQuery?.current ?? false);
+  let introReset = $state(false);
 
   // 비교 화면의 오류 배너(`진단 열기`·`키 다시 입력`)로 들어오면 그 구역으로 옮기고 제목에 초점을 둔다.
   const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag', data: 'set-data' } as const;
@@ -114,6 +116,27 @@
           <DataTools {app} />
         </section>
 
+        <section aria-labelledby="set-help">
+          <h2 id="set-help">도움말</h2>
+          <div class="card">
+            <div class="row">
+              <span>메뉴별 사용법을 움직이는 그림으로 봐요</span>
+              <button type="button" class="btn" onclick={() => app.navigate({ name: 'help' })}>도움말 보기</button>
+            </div>
+            <div class="row">
+              <span>{introReset ? '메뉴에 처음 들어갈 때 안내가 다시 떠요' : '메뉴 처음 안내'}</span>
+              <button
+                type="button"
+                class="btn"
+                onclick={() => {
+                  helpSeen.reset();
+                  introReset = true;
+                }}>처음 안내 다시 보기</button
+              >
+            </div>
+          </div>
+        </section>
+
         <section aria-labelledby="set-profiles">
           <h2 id="set-profiles">프로필</h2>
           <Profiles {app} />
@@ -188,5 +211,14 @@
   }
   .spacer {
     flex: 1;
+  }
+  .btn {
+    flex: none;
+    min-height: var(--touch);
+    padding: 0 14px;
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--t1);
+    font-weight: 700;
   }
 </style>

@@ -14,4 +14,4 @@
 | [내 성과](performance.md) | 벤치마크 고르기 → IRR 비교 → 평가금액 + 회수액 → 종목별 기여도 |
 | [설정과 연결](settings.md) | 공급자 고르기 → 프록시와 키 넣기 → 연결 진단 → 키 잠그기 |
 
-그림과 글은 `corepack pnpm build:motion`이 `scripts/motion/help-pages.mjs`로 만듭니다. 화면 문구가 바뀌면 그 파일을 고치고 다시 만드세요.
+그림과 글, 앱 도움말 문구는 `corepack pnpm build:motion`이 `scripts/motion/help-pages.mjs`로 만듭니다. 화면 문구가 바뀌면 그 파일을 고치고 다시 만드세요.

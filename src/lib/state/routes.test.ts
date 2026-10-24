@@ -58,3 +58,17 @@ describe('performance route', () => {
     expect(hashFor({ name: 'performance' })).toBe('#/performance');
   });
 });
+
+describe('help routes', () => {
+  it('parses the help index and a page', () => {
+    expect(parseHash('#/help')).toEqual({ name: 'help' });
+    expect(parseHash('#/help/')).toEqual({ name: 'help' });
+    expect(parseHash('#/help/compare')).toEqual({ name: 'help', helpId: 'compare' });
+    expect(parseHash('#/help/compare/x')).toBeNull();
+  });
+
+  it('writes the same hashes', () => {
+    expect(hashFor({ name: 'help' })).toBe('#/help');
+    expect(hashFor({ name: 'help', helpId: 'performance' })).toBe('#/help/performance');
+  });
+});

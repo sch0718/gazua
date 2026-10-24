@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/add-dark.svg">
-    <img src="img/add-light.svg" width="960" alt="종목 추가 사용법: 1. ‘＋ 종목 추가’ 누르기, 2. 이름·초성으로 찾기, 3. ＋로 담기, 4. ✓ 다시 누르면 빼기">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/add-dark.svg">
+    <img src="../../public/help/img/add-light.svg" width="960" alt="종목 추가 사용법: 1. ‘＋ 종목 추가’ 누르기, 2. 이름·초성으로 찾기, 3. ＋로 담기, 4. ✓ 다시 누르면 빼기">
   </picture>
 </p>
 

@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/settings-dark.svg">
-    <img src="img/settings-light.svg" width="960" alt="설정과 연결 사용법: 1. 공급자 고르기, 2. 프록시와 키 넣기, 3. 연결 진단, 4. 키 잠그기">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/settings-dark.svg">
+    <img src="../../public/help/img/settings-light.svg" width="960" alt="설정과 연결 사용법: 1. 공급자 고르기, 2. 프록시와 키 넣기, 3. 연결 진단, 4. 키 잠그기">
   </picture>
 </p>
 
@@ -21,6 +21,7 @@
 ## 알아 두면 좋아요
 
 - 증권사 키가 없어도 `데모 데이터`로 모든 화면을 써 볼 수 있어요.
+- `도움말`에서 `도움말 보기`로 메뉴별 도움말을 열고, `처음 안내 다시 보기`로 메뉴 처음 안내를 다시 띄워요. 화면마다 앱 바의 물음표 단추로도 그 메뉴 도움말을 열어요.
 - 증권사 API는 브라우저에서 바로 부를 수 없어(CORS) 작은 프록시를 거쳐요. 공급자별 준비는 [증권사 연결](../providers.md)에 있어요.
 - 키와 설정은 이 브라우저에만 저장돼요. 토스 키는 주문 권한을 가지니 `키를 암호로 잠그기`를 켜 두세요. 다 쓴 공용 기기에서는 `이 기기에서 키 삭제`를 눌러요.
 - `표시`에서 테마(시스템·라이트·다크)와 상승·하락 색(한국식 빨강▲ 파랑▼ / 글로벌 초록▲ 빨강▼)을 골라요.

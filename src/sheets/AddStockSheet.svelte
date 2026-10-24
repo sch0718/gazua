@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpButton from '../lib/ui/help/HelpButton.svelte';
   import { untrack } from 'svelte';
   import { matchSpan, searchUniverse, type UniverseItem } from '../lib/data/universe';
   import type { StockMeta } from '../lib/providers/types';
@@ -131,7 +132,11 @@
   }
 </script>
 
-<Sheet {open} {title} {onclose}>
+{#snippet helpButton()}
+  <HelpButton {app} page="add" onbefore={onclose} />
+{/snippet}
+
+<Sheet {open} {title} {onclose} headerEnd={mode === 'group' ? helpButton : undefined}>
   {#if grouped}
     <p class="sub">
       {group?.name} 그룹 · {count}/{MAX_ITEMS}{full ? '' : ` · ${MAX_ITEMS - count}개 더 추가할 수 있어요`}

@@ -196,3 +196,19 @@ describe('AddStockSheet modes (전략 편집)', () => {
   });
 });
 
+describe('AddStockSheet help', () => {
+  it('the ? button closes the sheet and opens the 종목 추가 help', async () => {
+    const { app, onclose } = setupWithClose();
+    await fireEvent.click(screen.getByRole('button', { name: '종목 추가 도움말' }));
+    expect(onclose).toHaveBeenCalled();
+    expect(app.route).toEqual({ name: 'help', helpId: 'add' });
+  });
+});
+
+function setupWithClose() {
+  const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
+  apps.push(app);
+  const onclose = vi.fn();
+  render(AddStockSheet, { open: true, app, groupId: 'g1', metas: {}, now: NOW, onclose, loadItems: async () => UNIVERSE });
+  return { app, onclose };
+}

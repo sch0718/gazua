@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/groups-dark.svg">
-    <img src="img/groups-light.svg" width="960" alt="그룹 관리 사용법: 1. 새 그룹 만들기, 2. 이름·순서 바꾸기, 3. 토스에서 가져오기, 4. 조건으로 골라 새 그룹">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/groups-dark.svg">
+    <img src="../../public/help/img/groups-light.svg" width="960" alt="그룹 관리 사용법: 1. 새 그룹 만들기, 2. 이름·순서 바꾸기, 3. 토스에서 가져오기, 4. 조건으로 골라 새 그룹">
   </picture>
 </p>
 

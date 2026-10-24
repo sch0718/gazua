@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/performance-dark.svg">
-    <img src="img/performance-light.svg" width="960" alt="내 성과 사용법: 1. 벤치마크 고르기, 2. IRR 비교, 3. 평가금액 + 회수액, 4. 종목별 기여도">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/performance-dark.svg">
+    <img src="../../public/help/img/performance-light.svg" width="960" alt="내 성과 사용법: 1. 벤치마크 고르기, 2. IRR 비교, 3. 평가금액 + 회수액, 4. 종목별 기여도">
   </picture>
 </p>
 

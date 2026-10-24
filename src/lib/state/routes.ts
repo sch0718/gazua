@@ -1,4 +1,4 @@
-export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'onboarding' | 'unlock' | 'profiles';
+export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles';
 
 export type SettingsSection = 'connection' | 'diagnostics' | 'data';
 
@@ -13,11 +13,13 @@ export interface Route {
   criteriaId?: string;
   /** 선정 기준 탭: 편집(기본) 또는 결과 */
   view?: 'edit' | 'result';
+  /** 도움말: 열 메뉴. 없으면 도움말 목록. */
+  helpId?: string;
   /** 설정: 열자마자 보여 줄 구역(오류 배너의 `진단 열기`·`키 다시 입력`). 해시에는 남기지 않는다. */
   section?: SettingsSection;
 }
 
-/** `#/compare/:groupId`, `#/simulate/:strategyId`, `#/performance`, `#/settings`, `#/onboarding`. 그 밖의 해시는 null. */
+/** `#/compare/:groupId`, `#/simulate/:strategyId`, `#/performance`, `#/settings`, `#/help/:id`, `#/onboarding`. 그 밖의 해시는 null. */
 export function parseHash(hash: string): Route | null {
   const compare = /^#\/compare(?:\/([^/?#]+))?\/?$/.exec(hash);
   if (compare) {
@@ -48,6 +50,15 @@ export function parseHash(hash: string): Route | null {
     }
   }
   if (/^#\/performance\/?$/.test(hash)) return { name: 'performance' };
+  const help = /^#\/help(?:\/([^/?#]+))?\/?$/.exec(hash);
+  if (help) {
+    if (!help[1]) return { name: 'help' };
+    try {
+      return { name: 'help', helpId: decodeURIComponent(help[1]) };
+    } catch {
+      return { name: 'help' };
+    }
+  }
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   if (/^#\/onboarding\/?$/.test(hash)) return { name: 'onboarding' };
   return null;
@@ -69,6 +80,8 @@ export function hashFor(r: Route): string | null {
       return '#/performance';
     case 'settings':
       return '#/settings';
+    case 'help':
+      return r.helpId ? `#/help/${encodeURIComponent(r.helpId)}` : '#/help';
     case 'onboarding':
       return '#/onboarding';
     default:

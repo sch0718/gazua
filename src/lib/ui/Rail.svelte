@@ -58,6 +58,15 @@
   >
     설정
   </button>
+  <button
+    type="button"
+    class="ritem"
+    class:on={route.name === 'help'}
+    aria-current={route.name === 'help' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'help' })}
+  >
+    도움말
+  </button>
 </div>
 
 <style>

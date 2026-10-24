@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/criteria-dark.svg">
-    <img src="img/criteria-light.svg" width="960" alt="선정 기준 검증 사용법: 1. 시장 데이터 가져오기, 2. 조건 켜기, 3. 고를 개수·재선정 정하고 실행, 4. 결과 비교">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/criteria-dark.svg">
+    <img src="../../public/help/img/criteria-light.svg" width="960" alt="선정 기준 검증 사용법: 1. 시장 데이터 가져오기, 2. 조건 켜기, 3. 고를 개수·재선정 정하고 실행, 4. 결과 비교">
   </picture>
 </p>
 

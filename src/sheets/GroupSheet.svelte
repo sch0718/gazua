@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpButton from '../lib/ui/help/HelpButton.svelte';
   import { tick } from 'svelte';
   import type { App } from '../lib/state/app.svelte';
   import type { Group } from '../lib/state/schema';
@@ -116,7 +117,11 @@
   }
 </script>
 
-<Sheet {open} title="그룹 관리" {onclose}>
+{#snippet helpButton()}
+  <HelpButton {app} page="groups" onbefore={onclose} />
+{/snippet}
+
+<Sheet {open} title="그룹 관리" {onclose} headerEnd={helpButton}>
   {#if lastOne}
     <p class="sub" id="last-group-reason">그룹은 하나 이상 있어야 해요</p>
   {/if}

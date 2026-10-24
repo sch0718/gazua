@@ -41,7 +41,7 @@ describe('Settings', () => {
   it('shows the sections in order and the profile note at the top', () => {
     setup();
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(['데이터 공급자', '연결', '연결 진단', '키 보호', '표시', '데이터', '프로필']);
+    expect(headings).toEqual(['데이터 공급자', '연결', '연결 진단', '키 보호', '표시', '데이터', '도움말', '프로필']);
     expect(screen.getByText('프로필은 편의 기능이지 보안 경계가 아니에요')).toBeTruthy();
   });
 
@@ -92,5 +92,17 @@ describe('Settings', () => {
     expect(app.settings.theme).toBe('dark');
     await fireEvent.click(screen.getByRole('radio', { name: /글로벌/ }));
     expect(app.settings.colorConvention).toBe('global');
+  });
+});
+
+describe('Settings help', () => {
+  it('opens the help list, and lets the first-visit intros show again', async () => {
+    localStorage.setItem('gazua:help-seen:v1', JSON.stringify(['compare', 'performance']));
+    const app = setup();
+    await fireEvent.click(screen.getByRole('button', { name: '처음 안내 다시 보기' }));
+    expect(localStorage.getItem('gazua:help-seen:v1')).toBeNull();
+    expect(screen.getByText('메뉴에 처음 들어갈 때 안내가 다시 떠요')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '도움말 보기' }));
+    expect(app.route).toEqual({ name: 'help' });
   });
 });

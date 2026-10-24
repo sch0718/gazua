@@ -28,6 +28,8 @@ export const pwaOptions: Partial<VitePWAOptions> = {
     clientsClaim: true,
     // 앱 셸만 미리 담는다. Pretendard 글꼴 조각(woff2 약 90개)과 universe.json은 제외한다.
     globPatterns: ['**/*.{html,js,css,svg,png,webmanifest}'],
+    // 도움말 그림(help/img, 약 400KB)은 도움말을 열 때 받아 담는다(아래 gazua-help).
+    globIgnores: ['help/**'],
     // 확장자가 있는 주소(universe.json·assets 등)는 앱 셸 index.html로 대신 답하지 않는다.
     navigateFallbackDenylist: [/\.\w+$/],
     runtimeCaching: [
@@ -46,6 +48,12 @@ export const pwaOptions: Partial<VitePWAOptions> = {
         urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.endsWith('/universe.json'),
         handler: 'StaleWhileRevalidate',
         options: { cacheName: 'gazua-universe' },
+      },
+      {
+        // 도움말 그림은 배포마다 같은 이름으로 바뀔 수 있다. 담아 둔 것을 먼저 보이고 뒤에서 새로 받는다.
+        urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.includes('/help/img/'),
+        handler: 'StaleWhileRevalidate',
+        options: { cacheName: 'gazua-help' },
       },
       // 시세·프록시 같은 외부 API 요청은 캐시하지 않는다(런타임 규칙 없음 = 네트워크 그대로).
     ],

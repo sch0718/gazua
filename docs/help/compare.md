@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/compare-dark.svg">
-    <img src="img/compare-light.svg" width="960" alt="비교 차트 사용법: 1. 그룹 고르기, 2. 기간 바꾸기, 3. 지표 고르기, 4. 순위 보기">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/compare-dark.svg">
+    <img src="../../public/help/img/compare-light.svg" width="960" alt="비교 차트 사용법: 1. 그룹 고르기, 2. 기간 바꾸기, 3. 지표 고르기, 4. 순위 보기">
   </picture>
 </p>
 
