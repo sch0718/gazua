@@ -219,7 +219,7 @@ describe('buildTimeline', () => {
 
   // PR 리뷰: 한 번의 분할 전 거래들은 날짜가 달라도 같은 배율이어야 한다(4:1 분할 전 매수·매도가 4와 5로 갈리면 안 된다)
   // PR 리뷰: 범위만으로는 날짜가 다른 체결의 배율을 정할 수 없다(4:1 분할 전 매수일·매도일, 10% 무상증자 전후).
-  // 원주가 일봉이 있으면 배율 = 원주가 종가 ÷ 수정 종가로 정확히 구한다.
+  // 원주가 일봉이 있으면 체결가 대신 원주가와 수정 일봉의 비율을 쓴다.
   it('trades on different days before one 4:1 split share one factor (from raw daily bars)', () => {
     const stock: StockSeries = {
       name: '에이',
@@ -267,9 +267,74 @@ describe('buildTimeline', () => {
 
   it('snaps a raw ÷ adjusted ratio off by won rounding to the round ratio', () => {
     // 원주가 50,500 ÷ 1.1 = 45,909.09… → 수정 종가 45,909
-    const stock: StockSeries = { name: '에이', candles: [bar('2026-03-02', 45_909)], raw: [bar('2026-03-02', 50_500)] };
+    const stock: StockSeries = {
+      name: '에이',
+      candles: [bar('2026-03-02', 45_909, 46_000, 45_900)],
+      raw: [bar('2026-03-02', 50_500, 50_600, 50_490)],
+    };
     const buy = trade({ date: '2026-03-02', orderedAt: '2026-03-02T09:00:00+09:00', qty: 1, price: 50_500, amount: 50_500 });
     expect(splitFactors([buy], stocks({ A: stock })).get(buy.orderId)).toBe(1.1);
+  });
+
+  it('preserves the exact cumulative ratio of two 5% bonus issues', () => {
+    const stock: StockSeries = {
+      name: '에이',
+      candles: series({ '2026-03-02': 40_000, '2026-03-03': 40_000 }),
+      raw: series({ '2026-03-02': 44_100, '2026-03-03': 40_000 }),
+    };
+    const buy = trade({ qty: 400, price: 44_100, amount: 17_640_000, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', qty: 441, price: 40_000, amount: 17_640_000, commission: 0 });
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => INDEX);
+    expect(splitFactors([buy, sell], stocks({ A: stock })).get(buy.orderId)).toBeCloseTo(1.1025, 12);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 17_640_000, excessQty: 0 });
+    expect(viewOf(tl, 0, tl.days.length - 1).actual.profit).toBe(0);
+    expect(reconcile([buy, sell], [], splitFactors([buy, sell], stocks({ A: stock }))).mismatches).toBe(0);
+  });
+
+  it.each([120, 121])('does not replace a consistent 3.025 ratio with 3 (raw low=%s)', (low) => {
+    const stock: StockSeries = {
+      name: '에이',
+      asOf: '2026-03-03',
+      candles: [bar('2026-03-02', 40), bar('2026-03-03', 40)],
+      raw: [bar('2026-03-02', 121, 121, low)],
+    };
+    const buy = trade({ qty: 40, price: 121, amount: 4840, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', qty: 121, price: 40, amount: 4840, commission: 0 });
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => INDEX);
+    expect(splitFactors([buy, sell], stocks({ A: stock })).get(buy.orderId)).toBe(3.025);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 4840, excessQty: 0 });
+    expect(reconcile([buy, sell], [], splitFactors([buy, sell], stocks({ A: stock }))).mismatches).toBe(0);
+  });
+
+  it('allows a whole-won rounding error greater than 0.5% in low adjusted prices', () => {
+    const stock: StockSeries = {
+      name: '에이',
+      candles: [bar('2026-03-02', 52, 53, 50), bar('2026-03-03', 52)],
+      raw: [bar('2026-03-02', 103, 106, 100), bar('2026-03-03', 52)],
+    };
+    const buy = trade({ qty: 10, price: 102, amount: 1020, commission: 0 });
+    const sell = trade({ side: 'SELL', date: '2026-03-03', qty: 20, price: 52, amount: 1040, commission: 0 });
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => INDEX);
+    expect(splitFactors([buy, sell], stocks({ A: stock })).get(buy.orderId)).toBe(2);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 1040, excessQty: 0 });
+    expect(viewOf(tl, 0, tl.days.length - 1).actual.profit).toBe(20);
+  });
+
+  it.each([false, true])('uses factor 1 on the load date even with missing or moving raw prices (raw=%s)', (withRaw) => {
+    const stock: StockSeries = {
+      name: '에이',
+      asOf: '2026-03-03',
+      candles: [bar('2026-03-02', 50), bar('2026-03-03', 100)],
+      raw: withRaw ? [bar('2026-03-02', 100), bar('2026-03-03', 105)] : [bar('2026-03-02', 100)],
+    };
+    const buy = trade({ qty: 10, price: 100, amount: 1000, commission: 0 });
+    // Today is not a historical adjusted-price unit: earlier fills can also be outside a later snapshot's range.
+    const sell = trade({ side: 'SELL', date: '2026-03-03', qty: 20, price: 90, amount: 1800, commission: 0 });
+    const factors = splitFactors([buy, sell], stocks({ A: stock }));
+    const tl = buildTimeline([buy, sell], stocks({ A: stock }), () => INDEX);
+    expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([2, 1]);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 1800, excessQty: 0 });
+    expect(reconcile([buy, sell], [], factors).mismatches).toBe(0);
   });
 
   it('a split between two trades still gives each side its own factor', () => {

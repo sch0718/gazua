@@ -146,6 +146,8 @@ describe('Performance: estimated split factors', () => {
         return q.symbol === '005930' ? bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 })) : bars;
       },
     }));
-    expect(await screen.findByText('원주가를 받지 못해 분할 배율을 체결가로 추정했어요: 삼성전자', {}, { timeout: 5000 })).toBeTruthy();
+    const notice = await screen.findByText(/일부 체결일의 시세가 없어 분할 배율을 체결가로 추정했어요:/, {}, { timeout: 5000 });
+    for (const name of ['삼성전자', 'SK하이닉스', '한미반도체', 'DB하이텍']) expect(notice.textContent).toContain(name);
+    expect(screen.getByText('분할 배율은 시세로 계산해요. 가격 반올림 때문에 수량과 수익률에 오차가 있을 수 있어요.')).toBeTruthy();
   });
 });

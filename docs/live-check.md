@@ -221,5 +221,6 @@
   - 한도 그룹 `ORDER_HISTORY`의 실제 한도(응답의 `X-RateLimit-*` 헤더)
 - **어떻게**: 프록시를 새 버전(허용 목록에 `GET /api/v1/orders`)으로 바꾼 뒤 앱에서 내 성과를 열어요. 응답 원본은 브라우저 개발자 도구의 네트워크 탭에서 봐요(키·토큰·accountSeq가 담긴 헤더는 복사하지 않아요). 종목별 기여도 행을 펼쳐 체결 목록을 토스 앱의 거래내역과 견주고, `수량` 칸이 `맞음`인지 봐요. 시간외 종가로 거래한 종목이 있으면 `맞지 않음`과 이유가 뜨는지 봐요.
 - **함께 볼 것**: 해외 주문이 `해외 주문 n건은 뺐어요`로만 남는지, 액면분할·무상증자한 종목의 `분할 보정` 배지와 평가금액(보유 수량 × 지금 가격)이 토스 앱과 맞는지, 그 종목의 원주가 일봉(`/api/v1/candles?adjusted=false`)이 권리 변동 전날의 실제 종가를 주는지(원주가 ÷ 수정 종가가 분할 비율인지), `처음부터 다시 받기` 뒤 같은 결과가 나오는지, 키 잠금을 켜면 IndexedDB `gazua-account`가 비는지. 프록시가 옛 버전이면 `프록시가 주문 조회를 막고 있어요` 문구가 뜨는지.
-- **바꿀 곳**: `src/lib/providers/toss.ts`의 `mapOrder`(필드·거를 상태 `DUPLICATE_ORDER_STATUSES`), `TOSS_QUEUE_RATES.ORDER_HISTORY`, `ORDER_PAGE_SIZE`. 분할 판정 여유는 `src/lib/perf/portfolio.ts`의 `SPLIT_MARGIN`. 스펙 2.3·2.6.
+- **원주가 추가 확인**: 과거 체결이 있는 모든 종목에 `adjusted=false`가 요청되고 마지막 요청일은 어제인지, 오늘 체결은 배율 1인지 확인해요. 일부 과거 체결일의 원주가가 빠져도 추정 안내에 종목 이름이 나와야 해요. 5% 무상증자 두 번(누적 1.1025배)과 저가 종목의 원 단위 반올림도 실제 수량·회수액과 견줘요.
+- **바꿀 곳**: `src/lib/providers/toss.ts`의 `mapOrder`(필드·거를 상태 `DUPLICATE_ORDER_STATUSES`), `TOSS_QUEUE_RATES.ORDER_HISTORY`, `ORDER_PAGE_SIZE`. 원주가가 없을 때만 쓰는 체결가 추정 여유는 `src/lib/perf/portfolio.ts`의 `SPLIT_MARGIN`. 스펙 2.3·2.6.
 - 결과: 필드 __ / 부분 체결 취소 __ / REPLACED·*_REJECTED __ / filledAt __ / 페이지·커서 __ / 첫 주문일 __ / 수량 대조 __ / 한도 __

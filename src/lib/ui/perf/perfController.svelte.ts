@@ -3,12 +3,12 @@
 import type { Candle } from '../../data/metrics';
 import { benchIdsFor, benchShell } from '../../perf/compose';
 import { normalizeOrders } from '../../perf/ledger';
-import { needsRawPrices, splitFactors } from '../../perf/portfolio';
+import { splitFactors } from '../../perf/portfolio';
 import { createMemoryOrderCache, orderCacheKey, syncOrders, type OrderCache } from '../../perf/orderCache';
 import { reconcile, type Reconciliation } from '../../perf/reconcile';
 import type { BenchChoice, BenchSeries, StockSeries, Trade } from '../../perf/types';
 import type { AccountHolding, MarketDataProvider, StockMeta } from '../../providers/types';
-import { kstDate } from '../../time/kst';
+import { addDays, kstDate } from '../../time/kst';
 
 export interface PerfData {
   demo: boolean;
@@ -24,7 +24,7 @@ export interface PerfData {
   series: Map<string, BenchSeries>;
   /** 받지 못한 벤치마크 id */
   failedBench: string[];
-  /** 분할이 있는 것 같은데 원주가 일봉을 받지 못해 배율을 체결가로 추정한 종목 */
+  /** 과거 체결일의 원주가 또는 수정 일봉이 없어 배율을 체결가로 추정한 종목 */
   estimatedSplits: string[];
   holdings: AccountHolding[] | null;
   reconcile: Reconciliation;
@@ -160,7 +160,7 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
         names.set(symbol, name);
         try {
           const candles = (await provider.getCandles({ symbol, venue, interval: '1d', from, to, priority: PRIORITY })).filter(validBar);
-          if (candles.length > 0) stocks.set(symbol, { name, candles });
+          if (candles.length > 0) stocks.set(symbol, { name, candles, asOf: to });
         } catch (e) {
           if (e instanceof Cancelled) throw e;
         }
@@ -168,20 +168,23 @@ export function createPerfController(app: PerfApp, opts: { now?: () => number } 
         step();
       }
 
-      // 체결가가 수정 일봉 밖인 종목(분할·병합·무상증자가 있었던 종목)만 원주가 일봉을 더 받는다(스펙 2.6)
+      // 체결가가 수정 일봉 안에 있어도 권리 변동이 있을 수 있다. 과거 체결은 모두 원주가와 대조한다.
+      // 오늘은 현재 주식 수 단위(배율 1)라 조회 시점마다 움직이는 원주가 종가를 비교하지 않는다.
       const estimatedSplits: string[] = [];
       for (const [symbol, s] of stocks) {
-        const own = trades.filter((t) => t.symbol === symbol);
-        if (!needsRawPrices(own, s.candles)) continue;
+        const own = trades.filter((t) => t.symbol === symbol && t.date < to);
+        if (own.length === 0) continue;
+        let raw: Candle[] = [];
         try {
-          const raw = (await provider.getCandles({ symbol, venue, interval: '1d', from, to, priority: PRIORITY, adjusted: false })).filter(validBar);
-          if (raw.length > 0) stocks.set(symbol, { ...s, raw });
-          else estimatedSplits.push(symbol);
+          raw = (await provider.getCandles({ symbol, venue, interval: '1d', from: own[0].date, to: addDays(to, -1), priority: PRIORITY, adjusted: false })).filter(validBar);
         } catch (e) {
           if (e instanceof Cancelled) throw e;
-          estimatedSplits.push(symbol);
         }
         alive();
+        if (raw.length > 0) stocks.set(symbol, { ...s, raw });
+        const rawDates = new Set(raw.map((c) => kstDate(c.t)));
+        const adjustedDates = new Set(s.candles.map((c) => kstDate(c.t)));
+        if (own.some((t) => !rawDates.has(t.date) || !adjustedDates.has(t.date))) estimatedSplits.push(symbol);
       }
 
       const series = new Map<string, BenchSeries>();

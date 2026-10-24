@@ -39,9 +39,11 @@ export interface BenchSeries {
 
 export interface StockSeries {
   name: string;
+  /** 시세를 받은 기준일(KST). 이 날은 현재 주식 수 단위이므로 장중 종가 변화와 관계없이 배율 1이다. */
+  asOf?: string;
   /** 수정주가 일봉 */
   candles: Candle[];
-  /** 원주가 일봉(있으면). 분할 배율을 원주가 종가 ÷ 수정 종가로 정확히 구한다(스펙 2.6) */
+  /** 원주가 일봉(있으면). 수정 일봉과 대조해 분할 배율을 산정한다. 가격 반올림 오차는 남을 수 있다(스펙 2.6). */
   raw?: Candle[];
 }
 

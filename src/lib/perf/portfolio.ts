@@ -68,34 +68,36 @@ export function splitFactorForDay(prices: number[], bar: Candle | undefined): nu
   return r ? factorIn(r) : 1;
 }
 
-/** 체결가가 그날 수정 일봉 범위(여유 3%) 밖인 체결이 있는지. 있으면 원주가 일봉을 받아 배율을 정확히 구한다 */
-export function needsRawPrices(trades: Trade[], candles: Candle[]): boolean {
-  const byDate = new Map(candles.map((c) => [kstDate(c.t), c]));
-  return trades.some((t) => splitFactor(t.price, byDate.get(t.date)) !== 1);
-}
-
 /** 체결 하나만 볼 때의 배율(splitFactorForDay와 같은 규칙) */
 export const splitFactor = (price: number, bar: Candle | undefined): number => splitFactorForDay([price], bar);
 
-/** 원주가 ÷ 수정주가 비율을 둥근 비율로 맞출 때의 여유(수정주가의 원 단위 반올림 오차) */
-const RAW_RATIO_TOLERANCE = 0.005;
-
-/** 원주가 종가 ÷ 수정 종가 → 배율. ±0.5% 안의 가장 둥근 비율(1.1000022 → 1.1, 1:3 병합 → 정확히 1/3), 없으면 비율 그대로 */
-function factorFromRaw(raw: number, adjusted: number): number {
-  const r = raw / adjusted;
-  return factorIn({ lo: r * (1 - RAW_RATIO_TOLERANCE), hi: r * (1 + RAW_RATIO_TOLERANCE), logEst: Math.log(r) });
+/**
+ * 원 단위 반올림(±0.5원)의 공통 구간 안에서, OHLC 비율이 뒷받침하는 보정만 쓴다.
+ * 종가 비율보다 적은 가격 쌍이 지지하거나 두 쌍도 지지하지 않으면 종가 비율을 보존한다.
+ * 가격이 반올림된 뒤에는 실제 권리 변동 비율을 항상 확정할 수는 없다(화면에도 오차 가능성을 알린다).
+ */
+function factorFromRaw(raw: Candle, adjusted: Candle): number {
+  const r = raw.c / adjusted.c;
+  const pairs = (['o', 'h', 'l', 'c'] as const).map((key) => ({ raw: raw[key], adjusted: adjusted[key] }));
+  const lo = Math.max(...pairs.map((p) => p.raw / (p.adjusted + (Number.isInteger(p.adjusted) ? 0.5 : 0))));
+  const hi = Math.min(...pairs.map((p) => p.raw / (p.adjusted - (Number.isInteger(p.adjusted) ? 0.5 : 0))));
+  if (lo > hi) return r;
+  const candidate = factorIn({ lo, hi, logEst: Math.log(r) });
+  const support = (factor: number) => pairs.filter((p) => Math.abs(p.raw / p.adjusted - factor) <= Number.EPSILON * 16 * Math.max(1, factor)).length;
+  return support(candidate) >= Math.max(2, support(r)) ? candidate : r;
 }
 
 /**
  * 종목·날짜마다 배율(키 `종목|날짜`, 스펙 2.6).
- * - 그날 원주가 일봉과 수정 일봉이 다 있으면 원주가 종가 ÷ 수정 종가. 권리 변동이 날짜마다 정확히 반영된다.
+ * - 그날 원주가 일봉과 수정 일봉이 다 있으면 종가 비율을 기준으로 OHLC 반올림 오차를 함께 대조한다.
  * - 없으면 그날 체결가로 추정한다(splitFactorForDay). 날짜를 이어 묶지 않는다: 범위가 겹친다고 권리 변동이 없었다고 볼 수 없다
- *   (PR 리뷰: 10% 무상증자 전후 범위가 겹친다). 그래서 컨트롤러는 체결가가 수정 일봉 밖인 종목의 원주가 일봉을 받는다.
+ *   (PR 리뷰: 10% 무상증자 전후 범위가 겹친다). 그래서 컨트롤러는 과거 체결이 있는 모든 종목의 원주가 일봉을 받는다.
  */
 function dayFactors(
   trades: Trade[],
   barOf: (symbol: string, date: string) => Candle | undefined,
   rawOf: (symbol: string, date: string) => Candle | undefined,
+  asOf: (symbol: string) => string | undefined,
 ): Map<string, number> {
   const prices = new Map<string, number[]>();
   for (const t of trades) {
@@ -105,9 +107,14 @@ function dayFactors(
   const out = new Map<string, number>();
   for (const [k, ps] of prices) {
     const [symbol, date] = k.split('|');
+    // 오늘은 수정주가와 원주가의 단위가 같다. 두 조회 사이의 장중 가격 변동은 권리 변동이 아니다.
+    if (date === asOf(symbol)) {
+      out.set(k, 1);
+      continue;
+    }
     const adj = barOf(symbol, date);
     const raw = rawOf(symbol, date);
-    out.set(k, adj && raw && adj.c > 0 && raw.c > 0 ? factorFromRaw(raw.c, adj.c) : splitFactorForDay(ps, adj));
+    out.set(k, adj && raw && adj.c > 0 && raw.c > 0 ? factorFromRaw(raw, adj) : splitFactorForDay(ps, adj));
   }
   return out;
 }
@@ -128,7 +135,7 @@ function barIndex(pick: (s: StockSeries) => Candle[] | undefined, stocks: Map<st
 
 /** 체결마다 분할 배율(orderId → 배율). 시세가 없는 종목은 1. 수량 대조가 같은 단위로 세려고 쓴다 */
 export function splitFactors(trades: Trade[], stocks: Map<string, StockSeries>): Map<string, number> {
-  const byDay = dayFactors(trades, barIndex((s) => s.candles, stocks), barIndex((s) => s.raw, stocks));
+  const byDay = dayFactors(trades, barIndex((s) => s.candles, stocks), barIndex((s) => s.raw, stocks), (symbol) => stocks.get(symbol)?.asOf);
   return new Map(trades.map((t) => [t.orderId, byDay.get(`${t.symbol}|${t.date}`) ?? 1]));
 }
 
@@ -202,7 +209,7 @@ export function buildTimeline(
     const bench = benches.get(symbol) ?? null;
     const bpx = bench && bench.candles.length > 0 ? closeLookup(bench.candles) : null;
     const rawBar = barIndex((x) => x.raw, new Map([[symbol, stock]]));
-    const factors = dayFactors(list, (_s, date) => px.bar(date), rawBar);
+    const factors = dayFactors(list, (_s, date) => px.bar(date), rawBar, () => stock.asOf);
 
     // 보유는 수정주가 기준 단위로만 센다. 분할 전에 산 10주(배율 2)와 분할 뒤에 판 20주(배율 1)가 같은 20단위다
     let units = 0;

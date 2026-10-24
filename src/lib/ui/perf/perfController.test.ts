@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Candle } from '../../data/metrics';
 import { createMemoryOrderCache } from '../../perf/orderCache';
-import { splitFactors } from '../../perf/portfolio';
+import { buildTimeline, splitFactors } from '../../perf/portfolio';
+import { viewOf } from '../../perf/view';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
-import type { MarketDataProvider } from '../../providers/types';
-import { kstEpoch } from '../../time/kst';
+import type { AccountOrder, CandleQuery, MarketDataProvider } from '../../providers/types';
+import { kstDate, kstEpoch } from '../../time/kst';
 import { createPerfController, type PerfState } from './perfController.svelte';
 
 const NOW = kstEpoch('2026-10-16', '10:00:00');
@@ -34,6 +36,25 @@ const done = async (ctl: { readonly state: PerfState }) => {
   await vi.waitFor(() => expect(['done', 'error', 'empty', 'unsupported']).toContain(ctl.state.kind));
   return ctl.state;
 };
+
+const bar = (date: string, c: number, h = c, l = c): Candle => ({ t: kstEpoch(date, '00:00:00'), o: c, h, l, c, v: 1 });
+const fill = (id: string, date: string, side: 'BUY' | 'SELL', quantity: number, price: number): AccountOrder => ({
+  orderId: id, symbol: '005930', side, quantity, price, amount: quantity * price, commission: 0, tax: 0,
+  currency: 'KRW', status: 'FILLED', orderedAt: `${date}T09:00:00+09:00`, filledAt: `${date}T09:00:00+09:00`,
+});
+
+function priceScenario(orders: AccountOrder[], adjusted: Candle[], raw: Candle[]) {
+  const requests: CandleQuery[] = [];
+  const { ctl } = setup((base) => ({
+    id: 'toss',
+    account: { ...base.account!, closedOrders: async () => orders, holdings: async () => [] },
+    getCandles: async (q) => {
+      requests.push(q);
+      return (q.adjusted === false ? raw : adjusted).filter((c) => kstDate(c.t) >= q.from && kstDate(c.t) <= q.to);
+    },
+  }));
+  return { ctl, requests };
+}
 
 describe('perfController', () => {
   it('is unsupported without an account source', async () => {
@@ -210,8 +231,7 @@ describe('perfController', () => {
     expect(takenAt).toEqual([false]);
   });
 
-  // PR 리뷰: 분할 배율은 원주가 일봉으로 정확히 구한다. 체결가가 수정 일봉 밖인 종목만 더 받는다
-  it('fetches raw daily bars only for symbols whose fills fall outside the adjusted bars', async () => {
+  it('fetches raw daily bars for every symbol with historical fills', async () => {
     const calls: string[] = [];
     // 005930은 모든 거래 뒤에 2:1 분할이 있었던 것처럼: 수정 일봉은 원주가의 절반
     const { ctl } = setup((base) => ({
@@ -225,7 +245,7 @@ describe('perfController', () => {
     ctl.load('AUTO');
     const s = await done(ctl);
     if (s.kind !== 'done') throw new Error(s.kind);
-    expect(calls.filter((c) => c.endsWith(':raw'))).toEqual(['005930:raw']);
+    expect(calls.filter((c) => c.endsWith(':raw')).sort()).toEqual(['000660:raw', '000990:raw', '005930:raw', '042700:raw']);
     expect(s.data.stocks.get('005930')?.raw?.length).toBeGreaterThan(0);
     expect(s.data.estimatedSplits).toEqual([]);
     const buy = s.data.trades.find((t) => t.symbol === '005930')!;
@@ -244,6 +264,69 @@ describe('perfController', () => {
     ctl.load('AUTO');
     const s = await done(ctl);
     if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.estimatedSplits.sort()).toEqual(['000660', '000990', '005930', '042700']);
+  });
+
+  it('preserves a 10% bonus issue even when every fill fits the adjusted intraday range', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 105), fill('sell', '2026-03-03', 'SELL', 11, 100)],
+      [bar('2026-03-02', 100, 105, 95), bar('2026-03-03', 100)],
+      [bar('2026-03-02', 110, 115.5, 104.5), bar('2026-03-03', 100)],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 1100, excessQty: 0 });
+    expect(viewOf(tl, 0, 1).actual.profit).toBe(50);
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.filter((q) => q.adjusted === false)).toHaveLength(1);
+  });
+
+  it('discloses missing historical raw dates in a nonempty response', async () => {
+    const { ctl } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 400), fill('sell', '2026-03-03', 'SELL', 10, 500)],
+      [bar('2026-03-02', 100, 102, 98), bar('2026-03-03', 125, 130, 100)],
+      [bar('2026-03-02', 400, 408, 392)],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
     expect(s.data.estimatedSplits).toEqual(['005930']);
+    const factors = splitFactors(s.data.trades, s.data.stocks);
+    expect([factors.get('buy'), factors.get('sell')]).toEqual([4, 5]);
+  });
+
+  it('keeps today in current share units and fetches raw bars only through yesterday', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 100), fill('sell', '2026-10-16', 'SELL', 20, 100)],
+      [bar('2026-03-02', 50), bar('2026-10-16', 100)],
+      [bar('2026-03-02', 100), { ...bar('2026-10-16', 105), o: 100, l: 100 }],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 2000, excessQty: 0 });
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.find((q) => q.adjusted === false)?.to).toBe('2026-10-15');
+  });
+
+  it('does not request or estimate historical prices for current-day-only fills', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-10-16', 'BUY', 1, 90), fill('sell', '2026-10-16', 'SELL', 1, 100)],
+      [bar('2026-10-16', 100)],
+      [],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(viewOf(tl, 0, 0).actual.profit).toBe(10);
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.filter((q) => q.adjusted === false)).toEqual([]);
   });
 });

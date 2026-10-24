@@ -200,7 +200,10 @@
             <p>시세를 받지 못해 뺀 종목: {timeline.missing.map((m) => m.name).join(', ')}</p>
           {/if}
           {#if data.estimatedSplits.length > 0}
-            <p>원주가를 받지 못해 분할 배율을 체결가로 추정했어요: {data.estimatedSplits.map((s) => data.names.get(s) ?? s).join(', ')}</p>
+            <p>일부 체결일의 시세가 없어 분할 배율을 체결가로 추정했어요: {data.estimatedSplits.map((s) => data.names.get(s) ?? s).join(', ')}</p>
+          {/if}
+          {#if view?.rows.some((row) => row.splitAdjusted)}
+            <p>분할 배율은 시세로 계산해요. 가격 반올림 때문에 수량과 수익률에 오차가 있을 수 있어요.</p>
           {/if}
           {#if failedNames.length > 0}
             <p>{failedNames.join(', ')} 시세를 받지 못해 비교하지 못했어요</p>
