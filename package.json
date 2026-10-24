@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "universe": "node scripts/build-universe.mjs",
+    "build:motion": "node scripts/build-motion.mjs",
     "collect": "node scripts/collect-market-data.mjs",
     "prebuild": "node scripts/build-universe.mjs",
     "build": "vite build",

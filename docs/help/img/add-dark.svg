@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="motion-title motion-desc">
+<title id="motion-title">가즈아 도움말 — 종목 추가</title>
+<desc id="motion-desc">종목 추가 사용법: 1. ‘＋ 종목 추가’ 누르기(비교 화면의 순위 목록 오른쪽 위에 있어요) 2. 이름·초성으로 찾기(‘삼성’, ‘ㅅㅅ’, ‘005930’ 모두 돼요) 3. ＋로 담기(여러 개를 연달아 담고 ‘완료’) 4. ✓ 다시 누르면 빼기(잘못 담은 종목은 그 자리에서 바로 빼요)</desc>
+<style>
+text{font-family:'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif}
+.sc{opacity:0;animation:scene 15.2s linear infinite backwards}
+.rise{transform-box:fill-box;animation:rise 15.2s cubic-bezier(.2,.8,.2,1) infinite backwards}
+.pop{transform-box:fill-box;transform-origin:center;animation:pop 15.2s ease-out infinite backwards}
+.draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 15.2s ease-out infinite backwards}
+.fade{opacity:0;animation:fade 15.2s linear infinite backwards}
+.tap{transform-box:fill-box;transform-origin:center;opacity:0;animation:tap 15.2s ease-out infinite backwards}
+@keyframes scene{0%{opacity:0}2.303%{opacity:1}22.697%{opacity:1}25.000%{opacity:0}100%{opacity:0}}
+@keyframes rise{0%{opacity:0;transform:translateY(14px)}2.961%{opacity:1;transform:none}100%{opacity:1;transform:none}}
+@keyframes pop{0%{transform:scale(0)}1.974%{transform:scale(1.15)}2.961%{transform:scale(1)}100%{transform:scale(1)}}
+@keyframes draw{0%{stroke-dashoffset:1}7.895%{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
+@keyframes fade{0%{opacity:0}1.974%{opacity:1}100%{opacity:1}}
+@keyframes tap{0%{opacity:0;transform:scale(.4)}0.789%{opacity:1;transform:scale(1)}4.605%{opacity:0;transform:scale(1.9)}100%{opacity:0;transform:scale(1.9)}}
+@media (prefers-reduced-motion:reduce){
+*{animation:none!important}
+.s0{opacity:1}
+.rise,.fade{opacity:1;transform:none}
+.pop{transform:none}
+.draw{stroke-dasharray:none;stroke-dashoffset:0}
+}</style>
+<rect x="1" y="1" width="958" height="518" rx="28" fill="#0e0f11" stroke="#2a2d33"/>
+<text x="40" y="66" font-size="14" font-weight="700" fill="#868b94" text-anchor="start">가즈아 도움말</text>
+<text x="40" y="110" font-size="30" font-weight="800" fill="#f2f3f5" text-anchor="start">종목 추가</text>
+<text x="40" y="150" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">이름·코드·초성으로 찾아</text><text x="40" y="173" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">한 그룹에 10종목까지 담아요.</text>
+<g>
+<rect class="sc s0" style="animation-delay:0.00s" x="32" y="213" width="540" height="48" rx="14" fill="rgba(160, 147, 255, 0.14)"/>
+<circle cx="58" cy="236" r="13" fill="none" stroke="#868b94" stroke-width="1.5"/>
+<text x="58" y="240.5" font-size="13" font-weight="800" fill="#a4a8b0" text-anchor="middle">1</text>
+<g class="sc s0" style="animation-delay:0.00s"><circle cx="58" cy="236" r="13" fill="#a093ff"/><text x="58" y="240.5" font-size="13" font-weight="800" fill="#0e0f11" text-anchor="middle">1</text></g>
+<text x="82" y="234" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">‘＋ 종목 추가’ 누르기</text>
+<text x="82" y="252" font-size="13" font-weight="400" fill="#868b94" text-anchor="start">비교 화면의 순위 목록 오른쪽 위에 있어요</text>
+</g><g>
+<rect class="sc s1" style="animation-delay:3.80s" x="32" y="265" width="540" height="48" rx="14" fill="rgba(160, 147, 255, 0.14)"/>
+<circle cx="58" cy="288" r="13" fill="none" stroke="#868b94" stroke-width="1.5"/>
+<text x="58" y="292.5" font-size="13" font-weight="800" fill="#a4a8b0" text-anchor="middle">2</text>
+<g class="sc s1" style="animation-delay:3.80s"><circle cx="58" cy="288" r="13" fill="#a093ff"/><text x="58" y="292.5" font-size="13" font-weight="800" fill="#0e0f11" text-anchor="middle">2</text></g>
+<text x="82" y="286" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">이름·초성으로 찾기</text>
+<text x="82" y="304" font-size="13" font-weight="400" fill="#868b94" text-anchor="start">‘삼성’, ‘ㅅㅅ’, ‘005930’ 모두 돼요</text>
+</g><g>
+<rect class="sc s2" style="animation-delay:7.60s" x="32" y="317" width="540" height="48" rx="14" fill="rgba(160, 147, 255, 0.14)"/>
+<circle cx="58" cy="340" r="13" fill="none" stroke="#868b94" stroke-width="1.5"/>
+<text x="58" y="344.5" font-size="13" font-weight="800" fill="#a4a8b0" text-anchor="middle">3</text>
+<g class="sc s2" style="animation-delay:7.60s"><circle cx="58" cy="340" r="13" fill="#a093ff"/><text x="58" y="344.5" font-size="13" font-weight="800" fill="#0e0f11" text-anchor="middle">3</text></g>
+<text x="82" y="338" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">＋로 담기</text>
+<text x="82" y="356" font-size="13" font-weight="400" fill="#868b94" text-anchor="start">여러 개를 연달아 담고 ‘완료’</text>
+</g><g>
+<rect class="sc s3" style="animation-delay:11.40s" x="32" y="369" width="540" height="48" rx="14" fill="rgba(160, 147, 255, 0.14)"/>
+<circle cx="58" cy="392" r="13" fill="none" stroke="#868b94" stroke-width="1.5"/>
+<text x="58" y="396.5" font-size="13" font-weight="800" fill="#a4a8b0" text-anchor="middle">4</text>
+<g class="sc s3" style="animation-delay:11.40s"><circle cx="58" cy="392" r="13" fill="#a093ff"/><text x="58" y="396.5" font-size="13" font-weight="800" fill="#0e0f11" text-anchor="middle">4</text></g>
+<text x="82" y="390" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">✓ 다시 누르면 빼기</text>
+<text x="82" y="408" font-size="13" font-weight="400" fill="#868b94" text-anchor="start">잘못 담은 종목은 그 자리에서 바로 빼요</text>
+</g>
+<rect x="600" y="20" width="300" height="480" rx="42" fill="#1f2125" stroke="#2a2d33" stroke-width="2"/>
+<rect x="612" y="32" width="276" height="456" rx="32" fill="#0e0f11"/>
+<rect x="720" y="40" width="60" height="7" rx="3.5" fill="#2a2d33"/>
+<clipPath id="screen"><rect x="612" y="32" width="276" height="456" rx="32"/></clipPath>
+<g clip-path="url(#screen)">
+<g class="sc s0" style="animation-delay:0.00s"><text x="628" y="78" font-size="17" font-weight="800" fill="#f2f3f5" text-anchor="start">내 관심</text><text x="703" y="78" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">＋</text><rect x="786" y="66" width="16" height="12" rx="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><path d="M791 66 v-2.5 h6 v2.5 M789 74 l3 -3 2 2 3 -3" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round"/><path d="M824 64 v16 h16 M827 75 l4 -5 3 3 5 -6" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="870" cy="72" r="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><circle cx="870" cy="72" r="7.5" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-dasharray="3.2 2.7"/><path d="M626 145.5 H816" stroke="#2a2d33" stroke-width="1"/><path d="M626 183.0 H816" stroke="#2a2d33" stroke-width="1"/><path d="M626 220.5 H816" stroke="#2a2d33" stroke-width="1"/><path d="M626 193.7 H816" stroke="#868b94" stroke-width="1" stroke-dasharray="2 3"/><path class="draw" style="animation-delay:0.30s" pathLength="1" d="M626.0 193.7 L629.2 193.0 L632.4 195.5 L635.7 190.2 L638.9 186.2 L642.1 188.3 L645.3 185.0 L648.5 180.2 L651.8 178.0 L655.0 173.6 L658.2 171.8 L661.4 166.4 L664.6 166.8 L667.9 168.0 L671.1 168.5 L674.3 164.4 L677.5 163.7 L680.7 160.9 L684.0 162.1 L687.2 156.7 L690.4 156.9 L693.6 154.8 L696.8 151.7 L700.1 152.5 L703.3 146.9 L706.5 144.7 L709.7 147.4 L712.9 141.3 L716.2 136.2 L719.4 137.3 L722.6 135.2 L725.8 137.8 L729.1 134.8 L732.3 129.5 L735.5 126.8 L738.7 128.7 L741.9 131.1 L745.2 133.1 L748.4 127.7 L751.6 125.3 L754.8 123.9 L758.0 124.6 L761.3 122.3 L764.5 124.1 L767.7 126.7 L770.9 123.7 L774.1 123.2 L777.4 121.2 L780.6 122.9 L783.8 121.6 L787.0 118.5 L790.2 114.0 L793.5 114.9 L796.7 114.4 L799.9 113.3 L803.1 108.0 L806.3 110.1 L809.6 112.8 L812.8 111.9 L816.0 111.0" fill="none" stroke="#9085e9" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path class="draw" style="animation-delay:0.30s" pathLength="1" d="M626.0 193.7 L629.2 190.7 L632.4 187.0 L635.7 191.5 L638.9 195.0 L642.1 193.4 L645.3 189.6 L648.5 189.2 L651.8 186.0 L655.0 184.9 L658.2 184.9 L661.4 180.7 L664.6 182.7 L667.9 181.1 L671.1 179.6 L674.3 181.9 L677.5 182.4 L680.7 179.2 L684.0 182.1 L687.2 185.2 L690.4 181.9 L693.6 177.8 L696.8 176.5 L700.1 179.3 L703.3 183.1 L706.5 185.8 L709.7 188.7 L712.9 187.8 L716.2 184.0 L719.4 180.7 L722.6 182.4 L725.8 185.2 L729.1 181.3 L732.3 181.4 L735.5 184.9 L738.7 188.7 L741.9 190.9 L745.2 189.3 L748.4 189.0 L751.6 190.6 L754.8 191.6 L758.0 195.8 L761.3 193.8 L764.5 195.1 L767.7 198.3 L770.9 196.2 L774.1 195.4 L777.4 191.8 L780.6 190.9 L783.8 187.6 L787.0 190.6 L790.2 192.7 L793.5 189.5 L796.7 185.9 L799.9 189.9 L803.1 192.0 L806.3 193.7 L809.6 197.5 L812.8 200.0 L816.0 196.8" fill="none" stroke="#c98500" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path class="draw" style="animation-delay:0.30s" pathLength="1" d="M626.0 193.7 L629.2 190.2 L632.4 186.8 L635.7 190.5 L638.9 192.2 L642.1 197.0 L645.3 196.4 L648.5 192.9 L651.8 189.2 L655.0 192.5 L658.2 194.4 L661.4 190.8 L664.6 193.6 L667.9 196.7 L671.1 196.8 L674.3 197.0 L677.5 193.6 L680.7 197.4 L684.0 199.3 L687.2 197.9 L690.4 196.3 L693.6 198.6 L696.8 200.0 L700.1 204.7 L703.3 209.4 L706.5 206.3 L709.7 204.4 L712.9 207.6 L716.2 210.9 L719.4 211.0 L722.6 212.8 L725.8 209.9 L729.1 213.0 L732.3 212.5 L735.5 215.2 L738.7 218.5 L741.9 214.9 L745.2 217.6 L748.4 222.4 L751.6 227.0 L754.8 225.0 L758.0 228.4 L761.3 226.0 L764.5 229.3 L767.7 228.2 L770.9 231.4 L774.1 236.0 L777.4 235.0 L780.6 235.5 L783.8 237.1 L787.0 241.7 L790.2 245.2 L793.5 247.0 L796.7 245.0 L799.9 243.7 L803.1 248.6 L806.3 253.1 L809.6 254.7 L812.8 253.7 L816.0 258.0" fill="none" stroke="#199e70" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><g class="fade" style="animation-delay:1.50s"><text x="820" y="114.47574108915438" font-size="9.5" font-weight="800" fill="#a4a8b0" text-anchor="start">한미반도체</text><text x="820" y="200.2901901805937" font-size="9.5" font-weight="800" fill="#a4a8b0" text-anchor="start">DB하이텍</text><text x="820" y="261.5" font-size="9.5" font-weight="800" fill="#a4a8b0" text-anchor="start">SK하이닉스</text></g>
+<g class="rise" style="animation-delay:0.30s"><text x="626" y="298" font-size="12" font-weight="700" fill="#a4a8b0" text-anchor="start">등락률 순 · 3/10</text><rect x="774" y="278" width="100" height="32" rx="16" fill="#f2f3f5"/><text x="824" y="299" font-size="12" font-weight="800" fill="#0e0f11" text-anchor="middle">＋ 종목 추가</text></g>
+<g class="rise" style="animation-delay:0.50s"><circle cx="634" cy="342" r="6" fill="#9085e9"/>
+<text x="650" y="340" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start">한미반도체</text>
+<text x="650" y="357" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">042700</text>
+<text x="874" y="340" font-size="13" font-weight="800" fill="#ff5a5f" text-anchor="end">▲ +1.73%</text><text x="874" y="357" font-size="11" font-weight="400" fill="#868b94" text-anchor="end">130,619원</text></g><g class="rise" style="animation-delay:0.60s"><circle cx="634" cy="388" r="6" fill="#c98500"/>
+<text x="650" y="386" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start">DB하이텍</text><rect x="713" y="375" width="27" height="15" rx="4" fill="rgba(160, 147, 255, 0.14)"/><text x="726.5" y="386" font-size="9.5" font-weight="800" fill="#a093ff" text-anchor="middle">NXT</text>
+<text x="650" y="403" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">000990</text>
+<text x="874" y="386" font-size="13" font-weight="800" fill="#4c8dff" text-anchor="end">▼ −0.39%</text><text x="874" y="403" font-size="11" font-weight="400" fill="#868b94" text-anchor="end">40,431원</text></g><g class="rise" style="animation-delay:0.70s"><circle cx="634" cy="434" r="6" fill="#199e70"/>
+<text x="650" y="432" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start">SK하이닉스</text><rect x="726" y="421" width="27" height="15" rx="4" fill="rgba(160, 147, 255, 0.14)"/><text x="739.5" y="432" font-size="9.5" font-weight="800" fill="#a093ff" text-anchor="middle">NXT</text>
+<text x="650" y="449" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">000660</text>
+<text x="874" y="432" font-size="13" font-weight="800" fill="#4c8dff" text-anchor="end">▼ −1.10%</text><text x="874" y="449" font-size="11" font-weight="400" fill="#868b94" text-anchor="end">199,612원</text></g>
+<circle class="tap" style="animation-delay:2.20s" cx="824" cy="294" r="16" fill="#f2f3f5" fill-opacity=".22" stroke="#f2f3f5" stroke-opacity=".5" stroke-width="2"/></g>
+<g class="sc s1" style="animation-delay:3.80s"><text x="628" y="78" font-size="17" font-weight="800" fill="#f2f3f5" text-anchor="start">내 관심</text><text x="703" y="78" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">＋</text><rect x="786" y="66" width="16" height="12" rx="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><path d="M791 66 v-2.5 h6 v2.5 M789 74 l3 -3 2 2 3 -3" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round"/><path d="M824 64 v16 h16 M827 75 l4 -5 3 3 5 -6" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="870" cy="72" r="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><circle cx="870" cy="72" r="7.5" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-dasharray="3.2 2.7"/><rect x="612" y="32" width="276" height="456" rx="32" fill="rgba(0, 0, 0, 0.55)"/>
+<g class="rise" style="animation-delay:3.90s"><path d="M612 128 q0 -22 22 -22 h232 q22 0 22 22 V456 q0 32 -32 32 h-212 q-32 0 -32 -32 Z" fill="#17181b"/>
+<rect x="732" y="114" width="36" height="5" rx="2.5" fill="#2a2d33"/>
+<text x="626" y="146" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">종목 추가</text><text x="874" y="146" font-size="14" font-weight="600" fill="#a4a8b0" text-anchor="end">✕</text>
+<text x="626" y="166" font-size="11.5" font-weight="400" fill="#868b94" text-anchor="start">내 관심 그룹 · 3/10 · 7개 더 추가할 수 있어요</text></g>
+<g class="rise" style="animation-delay:4.10s"><rect x="626" y="182" width="248" height="36" rx="12" fill="#1f2125"/>
+<circle cx="644" cy="199" r="5.5" fill="none" stroke="#868b94" stroke-width="1.6"/><path d="M648 203 l4 4" stroke="#868b94" stroke-width="1.6"/>
+<text x="658" y="205" font-size="13" font-weight="700" fill="#f2f3f5" text-anchor="start">삼성</text></g>
+<g class="rise" style="animation-delay:4.20s"><text x="626" y="240" font-size="11" font-weight="700" fill="#868b94" text-anchor="start">검색 결과 30</text></g>
+<g class="rise" style="animation-delay:4.30s"><text x="626" y="268" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>화재</text><text x="626" y="285" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">000810 · KOSPI</text>
+<rect x="840" y="254" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="276" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:4.40s"><text x="626" y="314" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>제약</text><text x="626" y="331" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">001360 · KOSPI</text>
+<rect x="840" y="300" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="322" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:4.50s"><text x="626" y="360" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>전자</text><text x="626" y="377" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">005930 · KOSPI</text>
+<rect x="840" y="346" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="368" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:4.60s"><text x="626" y="406" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>공조</text><text x="626" y="423" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">006660 · KOSPI</text>
+<rect x="840" y="392" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="414" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:4.70s"><text x="626" y="452" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>전기</text><text x="626" y="469" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">009150 · KOSPI</text>
+<rect x="840" y="438" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="460" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g></g>
+<g class="sc s2" style="animation-delay:7.60s"><text x="628" y="78" font-size="17" font-weight="800" fill="#f2f3f5" text-anchor="start">내 관심</text><text x="703" y="78" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">＋</text><rect x="786" y="66" width="16" height="12" rx="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><path d="M791 66 v-2.5 h6 v2.5 M789 74 l3 -3 2 2 3 -3" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round"/><path d="M824 64 v16 h16 M827 75 l4 -5 3 3 5 -6" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="870" cy="72" r="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><circle cx="870" cy="72" r="7.5" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-dasharray="3.2 2.7"/><rect x="612" y="32" width="276" height="456" rx="32" fill="rgba(0, 0, 0, 0.55)"/>
+<g class="rise" style="animation-delay:7.60s"><path d="M612 128 q0 -22 22 -22 h232 q22 0 22 22 V456 q0 32 -32 32 h-212 q-32 0 -32 -32 Z" fill="#17181b"/>
+<rect x="732" y="114" width="36" height="5" rx="2.5" fill="#2a2d33"/>
+<text x="626" y="146" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">종목 추가</text><text x="874" y="146" font-size="14" font-weight="600" fill="#a4a8b0" text-anchor="end">✕</text>
+<text x="626" y="166" font-size="11.5" font-weight="400" fill="#868b94" text-anchor="start">내 관심 그룹 · 4/10 · 6개 더 추가할 수 있어요</text></g>
+<rect x="626" y="182" width="248" height="36" rx="12" fill="#1f2125"/>
+<circle cx="644" cy="199" r="5.5" fill="none" stroke="#868b94" stroke-width="1.6"/><path d="M648 203 l4 4" stroke="#868b94" stroke-width="1.6"/>
+<text x="658" y="205" font-size="13" font-weight="700" fill="#f2f3f5" text-anchor="start">삼성</text>
+<text x="626" y="240" font-size="11" font-weight="700" fill="#868b94" text-anchor="start">검색 결과 30</text>
+<g class="rise" style="animation-delay:7.60s"><text x="626" y="268" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>화재</text><text x="626" y="285" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">000810 · KOSPI</text>
+<rect x="840" y="254" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="276" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:7.60s"><text x="626" y="314" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>제약</text><text x="626" y="331" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">001360 · KOSPI</text>
+<rect x="840" y="300" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="322" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g>
+<g class="pop" style="animation-delay:8.50s"><g class="rise" style="animation-delay:7.60s"><text x="626" y="360" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>전자</text><text x="626" y="377" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">005930 · KOSPI</text>
+<rect x="840" y="346" width="34" height="34" rx="10" fill="#a093ff"/><text x="857" y="368" font-size="14" font-weight="800" fill="#0e0f11" text-anchor="middle">✓</text></g></g>
+<g class="rise" style="animation-delay:7.60s"><text x="626" y="406" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>공조</text><text x="626" y="423" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">006660 · KOSPI</text>
+<rect x="840" y="392" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="414" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g>
+<g class="rise" style="animation-delay:7.90s"><rect x="612" y="426" width="276" height="62" fill="#17181b"/><text x="626" y="462" font-size="10.5" font-weight="400" fill="#868b94" text-anchor="start">여러 개를 연달아 추가하고, ✓를 누르면 빼요</text><rect x="816" y="442" width="58" height="32" rx="16" fill="#1f2125"/><text x="845" y="462.68" font-size="13" font-weight="700" fill="#f2f3f5" text-anchor="middle">완료</text></g>
+<circle class="tap" style="animation-delay:8.00s" cx="857" cy="363" r="16" fill="#f2f3f5" fill-opacity=".22" stroke="#f2f3f5" stroke-opacity=".5" stroke-width="2"/></g>
+<g class="sc s3" style="animation-delay:11.40s"><text x="628" y="78" font-size="17" font-weight="800" fill="#f2f3f5" text-anchor="start">내 관심</text><text x="703" y="78" font-size="15" font-weight="600" fill="#a4a8b0" text-anchor="start">＋</text><rect x="786" y="66" width="16" height="12" rx="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><path d="M791 66 v-2.5 h6 v2.5 M789 74 l3 -3 2 2 3 -3" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round"/><path d="M824 64 v16 h16 M827 75 l4 -5 3 3 5 -6" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="870" cy="72" r="3" fill="none" stroke="#f2f3f5" stroke-width="1.6"/><circle cx="870" cy="72" r="7.5" fill="none" stroke="#f2f3f5" stroke-width="1.6" stroke-dasharray="3.2 2.7"/><rect x="612" y="32" width="276" height="456" rx="32" fill="rgba(0, 0, 0, 0.55)"/>
+<g class="rise" style="animation-delay:11.40s"><path d="M612 128 q0 -22 22 -22 h232 q22 0 22 22 V456 q0 32 -32 32 h-212 q-32 0 -32 -32 Z" fill="#17181b"/>
+<rect x="732" y="114" width="36" height="5" rx="2.5" fill="#2a2d33"/>
+<text x="626" y="146" font-size="16" font-weight="800" fill="#f2f3f5" text-anchor="start">종목 추가</text><text x="874" y="146" font-size="14" font-weight="600" fill="#a4a8b0" text-anchor="end">✕</text>
+<text x="626" y="166" font-size="11.5" font-weight="400" fill="#868b94" text-anchor="start">내 관심 그룹 · 3/10 · 7개 더 추가할 수 있어요</text></g>
+<rect x="626" y="182" width="248" height="36" rx="12" fill="#1f2125"/>
+<circle cx="644" cy="199" r="5.5" fill="none" stroke="#868b94" stroke-width="1.6"/><path d="M648 203 l4 4" stroke="#868b94" stroke-width="1.6"/>
+<text x="658" y="205" font-size="13" font-weight="700" fill="#f2f3f5" text-anchor="start">삼성</text>
+<text x="626" y="240" font-size="11" font-weight="700" fill="#868b94" text-anchor="start">검색 결과 30</text>
+<g class="rise" style="animation-delay:11.40s"><text x="626" y="268" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>화재</text><text x="626" y="285" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">000810 · KOSPI</text>
+<rect x="840" y="254" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="276" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g><g class="rise" style="animation-delay:11.40s"><text x="626" y="314" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>제약</text><text x="626" y="331" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">001360 · KOSPI</text>
+<rect x="840" y="300" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="322" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g>
+<g class="rise" style="animation-delay:11.40s"><text x="626" y="360" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>전자</text><text x="626" y="377" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">005930 · KOSPI</text>
+<rect x="840" y="346" width="34" height="34" rx="10" fill="#a093ff"/><text x="857" y="368" font-size="14" font-weight="800" fill="#0e0f11" text-anchor="middle">✓</text></g>
+<g class="pop" style="animation-delay:12.40s"><g class="rise" style="animation-delay:11.40s"><text x="626" y="360" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>전자</text><text x="626" y="377" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">005930 · KOSPI</text>
+<rect x="840" y="346" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="368" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g></g>
+<g class="rise" style="animation-delay:11.40s"><text x="626" y="406" font-size="13.5" font-weight="800" fill="#f2f3f5" text-anchor="start"><tspan fill="#a093ff">삼성</tspan>공조</text><text x="626" y="423" font-size="11" font-weight="400" fill="#868b94" text-anchor="start">006660 · KOSPI</text>
+<rect x="840" y="392" width="34" height="34" rx="10" fill="#1f2125"/><text x="857" y="414" font-size="14" font-weight="800" fill="#f2f3f5" text-anchor="middle">＋</text></g>
+<circle class="tap" style="animation-delay:11.90s" cx="857" cy="363" r="16" fill="#f2f3f5" fill-opacity=".22" stroke="#f2f3f5" stroke-opacity=".5" stroke-width="2"/></g></g>
+</svg>
