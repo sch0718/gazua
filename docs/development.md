@@ -52,11 +52,11 @@ corepack pnpm check        # svelte-check 타입 검사
 corepack pnpm test:demo    # 초기 PoC(poc/) 회귀 테스트
 corepack pnpm build        # dist/ 생성 (prebuild가 종목 유니버스를 내려받아요)
 corepack pnpm universe     # 종목 유니버스(public/universe.json)만 다시 받기
-corepack pnpm build:motion # README 소개 그림·도움말 그림과 글(docs/readme·docs/help) 다시 만들기
+corepack pnpm build:motion # 소개 그림·도움말 그림·글·앱 도움말 문구 다시 만들기
 corepack pnpm --filter proxy test
 ```
 
-README 소개 그림과 [도움말](help/README.md)은 `scripts/motion/`이 앱 토큰(`src/lib/ui/tokens.css`)의 색으로 그리는 애니메이션 SVG(라이트·다크)예요. 화면 문구가 바뀌면 `scripts/motion/help-pages.mjs`를 고치고 `build:motion`으로 다시 만들어요. 만든 파일은 직접 고치지 않아요.
+README 소개 그림(`docs/readme/`)과 [도움말](help/README.md) 그림(`public/help/img/`)은 `scripts/motion/`이 앱 토큰(`src/lib/ui/tokens.css`)의 색으로 그리는 애니메이션 SVG(라이트·다크)예요. 도움말 그림은 문서와 앱(`#/help`)이 같은 파일을 쓰고, 앱 도움말 문구(`src/lib/help/content.ts`)도 같은 정의에서 만들어요. 화면 문구가 바뀌면 `scripts/motion/help-pages.mjs`를 고치고 `build:motion`으로 다시 만들어요. 만든 파일은 직접 고치지 않아요.
 
 모든 시각 계산은 KST 고정이라 기기 시간대와 무관해요. 테스트가 `America/New_York`으로 도는 것도 그걸 확인하려는 거예요.
 

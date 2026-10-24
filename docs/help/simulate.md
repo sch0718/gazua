@@ -4,8 +4,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="img/simulate-dark.svg">
-    <img src="img/simulate-light.svg" width="960" alt="매매 규칙 시뮬레이션 사용법: 1. 새 전략 만들기, 2. 매수 규칙 정하기, 3. 매도 규칙 정하고 실행, 4. 결과 보기">
+    <source media="(prefers-color-scheme: dark)" srcset="../../public/help/img/simulate-dark.svg">
+    <img src="../../public/help/img/simulate-light.svg" width="960" alt="매매 규칙 시뮬레이션 사용법: 1. 새 전략 만들기, 2. 매수 규칙 정하기, 3. 매도 규칙 정하고 실행, 4. 결과 보기">
   </picture>
 </p>
 

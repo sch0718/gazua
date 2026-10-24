@@ -7,6 +7,7 @@
     onclose,
     children,
     returnFocus,
+    headerEnd,
   }: {
     open: boolean;
     title: string;
@@ -14,6 +15,8 @@
     children: Snippet;
     /** 닫을 때 열기 전 요소가 문서에서 사라졌으면(예: 지운 행) 대신 포커스할 요소. */
     returnFocus?: () => HTMLElement | null | undefined;
+    /** 제목 줄의 닫기 단추 앞에 둘 것(도움말 단추 등). */
+    headerEnd?: Snippet;
   } = $props();
 
   const titleId = `sheet-title-${Math.random().toString(36).slice(2, 9)}`;
@@ -158,6 +161,7 @@
       </div>
       <header>
         <h3 id={titleId}>{title}</h3>
+        {@render headerEnd?.()}
         <button type="button" class="close" aria-label="닫기" data-sheet-close onclick={onclose}>✕</button>
       </header>
       <div class="body">{@render children()}</div>

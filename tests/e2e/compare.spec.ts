@@ -191,10 +191,10 @@ test('group sheet: delete a group, Tab to 되돌리기, Enter → focus lands on
   await page.getByRole('alertdialog').getByRole('button', { name: '삭제', exact: true }).click();
   await expect(delBtn).toHaveCount(0);
 
-  // 스낵바 5초 안에 닿도록 상한을 좁게 둔다(지운 뒤 포커스는 닫기 버튼 → 컨트롤 몇 개 → 되돌리기).
+  // 스낵바 5초 안에 닿도록 상한을 좁게 둔다(지운 뒤 포커스는 닫기 버튼 → 컨트롤 몇 개(제목 줄의 도움말 단추 포함) → 되돌리기).
   const undo = page.getByRole('button', { name: '되돌리기' });
   await expect(undo).toBeVisible();
-  await tabUntil(page, undo, 10);
+  await tabUntil(page, undo, 12);
   await page.keyboard.press('Enter');
   await expect(sheet.getByRole('button', { name: '새 그룹 2 삭제' })).toBeFocused();
 });

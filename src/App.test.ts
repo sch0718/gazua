@@ -12,6 +12,8 @@ beforeEach(() => {
   );
   localStorage.setItem('gazua:v1:p:p1:settings', JSON.stringify({ onboarded: true }));
   localStorage.setItem('gazua:v1:p:p1:watchlists', JSON.stringify({ groups: [{ id: 'g1', name: '내 관심', items: [] }] }));
+  // 메뉴 처음 안내는 아래 'help' 시험에서만 본다.
+  localStorage.setItem('gazua:help-seen:v1', JSON.stringify(['compare', 'simulate', 'criteria', 'performance']));
   location.hash = '#/compare/g1';
 });
 afterEach(() => localStorage.clear());
@@ -75,3 +77,23 @@ describe('route notice', () => {
     expect(location.hash).toBe('#/simulate');
   });
 });
+
+describe('help', () => {
+  it('the ? in the app bar opens the help for the current screen', async () => {
+    render(App);
+    const bar = () => document.querySelector('header.bar') as HTMLElement;
+    await fireEvent.click(await within(await waitFor(bar)).findByRole('button', { name: '비교 차트 도움말' }));
+    expect(location.hash).toBe('#/help/compare');
+    await screen.findByRole('heading', { level: 1, name: '비교 차트' });
+  });
+
+  it('shows the compare intro once on the first visit', async () => {
+    localStorage.removeItem('gazua:help-seen:v1');
+    render(App);
+    const intro = await screen.findByRole('dialog', { name: '비교 차트' });
+    await fireEvent.click(within(intro).getByRole('button', { name: '시작하기' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '비교 차트' })).toBeNull());
+    expect(JSON.parse(localStorage.getItem('gazua:help-seen:v1')!)).toEqual(['compare']);
+  });
+});
+

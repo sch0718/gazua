@@ -29,6 +29,7 @@ import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
 import { assertBasketsWritable, loadBaskets, type Basket } from '../screen/baskets';
 import { exportData, importData, type ImportResult } from './exportImport';
+import { HELP_PAGES } from '../help/content';
 import { hashFor, parseHash, type Route } from './routes';
 import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
@@ -380,6 +381,12 @@ export function createApp(deps: AppDeps): App {
       return { name: 'simulate' };
     }
     if (r.name === 'settings' && r.section) return { name: 'settings', section: r.section };
+    if (r.name === 'help') {
+      if (!r.helpId) return { name: 'help' };
+      if (HELP_PAGES.some((p) => p.id === r.helpId)) return { name: 'help', helpId: r.helpId };
+      routeNotice = '도움말을 찾을 수 없어요';
+      return { name: 'help' };
+    }
     if (r.name !== 'compare') return { name: r.name };
     const ids = watchlists.groups.map((g) => g.id);
     if (r.groupId && ids.includes(r.groupId)) return { name: 'compare', groupId: r.groupId };

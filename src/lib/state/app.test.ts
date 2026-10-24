@@ -1351,6 +1351,23 @@ describe('simulate route', () => {
   });
 });
 
+describe('help route', () => {
+  it('keeps the help page id, and an unknown page becomes the help list with a notice', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    const app = make(backing);
+    app.navigate({ name: 'help', helpId: 'performance' });
+    expect(app.route).toEqual({ name: 'help', helpId: 'performance' });
+    expect(location.hash).toBe('#/help/performance');
+    fireHash('#/help/nope');
+    expect(app.route).toEqual({ name: 'help' });
+    expect(location.hash).toBe('#/help');
+    expect(app.routeNotice).toBe('도움말을 찾을 수 없어요');
+  });
+});
+
 describe('order cache (내 성과)', () => {
   const entry = { orders: [], syncedAt: 1, syncedThrough: '2026-10-01' };
   function makeWith(backing: Storage | null) {

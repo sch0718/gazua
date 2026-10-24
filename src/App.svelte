@@ -9,7 +9,11 @@
   import SnackbarHost from './lib/ui/components/SnackbarHost.svelte';
   import { dismissSnackbar } from './lib/ui/components/snackbarStore.svelte';
   import StatusChip from './lib/ui/StatusChip.svelte';
+  import { helpIdForRoute } from './lib/help/routing';
+  import HelpButton from './lib/ui/help/HelpButton.svelte';
+  import HelpIntro from './lib/ui/help/HelpIntro.svelte';
   import Compare from './routes/Compare.svelte';
+  import Help from './routes/Help.svelte';
   import Onboarding from './routes/Onboarding.svelte';
   import Performance from './routes/Performance.svelte';
   import ProfilePicker from './routes/ProfilePicker.svelte';
@@ -98,6 +102,8 @@
     <Simulate {app} {barEnd} />
   {:else if route.name === 'performance'}
     <Performance {app} {barEnd} />
+  {:else if route.name === 'help'}
+    <Help {app} {barEnd} />
   {:else}
     <Settings {app} {barEnd} />
   {/if}
@@ -108,6 +114,8 @@
   {#if !compact}
     <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
   {/if}
+  {@const helpId = helpIdForRoute(route)}
+  {#if helpId}<HelpButton {app} page={helpId} narrowHide={route.name === 'compare'} />{/if}
   <button
     type="button"
     class="icon-btn"
@@ -145,6 +153,7 @@
   </button>
 {/snippet}
 
+<HelpIntro {app} />
 <SnackbarHost />
 
 <style>

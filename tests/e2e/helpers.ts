@@ -8,8 +8,15 @@ export const WIDE_MIN_WIDTH = 1024;
 
 export const isWide = (page: Page): boolean => (page.viewportSize()?.width ?? 0) >= WIDE_MIN_WIDTH;
 
-/** 시계를 고정하고 빈 저장소로 앱을 연다. 앱은 첫 실행이므로 온보딩이 뜬다. */
-export async function openApp(page: Page): Promise<void> {
+/** 메뉴 처음 안내를 이미 본 것으로 둔다(안내 자체는 help.spec에서 본다). */
+const HELP_SEEN = JSON.stringify(['compare', 'add', 'groups', 'simulate', 'criteria', 'performance', 'settings']);
+
+/**
+ * 시계를 고정하고 빈 저장소로 앱을 연다. 앱은 첫 실행이므로 온보딩이 뜬다.
+ * 메뉴 처음 안내는 기본으로 본 것으로 둔다. `{ intro: true }`면 안내가 뜬다.
+ */
+export async function openApp(page: Page, { intro = false }: { intro?: boolean } = {}): Promise<void> {
+  if (!intro) await page.addInitScript((seen) => localStorage.setItem('gazua:help-seen:v1', seen), HELP_SEEN);
   // setFixedTime은 타이머를 멈추지 않는다(시각만 고정).
   await page.clock.setFixedTime(new Date(FIXED_NOW));
   await page.goto('./');

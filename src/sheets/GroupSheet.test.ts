@@ -177,3 +177,15 @@ describe('GroupSheet', () => {
     });
   });
 });
+
+describe('GroupSheet help', () => {
+  it('the ? button closes the sheet and opens the 그룹 관리 help', async () => {
+    const app = makeTestApp({ groups: TWO, now: NOW });
+    apps.push(app);
+    const onclose = vi.fn();
+    render(GroupSheet, { open: true, app, onclose });
+    await fireEvent.click(screen.getByRole('button', { name: '그룹 관리 도움말' }));
+    expect(onclose).toHaveBeenCalled();
+    expect(app.route).toEqual({ name: 'help', helpId: 'groups' });
+  });
+});

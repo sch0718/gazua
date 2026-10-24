@@ -29,6 +29,15 @@ describe('pwaOptions', () => {
     expect(wb.globPatterns).toEqual(['**/*.{html,js,css,svg,png,webmanifest}']);
   });
 
+  it('keeps help pictures out of the precache and caches them when first viewed', () => {
+    expect(wb.globIgnores).toContain('help/**');
+    const rule = (wb.runtimeCaching ?? []).find((r) => (r.options as { cacheName?: string } | undefined)?.cacheName === 'gazua-help');
+    const match = rule!.urlPattern as (ctx: { url: URL; sameOrigin: boolean }) => boolean;
+    expect(match({ url: new URL('https://gazua.sch0718.dev/help/img/compare-dark.svg'), sameOrigin: true })).toBe(true);
+    expect(match({ url: new URL('https://gazua.sch0718.dev/assets/index.js'), sameOrigin: true })).toBe(false);
+    expect(rule!.handler).toBe('StaleWhileRevalidate');
+  });
+
   it('never caches API or proxy requests at runtime', () => {
     for (const rule of wb.runtimeCaching ?? []) {
       const match = rule.urlPattern as (ctx: { url: URL; sameOrigin: boolean }) => boolean;
