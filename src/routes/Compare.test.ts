@@ -482,6 +482,26 @@ describe('Compare sheets', () => {
       await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     });
 
+    // Codex 리뷰(PR #36) 1: 다른 모달(메뉴 처음 안내 등)이 열려 있으면 단축키로 시트를 겹쳐 열지 않는다.
+    it('shortcuts do nothing while another modal dialog (the menu intro) is open', async () => {
+      const app = await loaded();
+      const other = document.createElement('div');
+      other.setAttribute('role', 'dialog');
+      other.setAttribute('aria-modal', 'true');
+      document.body.append(other);
+      await key('/');
+      await key('m');
+      await key('?');
+      await key(']');
+      expect(screen.queryByRole('dialog', { name: '종목 추가' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: '비교 지표' })).toBeNull();
+      expect(screen.queryByRole('dialog', { name: '단축키' })).toBeNull();
+      expect(app.settings.period).toEqual({ unit: 'D', n: 1 });
+      other.remove();
+      await key('/');
+      expect(screen.getByRole('dialog', { name: '종목 추가' })).toBeTruthy();
+    });
+
     it('[ and ] step the period and stop at the ends', async () => {
       const app = await loaded();
       expect(app.settings.period).toEqual({ unit: 'D', n: 1 });

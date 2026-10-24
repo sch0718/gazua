@@ -1,11 +1,12 @@
 <script lang="ts">
   // 도움말: 메뉴 목록(#/help)과 메뉴별 도움말(#/help/:id). 문구와 그림은 build:motion이 만든 것을 그대로 쓴다.
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { HELP_PAGES } from '../lib/help/content';
   import type { App } from '../lib/state/app.svelte';
   import HelpFigure from '../lib/ui/help/HelpFigure.svelte';
   import HelpText from '../lib/ui/help/HelpText.svelte';
+  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
 
@@ -22,10 +23,23 @@
 
   const open = (id?: string) => app.navigate(id ? { name: 'help', helpId: id } : { name: 'help' });
 
-  // 이전·다음으로 메뉴를 바꾸면 새 메뉴는 맨 위부터 보인다.
+  // 이전·다음으로 메뉴를 바꾸면 새 메뉴는 맨 위부터 보인다. PC(≥1024)에서는 문서가 아니라 .main이 스크롤 칸이다.
+  let root = $state<HTMLElement>();
   $effect(() => {
     void helpId;
     if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+    for (let n = root?.parentElement; n; n = n.parentElement) {
+      const { overflowY } = getComputedStyle(n);
+      if (overflowY === 'auto' || overflowY === 'scroll') n.scrollTop = 0;
+    }
+  });
+
+  // 없는 도움말 주소를 목록으로 바로잡았다는 안내는 여기서 한 번만 보여 준다(다른 화면으로 넘기지 않는다).
+  $effect(() => {
+    const notice = app.routeNotice;
+    if (!notice) return;
+    app.clearRouteNotice();
+    void tick().then(() => showSnackbar(notice));
   });
 </script>
 
@@ -45,7 +59,7 @@
   {/snippet}
 
   {#snippet main()}
-    <div class="help">
+    <div class="help" bind:this={root}>
       {#if page}
         <h1>{page.title}</h1>
         <HelpFigure {page} theme={app.settings.theme} />

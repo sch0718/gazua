@@ -332,9 +332,11 @@
 
   // ── 단축키 ─────────────────────────────────────────────
   // 시트가 열려 있으면 시트가 키를 쓴다(Esc·Tab). 단축키는 닫혀 있을 때만 동작한다.
+  // 이 화면 밖의 모달(메뉴 처음 안내 등)이 열려 있어도 쉰다. 모달 위에 시트를 겹쳐 열지 않게.
+  const modalOpen = () => document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]') !== null;
   function whenClosed(run: () => void) {
     return () => {
-      if (openSheet === null) run();
+      if (openSheet === null && !modalOpen()) run();
     };
   }
   onMount(() =>
@@ -354,9 +356,7 @@
         }
         saveGroup(toggleHidden(group, selected));
       }),
-      help: () => {
-        if (openSheet === null) openSheet = 'help';
-      },
+      help: whenClosed(() => (openSheet = 'help')),
     }),
   );
 
