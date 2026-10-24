@@ -7,6 +7,8 @@ import { createTokenManager } from './auth';
 import { ApiError } from './errors';
 import type { ProxyClient } from './http';
 import type {
+  AccountOrder,
+  AccountSource,
   CandleQuery,
   GroupImportSource,
   ImportSector,
@@ -43,6 +45,8 @@ export const TOSS_QUEUE_RATES = {
   ACCOUNT: 1,
   ASSET: 1,
   SECTOR: 1,
+  // 내 성과의 주문 목록. 한도 수치가 공개되지 않아(live-check ㉗) 계좌 그룹과 같이 낮게 잡는다.
+  ORDER_HISTORY: 1,
 } as const;
 
 type Group = keyof typeof TOSS_QUEUE_RATES;
@@ -61,6 +65,11 @@ const CALENDAR_MAX_HOPS = 500;
 const MINUTE_MS = 60_000;
 const END_OF_DAY = 'T23:59:59+09:00';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** 주문 목록 한 페이지(명세 최대값)와 페이지 한도(2만 건) */
+const ORDER_PAGE_SIZE = '100';
+const ORDER_MAX_PAGES = 200;
+/** 원주문과 별도로 생기는 레코드라 체결을 두 번 셀 수 있다(스펙 2.3, live-check ㉗). */
+const DUPLICATE_ORDER_STATUSES = new Set(['CANCEL_REJECTED', 'REPLACE_REJECTED']);
 
 type Row = Record<string, unknown>;
 
@@ -164,6 +173,36 @@ function mapCalendarDay(date: string, day: Row): TradingDay {
   if (regularStart !== undefined) times.regularStart = regularStart;
   if (afterEnd !== undefined) times.afterEnd = afterEnd;
   return { date, isOpen: true, integrated: times };
+}
+
+/** 종료 주문 한 행 → AccountOrder. 체결이 없거나 두 번 셀 수 있는 레코드, 모양이 틀린 행은 null. */
+function mapOrder(row: Row): AccountOrder | null {
+  const exec = isRecord(row.execution) ? row.execution : {};
+  const side = row.side;
+  const status = text(row.status);
+  const quantity = toNumber(exec.filledQuantity);
+  if ((side !== 'BUY' && side !== 'SELL') || DUPLICATE_ORDER_STATUSES.has(status)) return null;
+  if (quantity === undefined || quantity <= 0 || text(row.orderId) === '' || text(row.symbol) === '') return null;
+  const avg = toNumber(exec.averageFilledPrice);
+  const filled = toNumber(exec.filledAmount);
+  const price = avg ?? (filled !== undefined ? filled / quantity : undefined);
+  const amount = filled ?? (avg !== undefined ? avg * quantity : undefined);
+  if (price === undefined || amount === undefined || !(price > 0) || !(amount > 0)) return null;
+  const filledAt = text(exec.filledAt);
+  return {
+    orderId: text(row.orderId),
+    symbol: text(row.symbol),
+    side,
+    status,
+    currency: text(row.currency),
+    orderedAt: text(row.orderedAt),
+    filledAt: filledAt === '' ? null : filledAt,
+    quantity,
+    price,
+    amount,
+    commission: toNumber(exec.commission) ?? 0,
+    tax: toNumber(exec.tax) ?? 0,
+  };
 }
 
 /** `/oauth2/token` 응답 → 토큰(만료 = 받은 시각 + expires_in초). 모양이 틀리면 null. */
@@ -359,24 +398,80 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     }
   }
 
+  /** 종합매매(BROKERAGE) 계좌의 accountSeq. 지금은 종합매매만 오지만, 다른 유형이 섞여 와도 종합매매를 고른다. 없으면 첫 계좌. */
+  async function brokerageSeq(): Promise<string> {
+    const accounts = await api({ group: 'ACCOUNT', path: '/api/v1/accounts', query: {}, priority: 0 });
+    const rows = Array.isArray(accounts) ? accounts.filter(isRecord) : [];
+    const account = rows.find((a) => a.accountType === 'BROKERAGE') ?? rows[0];
+    const seq = account ? text(account.accountSeq) : '';
+    if (seq === '') throw upstream('Toss has no brokerage account');
+    return seq;
+  }
+
+  async function holdingItems(): Promise<Row[]> {
+    const seq = await brokerageSeq();
+    const result = await api({
+      group: 'ASSET',
+      path: '/api/v1/holdings',
+      query: {},
+      priority: 0,
+      headers: { 'x-tossinvest-account': seq },
+    });
+    return isRecord(result) && Array.isArray(result.items) ? result.items.filter(isRecord) : [];
+  }
+
+  const account: AccountSource = {
+    accountId: brokerageSeq,
+
+    async closedOrders(opts = {}) {
+      const seq = await brokerageSeq();
+      const out: AccountOrder[] = [];
+      const seen = new Set<string>();
+      let cursor: string | null = null;
+      let rows = 0;
+      for (let page = 0; page < ORDER_MAX_PAGES; page++) {
+        const query: Record<string, string> = { status: 'CLOSED', limit: ORDER_PAGE_SIZE };
+        if (opts.from) query.from = opts.from;
+        if (opts.to) query.to = opts.to;
+        if (cursor !== null) query.cursor = cursor;
+        const result = await api({
+          group: 'ORDER_HISTORY',
+          path: '/api/v1/orders',
+          query,
+          priority: 0,
+          headers: { 'x-tossinvest-account': seq },
+        });
+        if (!isRecord(result) || !Array.isArray(result.orders)) throw upstream('Toss order result has no orders');
+        for (const raw of result.orders) {
+          rows++;
+          const o = isRecord(raw) ? mapOrder(raw) : null;
+          if (o) out.push(o);
+        }
+        opts.onPage?.(rows);
+        const next = typeof result.nextCursor === 'string' && result.nextCursor !== '' ? result.nextCursor : null;
+        if (result.hasNext !== true || next === null) return out;
+        // 같은 커서가 다시 오면 끝없이 돈다.
+        if (seen.has(next)) throw upstream('Toss order pages repeat a cursor');
+        seen.add(next);
+        cursor = next;
+      }
+      throw upstream('Toss order history needed too many pages');
+    },
+
+    async holdings() {
+      return (await holdingItems()).flatMap((r) => {
+        const quantity = toNumber(r.quantity);
+        if (r.marketCountry !== 'KR' || text(r.symbol) === '' || quantity === undefined) return [];
+        return [{ symbol: text(r.symbol), name: text(r.name) || text(r.symbol), quantity }];
+      });
+    },
+  };
+
   const importStock = (row: Row): ImportStock => ({ symbol: text(row.symbol), name: text(row.name) || text(row.symbol) });
 
   const groupImport: GroupImportSource = {
     async holdings() {
-      const accounts = await api({ group: 'ACCOUNT', path: '/api/v1/accounts', query: {}, priority: 0 });
-      const rows = Array.isArray(accounts) ? accounts.filter(isRecord) : [];
-      // 지금은 종합매매(BROKERAGE)만 오지만, 다른 유형이 섞여 와도 종합매매를 고른다.
-      const account = rows.find((a) => a.accountType === 'BROKERAGE') ?? rows[0];
-      const seq = account ? text(account.accountSeq) : '';
-      if (seq === '') throw upstream('Toss has no brokerage account');
-      const result = await api({
-        group: 'ASSET',
-        path: '/api/v1/holdings',
-        query: {},
-        priority: 0,
-        headers: { 'x-tossinvest-account': seq },
-      });
-      const items = isRecord(result) && Array.isArray(result.items) ? result.items.filter(isRecord) : [];
+      const items = await holdingItems();
       const value = (r: Row) => (isRecord(r.marketValue) ? (toNumber(r.marketValue.amount) ?? -1) : -1);
       return items
         .filter((r) => r.marketCountry === 'KR' && text(r.symbol) !== '')
@@ -421,6 +516,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   const provider: MarketDataProvider = {
     id: 'toss',
     groupImport,
+    account,
     getAccessToken: () => tokens.info(),
 
     capabilities: {
@@ -465,8 +561,8 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     async getCandles(q: CandleQuery) {
       requireUnified(q.venue);
       const query: CandlePlan['query'] = { symbol: tossSymbol(q.symbol), interval: q.interval };
-      // 기본값도 true지만 수정주가 적용을 계약으로 고정한다.
-      if (q.interval === '1d') query.adjusted = 'true';
+      // 기본값도 true지만 수정주가 적용을 계약으로 고정한다. 내 성과는 분할 배율을 구하려고 원주가(false)도 받는다.
+      if (q.interval === '1d') query.adjusted = q.adjusted === false ? 'false' : 'true';
       return candles({ group: 'MARKET_DATA_CHART', path: '/api/v1/candles', query }, q.from, q.to, q.priority ?? 1);
     },
 

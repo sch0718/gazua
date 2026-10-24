@@ -474,7 +474,8 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
             FID_COND_MRKT_DIV_CODE: MARKET_DIV[q.venue],
             FID_INPUT_ISCD: q.symbol,
             FID_PERIOD_DIV_CODE: 'D',
-            FID_ORG_ADJ_PRC: '0',
+            // 0 수정주가, 1 원주가(내 성과의 분할 배율용)
+            FID_ORG_ADJ_PRC: q.adjusted === false ? '1' : '0',
           },
           mapRow: mapDailyRow,
         },

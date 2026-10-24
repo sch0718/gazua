@@ -5,7 +5,8 @@ import type { UniverseItem } from '../data/universe';
 import { sessionsForDay, type TradingDay } from '../market/sessions';
 import { tradableIntervals, type TradableMeta, type Venue } from '../market/tradable';
 import { addDays, kstDate, kstEpoch, kstWeekday } from '../time/kst';
-import type { CandleQuery, MarketDataProvider, Quote, StockMeta } from './types';
+import { sellTaxPct } from '../sim/tax';
+import type { AccountOrder, AccountSource, CandleQuery, MarketDataProvider, Quote, StockMeta } from './types';
 
 const MINUTE = 60_000;
 const HOLIDAYS = new Set(['2026-09-24', '2026-09-25', '2026-10-09']);
@@ -32,6 +33,30 @@ function marketOf(listed?: UniverseItem): StockMeta['market'] {
 }
 
 const INDEX_BASE = { KOSPI: 2_650, KOSDAQ: 850 } as const;
+
+/** 데모 계좌의 첫 주문 가능일. 그 뒤 거래일 축의 비율 위치(at)에 주문을 둔다. */
+const ACCOUNT_FROM = '2025-02-03';
+/** 데모 계좌 주문 계획: 종목, 방향, 수량, 거래일 축에서의 위치(0~1) */
+const ACCOUNT_PLAN: ReadonlyArray<{ symbol: string; side: 'BUY' | 'SELL'; qty: number; at: number }> = [
+  { symbol: '005930', side: 'BUY', qty: 10, at: 0.02 },
+  { symbol: '000660', side: 'BUY', qty: 3, at: 0.05 },
+  { symbol: '042700', side: 'BUY', qty: 8, at: 0.1 },
+  { symbol: '000990', side: 'BUY', qty: 20, at: 0.15 },
+  { symbol: '005930', side: 'BUY', qty: 5, at: 0.3 },
+  { symbol: '000660', side: 'SELL', qty: 3, at: 0.4 },
+  { symbol: '042700', side: 'BUY', qty: 4, at: 0.45 },
+  { symbol: '000990', side: 'SELL', qty: 8, at: 0.5 },
+  { symbol: '005930', side: 'SELL', qty: 6, at: 0.55 },
+  { symbol: '042700', side: 'SELL', qty: 5, at: 0.65 },
+  { symbol: '000660', side: 'BUY', qty: 2, at: 0.7 },
+  { symbol: '005930', side: 'BUY', qty: 4, at: 0.8 },
+  { symbol: '000990', side: 'BUY', qty: 10, at: 0.85 },
+  { symbol: '000990', side: 'SELL', qty: 4, at: 0.92 },
+];
+/** 보유 수량을 일부러 1주 어긋나게 둘 종목(입고한 주식이 있는 것처럼). 수량 대조 화면을 데모에서 보이려고. */
+const ACCOUNT_EXTRA_HOLDING = '042700';
+/** 토스 국내 주식 수수료율(0.015%) */
+const ACCOUNT_FEE_RATE = 0.00015;
 
 /** 32비트 FNV-1a */
 function hashString(s: string): number {
@@ -292,8 +317,81 @@ export function createDemoProvider(opts: {
     return { symbol, venue, price: prev ? dayClose(inst, prev, venue) : roundTo(inst, inst.base), ts: null };
   }
 
+  // ── 데모 계좌 (내 성과) ─────────────────────────────────────
+  /** 오늘 전까지의 계획된 주문. 가격은 그날 KRX 종가 근처, 해외 주문 하나를 섞는다(계산에서 빠지는지 보이려고). */
+  function accountOrders(): AccountOrder[] {
+    const today = kstDate(now());
+    const days: string[] = [];
+    for (let d = ACCOUNT_FROM; d < today; d = addDays(d, 1)) if (isOpenDay(d)) days.push(d);
+    if (days.length < ACCOUNT_PLAN.length) return [];
+    const orders = ACCOUNT_PLAN.map((p, i): AccountOrder => {
+      const date = days[Math.min(days.length - 1, Math.floor(p.at * days.length))];
+      const inst = stockInstrument(p.symbol);
+      const jitter = 1 + (rngFor('account', i, date)() - 0.5) * 0.01;
+      const price = roundTo(inst, krxClose(inst, date) * jitter);
+      const amount = price * p.qty;
+      const known = KNOWN[p.symbol];
+      const tax = p.side === 'SELL' ? Math.floor((amount * sellTaxPct(date, known.market, known.securityType === 'ETF')) / 100) : 0;
+      const minute = String(10 + (i % 40)).padStart(2, '0');
+      return {
+        orderId: `demo-${i + 1}`,
+        symbol: p.symbol,
+        side: p.side,
+        status: 'FILLED',
+        currency: 'KRW',
+        orderedAt: `${date}T10:${minute}:00+09:00`,
+        filledAt: `${date}T10:${minute}:30+09:00`,
+        quantity: p.qty,
+        price,
+        amount,
+        commission: Math.floor(amount * ACCOUNT_FEE_RATE),
+        tax,
+      };
+    });
+    const usDate = days[Math.floor(days.length * 0.6)];
+    orders.push({
+      orderId: 'demo-us-1',
+      symbol: 'AAPL',
+      side: 'BUY',
+      status: 'FILLED',
+      currency: 'USD',
+      orderedAt: `${usDate}T23:40:00+09:00`,
+      filledAt: `${usDate}T23:40:10+09:00`,
+      quantity: 2,
+      price: 180,
+      amount: 360,
+      commission: 0.36,
+      tax: 0,
+    });
+    return orders.sort((a, b) => a.orderedAt.localeCompare(b.orderedAt));
+  }
+
+  const account: AccountSource = {
+    async accountId() {
+      return 'demo';
+    },
+    async closedOrders(o = {}) {
+      const rows = accountOrders().filter((r) => {
+        const d = r.orderedAt.slice(0, 10);
+        return (!o.from || d >= o.from) && (!o.to || d <= o.to);
+      });
+      o.onPage?.(rows.length);
+      return rows;
+    },
+    async holdings() {
+      const qty = new Map<string, number>();
+      for (const r of accountOrders()) {
+        if (r.currency !== 'KRW') continue;
+        qty.set(r.symbol, (qty.get(r.symbol) ?? 0) + (r.side === 'BUY' ? r.quantity : -r.quantity));
+      }
+      if (qty.has(ACCOUNT_EXTRA_HOLDING)) qty.set(ACCOUNT_EXTRA_HOLDING, qty.get(ACCOUNT_EXTRA_HOLDING)! + 1);
+      return [...qty].filter(([, q]) => q > 0).map(([symbol, quantity]) => ({ symbol, name: KNOWN[symbol]?.name ?? symbol, quantity }));
+    },
+  };
+
   return {
     id: 'demo',
+    account,
     capabilities: {
       venues: ['KRX', 'NXT', 'UNIFIED'],
       quoteBatchSize: 200,

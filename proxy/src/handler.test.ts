@@ -145,17 +145,29 @@ describe('allowlist', () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  // 관심그룹 가져오기를 위해 계좌 목록·보유 주식 조회(GET)만 연다. 주문·매수가능금액·주문 조회는 계속 막는다.
+  // 관심그룹 가져오기를 위해 계좌 목록·보유 주식 조회(GET)를, 내 성과를 위해 주문 목록 조회(GET)만 연다.
+  // 주문 생성·정정·취소, 주문 상세, 조건주문, 매수가능금액·매도가능수량·수수료는 계속 막는다.
   it('keeps every other toss account and order path blocked', async () => {
     const f = fakeFetch();
     const cases: Array<[string, string]> = [
       ['POST', '/toss/api/v1/orders'],
-      ['GET', '/toss/api/v1/orders'],
+      ['PUT', '/toss/api/v1/orders'],
+      ['PATCH', '/toss/api/v1/orders'],
+      ['DELETE', '/toss/api/v1/orders'],
+      ['GET', '/toss/api/v1/orders/'],
       ['GET', '/toss/api/v1/orders/1'],
+      ['POST', '/toss/api/v1/orders/1'],
+      ['GET', '/toss/api/v1/orders/1/modify'],
+      ['POST', '/toss/api/v1/orders/1/modify'],
+      ['GET', '/toss/api/v1/orders/1/cancel'],
       ['POST', '/toss/api/v1/orders/1/cancel'],
       ['GET', '/toss/api/v1/conditional-orders'],
+      ['POST', '/toss/api/v1/conditional-orders'],
+      ['GET', '/toss/api/v1/conditional-orders/1'],
+      ['POST', '/toss/api/v1/conditional-orders/1/modify'],
       ['GET', '/toss/api/v1/buying-power'],
       ['GET', '/toss/api/v1/sellable-quantity'],
+      ['GET', '/toss/api/v1/commissions'],
       ['POST', '/toss/api/v1/holdings'],
       ['POST', '/toss/api/v1/accounts'],
       ['GET', '/toss/api/v1/holdings/1'],
@@ -190,7 +202,8 @@ describe('allowlist', () => {
       ['GET', '/toss/api/v1/prices/extra'],
       ['GET', '/toss/api/v1/market-indicators/NASDAQ/candles'],
       ['GET', '/kis/uapi/domestic-stock/v1/quotations/inquire-balance'],
-      ['GET', '/toss/api/v1/prices/../orders'],
+      ['GET', '/toss/api/v1/prices/../buying-power'],
+      ['POST', '/toss/api/v1/prices/../orders'],
       ['GET', '/toss'],
       ['GET', '/'],
     ];
@@ -230,6 +243,7 @@ describe('allowlist', () => {
       ['GET', '/toss/api/v1/market-indicators/KOSDAQ/candles'],
       ['GET', '/toss/api/v1/accounts'],
       ['GET', '/toss/api/v1/holdings'],
+      ['GET', '/toss/api/v1/orders'],
       ['GET', '/toss/api/v1/sectors'],
       ['GET', '/toss/api/v1/sectors/100/stocks'],
       ['GET', '/toss/api/v1/sectors/ab_C-9/stocks'],

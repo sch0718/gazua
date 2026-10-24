@@ -1,0 +1,332 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { Candle } from '../../data/metrics';
+import { createMemoryOrderCache } from '../../perf/orderCache';
+import { buildTimeline, splitFactors } from '../../perf/portfolio';
+import { viewOf } from '../../perf/view';
+import { createDemoProvider } from '../../providers/demo';
+import { ApiError } from '../../providers/errors';
+import type { AccountOrder, CandleQuery, MarketDataProvider } from '../../providers/types';
+import { kstDate, kstEpoch } from '../../time/kst';
+import { createPerfController, type PerfState } from './perfController.svelte';
+
+const NOW = kstEpoch('2026-10-16', '10:00:00');
+
+function setup(over: (base: MarketDataProvider) => Partial<MarketDataProvider> = () => ({})) {
+  const base = createDemoProvider({ seed: 1, now: () => NOW });
+  const calls: string[] = [];
+  const provider: MarketDataProvider = {
+    ...base,
+    getCandles: async (q) => {
+      calls.push(q.symbol);
+      return base.getCandles(q);
+    },
+    getIndexCandles: async (...a) => {
+      calls.push(`INDEX:${a[0]}`);
+      return base.getIndexCandles!(...a);
+    },
+    ...over(base),
+  };
+  const orderCache = createMemoryOrderCache();
+  const app = { provider, orderCache, profileId: 'p1' };
+  const ctl = createPerfController(app, { now: () => NOW });
+  return { ctl, calls, orderCache, app };
+}
+
+const done = async (ctl: { readonly state: PerfState }) => {
+  await vi.waitFor(() => expect(['done', 'error', 'empty', 'unsupported']).toContain(ctl.state.kind));
+  return ctl.state;
+};
+
+const bar = (date: string, c: number, h = c, l = c): Candle => ({ t: kstEpoch(date, '00:00:00'), o: c, h, l, c, v: 1 });
+const fill = (id: string, date: string, side: 'BUY' | 'SELL', quantity: number, price: number): AccountOrder => ({
+  orderId: id, symbol: '005930', side, quantity, price, amount: quantity * price, commission: 0, tax: 0,
+  currency: 'KRW', status: 'FILLED', orderedAt: `${date}T09:00:00+09:00`, filledAt: `${date}T09:00:00+09:00`,
+});
+
+function priceScenario(orders: AccountOrder[], adjusted: Candle[], raw: Candle[]) {
+  const requests: CandleQuery[] = [];
+  const { ctl } = setup((base) => ({
+    id: 'toss',
+    account: { ...base.account!, closedOrders: async () => orders, holdings: async () => [] },
+    getCandles: async (q) => {
+      requests.push(q);
+      return (q.adjusted === false ? raw : adjusted).filter((c) => kstDate(c.t) >= q.from && kstDate(c.t) <= q.to);
+    },
+  }));
+  return { ctl, requests };
+}
+
+describe('perfController', () => {
+  it('is unsupported without an account source', async () => {
+    const { ctl } = setup(() => ({ account: undefined }));
+    ctl.load('AUTO');
+    expect((await done(ctl)).kind).toBe('unsupported');
+  });
+
+  it('loads orders, then prices (each stock and the two indexes for auto), and reconciles holdings', async () => {
+    const { ctl, calls } = setup();
+    const seen: string[] = [];
+    ctl.load('AUTO');
+    seen.push(ctl.state.kind === 'loading' ? ctl.state.stage : ctl.state.kind);
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(seen).toEqual(['orders']);
+    expect(s.data.demo).toBe(true);
+    expect(s.data.trades).toHaveLength(14);
+    expect(s.data.foreign).toBe(1);
+    expect([...s.data.stocks.keys()].sort()).toEqual(['000660', '000990', '005930', '042700']);
+    expect([...s.data.series.keys()].sort()).toEqual(['KOSDAQ', 'KOSPI']);
+    expect(calls.filter((c) => c.startsWith('INDEX:')).sort()).toEqual(['INDEX:KOSDAQ', 'INDEX:KOSPI']);
+    expect(s.data.reconcile.mismatches).toBe(1);
+    expect(s.data.reconcile.bySymbol.get('042700')?.status).toBe('more');
+    expect(s.data.syncedAt).toBe(NOW);
+  });
+
+  it('fetches an ETF only when it is chosen, once', async () => {
+    const { ctl, calls } = setup();
+    ctl.load('AUTO');
+    await done(ctl);
+    expect(calls).not.toContain('069500');
+    ctl.useBench('069500');
+    await vi.waitFor(() => expect(ctl.state.kind === 'done' && ctl.state.data.series.has('069500')).toBe(true));
+    ctl.useBench('KOSPI');
+    ctl.useBench('069500');
+    expect(calls.filter((c) => c === '069500')).toHaveLength(1);
+  });
+
+  it('marks a benchmark it could not fetch as failed and keeps going', async () => {
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        if (q.symbol === '229200') throw new ApiError('timeout');
+        return base.getCandles(q);
+      },
+    }));
+    ctl.load('229200');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.failedBench).toEqual(['229200']);
+    expect(s.data.series.has('229200')).toBe(false);
+  });
+
+  it('keeps stocks whose prices failed out of the series and names them', async () => {
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        if (q.symbol === '000990') throw new ApiError('timeout');
+        return base.getCandles(q);
+      },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.stocks.has('000990')).toBe(false);
+    expect(s.data.names.get('000990')).toBe('DB하이텍');
+  });
+
+  it('uses the order cache for a real account but not for the demo', async () => {
+    const real = setup((base) => ({ id: 'toss', account: base.account }));
+    real.ctl.load('AUTO');
+    await done(real.ctl);
+    expect(await real.orderCache.get('p1|toss|demo')).toMatchObject({ syncedAt: NOW });
+    const demo = setup();
+    demo.ctl.load('AUTO');
+    await done(demo.ctl);
+    expect(await demo.orderCache.get('p1|demo|demo')).toBeUndefined();
+  });
+
+  it('shows a connection error from the order list', async () => {
+    const { ctl } = setup((base) => ({
+      account: { ...base.account!, closedOrders: async () => Promise.reject(new ApiError('path-blocked', undefined, { status: 403 })) },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    expect(s.kind).toBe('error');
+    if (s.kind === 'error') expect((s.error as ApiError).code).toBe('path-blocked');
+  });
+
+  it('is empty without domestic fills, counting foreign ones', async () => {
+    const { ctl } = setup((base) => ({
+      account: {
+        ...base.account!,
+        closedOrders: async () => (await base.account!.closedOrders()).filter((o) => o.currency !== 'KRW'),
+      },
+    }));
+    ctl.load('AUTO');
+    expect(await done(ctl)).toEqual({ kind: 'empty', foreign: 1 });
+  });
+
+  it('cannot reconcile when holdings fail, but still computes', async () => {
+    const { ctl } = setup((base) => ({
+      account: { ...base.account!, holdings: async () => Promise.reject(new ApiError('timeout')) },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.reconcile.bySymbol.get('005930')?.status).toBe('unknown');
+  });
+
+  it('ignores a load that was cancelled', async () => {
+    const { ctl } = setup();
+    ctl.load('AUTO');
+    ctl.cancel();
+    expect(ctl.state.kind).toBe('idle');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ctl.state.kind).toBe('idle');
+  });
+
+  // PR 리뷰: 화면을 떠난(취소한) 뒤 늦게 끝난 주문 응답이 계좌 내역을 다시 저장하면 안 된다
+  it('does not save orders that arrive after the load was cancelled', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const { ctl, orderCache } = setup((base) => ({
+      id: 'toss',
+      account: {
+        ...base.account!,
+        closedOrders: async (o) => {
+          await gate;
+          return base.account!.closedOrders(o);
+        },
+      },
+    }));
+    ctl.load('AUTO');
+    await vi.waitFor(() => expect(ctl.state.kind).toBe('loading'));
+    ctl.cancel();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ctl.state.kind).toBe('idle');
+    expect(await orderCache.get('p1|toss|demo')).toBeUndefined();
+  });
+
+  // PR 리뷰: 계좌 식별을 기다리는 사이 다른 탭에서 지우면, 그 뒤에 받은 캐시(새 세대)로 저장해서는 안 된다
+  it('takes the order cache before asking for the account, not after', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let resolved = false;
+    const base = createDemoProvider({ seed: 1, now: () => NOW });
+    const provider: MarketDataProvider = {
+      ...base,
+      id: 'toss',
+      account: {
+        ...base.account!,
+        accountId: async () => {
+          await gate;
+          resolved = true;
+          return base.account!.accountId();
+        },
+      },
+    };
+    const cache = createMemoryOrderCache();
+    const takenAt: boolean[] = [];
+    const app = {
+      provider,
+      get orderCache() {
+        takenAt.push(resolved);
+        return cache;
+      },
+      profileId: 'p1',
+    };
+    const ctl = createPerfController(app, { now: () => NOW });
+    ctl.load('AUTO');
+    release();
+    await done(ctl);
+    expect(takenAt).toEqual([false]);
+  });
+
+  it('fetches raw daily bars for every symbol with historical fills', async () => {
+    const calls: string[] = [];
+    // 005930은 모든 거래 뒤에 2:1 분할이 있었던 것처럼: 수정 일봉은 원주가의 절반
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        calls.push(`${q.symbol}:${q.adjusted === false ? 'raw' : 'adj'}`);
+        const bars = await base.getCandles(q);
+        if (q.symbol !== '005930' || q.adjusted === false) return bars;
+        return bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 }));
+      },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(calls.filter((c) => c.endsWith(':raw')).sort()).toEqual(['000660:raw', '000990:raw', '005930:raw', '042700:raw']);
+    expect(s.data.stocks.get('005930')?.raw?.length).toBeGreaterThan(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    const buy = s.data.trades.find((t) => t.symbol === '005930')!;
+    expect(splitFactors(s.data.trades, s.data.stocks).get(buy.orderId)).toBe(2);
+  });
+
+  it('names symbols whose split factor had to be estimated because raw bars failed', async () => {
+    const { ctl } = setup((base) => ({
+      getCandles: async (q) => {
+        if (q.adjusted === false) throw new ApiError('timeout');
+        const bars = await base.getCandles(q);
+        if (q.symbol !== '005930') return bars;
+        return bars.map((c) => ({ ...c, o: c.o / 2, h: c.h / 2, l: c.l / 2, c: c.c / 2 }));
+      },
+    }));
+    ctl.load('AUTO');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.estimatedSplits.sort()).toEqual(['000660', '000990', '005930', '042700']);
+  });
+
+  it('preserves a 10% bonus issue even when every fill fits the adjusted intraday range', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 105), fill('sell', '2026-03-03', 'SELL', 11, 100)],
+      [bar('2026-03-02', 100, 105, 95), bar('2026-03-03', 100)],
+      [bar('2026-03-02', 110, 115.5, 104.5), bar('2026-03-03', 100)],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 1100, excessQty: 0 });
+    expect(viewOf(tl, 0, 1).actual.profit).toBe(50);
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.filter((q) => q.adjusted === false)).toHaveLength(1);
+  });
+
+  it('discloses missing historical raw dates in a nonempty response', async () => {
+    const { ctl } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 400), fill('sell', '2026-03-03', 'SELL', 10, 500)],
+      [bar('2026-03-02', 100, 102, 98), bar('2026-03-03', 125, 130, 100)],
+      [bar('2026-03-02', 400, 408, 392)],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    expect(s.data.estimatedSplits).toEqual(['005930']);
+    const factors = splitFactors(s.data.trades, s.data.stocks);
+    expect([factors.get('buy'), factors.get('sell')]).toEqual([4, 5]);
+  });
+
+  it('keeps today in current share units and fetches raw bars only through yesterday', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-03-02', 'BUY', 10, 100), fill('sell', '2026-10-16', 'SELL', 20, 100)],
+      [bar('2026-03-02', 50), bar('2026-10-16', 100)],
+      [bar('2026-03-02', 100), { ...bar('2026-10-16', 105), o: 100, l: 100 }],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(tl.tracks[0].events[1]).toMatchObject({ actual: 2000, excessQty: 0 });
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.find((q) => q.adjusted === false)?.to).toBe('2026-10-15');
+  });
+
+  it('does not request or estimate historical prices for current-day-only fills', async () => {
+    const { ctl, requests } = priceScenario(
+      [fill('buy', '2026-10-16', 'BUY', 1, 90), fill('sell', '2026-10-16', 'SELL', 1, 100)],
+      [bar('2026-10-16', 100)],
+      [],
+    );
+    ctl.load('KOSPI');
+    const s = await done(ctl);
+    if (s.kind !== 'done') throw new Error(s.kind);
+    const tl = buildTimeline(s.data.trades, s.data.stocks, () => null);
+    expect(viewOf(tl, 0, 0).actual.profit).toBe(10);
+    expect(s.data.reconcile.mismatches).toBe(0);
+    expect(s.data.estimatedSplits).toEqual([]);
+    expect(requests.filter((q) => q.adjusted === false)).toEqual([]);
+  });
+});

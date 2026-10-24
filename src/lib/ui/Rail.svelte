@@ -34,7 +34,16 @@
   {@render children?.()}
   <button
     type="button"
-    class="ritem sim-item"
+    class="ritem bottom-item"
+    class:on={route.name === 'performance'}
+    aria-current={route.name === 'performance' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'performance' })}
+  >
+    내 성과
+  </button>
+  <button
+    type="button"
+    class="ritem"
     class:on={route.name === 'simulate'}
     aria-current={route.name === 'simulate' ? 'page' : undefined}
     onclick={() => app.navigate({ name: 'simulate' })}
@@ -107,7 +116,8 @@
     padding: 14px 10px 4px;
     letter-spacing: 0.04em;
   }
-  .sim-item {
+  /* 아래 묶음(내 성과 · 시뮬레이션 · 설정)의 첫 항목 */
+  .bottom-item {
     margin-top: auto;
   }
 </style>

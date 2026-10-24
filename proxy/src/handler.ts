@@ -9,7 +9,7 @@ export interface ProxyEnv {
 
 const ALLOW_HEADERS = 'authorization, appkey, appsecret, tr_id, tr_cont, custtype, content-type, x-proxy-token, x-tossinvest-account';
 const EXPOSE_HEADERS = 'retry-after, x-ratelimit-remaining, tr_cont';
-// x-tossinvest-account: 토스 보유 주식 조회에 쓰는 계좌 식별 키(accountSeq).
+// x-tossinvest-account: 토스 보유 주식·주문 목록 조회에 쓰는 계좌 식별 키(accountSeq).
 const FORWARD_REQUEST_HEADERS = ['authorization', 'content-type', 'appkey', 'appsecret', 'tr_id', 'tr_cont', 'custtype', 'x-tossinvest-account'];
 const RETURN_RESPONSE_HEADERS = ['content-type', 'retry-after', 'x-ratelimit-remaining', 'tr_cont'];
 

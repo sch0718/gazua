@@ -7,6 +7,7 @@ import { newCriteria } from '../screen/defaults';
 import { newBasket } from '../screen/baskets';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
+import { createMemoryOrderCache } from '../perf/orderCache';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
@@ -1347,5 +1348,102 @@ describe('simulate route', () => {
     expect(app.routeNotice).toBe('전략을 찾을 수 없어요');
     app.clearRouteNotice();
     expect(app.routeNotice).toBeNull();
+  });
+});
+
+describe('order cache (내 성과)', () => {
+  const entry = { orders: [], syncedAt: 1, syncedThrough: '2026-10-01' };
+  function makeWith(backing: Storage | null) {
+    const stored = createMemoryOrderCache();
+    const app = createApp({ storage: createSafeStorage(backing), now, orderCache: stored });
+    apps.push(app);
+    return { app, stored };
+  }
+
+  it('uses the stored cache without a key lock, and a tab-only cache with one', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app, stored } = makeWith(backing);
+    await app.orderCache.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toEqual(entry);
+    await app.setSecrets(SECRETS, 'correct horse');
+    await app.orderCache.put('p1|toss|4', entry);
+    expect(await app.orderCache.get('p1|toss|4')).toEqual(entry);
+    expect(await stored.get('p1|toss|4')).toBeUndefined();
+  });
+
+  it('turning the key lock on, clearing keys, and deleting a profile remove that profile’s orders', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    const { app, stored } = makeWith(backing);
+    await stored.put('p1|toss|3', entry);
+    await stored.put('p2|toss|3', entry);
+    app.deleteProfile('p2');
+    await vi.waitFor(async () => expect(await stored.get('p2|toss|3')).toBeUndefined());
+    expect(await stored.get('p1|toss|3')).toEqual(entry);
+    await app.setSecrets(SECRETS, 'correct horse');
+    await vi.waitFor(async () => expect(await stored.get('p1|toss|3')).toBeUndefined());
+    await stored.put('p1|toss|3', entry);
+    app.clearSecrets();
+    await vi.waitFor(async () => expect(await stored.get('p1|toss|3')).toBeUndefined());
+  });
+
+  it('remembers the performance benchmark and rejects unknown values', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app } = makeWith(backing);
+    expect(app.settings.perfBenchmark).toBeNull();
+    app.updateSettings({ perfBenchmark: '069500' });
+    expect(make(backing).settings.perfBenchmark).toBe('069500');
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, perfBenchmark: 'NASDAQ' });
+    expect(make(backing).settings.perfBenchmark).toBeNull();
+  });
+
+  // PR 리뷰: 키를 지우거나 잠금을 켠 뒤에는, 그 전에 시작한 주문 받기가 끝나도 다시 저장하지 않는다
+  it('a cache handed out before the keys were cleared or locked no longer saves', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const { app, stored } = makeWith(backing);
+    await app.setSecrets(SECRETS);
+    const before = app.orderCache;
+    app.clearSecrets();
+    await before.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+
+    const again = app.orderCache;
+    await app.setSecrets(SECRETS, 'correct horse');
+    await again.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+    // 새로 받은 캐시(잠금 중이라 탭 메모리)는 그대로 쓴다
+    await app.orderCache.put('p1|toss|3', entry);
+    expect(await app.orderCache.get('p1|toss|3')).toEqual(entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+  });
+
+  // PR 리뷰: 다른 탭에서 키를 지우거나(storage 이벤트) 캐시를 비워도(BroadcastChannel) 이 탭의 진행 중인 받기가 다시 저장하지 않는다
+  it('keys cleared in another tab stop this tab from saving', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:secrets', SECRETS);
+    const { app, stored } = makeWith(backing);
+    const inFlight = app.orderCache;
+    backing.removeItem('gazua:v1:p:p1:secrets');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:secrets', oldValue: JSON.stringify(SECRETS), newValue: null }));
+    await inFlight.put('p1|toss|3', entry);
+    expect(await stored.get('p1|toss|3')).toBeUndefined();
+  });
+
+  it('orders forgotten in another tab stop this tab from saving', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const a = makeWith(backing);
+    const b = createApp({ storage: createSafeStorage(backing), now, orderCache: a.stored });
+    apps.push(b);
+    const inFlight = b.orderCache;
+    await a.app.orderCache.removeProfile('p1');
+    // 채널 메시지는 비동기로 닿는다
+    await new Promise((r) => setTimeout(r, 30));
+    await inFlight.put('p1|toss|3', entry);
+    expect(await a.stored.get('p1|toss|3')).toBeUndefined();
   });
 });

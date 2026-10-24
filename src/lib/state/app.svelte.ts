@@ -1,5 +1,6 @@
 // 앱 전체 상태: 프로필·설정·관심종목·키·공급자·데이터 캐시·화면 경로·배너를 한곳에 묶는다.
 import { createCandleCache, type CandleCache } from '../data/candleCache';
+import { createMemoryOrderCache, createOrderCache, type OrderCache } from '../perf/orderCache';
 import {
   createDailyMemo,
   createSeriesSnapshots,
@@ -69,6 +70,11 @@ export interface App {
   readonly banners: AppBanner[];
   /** 공급자·프로필·키가 바뀌면 memo·snapshots를 새로 만든다. cache는 키에 공급자가 있어 유지한다. */
   readonly data: AppData;
+  /**
+   * 내 성과의 주문 캐시. 키 잠금이 켜져 있으면 이 탭의 메모리 캐시(탭을 닫으면 사라진다), 아니면 IndexedDB.
+   * 키 잠금을 켤 때, 키를 지울 때, 프로필을 지울 때 그 프로필의 항목을 지운다(스펙 4.2).
+   */
+  readonly orderCache: OrderCache;
   /** keyLock은 평문 키가 저장돼 있으면 켤 수 없고, 암호화된 키가 있으면 끌 수 없다(Error). */
   updateSettings(p: Partial<Settings>): void;
   setWatchlists(w: Watchlists): void;
@@ -125,6 +131,8 @@ export interface AppDeps {
   location?: Pick<Location, 'hash'>;
   /** 기본값은 IndexedDB `gazua-cache`. */
   cache?: CandleCache;
+  /** 기본값은 IndexedDB `gazua-account`. */
+  orderCache?: OrderCache;
 }
 
 /**
@@ -186,6 +194,26 @@ export function createApp(deps: AppDeps): App {
   const loc = deps.location ?? globalThis.location;
   const win = typeof window === 'undefined' ? undefined : window;
   const cache = deps.cache ?? createCandleCache('gazua-cache', now);
+  const storedOrders = deps.orderCache ?? createOrderCache('gazua-account');
+  // 키 잠금 중에는 주문 내역을 기기에 남기지 않는다.
+  const sessionOrders = createMemoryOrderCache();
+  // 지울 때마다 올린다. 그 전에 내준 캐시는 더 이상 쓰지 않는다(진행 중이던 주문 받기가 끝나도 다시 저장하지 않게).
+  // 다른 탭이 지워도 올린다: 키 항목의 storage 이벤트(onStorage)와, IndexedDB만 지우는 캐시 비우기를 알리는 채널.
+  let orderEpoch = 0;
+  const orderChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('gazua-account') : null;
+  orderChannel?.addEventListener('message', () => {
+    orderEpoch++;
+  });
+  const invalidateOrders = () => {
+    orderEpoch++;
+    orderChannel?.postMessage('forget');
+  };
+  /** 이 프로필의 주문 캐시를 지운다(저장된 것과 메모리 모두). 실패해도 다른 작업을 막지 않는다. */
+  const forgetOrders = (id: string) => {
+    invalidateOrders();
+    void storedOrders.removeProfile(id).catch(() => {});
+    void sessionOrders.removeProfile(id).catch(() => {});
+  };
   void cache.evict(CACHE_MAX_BYTES).catch(() => {});
 
   // 잠금 모드의 토큰. 키 `${profileId}:${provider}`.
@@ -425,6 +453,8 @@ export function createApp(deps: AppDeps): App {
     const id = activeId();
     // 이 프로필의 키 항목 자체가 바뀐 경우에만 반응한다(다른 설정 쓰기·clear()는 잠금 상태를 바꾸지 않는다).
     if (e.key !== STORAGE_PREFIX + profileKeys.secrets(id)) return;
+    // 다른 탭이 키를 바꾸거나 지웠다: 진행 중이던 주문 받기가 지운 내역을 다시 저장하지 않게 한다
+    orderEpoch++;
     const raw = storage.readBacking<unknown>(profileKeys.secrets(id), null);
     if (isLocked(raw)) {
       if (locked !== null && JSON.stringify(locked) === JSON.stringify(raw)) return;
@@ -495,6 +525,20 @@ export function createApp(deps: AppDeps): App {
     get data() {
       return data;
     },
+    get orderCache(): OrderCache {
+      const target = lockMode() ? sessionOrders : storedOrders;
+      const epoch = orderEpoch;
+      return {
+        get: (k) => target.get(k),
+        // 내준 뒤 주문 내역을 지웠으면(키 삭제·잠금·프로필 삭제·캐시 비우기) 저장하지 않는다
+        put: (k, v) => (epoch === orderEpoch ? target.put(k, v) : Promise.resolve()),
+        // 캐시 비우기: 지우고 세대를 올려, 진행 중이던 받기가 다시 저장하지 못하게 한다
+        removeProfile: (id) => {
+          invalidateOrders();
+          return Promise.all([storedOrders.removeProfile(id), sessionOrders.removeProfile(id)]).then(() => {});
+        },
+      };
+    },
     get banners() {
       void storageTick;
       const out: AppBanner[] = [];
@@ -535,7 +579,10 @@ export function createApp(deps: AppDeps): App {
         storage.clearProxyCleared(profileKeys.settings(activeId()));
         storageTick++;
       }
-      if (p.keyLock === true) forgetTokens(activeId());
+      if (p.keyLock === true) {
+        forgetTokens(activeId());
+        forgetOrders(activeId());
+      }
       if (
         prev.provider !== settings.provider ||
         prev.proxyUrl !== settings.proxyUrl ||
@@ -602,6 +649,7 @@ export function createApp(deps: AppDeps): App {
       meta = { ...meta, profiles: rest };
       write(META_KEY, meta);
       forgetTokens(id);
+      forgetOrders(id);
       remove(profileKeys.settings(id));
       remove(profileKeys.watchlists(id));
       remove(profileKeys.secrets(id));
@@ -671,6 +719,7 @@ export function createApp(deps: AppDeps): App {
         // 암호화하는 동안 프로필이 바뀌었으면 아무것도 저장하지 않았다고 알린다(성공으로 보이지 않게).
         if (activeId() !== id) throw new Error('profile changed while locking: nothing was saved');
         forgetTokens(id);
+        forgetOrders(id);
         undeletedSealed = null;
         locked = sealed;
         unlockUnsaved = false;
@@ -747,6 +796,8 @@ export function createApp(deps: AppDeps): App {
       if (!locked) return;
       secrets = null;
       memoryTokens.clear();
+      invalidateOrders();
+      void sessionOrders.removeProfile(activeId()).catch(() => {});
       rebuild();
       route = { name: 'unlock' };
     },
@@ -757,6 +808,7 @@ export function createApp(deps: AppDeps): App {
       const before = storage.readBacking<unknown>(key, null);
       const removed = remove(key);
       forgetTokens(id);
+      forgetOrders(id);
       locked = null;
       unlockUnsaved = false;
       secrets = null;
@@ -776,6 +828,7 @@ export function createApp(deps: AppDeps): App {
     destroy() {
       win?.removeEventListener('hashchange', onHashChange);
       win?.removeEventListener('storage', onStorage);
+      orderChannel?.close();
     },
   };
 }

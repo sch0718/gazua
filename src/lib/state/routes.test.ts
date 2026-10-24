@@ -49,3 +49,12 @@ describe('criteria routes', () => {
   });
 });
 
+
+describe('performance route', () => {
+  it('parses and builds #/performance', () => {
+    expect(parseHash('#/performance')).toEqual({ name: 'performance' });
+    expect(parseHash('#/performance/')).toEqual({ name: 'performance' });
+    expect(parseHash('#/performance/x')).toBeNull();
+    expect(hashFor({ name: 'performance' })).toBe('#/performance');
+  });
+});

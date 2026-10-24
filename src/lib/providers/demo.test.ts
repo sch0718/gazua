@@ -271,3 +271,55 @@ describe('demo provider', () => {
     }
   });
 });
+
+describe('demo account', () => {
+  const NOW = kstEpoch('2026-10-16', '10:00:00');
+
+  it('is deterministic and places every order before today, after 2025-02', async () => {
+    const a = await make(NOW).account!.closedOrders();
+    const b = await make(NOW).account!.closedOrders();
+    expect(a).toEqual(b);
+    expect(a.length).toBe(15);
+    for (const o of a) {
+      expect(o.orderedAt.slice(0, 10) >= '2025-02-03').toBe(true);
+      expect(o.orderedAt.slice(0, 10) < '2026-10-16').toBe(true);
+    }
+    // 해외 주문이 하나 섞여 있다(계산에서 빠지는지 보이려고)
+    expect(a.filter((o) => o.currency !== 'KRW').map((o) => o.symbol)).toEqual(['AAPL']);
+  });
+
+  it('fills near the day close of the demo daily bar, with fees and sell tax', async () => {
+    const p = make(NOW);
+    const orders = (await p.account!.closedOrders()).filter((o) => o.currency === 'KRW');
+    for (const o of orders) {
+      const date = o.orderedAt.slice(0, 10);
+      const [bar] = await p.getCandles({ symbol: o.symbol, venue: 'KRX', interval: '1d', from: date, to: date });
+      expect(Math.abs(o.price / bar.c - 1)).toBeLessThan(0.006);
+      expect(o.amount).toBe(o.price * o.quantity);
+      expect(o.commission).toBe(Math.floor(o.amount * 0.00015));
+      if (o.side === 'BUY') expect(o.tax).toBe(0);
+      else expect(o.tax).toBeGreaterThan(0);
+    }
+  });
+
+  it('filters by order date and reports rows', async () => {
+    const all = await make(NOW).account!.closedOrders();
+    const pages: number[] = [];
+    const from = all[3].orderedAt.slice(0, 10);
+    const some = await make(NOW).account!.closedOrders({ from, onPage: (n) => pages.push(n) });
+    expect(some.every((o) => o.orderedAt.slice(0, 10) >= from)).toBe(true);
+    expect(pages).toEqual([some.length]);
+  });
+
+  it('holds what the orders add up to, except one symbol that is one share off', async () => {
+    const p = make(NOW);
+    const holdings = await p.account!.holdings();
+    expect(holdings).toEqual([
+      { symbol: '005930', name: '삼성전자', quantity: 13 },
+      { symbol: '000660', name: 'SK하이닉스', quantity: 2 },
+      { symbol: '042700', name: '한미반도체', quantity: 8 },
+      { symbol: '000990', name: 'DB하이텍', quantity: 18 },
+    ]);
+    expect(await p.account!.accountId()).toBe('demo');
+  });
+});

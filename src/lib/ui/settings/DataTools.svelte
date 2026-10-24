@@ -1,5 +1,5 @@
 <script lang="ts">
-  // 데이터(스펙 7.4): 관심종목 JSON 내보내기·가져오기(키 제외가 기본), 캐시 사용량·비우기.
+  // 데이터(스펙 7.4): 관심종목 JSON 내보내기·가져오기(키 제외가 기본), 캐시 사용량·비우기(봉 캐시와 이 프로필의 주문 내역).
   import { onMount } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { exportFileName } from '../../state/exportImport';
@@ -166,7 +166,8 @@
     if (clearing) return;
     clearing = true;
     try {
-      await app.data.cache.clear();
+      // 봉 캐시와 함께 이 프로필의 주문 내역(내 성과)도 지운다. 다음에 열면 처음부터 받는다
+      await Promise.all([app.data.cache.clear(), app.orderCache.removeProfile(app.meta.activeProfileId)]);
       showSnackbar('캐시를 비웠어요');
     } catch {
       showSnackbar('캐시를 비우지 못했어요');

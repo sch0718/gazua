@@ -720,6 +720,12 @@ describe('toss provider: daily candles', () => {
     });
   });
 
+  it('sends adjusted=false when unadjusted (raw) prices are asked for', async () => {
+    const { provider, client } = setup();
+    await provider.getCandles({ ...dailyQuery('2026-10-06', '2026-10-08'), adjusted: false });
+    expect(candleCalls(client)[0].query).toMatchObject({ interval: '1d', adjusted: 'false' });
+  });
+
   it('stamps t at KST midnight and returns only [from, to], ascending', async () => {
     const { provider } = setup();
     const candles = await provider.getCandles(dailyQuery('2026-09-29', '2026-10-06'));
