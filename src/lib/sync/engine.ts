@@ -398,16 +398,24 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       }, debounceMs);
     },
     async profileDeleted(id) {
+      // 지운 뜻은 진행 중인 동기화(네트워크 대기)를 기다리지 않고 바로 남긴다. 그 사이 탭을 닫아도 다시 열면 지우기를 이어 간다.
+      const intent: OutboxOp = { opId: uuid(), profileId: id, kind: 'delete', createdAt: now() };
+      const before = await store.state(id);
+      const sentBefore = (await store.ops()).some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined);
+      if ((before && before.syncedRevision > 0 && !before.deleted) || sentBefore) await store.putOp(intent);
       await serial(async () => {
         const st = await store.state(id);
         const ops = await store.ops();
         // 보냈지만 응답을 못 받은 첫 업로드는 서버에 만들어졌을 수 있다. 그 작업은 남겨(같은 opId로 다시 보내 리비전을 확인) 뒤에 지우기를 이어 붙인다.
         const sentPut = ops.some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined);
-        for (const o of ops) if (o.profileId === id && (o.sentAt === undefined || !sentPut)) await store.deleteOp(o.opId);
+        const keep = (o: OutboxOp) => o.opId === intent.opId || (sentPut && o.kind === 'put' && o.sentAt !== undefined);
+        for (const o of ops) if (o.profileId === id && !keep(o)) await store.deleteOp(o.opId);
         await store.deleteConflict(id);
+        const hasIntent = ops.some((o) => o.opId === intent.opId);
         if ((st && st.syncedRevision > 0 && !st.deleted) || sentPut) {
-          await store.putOp({ opId: uuid(), profileId: id, kind: 'delete', createdAt: now() });
+          if (!hasIntent) await store.putOp(intent);
         } else {
+          if (hasIntent) await store.deleteOp(intent.opId);
           await store.deleteState(id);
         }
         await refresh();

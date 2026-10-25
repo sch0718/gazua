@@ -358,6 +358,27 @@ describe('1단계 완료 기준', () => {
     expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('A');
   });
 
+  // Codex 리뷰(PR #39) 6차: 동기화가 응답을 기다리는 동안 지우고 바로 닫아도, 다시 열면 지운 프로필이 되살아나지 않는다.
+  it('동기화 대기 중에 지우고 닫아도 다시 열면 되살아나지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const storage = createSafeStorage(memoryBacking());
+    const a = await enabled(s, { store, storage });
+    const extra = a.app.addProfile('지우고 닫음');
+    await a.engine.flush();
+    a.api.listProfiles = () => new Promise(() => {}); // 응답이 오지 않는 받기(그 사이 탭을 닫는다)
+    void a.engine.syncNow();
+    await new Promise((r) => setTimeout(r, 0));
+    a.app.deleteProfile(extra.id);
+    await new Promise((r) => setTimeout(r, 0));
+    a.engine.destroy();
+    const again = await device(s, { store, storage });
+    await again.engine.syncNow();
+    expect(again.app.meta.profiles.some((p) => p.id === extra.id)).toBe(false);
+    const list = await again.api.listProfiles();
+    expect(list.ok && list.data.profiles.find((r) => r.profileId === extra.id)?.deletedAt).not.toBeNull();
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();
