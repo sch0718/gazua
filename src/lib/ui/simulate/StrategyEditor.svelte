@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { mergeDraft } from '../draftMerge';
   // 전략 편집(스펙 7.3): 접힌 7개 구역 + 맨 아래 실행 버튼. 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다.
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { UniverseItem } from '../../data/universe';
@@ -56,6 +57,8 @@
   // 작업본: 편집은 여기에 바로 반영하고, 저장은 디바운스한다. 편집기는 전략마다 새로 만들어진다.
   const profile = untrack(() => app.meta.activeProfileId);
   let draft = $state<Strategy>(untrack(() => $state.snapshot(strategy) as Strategy));
+  // 작업본의 기준(마지막으로 불러오거나 저장한 저장본). 바깥에서 strategy가 바뀌면 이것과 비교해 작업본에 합친다.
+  let baseline: Strategy = untrack(() => $state.snapshot(strategy) as Strategy);
   let nameText = $state(untrack(() => strategy.name));
   // 이름 칸 오류: 비우면 보이고, 저장된 이름은 그대로 둔다(맞는 이름을 적을 때까지)
   let nameError = $state('');
@@ -75,6 +78,7 @@
     // 프로필이 바뀌었거나 전략이 지워졌으면 다른 곳을 건드리지 않는다.
     if (app.meta.activeProfileId !== profile || !app.strategies.some((s) => s.id === draft.id)) return;
     const next = { ...($state.snapshot(draft) as Strategy), updatedAt: Date.now() };
+    baseline = next;
     app.setStrategies(app.strategies.map((s) => (s.id === next.id ? next : s)));
   }
 
@@ -88,6 +92,19 @@
   $effect(() => {
     const snap = $state.snapshot(draft) as Strategy;
     untrack(() => ondraft?.(snap));
+  });
+
+  // 편집기가 열린 채 바깥(원격 동기화 적용·다른 탭)에서 이 저장본이 바뀌면 작업본에 합친다.
+  // 그대로 두면 다음 저장이 오래된 작업본 전체를 써서 바깥 변경을 조용히 되돌린다. 아직 저장 전인 내 수정은 지킨다.
+  $effect(() => {
+    const incoming = $state.snapshot(strategy) as Strategy;
+    untrack(() => {
+      if (JSON.stringify(incoming) === JSON.stringify(baseline)) return;
+      const mine = $state.snapshot(draft) as Strategy;
+      draft = mergeDraft(baseline, mine, incoming);
+      baseline = incoming;
+      if (!dirty) nameText = draft.name;
+    });
   });
 
   onDestroy(flush);
