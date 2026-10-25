@@ -4,7 +4,7 @@
 
 - GitHub Pages와 브라우저 저장을 유지하면서, **별도 Cloudflare Worker + D1에 작은 개인 데이터와 공유 스냅샷만 저장**하는 안을 추천해요.
 - 처음에는 프로필·그룹·전략·선정 기준·바구니를 동기화하고, 증권사 키·프록시 토큰·주문 캐시는 제외해요.
-- 개인 동기화는 Cloudflare Access + Google 로그인으로 보호하고, 공유는 만료·철회가 가능한 읽기 전용 링크로 나눠요.
+- 개인 동기화는 Firebase Auth(Spark)의 Google 로그인 → `Authorization: Bearer` ID 토큰 → Worker 검증 → D1 자체 세션·사용자 매핑으로 보호해요. Firebase는 인증에만 쓰고 Firestore는 쓰지 않아요. 공유는 만료·철회가 가능한 읽기 전용 링크로 나눠요.
 - DB는 D1을 쓰고 R2는 쓰지 않아요. 시장 파일은 기기마다 수동 가져오기를 유지하고, 본인 기기 간 자동 전달은 선택 기능인 Google Drive `appDataFolder`로 붙여요. 무료 저장 공간·API 한도 안에서 결제 등록 없이 비공개로 보관해요. 대규모 정기 계산은 다음 단계로 미뤄요.
 - DB만 붙이면 오프라인 충돌·보안·백업이 해결되지는 않아요. 버전 비교, 충돌 사본, 공유 전용 형식과 복구 경로를 함께 만들어요.
 
@@ -107,6 +107,8 @@
 
 R2는 비교 자료로만 남기며 **추천안에서는 쓰지 않아요(사용자 결정, 2026-10-25)**.
 
+**같은 Cloudflare 계정의 앱은 할당량을 함께 써요.** 다른 앱인 랜드마크도 같은 계정의 Workers·D1을 쓰면 Workers 하루 100,000요청, D1 하루 읽기 500만 행·쓰기 10만 행, D1 계정 합계 5 GB·DB 10개, Cron 5개를 함께 써요. 기존 증권사 프록시 Worker도 같은 계정의 Workers 할당량을 쓰므로 앱별 요청·DB 사용량·Cron 예산을 나눠 둬요([Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [D1 limits](https://developers.cloudflare.com/d1/platform/limits/), 2026-10-25 확인).
+
 Workers·D1·KV·DO의 위 공식 가격·한도 문서에서는 주간 비활성 pause 조건을 확인하지 못했어요. 이를 영구 보존·무중단 보장으로 해석하지 않고, 장기 비활성 계정 처리의 별도 조건은 **확인 필요**로 남겨요. R2의 실제 결제 수단 등록 조건도 계정에서 확인해야 해요. 이번 검토에서는 가입·구독·checkout을 하지 않아요.
 
 ### 관리형 DB와 맥 자체 호스팅
@@ -162,16 +164,22 @@ Drive는 오래 알려진 요청 횟수만 옮겨 적지 않고 현재 공식 �
 | 방식 | 개인용 앱의 장점 | 추가 일·제약 | 판단 |
 |---|---|---|---|
 | 이메일 매직링크 | 비밀번호를 관리하지 않아도 돼요 | 메일 발송·스팸·재시도·링크 만료·redirect 검증이 필요해요. | 첫 선택에서 제외해요 |
-| Google OAuth/OIDC | 기존 계정으로 여러 기기에서 로그인할 수 있어요 | 사용자 신원 확인과 저장 데이터 권한은 별개예요. 직접 구현하면 토큰 검증·세션·CSRF 처리가 필요해요 | **개인용 기본 로그인 수단으로 추천해요** |
+| Firebase Auth(Spark) + Google | 결제 정보 없이 기존 Google 계정으로 신원을 확인할 수 있어요. DB는 D1을 유지해요 | Worker의 ID 토큰 검증·허용 목록·D1 자체 세션·사용자 매핑이 필요해요. Firebase Auth 가입 자체를 본인만으로 제한하는 구성은 아니에요 | **소유자 로그인으로 추천해요(사용자 결정, 2026-10-25)** |
+| Google Identity Services 직접 연동(OAuth/OIDC) | Firebase Auth 없이 기존 Google 계정으로 로그인할 수 있어요 | 토큰 검증·자체 세션·권한 처리가 필요해요. [공식 설정 문서](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)에서 OAuth 클라이언트 생성에 결제 계정이 필요 없다는 명시적 근거는 찾지 못해 **확인 필요**예요(2026-10-25) | 직접 연동 대안으로 남겨요 |
 | GitHub OAuth | 개발자가 쓰기 편하고 기존 GitHub 계정을 활용해요 | 비개발자 공유에는 진입 장벽이 있어요. code 교환은 안전한 서버 중계가 필요할 수 있어요 | 본인이 선호하면 Google 대신 선택해요 |
-| Cloudflare Access | Google 같은 IdP 앞에서 이메일 허용 목록으로 개인 API를 잠글 수 있어요. Free는 사용자 50명까지예요 | 앱 계정·DB 소유권 모델을 대신 만들지는 않아요. 별도 출처 API의 로그인 쿠키·CORS·preflight를 맞춰야 해요 | **Workers+D1 개인 API의 인증 관문으로 추천해요** |
+| Cloudflare Access | Google 같은 IdP 앞에서 이메일 허용 목록으로 개인 API를 잠글 수 있어요. Free는 사용자 50명까지예요 | [조직 생성 공식 문서](https://developers.cloudflare.com/learning-paths/clientless-access/initial-setup/create-zero-trust-org/)에 따르면 **Free도 결제 정보 입력이 필요**해요. Free에서는 청구하지 않아요(2026-10-25 확인) | **결제 등록 없는 무료 원칙에 맞지 않아 추천에서 제외해요(사용자 결정, 2026-10-25)** |
 | 패스키 | 생체 인증 등으로 로그인하고 앱이 비밀번호를 보관하지 않아요 | 서버 challenge·공개키 검증·RP ID·복구·새 기기 등록을 설계해야 해요. E2EE 복호화 키가 자동으로 생기는 것은 아니에요 | 첫 단계에서는 보류해요 |
+| 계정 없는 동기화 비밀 키 + QR 기기 연결 | 외부 로그인 계정 없이 본인 기기를 연결하는 대안이에요 | 비밀 키 생성·안전한 기기 전달·분실 복구·기기 철회를 설계해야 해요. QR에 담긴 비밀이 유출되면 접근 권한도 유출돼요 | 복구·기기 관리 방식을 정한 뒤 검토해요 |
 
-선택은 **Cloudflare Access에 Google IdP를 연결하고 본인의 이메일만 허용**하는 안이에요. Google과 Access 중 하나를 고르는 것이 아니라 Google을 신원 공급자, Access를 API 관문으로 써요. 무료 50명 조건은 [Cloudflare 가격표](https://www.cloudflare.com/plans/)에서, Google 연결은 [공식 연동 문서](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/)에서 확인했어요(2026-10-25). GitHub OAuth와 패스키 구현 조건은 [GitHub OAuth](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps), [패스키 서버 검증](https://developers.google.com/identity/passkeys/developer-guides/server-authentication)을 기준으로 비교했어요(2026-10-25).
+선택은 **Workers + D1 + Firebase Auth(Spark, 인증만)**이에요. Firebase Auth는 Google 신원 확인에만 쓰고, 개인 동기화 Worker가 Firebase ID 토큰을 검증한 뒤 D1에 자체 세션·사용자 매핑을 둬요. **Firestore는 쓰지 않아요(사용자 결정, 2026-10-25)**. Spark는 결제 정보 없이 시작할 수 있고, 공식 정책상 무료 한도를 넘으면 과금 대신 해당 제품 사용이 그달 남은 기간 중단돼요. 결제 계정을 연결하거나 Blaze로 전환하지 않아요([Spark 결제 정책](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans), 2026-10-25 확인).
 
-개인 API는 같은 사이트의 별도 API 호스트에서 제공하고 처음에 최상위 창으로 로그인한 뒤, 앱이 credentials를 포함해 호출하는 흐름을 검증해요. Worker도 [Access JWT](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)의 서명·issuer·audience·만료를 확인하고 안정된 사용자 ID를 DB 소유자로 매핑해요. 클라이언트가 보내는 `ownerId`를 그대로 신뢰하지 않아요. preflight는 [Access CORS 문서](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/cors/)에 맞춰 처리하되 실제 쓰기는 인증·정확한 Origin·CSRF 방어를 통과해야 해요(모두 2026-10-25 확인).
+앱은 Google 로그인으로 받은 **Firebase ID 토큰을 `Authorization: Bearer <ID 토큰>` 헤더로 개인 API에 보내요.** Worker는 매 요청에서 서드파티 JWT 라이브러리로 `alg=RS256`과 `kid`에 맞는 Google 공개키의 서명을 확인하고, `aud=<프로젝트 ID>`, `iss=https://securetoken.google.com/<프로젝트 ID>`, 만료(`exp`, 미래)·발급 시각(`iat`, 과거)·인증 시각(`auth_time`, 과거), 비어 있지 않은 `sub`를 검사해요. 공개키는 Google의 [공개 인증서 엔드포인트](https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com)에서 받고 응답의 `Cache-Control: max-age`에 맞춰 갱신해요. 검증한 `sub`를 안정된 사용자 ID로 D1 소유자에 매핑하고 자체 세션·사용자 상태를 확인해요. 클라이언트가 보낸 `ownerId`는 믿지 않아요. 이 검증 조건은 Firebase 공식 [ID 토큰 검증 — 서드파티 JWT 라이브러리 사용](https://firebase.google.com/docs/auth/admin/verify-id-tokens#verify_id_tokens_using_a_third-party_jwt_library) 절에서 확인했어요(2026-10-25).
 
-로그인 실패·만료 상태에서는 로컬 작업을 이어가고 다음 로그인 뒤 동기화해요. 공개 읽기 공유 API는 Access로 잠근 개인 API와 별도 경계에 두고, 공유 대상에게는 로그인 없이 승인된 스냅샷만 보여 줘요. 공동 편집이 생기면 참여자도 로그인시키고 DB membership으로 권한을 검사해요.
+**Firebase Auth 자체는 누구나 Google로 가입할 수 있어요.** Google 첫 로그인 때 Firebase 사용자 계정이 만들어지므로 가입 성공을 개인 API 접근 허가로 취급하지 않아요. Worker에서 검증된 토큰의 허용 이메일(`email_verified`도 확인) 또는 `sub` 목록을 검사해 본인만 허용해요([Firebase Google 로그인](https://firebase.google.com/docs/auth/web/google-signin), 2026-10-25 확인). CORS는 정확한 앱 출처만 허용하고, preflight에는 필요한 메서드와 `Authorization`·`Content-Type` 헤더만 허용해요. 실제 개인 데이터 요청은 토큰 검증·허용 목록·소유권 검사를 모두 통과해야 해요. CORS는 인증을 대신하지 않아요.
+
+Firebase 웹 SDK 도입 때는 CSP와 번들 크기를 점검해요. 현재 [index.html](../../index.html)의 meta CSP는 `script-src 'self'`, `connect-src 'self' https:`이고, `frame-src`가 없어 `default-src 'self'`를 따라요. [csp.config.ts](../../csp.config.ts)는 개발 서버에서만 로컬 HTTP 연결을 추가해요. SDK를 앱 번들에 넣을 때의 크기 증가와 Google 로그인에 필요한 외부 스크립트·인증 프레임 허용 여부를 확인해야 해요. 이번에는 코드를 바꾸지 않아요. GitHub OAuth와 패스키 구현 조건은 기존 [GitHub OAuth](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps), [패스키 서버 검증](https://developers.google.com/identity/passkeys/developer-guides/server-authentication)을 기준으로 비교해요(2026-10-25 확인).
+
+로그인 실패·만료 상태에서는 로컬 작업을 이어가고 다음 로그인 뒤 동기화해요. 공개 읽기 공유 API는 Firebase ID 토큰으로 보호하는 개인 API와 별도 경계에 두고, 공유 대상에게는 로그인 없이 승인된 스냅샷만 보여 줘요. 공동 편집이 생기면 참여자도 로그인시키고 DB membership으로 권한을 검사해요.
 
 ## 5. 서버·DB가 생기면 좋아지는 기능
 
@@ -200,9 +208,9 @@ Workers Free의 Cron Triggers는 계정당 **5개**, 실행당 **CPU 10 ms**, wa
 
 ### 동기화·프록시·공유를 나눠요
 
-GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기존 앱 → 증권사 프록시 → 증권사 경로는 유지해요. 개인 동기화 API에 증권사 호출 기능을 넣지 않아요. 기존 [allowlist.ts](../../proxy/src/allowlist.ts)는 확장하지 않으며 주문 생성·정정·취소 차단을 유지해요.
+GitHub Pages 앱에서 Firebase Auth(Spark)로 Google 로그인 → `Authorization: Bearer` ID 토큰 → 개인 동기화 Worker의 토큰·허용 목록 검증 → D1 자체 세션·사용자 매핑을 새 경로로 둬요. CORS는 정확한 앱 출처만 허용해요. Firebase는 인증에만 쓰고 Firestore는 쓰지 않아요. 기존 앱 → 증권사 프록시 → 증권사 경로는 유지해요. 개인 동기화 API에 증권사 호출 기능을 넣지 않아요. 기존 [allowlist.ts](../../proxy/src/allowlist.ts)는 확장하지 않으며 주문 생성·정정·취소 차단을 유지해요.
 
-동기화 전용 DTO는 허용한 필드로 새로 만들어요. 서버에서도 같은 스키마를 검사하고, 알 수 없는 필드·과도한 크기·허용하지 않은 연결 정보를 거절해요. `settings` 전체 복사나 localStorage 전체 순회 업로드는 하지 않아요. owner 검사는 모든 읽기·쓰기·삭제에 적용하고, 브라우저의 프로필 UUID만으로 접근시키지 않아요.
+동기화 전용 DTO는 허용한 필드로 새로 만들어요. 서버에서도 같은 스키마를 검사하고, 알 수 없는 필드·과도한 크기·허용하지 않은 연결 정보를 거절해요. `settings` 전체 복사나 localStorage 전체 순회 업로드는 하지 않아요. owner 검사는 모든 읽기·쓰기·삭제에 적용하고, 검증된 `sub`에서 D1 소유자를 결정해요. 클라이언트가 보낸 `ownerId`나 브라우저의 프로필 UUID만으로 접근시키지 않아요.
 
 ### 키와 계좌 정보는 기본 제외해요
 
@@ -224,9 +232,9 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 ### 선택의 이유
 
-**Workers Free + D1 Free + Access/Google**을 1순위로 추천해요. 이미 있는 Cloudflare 배포 경험을 쓰고, 작은 SQL DB 하나로 동기화 버전·공유 만료·백업 메타데이터를 처리할 수 있어요. 인증과 충돌 처리까지 완제품으로 제공하는 서비스는 아니므로 초기 구현 규모는 중간이에요.
+**Workers Free + D1 Free + Firebase Auth(Spark, Google 로그인·인증만)**을 1순위로 추천해요. 결제 등록 없는 무료 원칙에 맞춰 Access는 제외하고, Firebase로 Google 신원을 확인한 뒤 Worker가 ID 토큰을 검증해 D1 자체 세션·사용자 매핑을 관리해요(사용자 결정, 2026-10-25). 이미 있는 Cloudflare 배포 경험을 쓰고, 작은 SQL DB 하나로 동기화 버전·공유 만료·백업 메타데이터를 처리할 수 있어요. 인증과 충돌 처리까지 완제품으로 제공하는 서비스는 아니므로 초기 구현 규모는 중간이에요.
 
-계정·권한 기능을 빨리 구성하는 것이 더 중요하면 **Firebase Spark / Firestore Standard + Firebase Auth + Security Rules**를 대안으로 검토해요. 문서 모델·Rules·SDK 종속성이 높고, 시장 파일 보관·서버 배치는 Spark만으로 해결하기 어려워요. **Drive appDataFolder**는 본인 동기화만 필요할 때 대안이고, **PocketBase+맥**은 맥이 꺼질 때 공유도 중단돼도 괜찮고 운영을 직접 맡을 때 선택해요. 이번 두 목적을 한 번에 해결하기에는 Workers+D1이 가장 균형이 좋다고 판단해요.
+DB까지 바꾸고 계정·권한 기능을 빨리 구성하는 것이 더 중요하면 **Firebase Spark / Firestore Standard + Firebase Auth + Security Rules**를 대안으로 검토해요. 이는 Firebase를 인증에만 쓰고 **Firestore를 쓰지 않는 추천안(Workers + D1 + Firebase Auth)**과 별개예요. 문서 모델·Rules·SDK 종속성이 높고, 시장 파일 보관·서버 배치는 Spark만으로 해결하기 어려워요. **Drive appDataFolder**는 본인 동기화만 필요할 때 대안이고, **PocketBase+맥**은 맥이 꺼질 때 공유도 중단돼도 괜찮고 운영을 직접 맡을 때 선택해요. 이번 두 목적을 한 번에 해결하기에는 Workers+D1+Firebase Auth가 가장 균형이 좋다고 판단해요.
 
 ### 1단계: 가장 작은 무료 동기화와 읽기 공유
 
@@ -236,8 +244,8 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 |---|---|---|---|
 | 안전한 동기화 형식 | [profileStore.ts](../../src/lib/state/profileStore.ts), [schema.ts](../../src/lib/state/schema.ts), [app.svelte.ts](../../src/lib/state/app.svelte.ts)의 저장 연동부 | `src/lib/sync/` 아래 DTO·검증·기존 데이터 변환. 프로필 색인은 작은 별도 문서로 동기화하고 활성 선택은 기기에 둬요 | 중간 |
 | 로컬 저장·복구 | [storage.ts](../../src/lib/state/storage.ts)와 상태 저장 호출부 | IndexedDB outbox·마지막 수신 리비전·작업 ID. 앱 시작 때 로컬 상태와 마지막 확인 스냅샷을 대조해 미전송 변경도 복구해요 | 중간 |
-| 동기화 API | 기존 프록시는 변경 대상에서 제외해요 | 별도 `sync-worker/`의 fetch API·인증 검증·D1 migrations·환경별 설정. users, profile index, profiles, revisions, shares 테이블을 제안해요 | 중간 |
-| 로그인·동기화 상태 | [DataTools.svelte](../../src/lib/ui/settings/DataTools.svelte) 등 설정 화면 | 로그인·수동 동기화·오프라인/대기/실패 표시·충돌 사본 선택 UI | 중간 |
+| 동기화 API | 기존 프록시는 변경 대상에서 제외해요 | 별도 `sync-worker/`의 fetch API에서 Bearer Firebase ID 토큰·허용 목록을 검증하고 정확한 앱 출처의 CORS만 허용해요. D1 migrations·환경별 설정과 자체 세션·사용자 매핑, users, profile index, profiles, revisions, shares 테이블을 제안해요 | 중간 |
+| 로그인·동기화 상태 | [DataTools.svelte](../../src/lib/ui/settings/DataTools.svelte) 등 설정 화면, [index.html](../../index.html)의 CSP | Firebase Auth(Spark) Google 로그인·ID 토큰 취득/갱신·Bearer 전송, SDK 번들·CSP 점검, 수동 동기화·오프라인/대기/실패 표시·충돌 사본 선택 UI | 중간 |
 | 공유 | [routes.ts](../../src/lib/state/routes.ts)와 그룹·전략·선정 기준·결과 화면 | `src/lib/share/`의 전용 serializer·미리 보기·읽기 화면·생성/철회 UI | 중간 |
 | 백업·검증·배포 | 기존 [exportImport.ts](../../src/lib/state/exportImport.ts)는 수동 내보내기 용도로 유지해요 | 최근 30개 리비전 보관, 다운로드·복원, API 권한·충돌·공유 누출 검증, 별도 Worker 배포 절차 | 작음~중간 |
 
@@ -253,7 +261,7 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 초기 자체 한도는 개인 문서 256 KiB, 공유 스냅샷 100 KiB, 활성 공유 50개, 과거 리비전 프로필당 30개를 제안해요. 예를 들어 100 KiB 문서 10개에 과거 30개씩을 남기면 과거 본문만 약 29 MiB예요. 인덱스·현재 본문·공유를 더해도 D1 단일 DB 500 MB 이내에서 출발할 여지가 있어요. 이는 실측이 아닌 용량 예산이에요. 요청·스캔 행 수·DB 크기를 관찰하고, 자체 한도 초과는 거절해요. 유료 업그레이드를 자동으로 켜지 않아요.
 
-**완료 기준:** 두 기기 왕복, 오프라인 수정 후 재접속, 동시 수정·삭제 충돌, 재시도 중복 방지, 계정 소유권 위반 거절, 키·계좌 필드 주입 거절, 공유 만료·철회·참조 누출 방지, 백업을 새 로컬 프로필로 복원하기를 확인해요. Access 쿠키/CORS와 JWT 검증의 무료 CPU 예산도 실제 배포 전 검증해요.
+**완료 기준:** 두 기기 왕복, 오프라인 수정 후 재접속, 동시 수정·삭제 충돌, 재시도 중복 방지, 계정 소유권 위반 거절, 키·계좌 필드 주입 거절, 공유 만료·철회·참조 누출 방지, 백업을 새 로컬 프로필로 복원하기를 확인해요. Bearer Firebase ID 토큰의 서명·클레임·만료 검증, 허용 목록 밖 사용자 거절, D1 자체 세션·사용자 매핑, 정확한 앱 출처의 CORS·preflight와 JWT 검증의 무료 CPU 예산도 실제 배포 전 검증해요.
 
 ### 2단계: 시장 파일의 본인 기기 간 전달과 복구 강화
 
@@ -277,8 +285,8 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 ## 8. 결정이 필요한 것
 
-1. **기본 경로:** DB는 D1로 결정했어요. 개인 API와 인증 관문도 추천안인 Workers+Access로 구성할까요?
-2. **본인 로그인:** Access의 Google 로그인과 이메일 허용 목록을 기본으로 할까요? GitHub 계정을 선호하면 바꿀 수 있어요.
+1. **기본 경로(결정됨):** Workers + D1 + Firebase Auth(Spark, 인증만)로 구성해요. 결제 등록 없는 무료 원칙에 따라 Access는 제외하고 Firestore는 쓰지 않아요(사용자 결정, 2026-10-25).
+2. **본인 로그인(방식 결정됨):** Firebase Auth로 Google 신원을 확인하고, Worker에서 Bearer ID 토큰을 검증한 뒤 D1 자체 세션·사용자 매핑을 둬요(사용자 결정, 2026-10-25). Worker에서 허용할 이메일 또는 `sub` 목록과 자체 세션의 만료·철회 정책은 구현 전에 정해요.
 3. **일반 개인 데이터의 공개 범위:** 그룹·전략·선정 기준을 클라우드 운영자가 읽을 수 있는 일반 동기화로 시작해도 될까요? 처음부터 모두 E2EE라면 복구·공유 설계와 구현 규모가 커져요.
 4. **동기화할 설정:** 기간·지표·벤치마크·색 규칙만 먼저 묶고 기기 테마·공급자 연결·잠금은 기기에 둘까요?
 5. **공유 정책:** 링크 소지자 읽기, 기본 7일·최대 30일, 원본과 분리된 스냅샷이면 될까요? 특정 사람만 보게 하려면 로그인 공유가 필요해요.
@@ -297,7 +305,9 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 | D1 | [가격](https://developers.cloudflare.com/d1/platform/pricing/), [한도·Time Travel](https://developers.cloudflare.com/d1/platform/limits/) | 2026-10-25 |
 | KV | [가격](https://developers.cloudflare.com/kv/platform/pricing/), [일관성](https://developers.cloudflare.com/kv/concepts/how-kv-works/) | 2026-10-25 |
 | R2·DO | [R2 가격](https://developers.cloudflare.com/r2/pricing/), [R2 구독 조건](https://developers.cloudflare.com/r2/get-started/), [DO 가격](https://developers.cloudflare.com/durable-objects/platform/pricing/) | 2026-10-25 |
-| Access | [가격](https://www.cloudflare.com/plans/), [Google IdP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/), [JWT](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/), [CORS](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/cors/) | 2026-10-25 |
+| Access(추천 제외) | [가격](https://www.cloudflare.com/plans/), [Google IdP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/), [Free도 결제 정보가 필요한 조직 생성 절차](https://developers.cloudflare.com/learning-paths/clientless-access/initial-setup/create-zero-trust-org/) | 2026-10-25 |
+| Firebase Auth·ID 토큰 검증·Spark 결제 정책 | [Google 로그인](https://firebase.google.com/docs/auth/web/google-signin), [ID 토큰 검증(서드파티 JWT 라이브러리)](https://firebase.google.com/docs/auth/admin/verify-id-tokens#verify_id_tokens_using_a_third-party_jwt_library), [Spark: 결제 정보 불필요·한도 초과 시 제품 사용 중단](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans) | 2026-10-25 |
+| Google Identity Services 직접 연동 | [OAuth 클라이언트 설정](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid). 결제 계정 불필요 여부는 확인 필요예요 | 2026-10-25 |
 | Firebase | [가격](https://firebase.google.com/pricing), [Firestore 한도](https://firebase.google.com/docs/firestore/quotas), [오프라인](https://firebase.google.com/docs/firestore/manage-data/enable-offline), [Storage의 Blaze 요구](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024) | 2026-10-25 |
 | Turso | [가격](https://turso.tech/pricing), [SDK 인증](https://docs.turso.tech/sdk/authentication), [unarchive](https://docs.turso.tech/cli/group/unarchive) | 2026-10-25 |
 | Neon | [가격](https://neon.com/pricing), [플랜 상세](https://neon.com/docs/introduction/plans), [scale-to-zero](https://neon.com/docs/introduction/scale-to-zero) | 2026-10-25 |
