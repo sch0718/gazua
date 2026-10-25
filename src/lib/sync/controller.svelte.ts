@@ -4,7 +4,7 @@ import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import { createSyncApi, type ApiFail, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
-import { firebaseAuth, type AuthClient } from './auth';
+import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
 import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
 import { appProfiles } from './local';
@@ -70,12 +70,15 @@ const ERRORS: Record<string, string> = {
   server: '서버 오류예요. 잠시 뒤 다시 시도해요.',
   conflict: '다른 기기가 먼저 바꿨어요. 다시 받아 주세요.',
   gone: '이미 지워졌어요.',
+  'sync-off': '공유하려면 먼저 설정 › 동기화·공유에서 동기화를 켜 주세요.',
 };
 
 export const describeFail = (f: ApiFail): string =>
   f.kind === 'limit' && f.code === 'share-limit' ? ERRORS['share-limit'] : f.kind === 'invalid' && f.code === 'too-large' ? ERRORS['too-large'] : ERRORS[f.kind] ?? ERRORS.server;
 
 const SESSION_KEY = 'session';
+/** 이 기기의 동기화 상태가 속한 계정(Firebase uid). 다른 계정으로 로그인하면 상태를 버린다. */
+const OWNER_KEY = 'owner';
 
 function webLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
@@ -124,12 +127,18 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   }
 
   /** 방금 받은 ID 토큰으로 기기 세션을 만든다. */
-  async function startSession(user: { email: string | null }, idToken: string, label: string) {
+  async function startSession(user: AuthUser, idToken: string, label: string) {
     const r = await api!.createSession(idToken, label);
     if (!r.ok) {
       if (r.kind === 'not-allowed') await auth!.signOut();
       error = describeFail(r);
       return;
+    }
+    // 동기화 상태(켜짐·대기 작업·리비전·충돌)는 계정에 묶는다. 다른 계정이면 버리고, 다시 켤 때 올릴 것을 확인받는다.
+    const owner = await store!.getMeta<string>(OWNER_KEY);
+    if (owner !== user.uid) {
+      if (owner !== undefined) await engine?.reset();
+      await store!.setMeta(OWNER_KEY, user.uid);
     }
     session = { id: r.data.sessionId, email: user.email ?? '' };
     await store!.setMeta(SESSION_KEY, session);
@@ -193,7 +202,9 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         } catch {
           user = 'unavailable';
         }
-        if (user === null) await forget(null);
+        const owner = await store.getMeta<string>(OWNER_KEY);
+        // SDK에 남은 로그인이 없거나 다른 계정이면 저장된 세션을 쓰지 않는다(다시 로그인하면 계정을 맞춘다)
+        if (user === null || (user !== 'unavailable' && owner !== undefined && user.uid !== owner)) await forget(null);
         else {
           account = { email: session.email };
           if (status.enabled && user !== 'unavailable') await engine.syncNow();
@@ -278,7 +289,12 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     createShare: (profileId, kind, snapshot, ttlDays) =>
       guarded(async () => {
         if (!api || !engine) return null;
-        await engine.flush(); // 공유 원본 프로필이 서버에 있어야 한다
+        // 공유 원본 프로필이 서버에 있어야 한다. 동기화가 꺼져 있으면 올라간 적이 없으니 먼저 켜 달라고 한다.
+        if (!engine.status().enabled) {
+          error = ERRORS['sync-off'];
+          return null;
+        }
+        await engine.flush();
         const r = ok(await api.createShare({ sourceProfileId: profileId, kind, snapshot, ttlDays }));
         if (!r) return null;
         return { url: `${location.origin}${location.pathname}#/s/${r.capability}`, expiresAt: r.expiresAt };

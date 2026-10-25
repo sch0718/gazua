@@ -47,6 +47,11 @@
     unavailable: '이 앱에는 공유 기능이 설정되지 않았어요.',
     error: '공유를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.',
   } as const;
+  /** 규칙 원문: 스냅샷에서 종류·버전·제목을 뺀 나머지(전략이나 선정 기준, 참조한 묶음). */
+  const rulesOf = (snap: SharedRead['snapshot']) => {
+    const { kind: _kind, v: _v, title: _title, ...rest } = snap as unknown as Record<string, unknown>;
+    return rest;
+  };
   const fmtDate = (t: number) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 </script>
 
@@ -63,6 +68,13 @@
     <ul class="lines">
       {#each snapshotLines(view.data.snapshot) as line, i (i)}<li>{line}</li>{/each}
     </ul>
+    {#if view.data.snapshot.kind !== 'group'}
+      <!-- 요약 줄은 일부만 보여 준다. 받은 규칙 전부(조건·정렬·매수 신호·묶음 종목 등)를 그대로 읽을 수 있게 한다. -->
+      <details class="rules">
+        <summary>규칙 전체 보기</summary>
+        <pre>{JSON.stringify(rulesOf(view.data.snapshot), null, 2)}</pre>
+      </details>
+    {/if}
     <p class="note">공유한 사람의 다른 데이터·계좌·키는 들어 있지 않아요. 이 화면의 내용은 이 기기에 저장하지 않아요.</p>
   {:else}
     <p class="msg" role="alert">{MESSAGE[view.state]}</p>
@@ -120,5 +132,21 @@
   }
   .msg {
     font-size: var(--fs-body);
+  }
+  .rules summary {
+    min-height: var(--touch);
+    display: flex;
+    align-items: center;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .rules pre {
+    background: var(--surface);
+    border-radius: var(--r-card);
+    padding: 12px 16px;
+    font-size: var(--fs-sub);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
   }
 </style>

@@ -6,7 +6,7 @@ import { memoryBacking } from '../state/testStorage';
 import { createMemoryOrderCache } from '../perf/orderCache';
 import { groupSnapshot } from '../share/snapshot';
 import { testServer, SYNC_BASE, type TestServer } from '../../../sync-worker/test/server';
-import { ME } from '../../../sync-worker/test/harness';
+import { ME, OTHER } from '../../../sync-worker/test/harness';
 import type { AuthClient } from './auth';
 import { createSyncController, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
@@ -151,4 +151,46 @@ describe('SyncController', () => {
     const id = await sync.restoreRevision(app.meta.activeProfileId, 1);
     expect(app.meta.profiles.find((p) => p.id === id)?.name).toBe('내 프로필 (복원)');
   });
+
+  // Codex 리뷰(PR #39) 1: 동기화 상태(켜짐·대기 작업·리비전)는 로그인한 계정에 묶인다.
+  it('다른 계정으로 로그인하면 이전 계정의 동기화 상태를 버리고 다시 켜야 올린다', async () => {
+    const s = testServer();
+    const who = { email: ME, uid: 'uid-me' };
+    const auth = {
+      signedIn: false,
+      ready: async () => (auth.signedIn ? { uid: who.uid, email: who.email } : null),
+      signIn: async () => {
+        auth.signedIn = true;
+        return { user: { uid: who.uid, email: who.email }, idToken: await s.h.token({ email: who.email, sub: who.uid }) };
+      },
+      redirectResult: async () => null,
+      signOut: async () => {
+        auth.signedIn = false;
+      },
+      idToken: async () => (auth.signedIn ? s.h.token({ email: who.email, sub: who.uid }) : null),
+    };
+    const { sync, app } = await setup(s, { auth });
+    await sync.signIn();
+    await sync.setEnabled(true);
+    app.addProfile('A 계정에서 만든 것');
+    await sync.signOut();
+    who.email = OTHER;
+    who.uid = 'uid-other';
+    await sync.signIn();
+    expect(sync.account).toEqual({ email: OTHER });
+    expect(sync.status).toMatchObject({ enabled: false, pending: 0 });
+    expect(await sync.remoteProfiles()).toEqual([]);
+  });
+
+  // Codex 리뷰(PR #39) 6: 동기화를 켜지 않았으면 공유 원본이 서버에 없으니 먼저 켜 달라고 알린다.
+  it('동기화가 꺼져 있으면 공유를 만들지 않고 켜 달라고 알린다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    app.setWatchlists({ groups: [{ id: 'g', name: '공유', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] }] });
+    expect(await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 7)).toBeNull();
+    expect(sync.error).toContain('동기화를 켜');
+    expect(s.requests.some((r) => r.path === '/v1/shares')).toBe(false);
+  });
 });
+

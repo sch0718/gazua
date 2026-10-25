@@ -526,8 +526,14 @@ export function createApp(deps: AppDeps): App {
     }
     if (e.key === STORAGE_PREFIX + META_KEY) {
       // 프로필 목록·이름만 맞춘다. 이 탭의 지금 프로필 선택은 그대로 둔다.
+      // 다른 탭이 지금 프로필을 지웠으면(동기화의 원격 삭제 적용 등) 남은 프로필로 옮긴다.
       const fresh = storage.readBacking<Meta | null>(META_KEY, null);
-      if (fresh && Array.isArray(fresh.profiles) && fresh.profiles.some((p) => p.id === id)) meta = { ...meta, profiles: fresh.profiles };
+      if (!fresh || !Array.isArray(fresh.profiles) || fresh.profiles.length === 0) return;
+      meta = { ...meta, profiles: fresh.profiles };
+      if (!fresh.profiles.some((p) => p.id === id)) {
+        const next = fresh.profiles.some((p) => p.id === fresh.activeProfileId) ? fresh.activeProfileId : fresh.profiles[0].id;
+        switchProfile(next);
+      }
       return;
     }
     // 이 프로필의 키 항목 자체가 바뀐 경우에만 반응한다(다른 설정 쓰기·clear()는 잠금 상태를 바꾸지 않는다).

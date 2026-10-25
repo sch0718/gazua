@@ -258,6 +258,23 @@ describe('1단계 완료 기준', () => {
     expect(puts.at(-1)).toEqual(puts.at(-2)); // 같은 경로로 한 번 더 보냈다
   });
 
+  // Codex 리뷰(PR #39) 2: 첫 업로드의 응답을 잃은 뒤 그 프로필을 지우면, 서버에 만들어졌을 수 있는 것도 지운다(다음 받기에서 되살아나지 않게).
+  it('응답을 잃은 첫 업로드 뒤 지운 프로필은 서버에서도 지우고 되살리지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const id = a.app.addProfile('곧 지울 것').id;
+    s.dropNextResponse = true;
+    await a.engine.flush();
+    expect(a.engine.status()).toMatchObject({ phase: 'offline', pending: 1 });
+    a.app.deleteProfile(id);
+    await a.engine.syncNow();
+    await a.engine.syncNow();
+    expect(a.app.meta.profiles.some((p) => p.id === id)).toBe(false);
+    expect(a.engine.status()).toMatchObject({ phase: 'idle', pending: 0, conflicts: [] });
+    const list = await a.api.listProfiles();
+    expect(list.ok && list.data.profiles.find((r) => r.profileId === id)?.deletedAt).not.toBeNull();
+  });
+
   it('계정 소유권: 다른 사용자는 내 프로필을 보지도 쓰지도 못한다', async () => {
     const s = testServer();
     const a = await enabled(s);

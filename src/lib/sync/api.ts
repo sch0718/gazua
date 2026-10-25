@@ -121,11 +121,18 @@ export function createSyncApi(baseUrl: string, creds: Credentials, fetchImpl: ty
     const attempt = async (force: boolean): Promise<ApiResult<T>> => {
       const headers: Record<string, string> = { ...opts.headers };
       if (auth !== 'none') {
-        const token = opts.token ?? (await creds.idToken(force));
+        // 토큰 갱신은 네트워크를 쓴다(오프라인이면 예외). 예외로 새지 않게 offline 실패로 바꿔 엔진의 백오프·재시도에 맡긴다.
+        let token: string | null;
+        let s: string | null = null;
+        try {
+          token = opts.token ?? (await creds.idToken(force));
+          if (token && auth === 'session') s = await creds.sessionId();
+        } catch {
+          return { ok: false, kind: 'offline' };
+        }
         if (!token) return { ok: false, kind: 'auth', code: 'missing-token' };
         headers.Authorization = `Bearer ${token}`;
         if (auth === 'session') {
-          const s = await creds.sessionId();
           if (!s) return { ok: false, kind: 'auth', code: 'no-session' };
           headers['X-Gazua-Session'] = s;
         }

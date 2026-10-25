@@ -74,6 +74,8 @@ export interface SyncEngine {
   resolve(profileId: string, choice: Resolution): Promise<void>;
   /** 서버의 과거 리비전을 새 로컬 프로필 `이름 (복원)`으로 만든다(원래 프로필은 그대로). 새 프로필 ID를 돌려준다. */
   restoreRevision(profileId: string, revision: number): Promise<{ ok: true; profileId: string } | ApiFail>;
+  /** 다른 계정으로 로그인했다: 이 기기의 동기화 상태(켜짐·대기 작업·리비전·충돌)를 모두 버린다. 로컬 프로필은 그대로다. */
+  reset(): Promise<void>;
   /** 공지를 비운다. */
   clearNotices(): void;
   destroy(): void;
@@ -362,9 +364,12 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
     async profileDeleted(id) {
       await serial(async () => {
         const st = await store.state(id);
-        await dropOps(id);
+        const ops = await store.ops();
+        // 보냈지만 응답을 못 받은 첫 업로드는 서버에 만들어졌을 수 있다. 그 작업은 남겨(같은 opId로 다시 보내 리비전을 확인) 뒤에 지우기를 이어 붙인다.
+        const sentPut = ops.some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined);
+        for (const o of ops) if (o.profileId === id && (o.sentAt === undefined || !sentPut)) await store.deleteOp(o.opId);
         await store.deleteConflict(id);
-        if (st && st.syncedRevision > 0 && !st.deleted) {
+        if ((st && st.syncedRevision > 0 && !st.deleted) || sentPut) {
           await store.putOp({ opId: uuid(), profileId: id, kind: 'delete', createdAt: now() });
         } else {
           await store.deleteState(id);
@@ -425,6 +430,20 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const id = local.create({ ...r.data.doc, name: suffixed(r.data.doc.name, RESTORED_SUFFIX) });
       engine.profileChanged(id);
       return { ok: true, profileId: id };
+    },
+    async reset() {
+      await serial(async () => {
+        if (debounce !== null) clearTimer(debounce);
+        if (retry !== null) clearTimer(retry);
+        debounce = retry = null;
+        failures = 0;
+        for (const o of await store.ops()) await store.deleteOp(o.opId);
+        for (const st of await store.states()) await store.deleteState(st.profileId);
+        for (const c of await store.conflicts()) await store.deleteConflict(c.profileId);
+        await store.setMeta('enabled', false);
+        await store.deleteMeta('lastSyncAt');
+        await refresh({ enabled: false, phase: 'off', lastSyncAt: null, notices: [] });
+      });
     },
     clearNotices() {
       emit({ notices: [] });

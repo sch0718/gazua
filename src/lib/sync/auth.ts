@@ -21,9 +21,16 @@ export interface AuthClient {
   idToken(forceRefresh?: boolean): Promise<string | null>;
 }
 
-export function firebaseAuth(cfg: SyncConfig['firebase']): AuthClient {
-  let loaded: Promise<typeof import('./firebaseImpl')> | null = null;
-  const impl = () => (loaded ??= import('./firebaseImpl'));
+type Impl = typeof import('./firebaseImpl');
+
+export function firebaseAuth(cfg: SyncConfig['firebase'], load: () => Promise<Impl> = () => import('./firebaseImpl')): AuthClient {
+  let loaded: Promise<Impl> | null = null;
+  // 조각을 못 불러오면(오프라인) 실패한 약속을 버려 다음 호출에서 다시 불러온다.
+  const impl = () =>
+    (loaded ??= load().catch((e: unknown) => {
+      loaded = null;
+      throw e;
+    }));
   const auth = async () => (await impl()).getAuthFor(cfg);
   return {
     ready: async () => (await impl()).ready(await auth()),

@@ -2,6 +2,8 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiResult, SharedRead } from '../lib/sync/api';
+import { newCriteria } from '../lib/screen/defaults';
+import { criteriaSnapshot } from '../lib/share/snapshot';
 import SharedView from './SharedView.svelte';
 
 const CAP = 'k'.repeat(43);
@@ -39,4 +41,17 @@ describe('SharedView', () => {
     render(SharedView, { capability: CAP, read: null, onexit: () => {} });
     expect(screen.getByRole('alert').textContent).toContain('설정되지 않았어요');
   });
+
+  // Codex 리뷰(PR #39) 7: 전략·선정 기준 공유는 요약 줄만으로는 규칙이 다 보이지 않는다. 규칙 전체를 읽기 전용으로 펼쳐 볼 수 있다.
+  it('전략·선정 기준은 규칙 전체를 펼쳐 볼 수 있다', async () => {
+    const c = newCriteria(1, null, '저평가');
+    c.conditions.marketCap = { on: true, minEok: 7777 };
+    const snapshot = criteriaSnapshot(c, { baskets: [], strategies: [] }, { hideCapital: true });
+    const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: { ...DATA, kind: 'criteria', title: '저평가', snapshot } }));
+    render(SharedView, { capability: CAP, read, onexit: () => {} });
+    await waitFor(() => expect(screen.getByRole('heading', { name: '저평가' })).toBeTruthy());
+    const details = screen.getByText('규칙 전체 보기').closest('details')!;
+    expect(details.textContent).toContain('7777');
+  });
 });
+
