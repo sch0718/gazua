@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // 제안서 7절 1단계 「완료 기준」을 실제 앱(createApp)·동기화 엔진·sync-worker 핸들러(테스트용 D1)로 확인한다.
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp, type App } from '../state/app.svelte';
 import { createSafeStorage, type SafeStorage } from '../state/storage';
 import { memoryBacking } from '../state/testStorage';
@@ -492,6 +492,36 @@ describe('1단계 완료 기준', () => {
     await b.engine.syncNow();
     expect(b.engine.status().phase).toBe('error');
     expect((await store.state(extra.id))?.deleted).not.toBe(true);
+  });
+
+  // Codex 리뷰(PR #39) 11차 1: 다른 기기가 바꾼 프로필을 받는 도중(해시 계산 대기) 이 기기에서 고치면, 확인 지점만 올리지 않고 충돌로 남긴다.
+  it('받는 도중 고친 프로필은 다른 기기 변경과 충돌로 남긴다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const b = await enabled(s);
+    await b.engine.syncNow();
+    b.app.switchProfile(a.app.meta.activeProfileId);
+    b.app.setWatchlists({ groups: [{ id: 'g', name: 'LOCAL-MARK', items: [] }] });
+    await b.engine.flush();
+    await a.engine.syncNow();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A의 변경', items: [] }] });
+    await a.engine.flush();
+    const subtle = crypto.subtle;
+    const digest = subtle.digest.bind(subtle);
+    let armed = true;
+    const spy = vi.spyOn(subtle, 'digest').mockImplementation(async (alg, data) => {
+      if (armed && new TextDecoder().decode(data as Uint8Array).includes('LOCAL-MARK')) {
+        armed = false;
+        b.app.setWatchlists({ groups: [{ id: 'g', name: '받는 도중 고침', items: [] }] });
+      }
+      return digest(alg, data as Uint8Array);
+    });
+    await b.engine.pull();
+    spy.mockRestore();
+    expect(b.app.watchlists.groups[0].name).toBe('받는 도중 고침');
+    const c = b.engine.status().conflicts[0];
+    expect(c).toMatchObject({ kind: 'edit' });
+    expect(c.kind === 'edit' && c.remote.watchlists.groups[0].name).toBe('A의 변경');
   });
 
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.

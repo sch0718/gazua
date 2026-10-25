@@ -312,9 +312,11 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       }
       if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash && !unackedOther(ops, id, localHash))) {
         if (localHash !== remoteHash) {
-          // 해시를 기다리는 동안 고쳤으면 덮어쓰지 않는다: 서버 것을 확인된 상태로만 삼고, 고친 것은 이어지는 보내기가 올린다
-          if (!sameDoc(local.read(id), doc)) {
-            await setSynced(id, got.data.revision, remoteHash);
+          // 해시를 기다리는 동안 이 기기에서 고쳤다: 덮어쓰지도, 서버 리비전을 확인한 것으로 치지도 않는다(그러면 다음 보내기가 다른 기기의 변경을 덮는다). 충돌로 남겨 고르게 한다.
+          const latest = local.read(id);
+          if (!sameDoc(latest, doc)) {
+            await dropOps(id);
+            await store.putConflict({ profileId: id, kind: 'edit', local: latest, remote: got.data.doc, remoteRevision: got.data.revision, detectedAt: now() });
             continue;
           }
           local.write(id, got.data.doc);
@@ -325,7 +327,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         continue;
       }
       await dropOps(id);
-      await store.putConflict({ profileId: id, kind: 'edit', local: doc, remote: got.data.doc, remoteRevision: got.data.revision, detectedAt: now() });
+      await store.putConflict({ profileId: id, kind: 'edit', local: local.read(id), remote: got.data.doc, remoteRevision: got.data.revision, detectedAt: now() });
     }
     // 동기화했던 프로필이 서버에서 정리돼 사라졌다(다른 기기에서 지운 지 30일이 지났다)
     for (const id of localIds) {

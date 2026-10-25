@@ -117,10 +117,13 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   const cleanups: (() => void)[] = [];
 
   async function forget(message: string | null) {
+    const mine = session?.id;
     session = null;
     account = null;
-    await store?.deleteMeta(SESSION_KEY);
     if (message) error = message;
+    // 저장된 세션이 이 탭이 버리는 것과 같을 때만 지운다. 다른 탭이 그 사이 새로 로그인했으면 그 세션을 지키기 위해서다.
+    const stored = await store?.getMeta<{ id: string }>(SESSION_KEY);
+    if (stored && stored.id === mine) await store?.deleteMeta(SESSION_KEY);
   }
 
   function onAuthFailure(code: string) {

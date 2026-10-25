@@ -223,5 +223,23 @@ describe('SyncController', () => {
     expect(a.sync.account).toBeNull();
     expect(a.sync.error).toContain('다시 로그인');
   });
+
+  // Codex 리뷰(PR #39) 11차 2: 오래된 탭이 철회된 세션을 정리하면서 다른 탭이 새로 만든 세션을 지우지 않는다.
+  it('오래된 탭의 로그아웃 정리가 다른 탭의 새 세션을 지우지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const auth = fakeAuth(s);
+    const tab1 = await setup(s, { store, auth });
+    await tab1.sync.signIn();
+    const tab2 = await setup(s, { store, auth });
+    expect(tab2.sync.account).toEqual({ email: ME });
+    await tab1.sync.signOut();
+    await tab1.sync.signIn();
+    const fresh = await store.getMeta<{ id: string }>('session');
+    expect(await tab2.sync.sessions()).toBeNull(); // 이 탭의 세션은 철회됐다
+    expect(tab2.sync.account).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
+  });
 });
 
