@@ -55,6 +55,25 @@ describe('프로필 API', () => {
     expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(2);
   });
 
+  // Codex 리뷰(PR #39) 12차 2: 리비전과 본문을 한 번에 읽는다(사이에 다른 기기가 바꿔도 짝이 어긋나지 않게).
+  it('GET은 리비전과 본문을 같은 시점으로 돌려준다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc('A') });
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    h.env.DB.prepare = ((sql: string) => {
+      // 본문만 따로 읽는 순간에 다른 기기가 리비전 2로 바꿨다고 친다
+      if (sql.startsWith('SELECT body FROM profiles')) {
+        h.env.DB.raw.prepare("UPDATE profile_index SET revision = 2 WHERE profile_id = 'p1'").run();
+        h.env.DB.raw.prepare('UPDATE profiles SET body = ? WHERE profile_id = ?').run(JSON.stringify(doc('B')), 'p1');
+      }
+      return prepare(sql);
+    }) as typeof h.env.DB.prepare;
+    const got = await j(await me.as('GET', '/v1/profiles/p1'));
+    h.env.DB.prepare = prepare;
+    expect(got.body).toEqual({ revision: 1, doc: doc('A') });
+  });
+
   it('같은 opId로 다시 보내면 처음 결과를 돌려주고 리비전은 하나만 생긴다', async () => {
     const h = harness();
     const me = await h.login();

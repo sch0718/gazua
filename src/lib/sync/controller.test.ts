@@ -241,5 +241,43 @@ describe('SyncController', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
   });
+
+  // Codex 리뷰(PR #39) 12차 1: 로그아웃 뒤 다시 로그인하는 사이 늦게 온 이전 세션의 철회 응답이 새 로그인을 지우지 않는다.
+  it('늦게 온 이전 세션의 인증 실패는 새 세션을 지우지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const storage = createSafeStorage(memoryBacking());
+    let release: (() => void) | null = null;
+    let hold = false;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (hold) {
+        hold = false;
+        await new Promise<void>((r) => (release = r));
+      }
+      return s.fetch(input, init);
+    }) as typeof fetch;
+    const auth = fakeAuth(s);
+    const sync = createSyncController({ config: CONFIG, storage, auth, store: async () => store, fetchImpl, now: () => s.h.clock.now, deviceLabel: () => '테스트' });
+    const app: App = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache(), onSyncableChange: (e) => sync.onSyncableChange(e) });
+    await sync.attach(app);
+    cleanups.push(() => {
+      sync.destroy();
+      app.destroy();
+    });
+    await sync.signIn();
+    await sync.setEnabled(true);
+    hold = true;
+    const late = sync.syncNow(); // 이 요청은 이전 세션으로 나가 늦게 돌아온다
+    await new Promise((r) => setTimeout(r, 0));
+    await sync.signOut();
+    const again = sync.signIn(); // 새 세션을 만든 뒤 동기화는 앞 요청을 기다린다
+    let fresh: { id: string } | undefined;
+    while (!(fresh = await store.getMeta<{ id: string }>('session'))) await new Promise((r) => setTimeout(r, 0));
+    release!();
+    await late;
+    await again;
+    expect(sync.account).toEqual({ email: ME });
+    expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
+  });
 });
 

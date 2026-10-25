@@ -100,10 +100,17 @@ export async function listProfiles(env: SyncEnv, ctx: AuthContext): Promise<Inde
 }
 
 export async function getProfile(env: SyncEnv, ctx: AuthContext, profileId: string): Promise<{ revision: number; doc: unknown }> {
-  const h = await head(env, ctx.userId, checkId(profileId));
-  if (!h) throw new HttpError(404, 'not-found');
-  if (h.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt, revision: h.revision });
-  return { revision: h.revision, doc: await currentDoc(env, ctx.userId, profileId) };
+  // 리비전과 본문을 한 문장으로 읽는다. 따로 읽으면 사이에 다른 기기가 바꿔 리비전 N과 N+1의 본문이 짝지어질 수 있다.
+  const row = await env.DB.prepare(
+    `SELECT i.revision AS revision, i.deleted_at AS deletedAt, i.purge_at AS purgeAt, p.body AS body
+     FROM profile_index i LEFT JOIN profiles p ON p.user_id = i.user_id AND p.profile_id = i.profile_id
+     WHERE i.user_id = ? AND i.profile_id = ?`,
+  )
+    .bind(ctx.userId, checkId(profileId))
+    .first<{ revision: number; deletedAt: number | null; purgeAt: number | null; body: string | null }>();
+  if (!row) throw new HttpError(404, 'not-found');
+  if (row.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: row.deletedAt, purgeAt: row.purgeAt, revision: row.revision });
+  return { revision: row.revision, doc: row.body === null ? null : JSON.parse(row.body) };
 }
 
 /** PUT: 새로 만들기(expectedRevision 0) 또는 조건부 갱신. */

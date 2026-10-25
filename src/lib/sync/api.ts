@@ -7,7 +7,8 @@ export type ApiFail =
   | { ok: false; kind: 'conflict'; revision: number; doc: ProfileDocV1 | null }
   | { ok: false; kind: 'gone'; deletedAt: number | null; purgeAt: number | null; revision?: number }
   /** 다시 로그인해야 한다. code: missing-token·invalid-token·no-session·session-revoked·session-expired·reauth-required */
-  | { ok: false; kind: 'auth'; code: string }
+  /** session: 실패한 요청이 쓴 기기 세션(그 사이 새로 로그인했으면 이 실패는 무시해야 한다). */
+  | { ok: false; kind: 'auth'; code: string; session?: string }
   | { ok: false; kind: 'not-allowed' }
   | { ok: false; kind: 'offline' }
   /** 자체 한도(공유 50개)·무료 한도 초과(429·503) */
@@ -120,6 +121,7 @@ export function createSyncApi(baseUrl: string, creds: Credentials, fetchImpl: ty
     const auth = opts.auth ?? 'session';
     const attempt = async (force: boolean): Promise<ApiResult<T>> => {
       const headers: Record<string, string> = { ...opts.headers };
+      let used: string | null = null; // 이 요청이 쓴 기기 세션
       if (auth !== 'none') {
         // 토큰 갱신은 네트워크를 쓴다(오프라인이면 예외). 예외로 새지 않게 offline 실패로 바꿔 엔진의 백오프·재시도에 맡긴다.
         let token: string | null;
@@ -135,6 +137,7 @@ export function createSyncApi(baseUrl: string, creds: Credentials, fetchImpl: ty
         if (auth === 'session') {
           if (!s) return { ok: false, kind: 'auth', code: 'no-session' };
           headers['X-Gazua-Session'] = s;
+          used = s;
         }
       }
       if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -151,7 +154,9 @@ export function createSyncApi(baseUrl: string, creds: Credentials, fetchImpl: ty
       } catch {
         return { ok: false, kind: 'offline' };
       }
-      return toResult<T>(res);
+      const r = await toResult<T>(res);
+      if (!r.ok && r.kind === 'auth' && used) return { ...r, session: used };
+      return r;
     };
     const first = await attempt(false);
     // 만료 직전에 받은 ID 토큰이면 한 번만 새로 받아 다시 보낸다

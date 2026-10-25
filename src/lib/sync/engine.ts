@@ -53,8 +53,8 @@ export interface SyncEngineDeps {
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (h: unknown) => void;
   debounceMs?: number;
-  /** 다시 로그인해야 할 때(세션 철회·만료 등). */
-  onAuthFailure?: (code: string) => void;
+  /** 다시 로그인해야 할 때(세션 철회·만료 등). session은 실패한 요청이 쓴 기기 세션. */
+  onAuthFailure?: (code: string, session?: string) => void;
 }
 
 export interface SyncEngine {
@@ -149,7 +149,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   function failed(f: ApiFail) {
     const phase: SyncPhase =
       f.kind === 'offline' ? 'offline' : f.kind === 'auth' ? 'auth' : f.kind === 'not-allowed' ? 'not-allowed' : f.kind === 'limit' ? 'limit' : 'error';
-    if (f.kind === 'auth') deps.onAuthFailure?.(f.code);
+    if (f.kind === 'auth') deps.onAuthFailure?.(f.code, f.session);
     if (f.kind === 'not-allowed') deps.onAuthFailure?.('not-allowed');
     if (phase === 'offline' || phase === 'limit' || phase === 'error') {
       failures++;

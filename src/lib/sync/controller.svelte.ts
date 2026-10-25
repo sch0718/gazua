@@ -126,7 +126,9 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     if (stored && stored.id === mine) await store?.deleteMeta(SESSION_KEY);
   }
 
-  function onAuthFailure(code: string) {
+  function onAuthFailure(code: string, usedSession?: string) {
+    // 그 사이 로그아웃·다시 로그인해 세션이 바뀌었으면, 이전 세션으로 나간 요청의 실패는 새 로그인과 상관없다
+    if (usedSession !== undefined && session?.id !== usedSession) return;
     if (code === 'not-allowed') void forget(ERRORS['not-allowed']).then(() => auth?.signOut());
     else void forget(code === 'session-revoked' ? '이 기기는 로그아웃됐어요(다른 기기에서 철회). 다시 로그인해 주세요.' : ERRORS.auth);
   }
@@ -167,7 +169,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   const ok = <T>(r: { ok: true; data: T } | ApiFail): T | null => {
     if (r.ok) return r.data;
     // 관리 요청(기기·공유·과거 버전 등)이 세션 문제로 실패해도 엔진과 같은 정리로 로그인 필요 상태로 돌린다
-    if (r.kind === 'auth') onAuthFailure(r.code);
+    if (r.kind === 'auth') onAuthFailure(r.code, r.session);
     else if (r.kind === 'not-allowed') onAuthFailure('not-allowed');
     else error = describeFail(r);
     return null;

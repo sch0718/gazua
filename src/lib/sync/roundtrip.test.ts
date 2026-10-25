@@ -514,7 +514,7 @@ describe('1단계 완료 기준', () => {
         armed = false;
         b.app.setWatchlists({ groups: [{ id: 'g', name: '받는 도중 고침', items: [] }] });
       }
-      return digest(alg, data as Uint8Array);
+      return digest(alg, data);
     });
     await b.engine.pull();
     spy.mockRestore();
