@@ -11,6 +11,8 @@ export interface OutboxOp {
   doc?: ProfileDocV1;
   hash?: string;
   createdAt: number;
+  /** 넣은 순서(저장소가 매긴다). 시계가 뒤로 가도 이 순서로 보낸다. */
+  seq?: number;
   /** 처음 보낸 시각과 그때의 기준 리비전. 이후 재시도는 같은 값을 쓴다. */
   sentAt?: number;
   baseRevision?: number;
@@ -64,7 +66,16 @@ export interface SyncStore {
  * 시계 정밀도가 낮아 시각이 같아도 지우기가 그 앞의 올리기보다 먼저 나가면, 기준 리비전 0으로 거절된 뒤 올리기가 다시 가서 지운 프로필이 되살아난다.
  */
 const rank = (o: OutboxOp) => (o.kind === 'delete' ? 2 : o.sentAt !== undefined ? 0 : 1);
-export const byQueueOrder = (a: OutboxOp, b: OutboxOp) => a.createdAt - b.createdAt || rank(a) - rank(b);
+/** 넣은 순서(seq)가 먼저다. seq가 없는 예전 작업만 시각으로 비교한다. */
+export const byQueueOrder = (a: OutboxOp, b: OutboxOp) =>
+  (a.seq !== undefined && b.seq !== undefined ? a.seq - b.seq : a.createdAt - b.createdAt) || rank(a) - rank(b);
+/** 처음 넣는 작업이면 지금 대기열의 가장 큰 seq 다음 번호를 매긴다(다시 쓰는 작업은 그대로). */
+const withSeq = (op: OutboxOp, existing: OutboxOp[]): OutboxOp => {
+  if (op.seq !== undefined) return op;
+  const same = existing.find((o) => o.opId === op.opId);
+  if (same?.seq !== undefined) return { ...op, seq: same.seq };
+  return { ...op, seq: existing.reduce((m, o) => Math.max(m, o.seq ?? 0), 0) + 1 };
+};
 
 type Stores = {
   outbox: OutboxOp;
@@ -84,7 +95,7 @@ export function createMemorySyncStore(): SyncStore {
   return {
     persistent: false,
     ops: async () => [...m.outbox.values()].map(clone).sort(byQueueOrder),
-    putOp: async (op) => void m.outbox.set(op.opId, clone(op)),
+    putOp: async (op) => void m.outbox.set(op.opId, clone(withSeq(op, [...m.outbox.values()]))),
     deleteOp: async (id) => void m.outbox.delete(id),
     state: async (id) => (m.profiles.has(id) ? clone(m.profiles.get(id)!) : undefined),
     states: async () => [...m.profiles.values()].map(clone),
@@ -125,7 +136,13 @@ export async function openSyncStore(dbName = 'gazua-sync'): Promise<SyncStore> {
   return {
     persistent: true,
     ops: async () => (await all('outbox')).sort(byQueueOrder),
-    putOp: async (op) => void (await db.put('outbox', op)),
+    putOp: async (op) => {
+      // 같은 트랜잭션에서 번호를 매기고 넣는다(탭 사이에서도 겹치지 않게)
+      const tx = db.transaction('outbox', 'readwrite');
+      const existing = (await tx.store.getAll()) as OutboxOp[];
+      await tx.store.put(withSeq(op, existing));
+      await tx.done;
+    },
     deleteOp: async (id) => db.delete('outbox', id),
     state: (id) => db.get('profiles', id),
     states: () => all('profiles'),

@@ -34,12 +34,28 @@ export async function createShare(env: SyncEnv, deps: SyncDeps, ctx: AuthContext
   const capability = base64url(deps.random(32));
   const id = deps.uuid();
   const expiresAt = now + ttl * DAY;
-  await env.DB.prepare(
+  // 한도는 넣기 문장 안에서 다시 센다(앞의 확인만으로는 겹친 요청 둘이 함께 지나간다)
+  const r = await env.DB.prepare(
     `INSERT INTO shares (id, user_id, token_hash, source_profile_id, kind, title, snapshot, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+     WHERE (SELECT count(*) FROM shares WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?) < ?`,
   )
-    .bind(id, ctx.userId, await sha256Hex(capability), profileId, checked.snapshot.kind, checked.snapshot.title, JSON.stringify(checked.snapshot), now, expiresAt)
+    .bind(
+      id,
+      ctx.userId,
+      await sha256Hex(capability),
+      profileId,
+      checked.snapshot.kind,
+      checked.snapshot.title,
+      JSON.stringify(checked.snapshot),
+      now,
+      expiresAt,
+      ctx.userId,
+      now,
+      MAX_ACTIVE_SHARES,
+    )
     .run();
+  if (r.meta.changes === 0) throw new HttpError(429, 'share-limit');
   return { id, capability, expiresAt };
 }
 

@@ -445,14 +445,14 @@ describe('1단계 완료 기준', () => {
   it.each([
     ['memory', async () => createMemorySyncStore()],
     ['IndexedDB', async () => openSyncStore(`order-${Math.random()}`)],
-  ])('%s: 시각이 같으면 보낸 올리기 → 새 올리기 → 지우기 순서로 꺼낸다', async (_n, open) => {
+  ])('%s: 순서 번호가 같으면(두 탭이 같은 번호) 보낸 올리기 → 새 올리기 → 지우기 순서로 꺼낸다', async (_n, open) => {
     const store = await open();
-    await store.putOp({ opId: 'zz-delete', profileId: 'p', kind: 'delete', createdAt: 5 });
-    await store.putOp({ opId: 'mm-put', profileId: 'p', kind: 'put', createdAt: 5 });
-    await store.putOp({ opId: 'aa-sent', profileId: 'p', kind: 'put', createdAt: 5, sentAt: 6, baseRevision: 0 });
+    await store.putOp({ opId: 'zz-delete', profileId: 'p', kind: 'delete', createdAt: 5, seq: 1 });
+    await store.putOp({ opId: 'mm-put', profileId: 'p', kind: 'put', createdAt: 5, seq: 1 });
+    await store.putOp({ opId: 'aa-sent', profileId: 'p', kind: 'put', createdAt: 5, sentAt: 6, baseRevision: 0, seq: 1 });
     expect((await store.ops()).map((o) => o.opId)).toEqual(['aa-sent', 'mm-put', 'zz-delete']);
-    await store.putOp({ opId: '00-delete', profileId: 'q', kind: 'delete', createdAt: 5 });
-    await store.putOp({ opId: 'ff-put', profileId: 'q', kind: 'put', createdAt: 5 });
+    await store.putOp({ opId: '00-delete', profileId: 'q', kind: 'delete', createdAt: 5, seq: 2 });
+    await store.putOp({ opId: 'ff-put', profileId: 'q', kind: 'put', createdAt: 5, seq: 2 });
     const q = (await store.ops()).filter((o) => o.profileId === 'q').map((o) => o.opId);
     expect(q).toEqual(['ff-put', '00-delete']);
   });
@@ -522,6 +522,21 @@ describe('1단계 완료 기준', () => {
     const c = b.engine.status().conflicts[0];
     expect(c).toMatchObject({ kind: 'edit' });
     expect(c.kind === 'edit' && c.remote.watchlists.groups[0].name).toBe('A의 변경');
+  });
+
+  // Codex 리뷰(PR #39) 13차 1: 시계가 뒤로 가도 넣은 순서대로 꺼낸다(먼저 넣은 올리기가 나중에 넣은 지우기보다 먼저).
+  it.each([
+    ['memory', async () => createMemorySyncStore()],
+    ['IndexedDB', async () => openSyncStore(`seq-${Math.random()}`)],
+  ])('%s: 시계가 뒤로 가도 넣은 순서대로 꺼낸다', async (_n, open) => {
+    const store = await open();
+    await store.putOp({ opId: 'zz-put', profileId: 'p', kind: 'put', createdAt: 100, sentAt: 101, baseRevision: 0 });
+    await store.putOp({ opId: 'aa-delete', profileId: 'p', kind: 'delete', createdAt: 50 }); // 시계가 뒤로 갔다
+    expect((await store.ops()).map((o) => o.opId)).toEqual(['zz-put', 'aa-delete']);
+    // 보낼 때 다시 써도(보낸 시각 기록) 순서가 그대로다
+    const [first] = await store.ops();
+    await store.putOp({ ...first, sentAt: 200 });
+    expect((await store.ops()).map((o) => o.opId)).toEqual(['zz-put', 'aa-delete']);
   });
 
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.

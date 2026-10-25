@@ -86,6 +86,21 @@ describe('공유 API', () => {
     expect((await other.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: group() })).status).toBe(404);
   });
 
+  // Codex 리뷰(PR #39) 13차 2: 한도 직전에 두 요청이 겹쳐 둘 다 개수 확인을 지나도, 넣기 자체가 한도를 지킨다.
+  it('개수 확인을 지난 겹친 요청도 한도를 넘겨 넣지 못한다', async () => {
+    const { create, h } = await setup();
+    for (let i = 0; i < MAX_ACTIVE_SHARES; i++) expect((await create()).status).toBe(200);
+    // 앞선 개수 확인이 49개를 봤다고 친다(겹친 요청)
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    h.env.DB.prepare = ((sql: string) => {
+      if (sql.startsWith('SELECT count(*) AS n FROM shares')) return { bind: () => ({ first: async () => ({ n: MAX_ACTIVE_SHARES - 1 }) }) } as never;
+      return prepare(sql);
+    }) as typeof h.env.DB.prepare;
+    expect((await create()).body).toEqual({ error: 'share-limit' });
+    h.env.DB.prepare = prepare;
+    expect((h.env.DB.raw.prepare('SELECT count(*) AS n FROM shares WHERE revoked_at IS NULL').get() as { n: number }).n).toBe(MAX_ACTIVE_SHARES);
+  });
+
   it(`활성 공유는 ${MAX_ACTIVE_SHARES}개까지`, async () => {
     const { create, me } = await setup();
     let last = '';
