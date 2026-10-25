@@ -1,0 +1,21 @@
+name = "gazua-sync"
+main = "src/worker.ts"
+compatibility_date = "2025-01-01"
+
+[vars]
+# 콤마로 구분한 허용 출처(정확히 일치).
+ALLOWED_ORIGINS = "https://gazua.sch0718.dev"
+# Firebase 프로젝트 ID(aud·iss 검증). 비밀은 아니지만 계정마다 달라 비워 둔다. 배포 전에 채운다.
+FIREBASE_PROJECT_ID = ""
+# 허용 이메일은 vars가 아니라 시크릿으로 넣는다: pnpm wrangler secret put ALLOWED_EMAILS (콤마 구분)
+
+# `pnpm wrangler d1 create gazua-sync`가 알려 준 database_id를 넣는다(README 참고).
+[[d1_databases]]
+binding = "DB"
+database_name = "gazua-sync"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# 하루 한 번 정리(삭제 30일 지난 프로필, 만료 공유·세션). 계정 전체 Cron 수(무료 5개)를 README에서 확인한다.
+[triggers]
+crons = ["17 18 * * *"]
