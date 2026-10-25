@@ -105,21 +105,20 @@
 | R2 Standard 무료 사용량 | 매월 10 GB-month, Class A 100만 회·B 1,000만 회, 직접 egress 무료예요. Infrequent Access에는 이 무료량이 적용되지 않아요. **R2 구독·checkout이 필요하고 초과분은 과금돼요** | Worker를 통한 접근 권한 검사 또는 제한된 다운로드 권한을 써요. 파일을 내려받은 뒤 로컬에서 써요 | 큰 파일에 적합하고 S3 호환으로 이전도 비교적 쉬워요. 무과금 하드캡으로 보장되는 플랜은 아니에요 | [R2 pricing](https://developers.cloudflare.com/r2/pricing/), [시작 조건](https://developers.cloudflare.com/r2/get-started/) · 2026-10-25 |
 | Durable Objects Free | **SQLite backend만** 가능해요. 하루 100,000요청·13,000 GB-s, SQL 읽기 500만 행·쓰기 10만 행, 저장 합계 5 GB예요 | Worker 인증과 로컬 저장은 별도예요. 공동 편집 조정·WebSocket 방에 쓸 수 있어요 | 객체 수명·hibernation·배포를 관리해야 해요. API 종속성이 높아 지금은 추가하지 않아요 | [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · 2026-10-25 |
 
-Workers·D1·KV·DO의 위 공식 가격·한도 문서에서는 Supabase와 같은 주간 비활성 pause 조건을 확인하지 못했어요. 이를 영구 보존·무중단 보장으로 해석하지 않고, 장기 비활성 계정 처리의 별도 조건은 **확인 필요**로 남겨요. R2의 실제 결제 수단 등록 조건도 계정에서 확인해야 해요. 이번 검토에서는 가입·구독·checkout을 하지 않아요.
+Workers·D1·KV·DO의 위 공식 가격·한도 문서에서는 주간 비활성 pause 조건을 확인하지 못했어요. 이를 영구 보존·무중단 보장으로 해석하지 않고, 장기 비활성 계정 처리의 별도 조건은 **확인 필요**로 남겨요. R2의 실제 결제 수단 등록 조건도 계정에서 확인해야 해요. 이번 검토에서는 가입·구독·checkout을 하지 않아요.
 
 ### 관리형 DB와 맥 자체 호스팅
 
 | 선택지 | 무료 가격·한도 / 비활성 조건 | 인증 방법 | 웹 PWA 오프라인 | 운영 부담·종속성 / 판단 | 출처·확인일 |
 |---|---|---|---|---|---|
-| Supabase Free | $0, 활성 프로젝트 2개, DB 500 MB/프로젝트, 파일 1 GB, 월 MAU 50,000, egress 5 GB와 cached egress 5 GB예요. **7일간 활동이 낮으면 pause**될 수 있어요. 자동 백업은 Free에 포함되지 않아요 | 내장 Auth의 Google/GitHub OAuth·매직링크, Postgres RLS로 소유권을 제한해요 | Realtime만으로 오프라인 큐·충돌 복구가 생기지는 않아요. 별도 로컬 계층이 필요해요 | 서버 인증·권한 구현을 줄이기 좋아요. Postgres는 이전하기 쉽고 Auth·Storage·Realtime 사용분은 이전 작업이 생겨요. 가끔만 여는 개인 앱에는 pause가 단점이에요 | [가격](https://supabase.com/pricing), [pause 정책](https://supabase.com/docs/guides/platform/free-project-pausing) · 2026-10-25 |
 | Firebase Spark / Firestore Standard | $0, 결제 수단 불필요. 무료 DB 하나/프로젝트, 저장 1 GiB, 하루 문서 읽기 50,000·쓰기 20,000·삭제 20,000, 월 egress 10 GiB예요. 정기 비활성 pause는 인용 문서에서 확인하지 못했어요 | Firebase Auth Google/GitHub·이메일 등 + Security Rules예요. Identity Platform 사용 시 일반 MAU 무료량 50,000을 가격표에서 확인했어요 | 웹 SDK의 영구 로컬 캐시는 **기본 꺼짐**이며 켜야 해요. 같은 문서 변경은 last-write-wins예요 | 오프라인 구현 부담은 낮아지지만 문서 모델·Rules·SDK 종속성이 높아요. 시장 파일 보관·서버 배치는 Spark만으로 해결하기 어려워요 | [가격](https://firebase.google.com/pricing), [Firestore 한도](https://firebase.google.com/docs/firestore/quotas), [오프라인](https://firebase.google.com/docs/firestore/manage-data/enable-offline) · 2026-10-25 |
 | Turso Free | $0, 카드 불필요, DB 100개, 저장 5 GB, 월 읽기 5억 행·쓰기 1,000만 행, sync 3 GB예요. 비활성 archive/pause의 현재 일수·해제 방법은 **확인 필요**예요 | DB 토큰·JWKS 연계가 가능하지만 앱 사용자 로그인과 소유권 정책은 별도 설계해요 | 서버·네이티브의 embedded replica가 웹 PWA의 IndexedDB 동기화를 자동 제공한다고 가정하지 않아요. 브라우저용 경로는 별도 검증해요 | SQL 계열이라 데이터 이전은 비교적 쉬워요. 인증 API·sync 구현이 추가되므로 지금 D1을 대체할 이점은 작아요 | [가격](https://turso.tech/pricing), [SDK 인증](https://docs.turso.tech/sdk/authentication), [unarchive 문서](https://docs.turso.tech/cli/group/unarchive) · 2026-10-25 |
 | Neon Free | $0, 카드 불필요. 프로젝트 100개, 프로젝트당 월 100 CU-hours·Postgres 1 GB·egress 5 GB, 계정 저장 합계 20 GB예요. **5분 idle 후 scale-to-zero**이고 다음 연결 때 자동 기동해요 | 관리형 Neon Auth도 제공해요. 공식 표는 최대 60,000 MAU예요. SQL 직접 연결 자격 증명을 PWA에 넣지 않고 Auth/API·권한을 구성해요 | 일반 Postgres만으로 오프라인 복제가 생기지 않아요 | Postgres 이전은 쉬운 편이에요. compute 재기동·API·권한·클라이언트 동기화를 다뤄야 해요. 초기 개인용에는 구성 요소가 늘어요 | [가격](https://neon.com/pricing), [플랜 상세](https://neon.com/docs/introduction/plans), [scale-to-zero](https://neon.com/docs/introduction/scale-to-zero) · 2026-10-25 |
 | PocketBase + 사용자 맥 + 기존 Tunnel | 소프트웨어는 무료 자체 호스팅이에요. 관리형 무료 저장량이 아니라 맥의 디스크·메모리·회선이 한도예요. 전기·장비 비용은 남아요. **맥 종료·잠자기·회선 단절 동안 동기화·공유·배치 모두 중단**돼요 | 일반 사용자 OAuth2·비밀번호·이메일 OTP 등과 collection API rules를 써요. 관리자 권한은 앱에 주지 않아요 | 로컬 복사본과 outbox를 직접 만들어요. 서버가 꺼져도 기존 로컬 작업은 가능하게 해요 | 실행 파일 하나·SQLite라 시작은 간단해요. 업데이트·권한·백업·복구·가동 시간은 본인 책임이에요. DB는 옮길 수 있지만 API·규칙·hooks는 PocketBase에 묶여요 | [공식 소개](https://pocketbase.io/docs/), [운영·백업](https://pocketbase.io/docs/going-to-production/), [인증](https://pocketbase.io/docs/authentication/) · 2026-10-25 |
 
-Firebase는 **2026-02-03부터 Cloud Storage 접근 유지에도 Blaze가 필요**해요. Spark의 무료 Firestore와 Storage의 유료 플랜 내 무료량을 섞으면 안 돼요. Cloud Functions도 Spark 가격표에는 제공되지 않아요. 공유 만료는 Firestore Rules에서 서버 요청 시각으로 검사할 수 있지만, TTL 자동 삭제·PITR·관리형 백업에는 결제 활성화가 필요해요. [Storage 변경 안내](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024), [가격](https://firebase.google.com/pricing), [Firestore 무료 제외 기능](https://firebase.google.com/docs/firestore/quotas)에서 확인했어요(2026-10-25).
+Supabase는 사용자 결정으로 후보에서 제외했어요(2026-10-25).
 
-Supabase 기본 메일 발송은 팀에 속한 주소만 대상으로 하고 현재 시간당 2통으로 제한돼요. 일반 매직링크 배포에는 별도 SMTP가 필요해요([SMTP 문서](https://supabase.com/docs/guides/auth/auth-smtp), 2026-10-25). 현재 [pause 정책](https://supabase.com/docs/guides/platform/free-project-pausing)은 일시정지 뒤 **최대 1년** 동안 대시보드에서 복구할 수 있다고 안내해요. 오래된 90일 안내를 현재 조건으로 쓰지 않아요(2026-10-25 확인).
+Firebase는 **2026-02-03부터 Cloud Storage 접근 유지에도 Blaze가 필요**해요. Spark의 무료 Firestore와 Storage의 유료 플랜 내 무료량을 섞으면 안 돼요. Cloud Functions도 Spark 가격표에는 제공되지 않아요. 공유 만료는 Firestore Rules에서 서버 요청 시각으로 검사할 수 있지만, TTL 자동 삭제·PITR·관리형 백업에는 결제 활성화가 필요해요. [Storage 변경 안내](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024), [가격](https://firebase.google.com/pricing), [Firestore 무료 제외 기능](https://firebase.google.com/docs/firestore/quotas)에서 확인했어요(2026-10-25).
 
 PocketBase를 고른다면 별도 포트 `127.0.0.1:8090`에 묶고 기존 Tunnel에 DB 전용 호스트를 추가하는 안이에요. 증권사 프록시의 포트·라우팅·허용 목록과 분리해요. 자동 시작, 정확한 앱 출처 CORS, 사용자별 API rules, rate limit, 관리자 접근 제한, 일관된 `pb_data` 백업과 복구 점검을 준비해야 해요. 공식 [소개 문서](https://pocketbase.io/docs/)는 v1 이전의 완전한 하위 호환을 보장하지 않고 중요 운영 용도에는 수동 마이그레이션 부담을 경고해요(2026-10-25). 맥 하나에 원본과 유일한 백업을 함께 두지는 않아요. 이는 도입 시 할 일이며 이번 작업에서 실행하지 않아요.
 
@@ -152,7 +151,7 @@ Drive는 오래 알려진 요청 횟수만 옮겨 적지 않고 현재 공식 �
 
 | 방식 | 개인용 앱의 장점 | 추가 일·제약 | 판단 |
 |---|---|---|---|
-| 이메일 매직링크 | 비밀번호를 관리하지 않아도 돼요 | 메일 발송·스팸·재시도·링크 만료·redirect 검증이 필요해요. Supabase 기본 메일 제한도 있어요 | 첫 선택에서 제외해요 |
+| 이메일 매직링크 | 비밀번호를 관리하지 않아도 돼요 | 메일 발송·스팸·재시도·링크 만료·redirect 검증이 필요해요. | 첫 선택에서 제외해요 |
 | Google OAuth/OIDC | 기존 계정으로 여러 기기에서 로그인할 수 있어요 | 사용자 신원 확인과 저장 데이터 권한은 별개예요. 직접 구현하면 토큰 검증·세션·CSRF 처리가 필요해요 | **개인용 기본 로그인 수단으로 추천해요** |
 | GitHub OAuth | 개발자가 쓰기 편하고 기존 GitHub 계정을 활용해요 | 비개발자 공유에는 진입 장벽이 있어요. code 교환은 안전한 서버 중계가 필요할 수 있어요 | 본인이 선호하면 Google 대신 선택해요 |
 | Cloudflare Access | Google 같은 IdP 앞에서 이메일 허용 목록으로 개인 API를 잠글 수 있어요. Free는 사용자 50명까지예요 | 앱 계정·DB 소유권 모델을 대신 만들지는 않아요. 별도 출처 API의 로그인 쿠키·CORS·preflight를 맞춰야 해요 | **Workers+D1 개인 API의 인증 관문으로 추천해요** |
@@ -217,7 +216,7 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 **Workers Free + D1 Free + Access/Google**을 1순위로 추천해요. 이미 있는 Cloudflare 배포 경험을 쓰고, 작은 SQL DB 하나로 동기화 버전·공유 만료·백업 메타데이터를 처리할 수 있어요. 인증과 충돌 처리까지 완제품으로 제공하는 서비스는 아니므로 초기 구현 규모는 중간이에요.
 
-대안은 **Supabase Free + Google OAuth + RLS**예요. 계정·권한 기능을 빨리 구성하는 것이 더 중요하고 주간 pause·별도 백업을 감수할 수 있으면 적합해요. **Drive appDataFolder**는 본인 동기화만 필요할 때 대안이고, **PocketBase+맥**은 맥이 꺼질 때 공유도 중단돼도 괜찮고 운영을 직접 맡을 때 선택해요. 이번 두 목적을 한 번에 해결하기에는 Workers+D1이 가장 균형이 좋다고 판단해요.
+계정·권한 기능을 빨리 구성하는 것이 더 중요하면 **Firebase Spark / Firestore Standard + Firebase Auth + Security Rules**를 대안으로 검토해요. 문서 모델·Rules·SDK 종속성이 높고, 시장 파일 보관·서버 배치는 Spark만으로 해결하기 어려워요. **Drive appDataFolder**는 본인 동기화만 필요할 때 대안이고, **PocketBase+맥**은 맥이 꺼질 때 공유도 중단돼도 괜찮고 운영을 직접 맡을 때 선택해요. 이번 두 목적을 한 번에 해결하기에는 Workers+D1이 가장 균형이 좋다고 판단해요.
 
 ### 1단계: 가장 작은 무료 동기화와 읽기 공유
 
@@ -266,7 +265,7 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 ## 8. 결정이 필요한 것
 
-1. **기본 경로:** Workers+D1+Access를 택할까요, 아니면 인증 구현을 줄이는 Supabase의 pause 조건을 받아들일까요?
+1. **기본 경로:** 추천안인 Workers+D1+Access로 갈까요, 아니면 Firebase, 맥 PocketBase나 Drive appDataFolder 같은 대안을 택할까요?
 2. **본인 로그인:** Access의 Google 로그인과 이메일 허용 목록을 기본으로 할까요? GitHub 계정을 선호하면 바꿀 수 있어요.
 3. **일반 개인 데이터의 공개 범위:** 그룹·전략·선정 기준을 클라우드 운영자가 읽을 수 있는 일반 동기화로 시작해도 될까요? 처음부터 모두 E2EE라면 복구·공유 설계와 구현 규모가 커져요.
 4. **동기화할 설정:** 기간·지표·벤치마크·색 규칙만 먼저 묶고 기기 테마·공급자 연결·잠금은 기기에 둘까요?
@@ -287,7 +286,6 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 | KV | [가격](https://developers.cloudflare.com/kv/platform/pricing/), [일관성](https://developers.cloudflare.com/kv/concepts/how-kv-works/) | 2026-10-25 |
 | R2·DO | [R2 가격](https://developers.cloudflare.com/r2/pricing/), [R2 구독 조건](https://developers.cloudflare.com/r2/get-started/), [DO 가격](https://developers.cloudflare.com/durable-objects/platform/pricing/) | 2026-10-25 |
 | Access | [가격](https://www.cloudflare.com/plans/), [Google IdP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/google/), [JWT](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/), [CORS](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/cors/) | 2026-10-25 |
-| Supabase | [가격](https://supabase.com/pricing), [pause·복구](https://supabase.com/docs/guides/platform/free-project-pausing), [SMTP](https://supabase.com/docs/guides/auth/auth-smtp) | 2026-10-25 |
 | Firebase | [가격](https://firebase.google.com/pricing), [Firestore 한도](https://firebase.google.com/docs/firestore/quotas), [오프라인](https://firebase.google.com/docs/firestore/manage-data/enable-offline), [Storage의 Blaze 요구](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024) | 2026-10-25 |
 | Turso | [가격](https://turso.tech/pricing), [SDK 인증](https://docs.turso.tech/sdk/authentication), [unarchive](https://docs.turso.tech/cli/group/unarchive) | 2026-10-25 |
 | Neon | [가격](https://neon.com/pricing), [플랜 상세](https://neon.com/docs/introduction/plans), [scale-to-zero](https://neon.com/docs/introduction/scale-to-zero) | 2026-10-25 |
