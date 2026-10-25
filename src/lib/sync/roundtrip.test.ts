@@ -379,6 +379,48 @@ describe('1단계 완료 기준', () => {
     expect(list.ok && list.data.profiles.find((r) => r.profileId === extra.id)?.deletedAt).not.toBeNull();
   });
 
+  // Codex 리뷰(PR #39) 8차 1: 응답을 잃은 업로드(A→B) 뒤 A로 되돌렸는데 다른 기기가 C로 바꿨으면, 덮어쓰지 않고 충돌로 남긴다.
+  it('응답 잃은 업로드 뒤 되돌린 문서는 다른 기기의 새 변경과 충돌로 남긴다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await a.engine.flush();
+    const b = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'B', items: [] }] });
+    s.dropNextResponse = true;
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await b.engine.syncNow();
+    b.app.switchProfile(a.app.meta.activeProfileId);
+    b.app.setWatchlists({ groups: [{ id: 'g', name: 'C', items: [] }] });
+    await b.engine.flush();
+    await a.engine.syncNow();
+    expect(a.app.watchlists.groups[0].name).toBe('A');
+    expect(a.engine.status().conflicts[0]).toMatchObject({ kind: 'edit' });
+  });
+
+  // Codex 리뷰(PR #39) 8차 2: 이 기기 저장소에 쓰지 못하면(메모리로만 반영) 확인 지점을 올리지 않는다. 다시 열었을 때 오래된 것을 올려 서버를 되돌리지 않게.
+  it('로컬 저장이 실패하면 동기화를 멈추고, 다시 열어도 서버를 되돌리지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const backing = memoryBacking();
+    const store = createMemorySyncStore();
+    const b = await enabled(s, { storage: createSafeStorage(backing), store });
+    a.app.setWatchlists({ groups: [{ id: 'g', name: '서버 최신', items: [] }] });
+    await a.engine.flush();
+    const setItem = backing.setItem;
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await b.engine.syncNow();
+    expect(b.engine.status().phase).toBe('error');
+    backing.setItem = setItem;
+    const again = await device(s, { storage: createSafeStorage(backing), store });
+    await again.engine.syncNow();
+    const got = await again.api.getProfile(a.app.meta.activeProfileId);
+    expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('서버 최신');
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

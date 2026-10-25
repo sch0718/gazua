@@ -19,6 +19,8 @@ export interface LocalProfiles {
   remove(id: string): void;
   /** 새 ID 프로필을 만든다(충돌 사본·복원). */
   create(doc: ProfileDocV1): string;
+  /** 쓴 것이 이 기기 저장소에 실제로 남는지(저장 실패로 메모리에만 반영 중이면 false). 없으면 늘 남는다고 본다. */
+  durable?(): boolean;
 }
 
 export type SyncPhase = 'off' | 'idle' | 'syncing' | 'offline' | 'auth' | 'not-allowed' | 'limit' | 'error';
@@ -82,6 +84,7 @@ export interface SyncEngine {
 }
 
 export const CONFLICT_COPY_SUFFIX = ' (충돌 사본)';
+export const STORAGE_NOTICE = '이 기기 저장소에 쓸 수 없어 동기화를 멈췄어요. 저장 공간을 확인하고 앱을 다시 열어 주세요.';
 export const RESTORED_SUFFIX = ' (복원)';
 
 /** 이름 뒤에 붙임말을 붙이되 30자를 넘지 않게 앞부분을 줄인다. */
@@ -92,6 +95,8 @@ export function suffixed(name: string, suffix: string): string {
 const MAX_BACKOFF = 5 * 60 * 1000;
 /** 두 문서가 같은지(동기, 그 사이 다른 코드가 끼어들지 않는다). */
 const sameDoc = (a: ProfileDocV1, b: ProfileDocV1) => JSON.stringify(a) === JSON.stringify(b);
+/** 응답을 못 받은 업로드 중 지금 문서와 다른 것이 있나. 있으면 마지막 확인 해시만으로 "안 바뀜"이라 보면 안 된다. */
+const unackedOther = (ops: OutboxOp[], id: string, hash: string) => ops.some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
 const BASE_BACKOFF = 5000;
 
 export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
@@ -266,7 +271,8 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         if (localIds.has(id)) {
           await dropOps(id);
           const doc = local.read(id);
-          const dirty = !st || st.syncedHash !== (await docHash(doc));
+          const hash = await docHash(doc);
+          const dirty = !st || st.syncedHash !== hash || unackedOther(ops, id, hash);
           // 기다리는 동안 이 기기에서 고쳤을 수 있다(앱 저장은 잠금을 기다리지 않는다). 지우기 직전에 같은 문서인지 다시 본다.
           const latest = local.read(id);
           if (dirty || !sameDoc(latest, doc)) {
@@ -288,6 +294,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const remoteHash = await docHash(got.data.doc);
       if (!localIds.has(id)) {
         local.write(id, got.data.doc);
+        if (local.durable && !local.durable()) return 'error';
         await setSynced(id, got.data.revision, remoteHash);
         continue;
       }
@@ -301,7 +308,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         await setSynced(id, got.data.revision, remoteHash);
         continue; // 로컬이 다르면 이어지는 보내기가 새 작업으로 올린다
       }
-      if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash)) {
+      if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash && !unackedOther(ops, id, localHash))) {
         if (localHash !== remoteHash) {
           // 해시를 기다리는 동안 고쳤으면 덮어쓰지 않는다: 서버 것을 확인된 상태로만 삼고, 고친 것은 이어지는 보내기가 올린다
           if (!sameDoc(local.read(id), doc)) {
@@ -309,6 +316,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             continue;
           }
           local.write(id, got.data.doc);
+          if (local.durable && !local.durable()) return 'error';
         }
         await dropOps(id);
         await setSynced(id, got.data.revision, remoteHash);
@@ -342,6 +350,11 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         // 단계 사이에 꺼졌으면(이 탭·다른 탭) 남은 일을 하지 않는다
         if (!status.enabled || (await store.getMeta<boolean>('enabled')) !== true) {
           await refresh({ enabled: false, phase: 'off' });
+          return;
+        }
+        // 이 기기 저장소에 쓰지 못하면(메모리로만 반영) 확인 지점을 올리면 안 된다. 다시 열었을 때 오래된 문서가 새 수정처럼 올라가 서버를 되돌린다.
+        if (local.durable && !local.durable()) {
+          await refresh({ phase: 'error', notices: status.notices.includes(STORAGE_NOTICE) ? status.notices : [...status.notices, STORAGE_NOTICE] });
           return;
         }
         if (s === 'pull') phase = await pull();

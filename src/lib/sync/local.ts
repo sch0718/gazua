@@ -15,5 +15,6 @@ export function appProfiles(app: App, storage: SafeStorage): LocalProfiles {
       app.applySyncedProfile(p.id, doc);
       return p.id;
     },
+    durable: () => storage.persistent,
   };
 }
