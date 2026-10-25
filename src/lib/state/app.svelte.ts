@@ -31,7 +31,9 @@ import { assertBasketsWritable, loadBaskets, type Basket } from '../screen/baske
 import { exportData, importData, type ImportResult } from './exportImport';
 import { HELP_PAGES } from '../help/content';
 import { hashFor, parseHash, type Route } from './routes';
-import { META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
+import { DEFAULT_PROFILE_NAME, META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
+import { SYNCED_SETTINGS, type ProfileDocV1 } from '../sync/dto';
+import { applyProfileDoc } from '../sync/profileDoc';
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
 import { STORAGE_PREFIX, type SafeStorage } from './storage';
 
@@ -119,6 +121,13 @@ export interface App {
   tokenIssuedAt(provider: 'kis'): IssuedAtStore;
   /** 메모리의 키와 토큰을 버리고 잠금 해제 화면으로 간다. */
   lock(): void;
+  /**
+   * 동기화 전용: 원격 문서를 같은 프로필 ID에 쓴다(없으면 목록에 더한다). 기기 전용 설정·키·최근 종목은 그대로 둔다.
+   * 지금 프로필이면 화면 상태를 다시 읽는다. 변경 알림(onSyncableChange)은 내지 않는다.
+   */
+  applySyncedProfile(id: string, doc: ProfileDocV1): void;
+  /** 동기화 전용: 다른 기기에서 지운 프로필을 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. 변경 알림은 내지 않는다. */
+  removeSyncedProfile(id: string): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
   clearSecrets(): void;
   navigate(r: Route): void;
@@ -134,6 +143,11 @@ export interface AppDeps {
   cache?: CandleCache;
   /** 기본값은 IndexedDB `gazua-account`. */
   orderCache?: OrderCache;
+  /**
+   * 동기화 대상(분석 설정·그룹·전략·선정 기준·바구니·프로필 이름·목록)이 바뀌었을 때. 동기화 엔진이 해시로 실제 변경을 가린다.
+   * 키·토큰·최근 종목·기기 전용 설정만 바뀐 경우에는 부르지 않는다.
+   */
+  onSyncableChange?: (e: { kind: 'changed' | 'deleted'; profileId: string }) => void;
 }
 
 /**
@@ -273,6 +287,21 @@ export function createApp(deps: AppDeps): App {
   function write(key: string, v: unknown) {
     storage.set(key, v);
     storageTick++;
+  }
+
+  const syncable = (kind: 'changed' | 'deleted', profileId: string) => deps.onSyncableChange?.({ kind, profileId });
+
+  /** 지금 프로필의 동기화 대상 상태를 저장소에서 다시 읽는다(원격 적용·다른 탭의 쓰기 뒤). 키·잠금·공급자는 건드리지 않는다. */
+  function reloadSynced() {
+    const loaded = loadProfile(activeId());
+    const prev = settings;
+    settings = { ...prev, ...Object.fromEntries(SYNCED_SETTINGS.map((k) => [k, loaded.settings[k]])) };
+    watchlists = loaded.watchlists;
+    strategies = loaded.strategies;
+    criteria = loaded.criteria;
+    baskets = loaded.baskets;
+    applyDisplay();
+    if (!gate()) navigate(route);
   }
 
   function remove(key: string): boolean {
@@ -441,6 +470,24 @@ export function createApp(deps: AppDeps): App {
     enter();
   }
 
+  /** 프로필과 그 설정·관심종목·키·토큰·주문 캐시를 지운다. 지금 프로필이면 다른 프로필로 바꾼다(남은 프로필이 있어야 한다). */
+  function removeProfile(id: string) {
+    const rest = meta.profiles.filter((p) => p.id !== id);
+    if (activeId() === id) switchProfile(rest[0].id);
+    meta = { ...meta, profiles: rest };
+    write(META_KEY, meta);
+    forgetTokens(id);
+    forgetOrders(id);
+    remove(profileKeys.settings(id));
+    remove(profileKeys.watchlists(id));
+    remove(profileKeys.secrets(id));
+    remove(profileKeys.recent(id));
+    remove(profileKeys.strategies(id));
+    remove(profileKeys.criteria(id));
+    remove(profileKeys.baskets(id));
+    remove(profileKeys.tokenIssuedAt(id, 'kis'));
+  }
+
   /** storage 이벤트의 이전 값이 저장된 키(잠긴 키 또는 평문 객체)였는지. */
   function storedKeys(json: string | null): boolean {
     if (json === null) return false;
@@ -458,6 +505,18 @@ export function createApp(deps: AppDeps): App {
    */
   function onStorage(e: StorageEvent) {
     const id = activeId();
+    // 다른 탭(동기화 적용 포함)이 이 프로필의 동기화 대상을 바꿨으면 다시 읽는다. 오래된 화면 상태로 덮어쓰지 않게.
+    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.criteria(id), profileKeys.baskets(id)];
+    if (e.key !== null && synced.some((k) => e.key === STORAGE_PREFIX + k)) {
+      reloadSynced();
+      return;
+    }
+    if (e.key === STORAGE_PREFIX + META_KEY) {
+      // 프로필 목록·이름만 맞춘다. 이 탭의 지금 프로필 선택은 그대로 둔다.
+      const fresh = storage.readBacking<Meta | null>(META_KEY, null);
+      if (fresh && Array.isArray(fresh.profiles) && fresh.profiles.some((p) => p.id === id)) meta = { ...meta, profiles: fresh.profiles };
+      return;
+    }
     // 이 프로필의 키 항목 자체가 바뀐 경우에만 반응한다(다른 설정 쓰기·clear()는 잠금 상태를 바꾸지 않는다).
     if (e.key !== STORAGE_PREFIX + profileKeys.secrets(id)) return;
     // 다른 탭이 키를 바꾸거나 지웠다: 진행 중이던 주문 받기가 지운 내역을 다시 저장하지 않게 한다
@@ -581,6 +640,7 @@ export function createApp(deps: AppDeps): App {
       const prev = settings;
       settings = { ...settings, ...p };
       write(profileKeys.settings(activeId()), settings);
+      if (SYNCED_SETTINGS.some((k) => k in p)) syncable('changed', activeId());
       // 프록시 주소를 저장하면 지웠다는 안내는 할 일을 마쳤다(다른 손상 안내는 그대로).
       if ('proxyUrl' in p) {
         storage.clearProxyCleared(profileKeys.settings(activeId()));
@@ -603,6 +663,7 @@ export function createApp(deps: AppDeps): App {
     setWatchlists(w) {
       watchlists = w;
       write(profileKeys.watchlists(activeId()), w);
+      syncable('changed', activeId());
     },
 
     addRecent(symbol) {
@@ -614,18 +675,21 @@ export function createApp(deps: AppDeps): App {
       assertStrategyCap(list);
       strategies = list;
       write(profileKeys.strategies(activeId()), { strategies: list });
+      syncable('changed', activeId());
     },
 
     setCriteria(list) {
       assertCriteriaCap(list);
       criteria = list;
       write(profileKeys.criteria(activeId()), { criteria: list });
+      syncable('changed', activeId());
     },
 
     setBaskets(list) {
       assertBasketsWritable(list);
       baskets = list;
       write(profileKeys.baskets(activeId()), { baskets: list });
+      syncable('changed', activeId());
     },
 
     switchProfile,
@@ -638,6 +702,7 @@ export function createApp(deps: AppDeps): App {
       };
       meta = { ...meta, profiles: [...meta.profiles, profile] };
       write(META_KEY, meta);
+      syncable('changed', profile.id);
       return profile;
     },
 
@@ -646,25 +711,35 @@ export function createApp(deps: AppDeps): App {
       if (!clean || !meta.profiles.some((p) => p.id === id)) return;
       meta = { ...meta, profiles: meta.profiles.map((p) => (p.id === id ? { ...p, name: clean } : p)) };
       write(META_KEY, meta);
+      syncable('changed', id);
     },
 
     deleteProfile(id) {
       if (!meta.profiles.some((p) => p.id === id)) throw new Error(`no profile ${id}`);
-      const rest = meta.profiles.filter((p) => p.id !== id);
-      if (rest.length === 0) throw new Error('cannot delete the last profile');
-      if (activeId() === id) switchProfile(rest[0].id);
-      meta = { ...meta, profiles: rest };
+      if (meta.profiles.length === 1) throw new Error('cannot delete the last profile');
+      removeProfile(id);
+      syncable('deleted', id);
+    },
+
+    applySyncedProfile(id, doc) {
+      applyProfileDoc(storage, id, doc);
+      const exists = meta.profiles.some((p) => p.id === id);
+      meta = exists
+        ? { ...meta, profiles: meta.profiles.map((p) => (p.id === id ? { ...p, name: doc.name } : p)) }
+        : { ...meta, profiles: [...meta.profiles, { id, name: doc.name, createdAt: now() }] };
       write(META_KEY, meta);
-      forgetTokens(id);
-      forgetOrders(id);
-      remove(profileKeys.settings(id));
-      remove(profileKeys.watchlists(id));
-      remove(profileKeys.secrets(id));
-      remove(profileKeys.recent(id));
-      remove(profileKeys.strategies(id));
-      remove(profileKeys.criteria(id));
-      remove(profileKeys.baskets(id));
-      remove(profileKeys.tokenIssuedAt(id, 'kis'));
+      if (activeId() === id) reloadSynced();
+    },
+
+    removeSyncedProfile(id) {
+      if (!meta.profiles.some((p) => p.id === id)) return;
+      if (meta.profiles.length === 1) {
+        const fresh: Profile = { id: crypto.randomUUID(), name: DEFAULT_PROFILE_NAME, createdAt: now() };
+        meta = { ...meta, profiles: [...meta.profiles, fresh] };
+        write(META_KEY, meta);
+        syncable('changed', fresh.id);
+      }
+      removeProfile(id);
     },
 
     async verifyPassphrase(passphrase) {
@@ -687,6 +762,7 @@ export function createApp(deps: AppDeps): App {
       if (res.ok) {
         meta = loadMeta(storage);
         storageTick++;
+        syncable('changed', res.profileId);
       }
       return res;
     },
