@@ -139,4 +139,23 @@ describe('SyncPanel', () => {
     await fireEvent.click(screen.getByRole('button', { name: '잃어버린 폰 로그아웃' }));
     expect(sync.revokeSession).toHaveBeenCalledWith('bbbbbbbbbbbb');
   });
+
+  // Codex 리뷰(PR #39) 3차 2: 과거 버전 목록을 연 뒤 프로필을 바꾸면, 보이는 목록과 다른 프로필에서 복원하지 않는다.
+  it('과거 버전은 목록을 불러온 프로필에서 복원하고, 프로필을 바꾸면 목록을 다시 읽는다', async () => {
+    const a = app();
+    const first = a.meta.activeProfileId;
+    const sync = fakeSync({ account: { email: 'me@example.test' }, status: { enabled: true, phase: 'idle' }, revisions: vi.fn(async () => [{ revision: 3, createdAt: 1, deleted: false }]) });
+    render(SyncPanel, { app: a, sync });
+    const details = screen.getByText('지금 프로필의 과거 버전').closest('details')!;
+    details.open = true;
+    await fireEvent(details, new Event('toggle'));
+    const btn = await waitFor(() => screen.getByRole('button', { name: '버전 3을 새 프로필로 복원' }));
+    const other = a.addProfile('다른 프로필');
+    a.switchProfile(other.id);
+    await fireEvent.click(btn);
+    expect(sync.restoreRevision).not.toHaveBeenCalledWith(other.id, 3);
+    await waitFor(() => expect(sync.revisions).toHaveBeenLastCalledWith(other.id));
+    void first;
+  });
 });
+

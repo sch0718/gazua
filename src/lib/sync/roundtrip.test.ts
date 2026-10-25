@@ -236,6 +236,53 @@ describe('1단계 완료 기준', () => {
     expect(list.ok && list.data.profiles.find((r) => r.profileId === extra.id)?.deletedAt).toBeNull();
   });
 
+  // Codex 리뷰(PR #39) 3차 3: 복구 기간이 지났지만 아직 정리 전(tombstone 남음)이면, 같은 ID로는 못 살리니 새 프로필로 남겨 올린다.
+  it('복구 기간이 지난 삭제 충돌의 복구는 이 기기 것을 새 프로필로 올린다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const extra = a.app.addProfile('기간 지남');
+    await a.engine.flush();
+    const b = await enabled(s);
+    b.app.switchProfile(extra.id);
+    a.app.deleteProfile(extra.id);
+    await a.engine.flush();
+    b.app.setWatchlists({ groups: [{ id: 'g1', name: '살릴 것', items: [] }] });
+    await b.engine.flush();
+    expect(b.engine.status().conflicts[0]).toMatchObject({ profileId: extra.id, kind: 'deleted' });
+    s.h.env.DB.raw.prepare('UPDATE profile_index SET purge_at = ? WHERE profile_id = ?').run(s.h.clock.now - 1, extra.id);
+    await b.engine.resolve(extra.id, 'restore');
+    await b.engine.syncNow();
+    expect(b.engine.status()).toMatchObject({ conflicts: [], phase: 'idle' });
+    const copy = b.app.meta.profiles.find((p) => p.name === '기간 지남');
+    expect(copy && copy.id).not.toBe(extra.id);
+    b.app.switchProfile(copy!.id);
+    expect(b.app.watchlists.groups[0].name).toBe('살릴 것');
+    const list = await b.api.listProfiles();
+    expect(list.ok && list.data.profiles.find((r) => r.profileId === copy!.id)?.deletedAt).toBeNull();
+  });
+
+  // Codex 리뷰(PR #39) 3차 1: 받는 중에 동기화를 끄면 이어서 보내지 않는다.
+  it('받는 도중 동기화를 끄면 그 뒤로 보내지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: '보내면 안 됨', items: [] }] });
+    const orig = a.api.listProfiles.bind(a.api);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    a.api.listProfiles = async () => {
+      await gate;
+      return orig();
+    };
+    const running = a.engine.syncNow();
+    await new Promise((r) => setTimeout(r, 0));
+    await a.engine.setEnabled(false);
+    const before = s.requests.filter((r) => r.method === 'PUT').length;
+    release();
+    await running;
+    expect(s.requests.filter((r) => r.method === 'PUT').length).toBe(before);
+    expect(a.engine.status()).toMatchObject({ enabled: false, phase: 'off' });
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

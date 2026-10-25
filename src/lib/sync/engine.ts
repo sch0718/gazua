@@ -191,6 +191,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   async function push(): Promise<SyncPhase> {
     const conflicts = new Set((await store.conflicts()).map((c) => c.profileId));
     for (const op of await store.ops()) {
+      if (!status.enabled) return 'off'; // 보내는 도중 꺼졌다
       if (conflicts.has(op.profileId)) {
         await store.deleteOp(op.opId); // 충돌 사본이 로컬 문서를 들고 있다
         continue;
@@ -317,12 +318,21 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       emit({ phase: 'syncing' });
       let phase: SyncPhase = 'idle';
       for (const s of steps) {
+        // 단계 사이에 꺼졌으면(이 탭·다른 탭) 남은 일을 하지 않는다
+        if (!status.enabled || (await store.getMeta<boolean>('enabled')) !== true) {
+          await refresh({ enabled: false, phase: 'off' });
+          return;
+        }
         if (s === 'pull') phase = await pull();
         else {
           await enqueueChanged();
           phase = await push();
         }
         if (phase !== 'idle') break;
+      }
+      if (phase === 'off') {
+        await refresh({ enabled: false, phase: 'off' });
+        return;
       }
       if (phase === 'idle') {
         failures = 0;
@@ -410,7 +420,18 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             if (c.deletedAt !== null) {
               const r = await api.restoreProfile(profileId, uuid());
               if (r.ok) await setSynced(profileId, r.data.revision, await docHash(r.data.doc));
-              // 복구 기간이 지나 서버에서 정리됐다(gone 또는 행 자체가 없음): 이 기기 것을 새로 올린다
+              else if (r.kind === 'gone' && r.deletedAt !== null) {
+                // 복구 기간은 지났지만 tombstone이 아직 있다: 같은 ID로는 되살릴 수 없으니 이 기기 것을 새 프로필로 남겨 올린다
+                const mine = local.list().some((p) => p.id === profileId) ? local.read(profileId) : c.local;
+                local.create(mine);
+                if (local.list().some((p) => p.id === profileId)) local.remove(profileId);
+                await setSynced(profileId, c.remoteRevision, '', { deleted: true });
+                await store.deleteConflict(profileId);
+                await refresh();
+                push = true;
+                return;
+              }
+              // 서버에서 정리돼 행이 없다: 같은 ID로 새로 올린다
               else if (r.kind === 'gone' || r.kind === 'not-found') await setSynced(profileId, 0, '');
               else if (r.kind === 'conflict') await store.deleteState(profileId); // 이미 복구됐다: 다음 받기에서 맞춘다
               else {

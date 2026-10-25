@@ -19,7 +19,24 @@
 
   const loadDevices = async () => (devices = await sync.sessions());
   const loadDeleted = async () => (deleted = (await sync.remoteProfiles())?.filter((p) => p.deletedAt !== null) ?? null);
-  const loadRevisions = async () => (revisions = await sync.revisions(app.meta.activeProfileId));
+  // 과거 버전 목록은 불러온 프로필에 묶는다. 프로필을 바꾸면 그 프로필 것으로 다시 읽는다(다른 프로필에서 복원하지 않게).
+  let revisionsFor = $state<string | null>(null);
+  let revisionsOpen = false;
+  const loadRevisions = async () => {
+    const id = app.meta.activeProfileId;
+    revisionsFor = id;
+    revisions = null;
+    const got = await sync.revisions(id);
+    if (revisionsFor === id) revisions = got;
+  };
+  $effect(() => {
+    const id = app.meta.activeProfileId;
+    if (revisionsFor !== null && id !== revisionsFor) {
+      revisions = null;
+      revisionsFor = null;
+      if (revisionsOpen) void loadRevisions();
+    }
+  });
   const loadShares = async () => (shares = await sync.shares());
 
   function onToggle(e: Event, load: () => Promise<unknown>) {
@@ -41,7 +58,8 @@
     }
   }
   async function restoreRevision(rev: number) {
-    const id = await sync.restoreRevision(app.meta.activeProfileId, rev);
+    if (revisionsFor === null) return;
+    const id = await sync.restoreRevision(revisionsFor, rev);
     if (id) showSnackbar('새 프로필로 복원했어요. 프로필 목록에서 볼 수 있어요');
   }
   async function revokeShare(s: ShareRow) {
@@ -87,7 +105,12 @@
     {/if}
   </details>
 
-  <details ontoggle={(e) => onToggle(e, loadRevisions)}>
+  <details
+    ontoggle={(e) => {
+      revisionsOpen = (e.currentTarget as HTMLDetailsElement).open;
+      onToggle(e, loadRevisions);
+    }}
+  >
     <summary>지금 프로필의 과거 버전</summary>
     {#if revisions === null}
       <p class="muted">아직 서버에 올리지 않았거나 불러오는 중이에요.</p>
