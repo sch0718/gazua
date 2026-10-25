@@ -5,7 +5,7 @@
 - GitHub Pages와 브라우저 저장을 유지하면서, **별도 Cloudflare Worker + D1에 작은 개인 데이터와 공유 스냅샷만 저장**하는 안을 추천해요.
 - 처음에는 프로필·그룹·전략·선정 기준·바구니를 동기화하고, 증권사 키·프록시 토큰·주문 캐시는 제외해요.
 - 개인 동기화는 Cloudflare Access + Google 로그인으로 보호하고, 공유는 만료·철회가 가능한 읽기 전용 링크로 나눠요.
-- Workers·D1 무료 플랜 안에서 시작할 수 있어요. R2와 대규모 정기 계산은 별도 조건이 있어 다음 단계로 미뤄요.
+- DB는 D1을 쓰고 R2는 쓰지 않아요. 시장 파일은 기기마다 수동 가져오기를 유지하고, 본인 기기 간 자동 전달은 선택 기능인 Google Drive `appDataFolder`로 붙여요. 무료 저장 공간·API 한도 안에서 결제 등록 없이 비공개로 보관해요. 대규모 정기 계산은 다음 단계로 미뤄요.
 - DB만 붙이면 오프라인 충돌·보안·백업이 해결되지는 않아요. 버전 비교, 충돌 사본, 공유 전용 형식과 복구 경로를 함께 만들어요.
 
 ## 1. 현재 구조에서 확인한 것
@@ -79,7 +79,7 @@
 | 그룹·프로필 이름·색인 | 프로필당 수 KB~수십 KB, 그룹 수에 따라 증가 | 중간: 투자 관심사·이름 | 높음 | **동기화**. 프로필 ID는 기기 간 유지하고 계정 소유권을 따로 붙여요 |
 | 설정 | 프로필당 수 KB | 낮음~중간: 프록시 주소 포함 | 높음 | **선택 필드만 동기화**. 기간·지표·벤치마크·색 규칙 등을 허용해요. `proxyUrl/provider/keyLock/onboarded/lastGroupId`와 활성 프로필·기기 테마는 우선 로컬에 둬요 |
 | 전략·선정 기준·바구니 | 합계 수십~수백 KB를 예산으로 잡아요 | 중간~높음: 투자 방법·가상 자금 | 매우 높음 | 본인 동의 아래 **동기화**. 서비스 운영자에게도 숨기려면 별도 E2EE 옵션으로 확장해요 |
-| 시장 데이터 파일 | gzip 수십 MB 추정, 압축 해제 후 증가 | 계좌 정보는 없지만 재배포 조건 확인 필요 | 원본 통일보다는 재다운로드 가치가 높음 | 개인 동기화에서는 **제외**. 나중에 공통 파일 저장·버전 배포로 다뤄요 |
+| 시장 데이터 파일 | gzip 수십 MB 추정, 압축 해제 후 증가 | 계좌 정보는 없지만 재배포 조건 확인 필요 | 원본 통일보다는 재다운로드 가치가 높음 | D1의 개인 데이터 동기화에서는 **제외**. 수동 가져오기를 유지하고, 선택 기능인 Drive `appDataFolder`로 본인 기기끼리 나눠요 |
 | 토스 주문 캐시 | 거래량에 따라 수십 KB~수 MB 이상 | 높음: 계좌 식별자·주문·금액·보유 추론 | 기기 간 성과 계산에 도움 | 기본 **동기화 안 함**. 필요해도 명시적 동의와 **E2EE 동기화**만 허용해요 |
 | 증권사 키·프록시 토큰 | 수 KB, 암호화하면 조금 증가 | 매우 높음: 토스 키는 주문 권한 | 편리하지만 피해가 큼 | 1단계 **동기화 안 함**. 후속 단계도 **E2EE 동기화**만 검토해요 |
 | 접근 토큰·마지막 발급 시각 | 수 KB / 숫자 하나 | 토큰은 매우 높음, 시각은 낮음 | 낮음, 기기별 갱신 동작과 결합 | **동기화 안 함**. 증권사 토큰과 앱 로그인 세션도 구분해요 |
@@ -104,6 +104,8 @@
 | KV Free | 저장 1 GB, 하루 읽기 100,000개, 쓰기·삭제·목록 조회 **각 1,000개**예요 | Worker 인증이 필요해요. eventual consistency여서 기기 간 동시 저장·즉시 철회의 원장으로 부적합해요 | 설정·공통 캐시에 간단해요. 버전 비교 트랜잭션용으로는 D1을 권해요. KV API 종속성은 중간이에요 | [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/), [consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/) · 2026-10-25 |
 | R2 Standard 무료 사용량 | 매월 10 GB-month, Class A 100만 회·B 1,000만 회, 직접 egress 무료예요. Infrequent Access에는 이 무료량이 적용되지 않아요. **R2 구독·checkout이 필요하고 초과분은 과금돼요** | Worker를 통한 접근 권한 검사 또는 제한된 다운로드 권한을 써요. 파일을 내려받은 뒤 로컬에서 써요 | 큰 파일에 적합하고 S3 호환으로 이전도 비교적 쉬워요. 무과금 하드캡으로 보장되는 플랜은 아니에요 | [R2 pricing](https://developers.cloudflare.com/r2/pricing/), [시작 조건](https://developers.cloudflare.com/r2/get-started/) · 2026-10-25 |
 | Durable Objects Free | **SQLite backend만** 가능해요. 하루 100,000요청·13,000 GB-s, SQL 읽기 500만 행·쓰기 10만 행, 저장 합계 5 GB예요 | Worker 인증과 로컬 저장은 별도예요. 공동 편집 조정·WebSocket 방에 쓸 수 있어요 | 객체 수명·hibernation·배포를 관리해야 해요. API 종속성이 높아 지금은 추가하지 않아요 | [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · 2026-10-25 |
+
+R2는 비교 자료로만 남기며 **추천안에서는 쓰지 않아요(사용자 결정, 2026-10-25)**.
 
 Workers·D1·KV·DO의 위 공식 가격·한도 문서에서는 주간 비활성 pause 조건을 확인하지 못했어요. 이를 영구 보존·무중단 보장으로 해석하지 않고, 장기 비활성 계정 처리의 별도 조건은 **확인 필요**로 남겨요. R2의 실제 결제 수단 등록 조건도 계정에서 확인해야 해요. 이번 검토에서는 가입·구독·checkout을 하지 않아요.
 
@@ -135,6 +137,14 @@ PocketBase를 고른다면 별도 포트 `127.0.0.1:8090`에 묶고 기존 Tunne
 | iCloud Drive / CloudKit JS | 일반 iCloud 무료 공간은 5 GB지만 웹 앱의 임의 파일 접근 권한은 아니에요. CloudKit 개발에는 활성 Apple Developer Program 등 별도 준비가 필요해요. CloudKit의 현 무료 서비스 쿼터·개발자 비용은 **확인 필요**예요 | 웹 PWA가 iCloud Drive 폴더를 백그라운드로 마음대로 동기화하는 공식 일반 API는 확인하지 못했어요. 파일 선택으로 JSON을 수동 가져오기·저장하기는 가능해요. CloudKit JS는 웹에서 가능하지만 **기존 CloudKit 앱·컨테이너·웹 서비스 설정**을 요구하고 Drive와 다른 제품이에요 | 순수 정적 PWA에 가장 작은 무료 해법으로 보기 어려워요. Apple 로그인·스키마·컨테이너·SDK에 강하게 묶여요. 현재 CSP의 외부 스크립트 제한도 검토해야 해요 | [iCloud 공간](https://support.apple.com/en-us/108922), [CloudKit JS](https://developer.apple.com/documentation/cloudkitjs), [CloudKit 준비](https://developer.apple.com/documentation/cloudkit/enabling-cloudkit-in-your-app) · 2026-10-25 |
 
 Drive는 오래 알려진 요청 횟수만 옮겨 적지 않고 현재 공식 문서의 quota-unit 표를 사용했어요. 문서는 2026년 중 초과 사용 과금 계획도 예고해요. 실제 프로젝트에 적용되는 쿼터와 시행 시점은 도입 때 다시 확인해야 해요. 파일 서비스들의 장기 비활성 보존 조건은 서비스 계정 정책도 따르며, 이 비교로 영구 보존을 보장하지 않아요.
+
+### 시장 파일을 git·GitHub Pages·Release로 대신하기 어려운 이유
+
+이 저장소는 공개 저장소예요. 시장 파일은 [collect-market-data.mjs](../../scripts/collect-market-data.mjs)가 KIS API로 받은 시세·재무·매매동향을 담으므로, 공개 배포가 KIS 데이터 재배포 약관에 걸릴 수 있어요. **KIS 약관은 확인하지 않았으므로 확인 필요**예요. 아래 용량 조건을 충족하더라도 공개 배포는 약관을 확인한 뒤에만 검토해요.
+
+- **git 커밋:** GitHub는 파일이 50 MiB를 넘으면 경고하고 100 MiB를 넘으면 차단해요. 저장소는 1 GB 미만을 권장하고 5 GB 미만을 강력히 권장해요([대용량 파일 공식 문서](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github), 2026-10-25 확인). 수십 MB로 추정한 gzip 파일을 갱신마다 커밋하면 히스토리에 수십 MB짜리 버전이 계속 쌓여요. 현재 공개 저장소에 커밋한 파일은 본인 기기만 읽는 비공개 보관이 아니에요.
+- **GitHub Pages:** 게시한 사이트는 1 GB 이하여야 하고 월 대역폭은 100 GB의 느슨한 한도(soft limit)가 있어요([Pages 한도](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits), 2026-10-25 확인). 공식 문서는 원본 저장소가 비공개여도 Pages 사이트는 인터넷에 공개된다고 안내해요([Pages 공개 범위 안내](https://docs.github.com/en/pages/getting-started-with-github-pages/securing-your-github-pages-site-with-https), 2026-10-25 확인). 시장 파일을 사이트에 넣으면 함께 공개돼요.
+- **GitHub Release:** 첨부 파일의 총용량·배포 대역폭 제한은 없어요. 다만 저장소 읽기 권한이 있으면 Release를 볼 수 있고, 공개 저장소는 누구나 접근할 수 있으므로 이 저장소의 Release 첨부도 공개돼요([Release 공식 문서](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases), [저장소 공개 범위](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories), 2026-10-25 확인). [첨부 파일 API 문서](https://docs.github.com/en/rest/releases/assets)는 브라우저용 다운로드 URL을 안내하지만, 다른 출처인 이 앱의 브라우저 `fetch`에서 첨부 본문을 읽는 CORS 지원 보장은 확인하지 못했으므로 **확인 필요**로 남겨요(2026-10-25 확인).
 
 ### CRDT·로컬 우선 라이브러리가 필요할까요
 
@@ -172,7 +182,7 @@ Drive는 오래 알려진 요청 횟수만 옮겨 적지 않고 현재 공식 �
 | 기기 간 동기화 | 기기마다 JSON을 옮기고 새 프로필을 만들어야 해요 | 같은 사용자·프로필 ID의 버전을 서버에 보관하고 접속·수정 후 push/pull해요. 오프라인 변경은 큐에 남겨요 | P0 / 중간 | 동시 수정은 충돌 사본을 남겨 사용자가 고르게 해요. 키·계좌는 제외해요 |
 | 그룹·전략·선정 기준·결과 읽기 공유 | 전체 파일이나 화면 캡처를 보내야 해요 | 허용 필드만 복사한 독립 스냅샷을 링크로 보여 줘요. 기본 7일 만료·즉시 철회를 제안해요 | P0 / 중간 | 그룹 참조·바구니 참조는 선택한 종목으로 풀고 결과는 요약만 보내요. 실시간 시세·개인 성과 공개는 기본 제외예요 |
 | 함께 쓰는 그룹 | 각자 바꾼 파일이 갈라져요 | 소유자·편집자·읽기 참여자, 초대 수락, 버전 충돌·변경 기록을 제공해요 | P2 / 큼 | 비회원 공개 공유와 다르게 로그인·membership이 필요해요. CRDT는 사용량을 보고 골라요 |
-| 시장 데이터 공통 보관 | 기기마다 큰 파일을 가져와야 해요 | 한 번 모은 gzip을 버전·해시·수집 시각과 보관하고 각 기기가 필요할 때 내려받아요 | P1 / 중간 | R2 구독·무료량·과금 조건과 원자료 저장·재배포 허용 여부를 먼저 확인해요 |
+| 시장 데이터 공통 보관 | 기기마다 큰 파일을 가져와야 해요 | 기본은 수동 가져오기예요. 선택 기능인 Drive `appDataFolder`에 본인 gzip을 보관하고 다른 본인 기기에서 내려받아요. D1에는 파일 버전·해시·수집 시각 같은 manifest만 둘 수 있어요 | P1 / 중간 | R2는 쓰지 않아요. Drive 무료 공간·API 한도 안에서 결제 등록 없이 비공개로 써요. appDataFolder 파일은 공유할 수 없고, 공개 배포는 KIS 재배포 약관 확인 뒤에만 검토해요 |
 | 매일 선정 기준 재계산 | 브라우저를 열고 계산해야 해요 | 날짜·데이터 버전·기준 버전을 고정한 작업을 실행하고 결과만 DB에 써요 | P2 / 큼 | 큰 파일 해제·전 종목 계산은 무료 Worker CPU 10 ms에 맞는다고 볼 수 없어요. 맥 배치 우선 검토예요 |
 | 알림 | 앱을 보고 있어야 결과를 알아요 | 계산 완료·선정 변화 이벤트를 저장하고 사용자가 허용한 Web Push 등으로 알려 줘요 | P2 / 중간~큼 | Cron은 알림 전달 서비스가 아니에요. 권한·구독 갱신·중복 방지·실패 재시도와 브라우저별 지원 검증이 필요해요. 메일 등 전달자의 무료량은 확인 필요예요 |
 | 내 성과 이력 | 주문 캐시를 비우거나 데이터가 바뀌면 같은 결과를 재현하기 어려워요 | 계산 시각·벤치마크·계산 버전·데이터 기준·추정 여부를 가진 성과 스냅샷을 남겨요 | P2 / 큼 | 계좌별 금액·수익률도 민감해요. 로컬 보관부터 시작하고 서버에는 선택한 E2EE 스냅샷만 둬요 |
@@ -245,12 +255,14 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 **완료 기준:** 두 기기 왕복, 오프라인 수정 후 재접속, 동시 수정·삭제 충돌, 재시도 중복 방지, 계정 소유권 위반 거절, 키·계좌 필드 주입 거절, 공유 만료·철회·참조 누출 방지, 백업을 새 로컬 프로필로 복원하기를 확인해요. Access 쿠키/CORS와 JWT 검증의 무료 CPU 예산도 실제 배포 전 검증해요.
 
-### 2단계: 큰 데이터 배포와 복구 강화
+### 2단계: 시장 파일의 본인 기기 간 전달과 복구 강화
 
-**범위:** 시장 데이터의 버전 배포, 백업 운용, 사용자가 원한 경우에만 E2EE 개인 데이터 보관이에요. 규모는 **중간~큼**이에요.
+**범위:** 시장 데이터의 수동 가져오기 유지와 선택적인 본인 기기 간 자동 전달, 백업 운용, 사용자가 원한 경우에만 E2EE 개인 데이터 보관이에요. 규모는 **중간~큼**이에요. DB는 D1을 쓰고 시장 파일에 R2는 쓰지 않아요(사용자 결정, 2026-10-25).
 
-- 공통 시장 파일은 R2 Standard 같은 객체 저장소에 두고 D1에는 manifest·해시·파일 버전·수집 시각만 둬요. [marketData/store.ts](../../src/lib/marketData/store.ts)에 검증된 다운로드·교체 경로를 붙이고, 설정 화면에 버전·크기·다시 받기를 더해요. 무료량을 넘기지 않는 보관 개수·업로드 제한과 R2 과금 조건을 먼저 결정해요. R2 구독을 원하지 않으면 기존 수동 파일 가져오기를 유지해요.
-- [수집 스크립트](../../scripts/collect-market-data.mjs)는 맥에서 계속 실행하고, 별도의 업로드·manifest 갱신 작업만 추가해요. 키를 클라우드로 이동하지 않아요. 실패한 수집 파일은 공개 버전으로 승격하지 않아요.
+- **기본은 기기마다 수동 가져오기**를 유지해요. 지금처럼 시장 파일을 직접 옮겨 가져오며, 파일 저장을 위해 별도 구독·결제 등록을 하지 않아요.
+- **본인 기기끼리 자동으로 나누고 싶을 때만 Google Drive `appDataFolder`를 선택 기능으로 붙여요.** `drive.appdata` 범위로 본인 파일을 보관하고 같은 Google 계정의 다른 기기에서 내려받아요. appDataFolder 파일은 공유할 수 없어 공개 배포 경로로 쓰지 않아요. 일반 Google 계정의 Drive·Gmail·Photos 합계 15 GB와 API quota-unit 한도 안에서 결제 등록 없이 무료로 시작해요. 정확한 한도와 도입 때 재확인할 조건은 3절의 기존 Drive 비교를 따라요. 짧은 수명의 토큰 재취득에 사용자 동작이 필요할 수 있으므로 무인 백그라운드 전달을 전제하지 않아요.
+- D1에는 파일 본문 대신 파일 버전·해시·수집 시각 같은 목록(manifest)만 둘 수 있어요. Drive 기능을 넣을 때 [marketData/store.ts](../../src/lib/marketData/store.ts)에 검증된 다운로드·교체 경로를 붙이고, 설정 화면에 버전·크기·다시 받기를 더해요. 무료 공간·API 한도에 맞는 보관 개수·업로드 제한을 정해요.
+- [수집 스크립트](../../scripts/collect-market-data.mjs)는 맥에서 계속 실행하고, Drive 기능을 선택한 경우에만 본인 appDataFolder 업로드·manifest 갱신 작업을 추가해요. 키를 클라우드로 이동하지 않아요. 실패한 수집 파일은 내려받을 버전으로 올리지 않아요. git·Pages·Release를 통한 공개 배포는 3절처럼 KIS 재배포 약관을 확인한 뒤에만 검토해요.
 - `sync-worker/`에 짧은 정리 Cron과 보존 정책을 더하고, 별도 매체에 내려받은 백업의 복구를 정기 점검해요. D1 Time Travel의 무료 7일은 단기 사고 복구용이고 유일한 백업으로 삼지 않아요.
 - E2EE를 선택하면 `src/lib/sync/crypto/`에 버전 있는 envelope·복구 키·키 변경을 만들고 [secrets.ts](../../src/lib/state/secrets.ts)와 잠금 UI의 경계를 검토해요. 키 동기화와 주문 캐시 동기화는 각각 별도 기본 꺼짐 옵션이에요. 민감한 성과 스냅샷도 같은 경계를 써요.
 
@@ -265,14 +277,14 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 
 ## 8. 결정이 필요한 것
 
-1. **기본 경로:** 추천안인 Workers+D1+Access로 갈까요, 아니면 Firebase, 맥 PocketBase나 Drive appDataFolder 같은 대안을 택할까요?
+1. **기본 경로:** DB는 D1로 결정했어요. 개인 API와 인증 관문도 추천안인 Workers+Access로 구성할까요?
 2. **본인 로그인:** Access의 Google 로그인과 이메일 허용 목록을 기본으로 할까요? GitHub 계정을 선호하면 바꿀 수 있어요.
 3. **일반 개인 데이터의 공개 범위:** 그룹·전략·선정 기준을 클라우드 운영자가 읽을 수 있는 일반 동기화로 시작해도 될까요? 처음부터 모두 E2EE라면 복구·공유 설계와 구현 규모가 커져요.
 4. **동기화할 설정:** 기간·지표·벤치마크·색 규칙만 먼저 묶고 기기 테마·공급자 연결·잠금은 기기에 둘까요?
 5. **공유 정책:** 링크 소지자 읽기, 기본 7일·최대 30일, 원본과 분리된 스냅샷이면 될까요? 특정 사람만 보게 하려면 로그인 공유가 필요해요.
 6. **충돌 처리:** 첫 버전은 자동 덮어쓰기 대신 충돌 사본을 고르는 방식이면 될까요?
 7. **키·계좌·성과:** 1단계 제외를 유지하고, 이후에도 각각 E2EE를 명시적으로 켠 경우만 보관할까요?
-8. **큰 파일·자동 작업:** R2의 구독·과금 가능성을 받아들일까요? 무료 하드캡을 우선하면 시장 파일은 수동으로, 무거운 작업은 맥에서 이어가요. 맥의 비가동 시간도 허용해야 해요.
+8. **큰 파일·자동 작업:** R2는 쓰지 않고 시장 파일은 수동 가져오기를 기본으로 유지해요(사용자 결정, 2026-10-25). 본인 기기 간 자동 전달용 Drive `appDataFolder` 선택 기능은 언제 넣을까요? KIS 약관을 확인한 뒤 공개 배포도 검토할까요? 무거운 작업은 맥에서 이어가며, 맥의 비가동 시간도 허용해야 해요.
 9. **보존:** 프로필당 과거 30개, 별도 파일 백업과 복구 점검으로 시작할까요? 삭제·탈퇴 때 서버 본문·공유·암호문·백업이 언제 지워질지도 정해야 해요.
 
 ## 출처
@@ -292,6 +304,7 @@ GitHub Pages 앱 → 개인 동기화 Worker → D1을 새 경로로 두고, 기
 | PocketBase | [공식 소개](https://pocketbase.io/docs/), [운영·백업](https://pocketbase.io/docs/going-to-production/), [인증](https://pocketbase.io/docs/authentication/) | 2026-10-25 |
 | Google Drive | [appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata), [브라우저 OAuth](https://developers.google.com/identity/oauth2/web/guides/use-token-model), [API 한도·가격](https://developers.google.com/workspace/drive/api/guides/limits), [저장 공간](https://support.google.com/drive/answer/6374270) | 2026-10-25 |
 | GitHub | [Free 플랜](https://docs.github.com/en/get-started/learning-about-github/githubs-plans), [Gist](https://docs.github.com/en/get-started/writing-on-github/editing-and-sharing-content-with-gists/creating-gists), [Contents API](https://docs.github.com/en/rest/repos/contents), [REST 한도](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), [OAuth](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) | 2026-10-25 |
+| GitHub 시장 파일 보관·배포 | [대용량 파일·저장소 권장 크기](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github), [Pages 한도](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits), [Pages 공개 범위 안내](https://docs.github.com/en/pages/getting-started-with-github-pages/securing-your-github-pages-site-with-https), [Release 한도·접근 권한](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases), [저장소 공개 범위](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories), [Release 첨부 API](https://docs.github.com/en/rest/releases/assets) | 2026-10-25 |
 | WebDAV | [Nextcloud API](https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html), [webdav-client CORS](https://github.com/perry-mitchell/webdav-client/blob/master/README.md) | 2026-10-25 |
 | iCloud | [저장 공간](https://support.apple.com/en-us/108922), [CloudKit JS](https://developer.apple.com/documentation/cloudkitjs), [CloudKit 준비](https://developer.apple.com/documentation/cloudkit/enabling-cloudkit-in-your-app) | 2026-10-25 |
 | 로컬 우선 | [Automerge](https://automerge.org/docs/hello/), [Yjs](https://docs.yjs.dev/), [RxDB 복제](https://rxdb.info/replication.html), [RxDB 플랜](https://rxdb.info/premium/), [Electric Sync](https://electric.ax/docs/sync/), [Electric 가격](https://electric.ax/pricing) | 2026-10-25 |
