@@ -421,6 +421,42 @@ describe('1단계 완료 기준', () => {
     expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('서버 최신');
   });
 
+  // Codex 리뷰(PR #39) 9차 1: 충돌 해결 중 이 기기 저장이 실패하면 해결을 완료로 치지 않는다(다시 열었을 때 고른 서버 것을 덮어쓰지 않게).
+  it('충돌 해결 중 로컬 저장이 실패하면 충돌을 지우지 않고 멈춘다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const backing = memoryBacking();
+    const b = await enabled(s, { storage: createSafeStorage(backing) });
+    b.app.switchProfile(a.app.meta.activeProfileId);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A의 수정', items: [] }] });
+    await a.engine.flush();
+    b.app.setWatchlists({ groups: [{ id: 'g', name: 'B의 수정', items: [] }] });
+    await b.engine.syncNow();
+    expect(b.engine.status().conflicts[0]).toMatchObject({ kind: 'edit' });
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await b.engine.resolve(a.app.meta.activeProfileId, 'take-remote');
+    expect(b.engine.status().conflicts).toHaveLength(1);
+    expect(b.engine.status().phase).toBe('error');
+  });
+
+  // Codex 리뷰(PR #39) 9차 2: 대기 작업의 시각이 같아도 올리기가 지우기보다 먼저 나간다.
+  it.each([
+    ['memory', async () => createMemorySyncStore()],
+    ['IndexedDB', async () => openSyncStore(`order-${Math.random()}`)],
+  ])('%s: 시각이 같으면 보낸 올리기 → 새 올리기 → 지우기 순서로 꺼낸다', async (_n, open) => {
+    const store = await open();
+    await store.putOp({ opId: 'zz-delete', profileId: 'p', kind: 'delete', createdAt: 5 });
+    await store.putOp({ opId: 'mm-put', profileId: 'p', kind: 'put', createdAt: 5 });
+    await store.putOp({ opId: 'aa-sent', profileId: 'p', kind: 'put', createdAt: 5, sentAt: 6, baseRevision: 0 });
+    expect((await store.ops()).map((o) => o.opId)).toEqual(['aa-sent', 'mm-put', 'zz-delete']);
+    await store.putOp({ opId: '00-delete', profileId: 'q', kind: 'delete', createdAt: 5 });
+    await store.putOp({ opId: 'ff-put', profileId: 'q', kind: 'put', createdAt: 5 });
+    const q = (await store.ops()).filter((o) => o.profileId === 'q').map((o) => o.opId);
+    expect(q).toEqual(['ff-put', '00-delete']);
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

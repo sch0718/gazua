@@ -59,6 +59,13 @@ export interface SyncStore {
   deleteMeta(key: string): Promise<void>;
 }
 
+/**
+ * 보낼 순서: 만든 시각 → 같은 시각이면 보낸 올리기 → 새 올리기 → 지우기.
+ * 시계 정밀도가 낮아 시각이 같아도 지우기가 그 앞의 올리기보다 먼저 나가면, 기준 리비전 0으로 거절된 뒤 올리기가 다시 가서 지운 프로필이 되살아난다.
+ */
+const rank = (o: OutboxOp) => (o.kind === 'delete' ? 2 : o.sentAt !== undefined ? 0 : 1);
+export const byQueueOrder = (a: OutboxOp, b: OutboxOp) => a.createdAt - b.createdAt || rank(a) - rank(b);
+
 type Stores = {
   outbox: OutboxOp;
   profiles: ProfileSyncState;
@@ -76,7 +83,7 @@ export function createMemorySyncStore(): SyncStore {
   const clone = <T>(v: T): T => structuredClone(v);
   return {
     persistent: false,
-    ops: async () => [...m.outbox.values()].map(clone).sort((a, b) => a.createdAt - b.createdAt),
+    ops: async () => [...m.outbox.values()].map(clone).sort(byQueueOrder),
     putOp: async (op) => void m.outbox.set(op.opId, clone(op)),
     deleteOp: async (id) => void m.outbox.delete(id),
     state: async (id) => (m.profiles.has(id) ? clone(m.profiles.get(id)!) : undefined),
@@ -117,7 +124,7 @@ export async function openSyncStore(dbName = 'gazua-sync'): Promise<SyncStore> {
   const all = async <K extends keyof Stores>(s: K) => (await db.getAll(s as 'outbox')) as unknown as Stores[K][];
   return {
     persistent: true,
-    ops: async () => (await all('outbox')).sort((a, b) => a.createdAt - b.createdAt),
+    ops: async () => (await all('outbox')).sort(byQueueOrder),
     putOp: async (op) => void (await db.put('outbox', op)),
     deleteOp: async (id) => db.delete('outbox', id),
     state: (id) => db.get('profiles', id),

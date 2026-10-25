@@ -440,9 +440,15 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
     flush: () => run(['push']),
     async resolve(profileId, choice) {
       let push = false;
+      // 이 기기 저장소에 쓰지 못하면 해결을 완료로 치지 않는다(다시 열었을 때 오래된 문서가 고른 서버 것을 덮어쓰지 않게)
+      const unsaved = () => local.durable !== undefined && !local.durable();
+      const stop = async () => {
+        await refresh({ phase: 'error', notices: status.notices.includes(STORAGE_NOTICE) ? status.notices : [...status.notices, STORAGE_NOTICE] });
+      };
       await serial(async () => {
         const c = (await store.conflicts()).find((x) => x.profileId === profileId);
         if (!c) return;
+        if (unsaved()) return stop();
         if (c.kind === 'edit') {
           const remoteHash = await docHash(c.remote);
           if (choice === 'keep-local') {
@@ -455,6 +461,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
               push = true;
             }
             local.write(profileId, c.remote);
+            if (unsaved()) return stop();
             await setSynced(profileId, c.remoteRevision, remoteHash);
           } else return;
         } else {
@@ -467,6 +474,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
                 const mine = local.list().some((p) => p.id === profileId) ? local.read(profileId) : c.local;
                 local.create(mine);
                 if (local.list().some((p) => p.id === profileId)) local.remove(profileId);
+                if (unsaved()) return stop();
                 await setSynced(profileId, c.remoteRevision, '', { deleted: true });
                 await store.deleteConflict(profileId);
                 await refresh();
@@ -482,9 +490,11 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
               }
             } else await setSynced(profileId, 0, '');
             if (!local.list().some((p) => p.id === profileId)) local.write(profileId, c.local);
+            if (unsaved()) return stop();
             push = true;
           } else if (choice === 'delete-local') {
             if (local.list().some((p) => p.id === profileId)) local.remove(profileId);
+            if (unsaved()) return stop();
             await setSynced(profileId, c.remoteRevision, '', { deleted: true });
           } else return;
         }
