@@ -410,6 +410,7 @@ export function createApp(deps: AppDeps): App {
       return { name: 'simulate' };
     }
     if (r.name === 'settings' && r.section) return { name: 'settings', section: r.section };
+    if (r.name === 'shared') return r.capability ? { name: 'shared', capability: r.capability } : { name: 'shared' };
     if (r.name === 'help') {
       if (!r.helpId) return { name: 'help' };
       if (HELP_PAGES.some((p) => p.id === r.helpId)) return { name: 'help', helpId: r.helpId };
@@ -425,6 +426,11 @@ export function createApp(deps: AppDeps): App {
 
   /** 관문(프로필 선택·잠금 해제)이 열려 있으면 그 화면에 머문다. */
   function navigate(r: Route) {
+    // 공유 읽기는 로그인·프로필·키와 무관한 화면이라 관문을 거치지 않는다.
+    if (r.name === 'shared') {
+      route = normalize(r);
+      return;
+    }
     const g = gate();
     if (g) {
       route = g;
@@ -438,6 +444,11 @@ export function createApp(deps: AppDeps): App {
 
   /** 시작·프로필 전환·잠금 해제 뒤 들어갈 화면. */
   function enter() {
+    const fromHash = parseHash(loc?.hash ?? '');
+    if (fromHash?.name === 'shared') {
+      route = normalize(fromHash);
+      return;
+    }
     const g = gate();
     if (g) route = g;
     else if (!settings.onboarded) navigate({ name: 'onboarding' });
@@ -445,6 +456,8 @@ export function createApp(deps: AppDeps): App {
   }
 
   function onHashChange() {
+    const r = parseHash(loc?.hash ?? '');
+    if (r?.name === 'shared') return navigate(r);
     if (gate()) return;
     // 알 수 없는 해시·그룹은 정규화한 해시로 다시 쓴다.
     navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });

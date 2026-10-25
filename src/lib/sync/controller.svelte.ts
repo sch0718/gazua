@@ -1,0 +1,299 @@
+// 설정 화면·공유가 쓰는 동기화 상태. 로그인(Firebase) → 기기 세션(sync-worker) → 동기화 엔진을 묶는다.
+// 로그인·세션이 없거나 실패해도 로컬 사용은 그대로다. 동기화 설정이 없는 빌드에서는 configured=false로 아무것도 하지 않는다.
+import type { App } from '../state/app.svelte';
+import type { SafeStorage } from '../state/storage';
+import type { ShareKind, ShareSnapshot } from '../share/snapshot';
+import { createSyncApi, type ApiFail, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
+import { firebaseAuth, type AuthClient } from './auth';
+import type { SyncConfig } from './config';
+import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
+import { appProfiles } from './local';
+import { openSyncStore, type SyncStore } from './store';
+
+/** 포커스로 다시 받는 최소 간격(할당량 절약). */
+export const FOCUS_PULL_INTERVAL = 5 * 60 * 1000;
+
+export interface SyncControllerDeps {
+  config: SyncConfig | null;
+  storage: SafeStorage;
+  now?: () => number;
+  auth?: AuthClient;
+  store?: () => Promise<SyncStore>;
+  fetchImpl?: typeof fetch;
+  lock?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** 기기 이름 기본값 */
+  deviceLabel?: () => string;
+}
+
+export interface SyncController {
+  readonly configured: boolean;
+  /** 로그인·세션까지 된 계정. */
+  readonly account: { email: string } | null;
+  readonly status: SyncStatus;
+  readonly busy: boolean;
+  /** 사용자에게 보여 줄 마지막 오류. */
+  readonly error: string | null;
+  readonly api: SyncApi | null;
+  /** 앱이 만들어진 뒤 한 번 연결한다. */
+  attach(app: App): Promise<void>;
+  /** createApp의 onSyncableChange에 넘긴다. */
+  onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
+  signIn(label?: string): Promise<void>;
+  signOut(): Promise<void>;
+  preview(): Promise<{ upload: string[]; download: number } | null>;
+  setEnabled(on: boolean): Promise<void>;
+  syncNow(): Promise<void>;
+  resolve(profileId: string, choice: Resolution): Promise<void>;
+  remoteProfiles(): Promise<IndexRow[] | null>;
+  restoreDeleted(profileId: string): Promise<boolean>;
+  revisions(profileId: string): Promise<{ revision: number; createdAt: number; deleted: boolean }[] | null>;
+  restoreRevision(profileId: string, revision: number): Promise<string | null>;
+  sessions(): Promise<DeviceSession[] | null>;
+  revokeSession(id: string | 'others'): Promise<boolean>;
+  shares(): Promise<ShareRow[] | null>;
+  createShare(profileId: string, kind: ShareKind, snapshot: ShareSnapshot, ttlDays: number): Promise<{ url: string; expiresAt: number } | null>;
+  revokeShare(id: string): Promise<boolean>;
+  clearError(): void;
+  clearNotices(): void;
+  destroy(): void;
+}
+
+const ERRORS: Record<string, string> = {
+  offline: '서버에 연결할 수 없어요. 연결되면 다시 보내요.',
+  'not-allowed': '이 Google 계정은 허용 목록에 없어요.',
+  auth: '로그인이 끝났어요. 다시 로그인해 주세요.',
+  limit: '서버 한도에 걸렸어요. 잠시 뒤 다시 시도해요.',
+  'share-limit': '활성 공유는 50개까지예요. 쓰지 않는 공유를 철회해 주세요.',
+  invalid: '서버가 이 데이터를 받지 않았어요.',
+  'too-large': '프로필이 너무 커요(256 KiB). 전략·그룹을 줄여 주세요.',
+  'not-found': '서버에서 찾을 수 없어요. 먼저 동기화해 주세요.',
+  server: '서버 오류예요. 잠시 뒤 다시 시도해요.',
+  conflict: '다른 기기가 먼저 바꿨어요. 다시 받아 주세요.',
+  gone: '이미 지워졌어요.',
+};
+
+export const describeFail = (f: ApiFail): string =>
+  f.kind === 'limit' && f.code === 'share-limit' ? ERRORS['share-limit'] : f.kind === 'invalid' && f.code === 'too-large' ? ERRORS['too-large'] : ERRORS[f.kind] ?? ERRORS.server;
+
+const SESSION_KEY = 'session';
+
+function webLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+  return locks ? (locks.request('gazua-sync', fn) as Promise<T>) : fn();
+}
+
+function defaultLabel(): string {
+  const ua = globalThis.navigator?.userAgent ?? '';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : '기기';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : '';
+  return [os, br].filter(Boolean).join(' · ');
+}
+
+export function createSyncController(deps: SyncControllerDeps): SyncController {
+  const now = deps.now ?? Date.now;
+  const config = deps.config;
+  let account = $state<{ email: string } | null>(null);
+  let status = $state<SyncStatus>({ enabled: false, phase: 'off', pending: 0, conflicts: [], rejected: [], lastSyncAt: null, notices: [], volatile: false });
+  let busy = $state(false);
+  let error = $state<string | null>(null);
+
+  let store: SyncStore | null = null;
+  let engine: SyncEngine | null = null;
+  let session: { id: string; email: string } | null = null;
+  let lastFocusPull = 0;
+  const auth: AuthClient | null = config ? (deps.auth ?? firebaseAuth(config.firebase)) : null;
+  const api: SyncApi | null = config
+    ? createSyncApi(
+        config.apiUrl,
+        { idToken: async (force) => (session && auth ? auth.idToken(force) : null), sessionId: async () => session?.id ?? null },
+        deps.fetchImpl,
+      )
+    : null;
+  const cleanups: (() => void)[] = [];
+
+  async function forget(message: string | null) {
+    session = null;
+    account = null;
+    await store?.deleteMeta(SESSION_KEY);
+    if (message) error = message;
+  }
+
+  function onAuthFailure(code: string) {
+    if (code === 'not-allowed') void forget(ERRORS['not-allowed']).then(() => auth?.signOut());
+    else void forget(code === 'session-revoked' ? '이 기기는 로그아웃됐어요(다른 기기에서 철회). 다시 로그인해 주세요.' : ERRORS.auth);
+  }
+
+  /** 방금 받은 ID 토큰으로 기기 세션을 만든다. */
+  async function startSession(user: { email: string | null }, idToken: string, label: string) {
+    const r = await api!.createSession(idToken, label);
+    if (!r.ok) {
+      if (r.kind === 'not-allowed') await auth!.signOut();
+      error = describeFail(r);
+      return;
+    }
+    session = { id: r.data.sessionId, email: user.email ?? '' };
+    await store!.setMeta(SESSION_KEY, session);
+    account = { email: session.email };
+    error = null;
+    if (engine?.status().enabled) await engine.syncNow();
+  }
+
+  async function guarded<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+    busy = true;
+    try {
+      return await fn();
+    } catch {
+      error = ERRORS.server;
+      return fallback;
+    } finally {
+      busy = false;
+    }
+  }
+
+  const ok = <T>(r: { ok: true; data: T } | ApiFail): T | null => {
+    if (r.ok) return r.data;
+    error = describeFail(r);
+    return null;
+  };
+
+  const ctl: SyncController = {
+    configured: config !== null,
+    get account() {
+      return account;
+    },
+    get status() {
+      return status;
+    },
+    get busy() {
+      return busy;
+    },
+    get error() {
+      return error;
+    },
+    api,
+
+    async attach(app) {
+      if (!config || !api || !auth) return;
+      store = await (deps.store ?? (() => openSyncStore()))();
+      engine = createSyncEngine({ local: appProfiles(app, deps.storage), store, api, now, lock: deps.lock ?? webLock, onAuthFailure });
+      cleanups.push(engine.subscribe((s) => (status = s)));
+      await engine.init();
+      session = (await store.getMeta<{ id: string; email: string }>(SESSION_KEY)) ?? null;
+      try {
+        const back = await auth.redirectResult();
+        if (back) await startSession(back.user, back.idToken, (deps.deviceLabel ?? defaultLabel)());
+      } catch {
+        // 리다이렉트 결과가 없거나 읽지 못했다
+      }
+      if (session) {
+        // 저장된 세션이 있을 때만 SDK를 불러 로그인 상태를 확인한다. 오프라인이라 SDK를 못 불러오면 세션은 그대로 두고 나중에 보낸다.
+        let user: Awaited<ReturnType<AuthClient['ready']>> | 'unavailable';
+        try {
+          user = await auth.ready();
+        } catch {
+          user = 'unavailable';
+        }
+        if (user === null) await forget(null);
+        else {
+          account = { email: session.email };
+          if (status.enabled && user !== 'unavailable') await engine.syncNow();
+        }
+      }
+      if (typeof window !== 'undefined') {
+        const onFocus = () => {
+          if (!session || !status.enabled || document.visibilityState === 'hidden') return;
+          if (now() - lastFocusPull < FOCUS_PULL_INTERVAL) return;
+          lastFocusPull = now();
+          void engine?.syncNow();
+        };
+        const onOnline = () => {
+          if (session && status.enabled) void engine?.flush();
+        };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onFocus);
+        window.addEventListener('online', onOnline);
+        cleanups.push(() => {
+          window.removeEventListener('focus', onFocus);
+          document.removeEventListener('visibilitychange', onFocus);
+          window.removeEventListener('online', onOnline);
+        });
+      }
+      lastFocusPull = now();
+    },
+
+    onSyncableChange(e) {
+      if (!engine) return;
+      if (e.kind === 'deleted') void engine.profileDeleted(e.profileId);
+      else if (session) engine.profileChanged(e.profileId);
+    },
+
+    signIn: (label) =>
+      guarded(async () => {
+        if (!auth || !store) return;
+        error = null;
+        const r = await auth.signIn();
+        if (r === null || r === 'redirect') return;
+        await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
+      }, undefined),
+
+    signOut: () =>
+      guarded(async () => {
+        if (session && api) await api.endSession(); // 실패해도 이 기기에서는 로그아웃한다
+        await forget(null);
+        await auth?.signOut();
+      }, undefined),
+
+    preview: () =>
+      guarded(async () => {
+        if (!engine) return null;
+        const r = await engine.preview();
+        return 'upload' in r ? r : ok(r);
+      }, null),
+
+    setEnabled: (on) => guarded(async () => void (await engine?.setEnabled(on)), undefined),
+    syncNow: () =>
+      guarded(async () => {
+        lastFocusPull = now();
+        await engine?.syncNow();
+      }, undefined),
+    resolve: (id, choice) => guarded(async () => void (await engine?.resolve(id, choice)), undefined),
+    remoteProfiles: () => guarded(async () => (api ? (ok(await api.listProfiles())?.profiles ?? null) : null), null),
+    restoreDeleted: (id) =>
+      guarded(async () => {
+        if (!api || !engine) return false;
+        const r = ok(await api.restoreProfile(id, crypto.randomUUID()));
+        if (r) await engine.syncNow();
+        return r !== null;
+      }, false),
+    revisions: (id) => guarded(async () => (api ? (ok(await api.listRevisions(id))?.revisions ?? null) : null), null),
+    restoreRevision: (id, rev) =>
+      guarded(async () => {
+        if (!engine) return null;
+        const r = await engine.restoreRevision(id, rev);
+        return r.ok ? r.profileId : (error = describeFail(r), null);
+      }, null),
+    sessions: () => guarded(async () => (api ? (ok(await api.listSessions())?.sessions ?? null) : null), null),
+    revokeSession: (id) => guarded(async () => (api ? ok(await api.revokeSession(id)) !== null : false), false),
+    shares: () => guarded(async () => (api ? (ok(await api.listShares())?.shares ?? null) : null), null),
+    createShare: (profileId, kind, snapshot, ttlDays) =>
+      guarded(async () => {
+        if (!api || !engine) return null;
+        await engine.flush(); // 공유 원본 프로필이 서버에 있어야 한다
+        const r = ok(await api.createShare({ sourceProfileId: profileId, kind, snapshot, ttlDays }));
+        if (!r) return null;
+        return { url: `${location.origin}${location.pathname}#/s/${r.capability}`, expiresAt: r.expiresAt };
+      }, null),
+    revokeShare: (id) => guarded(async () => (api ? ok(await api.revokeShare(id)) !== null : false), false),
+    clearError() {
+      error = null;
+    },
+    clearNotices() {
+      engine?.clearNotices();
+    },
+    destroy() {
+      for (const c of cleanups.splice(0)) c();
+      engine?.destroy();
+    },
+  };
+  return ctl;
+}

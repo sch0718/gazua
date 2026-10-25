@@ -47,4 +47,17 @@ describe('pwaOptions', () => {
       expect(match({ url: new URL('https://gazua.example.dev/kis/quotes.json'), sameOrigin: true })).toBe(false);
     }
   });
+
+  it('keeps the Firebase Auth chunk out of the precache (only signed-in sync users load it)', () => {
+    expect(wb.globIgnores).toContain('assets/firebaseImpl-*.js');
+  });
+
+  it('never caches sync or share responses (they carry personal data and capabilities)', () => {
+    for (const rule of wb.runtimeCaching ?? []) {
+      const match = rule.urlPattern as (ctx: { url: URL; sameOrigin: boolean }) => boolean;
+      for (const path of ['/v1/profiles', '/v1/profiles/p1', '/v1/public/share', '/v1/shares', '/v1/session']) {
+        expect(match({ url: new URL(`https://gazua-sync.example.workers.dev${path}`), sameOrigin: false })).toBe(false);
+      }
+    }
+  });
 });

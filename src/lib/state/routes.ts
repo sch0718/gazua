@@ -1,6 +1,6 @@
-export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles';
+export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles' | 'shared';
 
-export type SettingsSection = 'connection' | 'diagnostics' | 'data';
+export type SettingsSection = 'connection' | 'diagnostics' | 'data' | 'sync';
 
 export interface Route {
   name: RouteName;
@@ -17,7 +17,11 @@ export interface Route {
   helpId?: string;
   /** 설정: 열자마자 보여 줄 구역(오류 배너의 `진단 열기`·`키 다시 입력`). 해시에는 남기지 않는다. */
   section?: SettingsSection;
+  /** 공유 읽기: 링크의 256비트 capability(base64url 43자). 서버에는 헤더로만 보낸다. */
+  capability?: string;
 }
+
+const CAPABILITY_RE = /^[A-Za-z0-9_-]{43}$/;
 
 /** `#/compare/:groupId`, `#/simulate/:strategyId`, `#/performance`, `#/settings`, `#/help/:id`, `#/onboarding`. 그 밖의 해시는 null. */
 export function parseHash(hash: string): Route | null {
@@ -50,6 +54,8 @@ export function parseHash(hash: string): Route | null {
     }
   }
   if (/^#\/performance\/?$/.test(hash)) return { name: 'performance' };
+  const shared = /^#\/s\/([^/?#]+)$/.exec(hash);
+  if (shared) return CAPABILITY_RE.test(shared[1]) ? { name: 'shared', capability: shared[1] } : { name: 'shared' };
   const help = /^#\/help(?:\/([^/?#]+))?\/?$/.exec(hash);
   if (help) {
     if (!help[1]) return { name: 'help' };
@@ -84,6 +90,8 @@ export function hashFor(r: Route): string | null {
       return r.helpId ? `#/help/${encodeURIComponent(r.helpId)}` : '#/help';
     case 'onboarding':
       return '#/onboarding';
+    case 'shared':
+      return r.capability ? `#/s/${r.capability}` : null;
     default:
       return null;
   }

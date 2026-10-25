@@ -1,0 +1,178 @@
+<script lang="ts">
+  // 읽기 전용 공유 링크 만들기(제안서 6절): 보낼 내용을 먼저 보여 주고, 만료(기본 7일·최대 30일)를 고른 뒤 링크를 만든다.
+  import Sheet from '../ui/components/Sheet.svelte';
+  import { showSnackbar } from '../ui/components/snackbarStore.svelte';
+  import type { SyncController } from '../sync/controller.svelte';
+  import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
+  import type { ShareRequest } from './shareStore.svelte';
+  import { snapshotLines } from './shareText';
+
+  let {
+    request,
+    sync,
+    onclose,
+    copy = (text: string) => navigator.clipboard.writeText(text),
+  }: { request: ShareRequest | null; sync: SyncController; onclose: () => void; copy?: (text: string) => Promise<void> } = $props();
+
+  const uid = Math.random().toString(36).slice(2, 8);
+  let ttl = $state(SHARE_TTL_DEFAULT_DAYS);
+  let hideCapital = $state(true);
+  let link = $state<{ url: string; expiresAt: number } | null>(null);
+  let failed = $state<string | null>(null);
+
+  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준' } as const;
+  const snapshot = $derived<ShareSnapshot | null>(request ? request.build(hideCapital) : null);
+  const ttlValid = $derived(Number.isInteger(ttl) && ttl >= 1 && ttl <= SHARE_TTL_MAX_DAYS);
+
+  async function create() {
+    if (!request || !snapshot || !ttlValid) return;
+    failed = null;
+    sync.clearError();
+    link = await sync.createShare(request.profileId, request.kind, snapshot, ttl);
+    if (!link) failed = sync.error ?? '링크를 만들지 못했어요';
+  }
+
+  async function copyLink() {
+    if (!link) return;
+    try {
+      await copy(link.url);
+      showSnackbar('링크를 복사했어요');
+    } catch {
+      showSnackbar('복사하지 못했어요. 링크를 길게 눌러 복사해 주세요');
+    }
+  }
+
+  function close() {
+    link = null;
+    failed = null;
+    ttl = SHARE_TTL_DEFAULT_DAYS;
+    hideCapital = true;
+    onclose();
+  }
+
+  const fmtDate = (t: number) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+</script>
+
+<Sheet open={request !== null} title={request ? `${KIND[request.kind]} 공유` : '공유'} onclose={close}>
+  {#if request && snapshot}
+    <div class="share">
+      {#if link}
+        <p class="lead">링크를 가진 사람은 누구나 {fmtDate(link.expiresAt)}까지 읽을 수 있어요.</p>
+        <input class="url" readonly value={link.url} aria-label="공유 링크" onfocus={(e) => e.currentTarget.select()} />
+        <button type="button" class="primary" onclick={copyLink}>링크 복사</button>
+        <p class="hint">설정 › 동기화 › 내 공유에서 언제든 철회할 수 있어요. 이미 본 내용·캡처는 지울 수 없어요.</p>
+      {:else}
+        <p class="lead">아래 내용만 보내요. 프로필 이름·키·계좌·프록시 주소는 넣지 않아요.</p>
+        <ul class="preview" aria-label="보낼 내용">
+          {#each snapshotLines(snapshot) as line, i (i)}<li>{line}</li>{/each}
+        </ul>
+        <details>
+          <summary>보낼 원문 보기</summary>
+          <pre>{JSON.stringify(snapshot, null, 2)}</pre>
+        </details>
+        {#if request.kind !== 'group'}
+          <label class="check">
+            <input type="checkbox" bind:checked={hideCapital} />
+            가상 초기 자금 빼기
+          </label>
+        {/if}
+        <label class="ttl" for="share-ttl-{uid}">
+          만료(일)
+          <input id="share-ttl-{uid}" type="number" min="1" max={SHARE_TTL_MAX_DAYS} step="1" bind:value={ttl} aria-invalid={ttlValid ? undefined : 'true'} />
+        </label>
+        {#if !ttlValid}<p class="err" role="alert">1~{SHARE_TTL_MAX_DAYS}일 사이로 정해 주세요</p>{/if}
+        {#if failed}<p class="err" role="alert">{failed}</p>{/if}
+        <button type="button" class="primary" disabled={!ttlValid || sync.busy} onclick={create}>{sync.busy ? '만드는 중…' : '링크 만들기'}</button>
+      {/if}
+    </div>
+  {/if}
+</Sheet>
+
+<style>
+  .share {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 8px;
+  }
+  .lead {
+    font-size: var(--fs-body);
+  }
+  .hint {
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
+  .preview {
+    background: var(--surface2);
+    border-radius: 12px;
+    padding: 10px 14px 10px 28px;
+    font-size: var(--fs-sub);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  details summary {
+    cursor: pointer;
+    font-size: var(--fs-sub);
+    color: var(--t2);
+    min-height: var(--touch);
+    display: flex;
+    align-items: center;
+  }
+  pre {
+    max-height: 240px;
+    overflow: auto;
+    font-size: 12px;
+    background: var(--surface2);
+    border-radius: 12px;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .check,
+  .ttl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--touch);
+    font-size: var(--fs-body);
+  }
+  .check input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+  .ttl input {
+    width: 80px;
+    min-height: var(--touch);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    padding: 0 10px;
+    background: var(--surface);
+    color: var(--t1);
+  }
+  .url {
+    width: 100%;
+    min-height: var(--touch);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    padding: 0 10px;
+    background: var(--surface);
+    color: var(--t1);
+    font-size: var(--fs-sub);
+  }
+  .primary {
+    min-height: var(--touch);
+    border-radius: 12px;
+    background: var(--accent);
+    color: var(--on-accent, #fff);
+    font-weight: 700;
+  }
+  .primary:disabled {
+    opacity: 0.5;
+  }
+  .err {
+    color: var(--warn);
+    font-size: var(--fs-sub);
+  }
+</style>

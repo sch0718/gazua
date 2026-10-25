@@ -1,6 +1,8 @@
 <script lang="ts">
   // 선정 기준 목록(스펙 7.2): 행 = 이름 · 조건 요약 · 마지막 결과(이 탭에서 실행한 경우만), 행 메뉴 = 복제·이름 바꾸기·삭제.
   import { tick } from 'svelte';
+  import { canShare, openShare } from '../../share/shareStore.svelte';
+  import { criteriaSnapshot } from '../../share/snapshot';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
   import { MAX_CRITERIA, NAME_MAX, newCriteria } from '../../screen/defaults';
   import type { SelectionCriteria } from '../../screen/types';
@@ -46,6 +48,17 @@
   function closeMenu() {
     menuId = null;
     renaming = false;
+  }
+
+  function share(c: SelectionCriteria) {
+    closeMenu();
+    const refs = { baskets: app.baskets, strategies: app.strategies };
+    openShare({
+      kind: 'criteria',
+      name: c.name,
+      profileId: app.meta.activeProfileId,
+      build: (hideCapital) => criteriaSnapshot(c, refs, { hideCapital, now: Date.now() }),
+    });
   }
 
   function duplicate(c: SelectionCriteria) {
@@ -158,6 +171,7 @@
       <div class="menu">
         <button type="button" onclick={() => duplicate(target)}>복제</button>
         <button type="button" onclick={() => startRename(target)}>이름 바꾸기</button>
+        {#if canShare()}<button type="button" onclick={() => share(target)}>공유</button>{/if}
         <button type="button" class="danger" onclick={() => remove(target)}>삭제</button>
       </div>
     {/if}

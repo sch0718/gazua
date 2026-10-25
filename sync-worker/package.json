@@ -9,7 +9,8 @@
     "dev": "wrangler dev",
     "migrate:local": "wrangler d1 migrations apply gazua-sync --local",
     "migrate:remote": "wrangler d1 migrations apply gazua-sync --remote",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "smoke": "node test/smoke.ts"
   },
   "dependencies": {
     "jose": "^6.2.13"

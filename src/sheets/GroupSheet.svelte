@@ -7,6 +7,8 @@
   import Sheet from '../lib/ui/components/Sheet.svelte';
   import { deleteGroupWithUndo } from './groupActions';
   import TossImport from './TossImport.svelte';
+  import { canShare, openShare } from '../lib/share/shareStore.svelte';
+  import { groupSnapshot } from '../lib/share/snapshot';
 
   // 그룹 관리 시트(스펙 7.3): 이름 바꾸기·순서·삭제(확인 + 되돌리기). 그룹은 하나 이상 남긴다.
   let {
@@ -147,6 +149,17 @@
             <em>{g.items.length}종목</em>
           </div>
           <button type="button" class="icon" aria-label="{g.name} 이름 바꾸기" onclick={() => startRename(g)}>✎</button>
+          {#if canShare()}
+            <button
+              type="button"
+              class="icon"
+              aria-label="{g.name} 공유"
+              onclick={() => {
+                onclose();
+                openShare({ kind: 'group', name: g.name, profileId: app.meta.activeProfileId, build: () => groupSnapshot(g) });
+              }}>⇪</button
+            >
+          {/if}
         {/if}
         <button type="button" class="icon" aria-label="{g.name} 위로" disabled={i === 0} onclick={() => move(i, -1)}>↑</button>
         <button

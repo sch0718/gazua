@@ -10,6 +10,8 @@
   import { showSnackbar } from '../components/snackbarStore.svelte';
   import { strategyLine } from './simText';
   import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
+  import { canShare, openShare } from '../../share/shareStore.svelte';
+  import { strategySnapshot } from '../../share/snapshot';
 
   let { app }: { app: App } = $props();
 
@@ -35,6 +37,17 @@
   function closeMenu() {
     menuId = null;
     renaming = false;
+  }
+
+  function share(s: Strategy) {
+    closeMenu();
+    const watchlists = app.watchlists;
+    openShare({
+      kind: 'strategy',
+      name: s.name,
+      profileId: app.meta.activeProfileId,
+      build: (hideCapital) => strategySnapshot(s, watchlists, { hideCapital, now: Date.now() }),
+    });
   }
 
   function duplicate(s: Strategy) {
@@ -146,6 +159,7 @@
       <div class="menu">
         <button type="button" onclick={() => duplicate(target)}>복제</button>
         <button type="button" onclick={() => startRename(target)}>이름 바꾸기</button>
+        {#if canShare()}<button type="button" onclick={() => share(target)}>공유</button>{/if}
         <button type="button" class="danger" onclick={() => remove(target)}>삭제</button>
       </div>
     {/if}

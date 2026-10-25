@@ -14,8 +14,10 @@
   import KeyLock from '../lib/ui/settings/KeyLock.svelte';
   import Profiles from '../lib/ui/settings/Profiles.svelte';
   import ProviderCards from '../lib/ui/settings/ProviderCards.svelte';
+  import SyncPanel from '../lib/ui/settings/SyncPanel.svelte';
+  import type { SyncController } from '../lib/sync/controller.svelte';
 
-  let { app, barEnd }: { app: App; barEnd: Snippet<[boolean]> } = $props();
+  let { app, barEnd, sync }: { app: App; barEnd: Snippet<[boolean]>; sync?: SyncController } = $props();
 
   // 폰 폭(<600)에서는 앱 바에 상태 칩을 그리지 않는다(제목과 아이콘 3개가 들어가야 한다). 시뮬레이션·내 성과와 같다.
   const compactQuery = typeof matchMedia === 'function' ? new MediaQuery('max-width: 599px') : null;
@@ -23,7 +25,7 @@
   let introReset = $state(false);
 
   // 비교 화면의 오류 배너(`진단 열기`·`키 다시 입력`)로 들어오면 그 구역으로 옮기고 제목에 초점을 둔다.
-  const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag', data: 'set-data' } as const;
+  const SECTION_IDS = { connection: 'set-connection', diagnostics: 'set-diag', data: 'set-data', sync: 'set-sync' } as const;
   $effect(() => {
     const section = app.route.section;
     if (!section) return;
@@ -110,6 +112,13 @@
             </div>
           </div>
         </section>
+
+        {#if sync}
+          <section aria-labelledby="set-sync">
+            <h2 id="set-sync" tabindex="-1">동기화·공유</h2>
+            <SyncPanel {app} {sync} />
+          </section>
+        {/if}
 
         <section aria-labelledby="set-data">
           <h2 id="set-data" tabindex="-1">데이터</h2>
