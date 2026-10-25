@@ -309,6 +309,11 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   async function run(steps: ('pull' | 'push')[]): Promise<void> {
     if (!status.enabled || destroyed) return;
     await serial(async () => {
+      // 다른 탭이 끄면(같은 IndexedDB) 이 탭의 상태는 늦게 안다. 잠금 안에서 저장된 값을 다시 본다.
+      if ((await store.getMeta<boolean>('enabled')) !== true) {
+        await refresh({ enabled: false, phase: 'off' });
+        return;
+      }
       emit({ phase: 'syncing' });
       let phase: SyncPhase = 'idle';
       for (const s of steps) {
@@ -405,7 +410,8 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             if (c.deletedAt !== null) {
               const r = await api.restoreProfile(profileId, uuid());
               if (r.ok) await setSynced(profileId, r.data.revision, await docHash(r.data.doc));
-              else if (r.kind === 'gone') await setSynced(profileId, 0, '');
+              // 복구 기간이 지나 서버에서 정리됐다(gone 또는 행 자체가 없음): 이 기기 것을 새로 올린다
+              else if (r.kind === 'gone' || r.kind === 'not-found') await setSynced(profileId, 0, '');
               else if (r.kind === 'conflict') await store.deleteState(profileId); // 이미 복구됐다: 다음 받기에서 맞춘다
               else {
                 await refresh({ phase: failed(r) });

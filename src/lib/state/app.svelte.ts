@@ -434,6 +434,8 @@ export function createApp(deps: AppDeps): App {
     const g = gate();
     if (g) {
       route = g;
+      // 공유 화면에서 앱으로 나가는 길에 관문(프로필 선택·잠금 해제)을 만났다: 공유 주소를 지워야 관문을 마친 뒤 공유로 되돌아가지 않는다
+      if (r.name !== 'shared' && loc && parseHash(loc.hash)?.name === 'shared') loc.hash = hashFor(r) ?? '#/compare';
       return;
     }
     const next = normalize(r);

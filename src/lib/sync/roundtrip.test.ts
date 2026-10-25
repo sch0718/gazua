@@ -10,6 +10,7 @@ import { newStrategy } from '../sim/defaults';
 import { groupSnapshot } from '../share/snapshot';
 import { deviceApi, testServer, type TestServer } from '../../../sync-worker/test/server';
 import { OTHER } from '../../../sync-worker/test/harness';
+import { purge } from '../../../sync-worker/src/purge';
 import type { SyncApi } from './api';
 import { CONFLICT_COPY_SUFFIX, createSyncEngine, type SyncEngine } from './engine';
 import { FORBIDDEN_KEYS } from './forbidden';
@@ -212,6 +213,39 @@ describe('1단계 완료 기준', () => {
     a.app.switchProfile(extra.id);
     expect(a.app.watchlists.groups[0].name).toBe('늦은 수정');
     void keep;
+  });
+
+  // Codex 리뷰(PR #39) 2차 2: 삭제 충돌을 고르기 전에 서버가 30일 정리로 지웠으면(404) 복구는 이 기기 것을 다시 올린다.
+  it('서버에서 정리된 뒤 고른 복구는 이 기기의 프로필을 다시 올린다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const extra = a.app.addProfile('오래 둔 것');
+    await a.engine.flush();
+    const b = await enabled(s);
+    b.app.switchProfile(extra.id);
+    a.app.deleteProfile(extra.id);
+    await a.engine.flush();
+    b.app.setWatchlists({ groups: [{ id: 'g1', name: '살릴 것', items: [] }] });
+    await b.engine.flush();
+    expect(b.engine.status().conflicts[0]).toMatchObject({ profileId: extra.id, kind: 'deleted' });
+    // 정리 작업만 31일 뒤로 돌린다(기기 세션은 그대로 살아 있게)
+    expect((await purge(s.h.env as never, s.h.clock.now + 31 * 24 * 3600 * 1000)).profiles).toBe(1);
+    await b.engine.resolve(extra.id, 'restore');
+    expect(b.engine.status()).toMatchObject({ conflicts: [], phase: 'idle' });
+    const list = await b.api.listProfiles();
+    expect(list.ok && list.data.profiles.find((r) => r.profileId === extra.id)?.deletedAt).toBeNull();
+  });
+
+  // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
+  it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    await a.store.setMeta('enabled', false); // 다른 탭의 끄기
+    const before = s.requests.length;
+    a.app.setWatchlists({ groups: [{ id: 'g', name: '보내면 안 됨', items: [] }] });
+    await a.engine.syncNow();
+    expect(s.requests.length).toBe(before);
+    expect(a.engine.status()).toMatchObject({ enabled: false, phase: 'off' });
   });
 
   it('바뀐 것이 없는 기기는 다른 기기의 삭제를 그대로 따르고, 고른 삭제는 서버 상태를 지킨다', async () => {

@@ -192,5 +192,23 @@ describe('SyncController', () => {
     expect(sync.error).toContain('동기화를 켜');
     expect(s.requests.some((r) => r.path === '/v1/shares')).toBe(false);
   });
+
+  // Codex 리뷰(PR #39) 2차 4: 리다이렉트 로그인을 시작한 적이 없으면 시작할 때 Firebase를 불러오지 않는다.
+  it('리다이렉트 로그인을 시작한 적이 없으면 리다이렉트 결과를 읽지 않는다', async () => {
+    const s = testServer();
+    const auth = fakeAuth(s);
+    let reads = 0;
+    auth.redirectResult = async () => {
+      reads++;
+      return null;
+    };
+    const store = createMemorySyncStore();
+    await setup(s, { auth, store });
+    expect(reads).toBe(0);
+    await store.setMeta('redirect-pending', true);
+    await setup(s, { auth, store });
+    expect(reads).toBe(1);
+    expect(await store.getMeta('redirect-pending')).toBeUndefined();
+  });
 });
 

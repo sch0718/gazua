@@ -1368,6 +1368,24 @@ describe('help route', () => {
   });
 });
 
+describe('leaving a shared link through a gate', () => {
+  // Codex 리뷰(PR #39) 2차 3: 공유 화면에서 `가즈아 열기`로 나갈 때 관문(프로필 선택)을 거쳐도 공유 화면으로 되돌아오지 않는다.
+  it('clears the shared hash so finishing the profile picker opens the app, not the share again', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    location.hash = `#/s/${'a'.repeat(43)}`;
+    const app = make(backing);
+    expect(app.route.name).toBe('shared');
+    app.navigate({ name: 'compare' });
+    expect(app.route.name).toBe('profiles');
+    expect(location.hash.startsWith('#/s/')).toBe(false);
+    app.switchProfile('p1');
+    expect(app.route.name).toBe('compare');
+  });
+});
+
 describe('cross-tab profile removal', () => {
   // Codex 리뷰(PR #39) 5: 다른 탭이 지금 프로필을 지우면(원격 삭제 적용) 이 탭도 남은 프로필로 옮긴다.
   it('another tab removing the active profile switches this tab to a remaining one', () => {

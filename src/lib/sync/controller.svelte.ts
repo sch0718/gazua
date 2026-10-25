@@ -79,6 +79,8 @@ export const describeFail = (f: ApiFail): string =>
 const SESSION_KEY = 'session';
 /** 이 기기의 동기화 상태가 속한 계정(Firebase uid). 다른 계정으로 로그인하면 상태를 버린다. */
 const OWNER_KEY = 'owner';
+/** 리다이렉트 로그인을 시작했다. 있을 때만 시작 시 결과를 읽는다(그 밖에는 Firebase를 불러오지 않는다). */
+const REDIRECT_KEY = 'redirect-pending';
 
 function webLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
@@ -188,11 +190,14 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       cleanups.push(engine.subscribe((s) => (status = s)));
       await engine.init();
       session = (await store.getMeta<{ id: string; email: string }>(SESSION_KEY)) ?? null;
-      try {
-        const back = await auth.redirectResult();
-        if (back) await startSession(back.user, back.idToken, (deps.deviceLabel ?? defaultLabel)());
-      } catch {
-        // 리다이렉트 결과가 없거나 읽지 못했다
+      if (await store.getMeta<boolean>(REDIRECT_KEY)) {
+        await store.deleteMeta(REDIRECT_KEY);
+        try {
+          const back = await auth.redirectResult();
+          if (back) await startSession(back.user, back.idToken, (deps.deviceLabel ?? defaultLabel)());
+        } catch {
+          // 리다이렉트 결과가 없거나 읽지 못했다
+        }
       }
       if (session) {
         // 저장된 세션이 있을 때만 SDK를 불러 로그인 상태를 확인한다. 오프라인이라 SDK를 못 불러오면 세션은 그대로 두고 나중에 보낸다.
@@ -242,8 +247,12 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       guarded(async () => {
         if (!auth || !store) return;
         error = null;
+        // 팝업이 막히면 SDK가 리다이렉트로 페이지를 떠난다. 돌아왔을 때 결과를 읽도록 먼저 적어 둔다.
+        await store.setMeta(REDIRECT_KEY, true);
         const r = await auth.signIn();
-        if (r === null || r === 'redirect') return;
+        if (r === 'redirect') return;
+        await store.deleteMeta(REDIRECT_KEY);
+        if (r === null) return;
         await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
       }, undefined),
 
