@@ -27,7 +27,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # prebuild 단계가 종목 유니버스(public/universe.json)를 내려받는다.
+      # 동기화·공유 설정은 저장소 Actions Variables에서 온다. 비어 있으면 기능이 꺼진 채로 빌드된다(sync-worker/README.md).
       - run: pnpm build
+        env:
+          VITE_SYNC_API_URL: ${{ vars.VITE_SYNC_API_URL }}
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
