@@ -70,7 +70,8 @@ const APPLIED = 'EXISTS (SELECT 1 FROM profile_index WHERE user_id = ? AND profi
 function historyStatements(env: SyncEnv, ctx: AuthContext, profileId: string, opId: string, revision: number, body: string | null, now: number): D1PreparedStatement[] {
   const key = [ctx.userId, profileId, opId];
   return [
-    env.DB.prepare(`INSERT INTO revisions (user_id, profile_id, revision, op_id, body, created_at) SELECT ?, ?, ?, ?, ?, ? WHERE ${APPLIED}`).bind(
+    // 같은 opId 요청이 겹쳐 둘 다 재시도 확인을 지나면 뒤 요청의 넣기가 고유 제약에 걸린다. 무시해 처음 결과를 그대로 돌려주게 한다.
+    env.DB.prepare(`INSERT OR IGNORE INTO revisions (user_id, profile_id, revision, op_id, body, created_at) SELECT ?, ?, ?, ?, ?, ? WHERE ${APPLIED}`).bind(
       ctx.userId,
       profileId,
       revision,

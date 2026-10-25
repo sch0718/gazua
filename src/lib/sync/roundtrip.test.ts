@@ -457,6 +457,43 @@ describe('1단계 완료 기준', () => {
     expect(q).toEqual(['ff-put', '00-delete']);
   });
 
+  // Codex 리뷰(PR #39) 10차 1: 오프라인에서 B, C를 차례로 보내지 못한 뒤 B로 되돌리면, 묵은 C를 보내지 않는다.
+  it('보내지 못한 C 뒤에 B로 되돌리면 서버는 B로 끝난다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'B', items: [] }] });
+    s.online = false;
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'C', items: [] }] });
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'B', items: [] }] });
+    await a.engine.flush();
+    s.online = true;
+    await a.engine.flush();
+    expect(a.engine.status()).toMatchObject({ phase: 'idle', pending: 0 });
+    const got = await a.api.getProfile(a.app.meta.activeProfileId);
+    expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('B');
+  });
+
+  // Codex 리뷰(PR #39) 10차 2: 원격 삭제를 적용했는데 이 기기 저장에 실패하면 tombstone을 확인한 것으로 치지 않는다.
+  it('원격 삭제를 이 기기에 저장하지 못하면 확인 지점을 올리지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const extra = a.app.addProfile('지워질 것');
+    await a.engine.flush();
+    const backing = memoryBacking();
+    const store = createMemorySyncStore();
+    const b = await enabled(s, { storage: createSafeStorage(backing), store });
+    a.app.deleteProfile(extra.id);
+    await a.engine.flush();
+    backing.setItem = () => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+    await b.engine.syncNow();
+    expect(b.engine.status().phase).toBe('error');
+    expect((await store.state(extra.id))?.deleted).not.toBe(true);
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

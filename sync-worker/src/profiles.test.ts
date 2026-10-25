@@ -29,6 +29,32 @@ describe('프로필 API', () => {
     expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(2);
   });
 
+  // Codex 리뷰(PR #39) 10차 3: 같은 opId 요청 둘이 겹쳐 둘 다 재시도 확인을 지나도(앞 요청이 아직 커밋 전), 뒤 요청은 500이 아니라 같은 결과다.
+  it('겹친 같은 opId 요청도 같은 결과를 돌려준다(이력 넣기가 겹쳐도 500이 아니다)', async () => {
+    const h = harness();
+    const me = await h.login();
+    const put = { opId: 'op-1', expectedRevision: 0, doc: doc() };
+    expect((await me.as('PUT', '/v1/profiles/p1', put)).status).toBe(200);
+    // 뒤 요청이 재시도 확인을 앞 요청 커밋 전에 했다고 친다
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    h.env.DB.prepare = ((sql: string) => {
+      const st = prepare(sql);
+      if (sql.startsWith('SELECT profile_id AS profileId, revision FROM revisions')) return { bind: () => ({ first: async () => null }) } as unknown as typeof st;
+      return st;
+    }) as typeof h.env.DB.prepare;
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', put))).toEqual({ status: 200, body: { revision: 1 } });
+    const del = { opId: 'op-2', expectedRevision: 1 };
+    h.env.DB.prepare = prepare;
+    expect((await me.as('DELETE', '/v1/profiles/p1', del)).status).toBe(200);
+    h.env.DB.prepare = ((sql: string) => {
+      const st = prepare(sql);
+      if (sql.startsWith('SELECT profile_id AS profileId, revision FROM revisions')) return { bind: () => ({ first: async () => null }) } as unknown as typeof st;
+      return st;
+    }) as typeof h.env.DB.prepare;
+    expect((await me.as('DELETE', '/v1/profiles/p1', del)).status).toBe(200);
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(2);
+  });
+
   it('같은 opId로 다시 보내면 처음 결과를 돌려주고 리비전은 하나만 생긴다', async () => {
     const h = harness();
     const me = await h.login();

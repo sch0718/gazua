@@ -189,8 +189,9 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       }
       if (st?.rejectedHash === hash) continue;
       if (st?.deleted) continue; // 서버에서 지워진 것을 알고 있다: pull·충돌 처리에 맡긴다
-      if (ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash === hash)) continue;
+      // 지금 문서를 이미 보냈다(응답 대기): 새로 넣지 않는다. 그 뒤에 쌓인 묵은 미전송 작업은 지워야 지금 문서 뒤에 오래된 것이 나가지 않는다.
       for (const o of unsent) await store.deleteOp(o.opId);
+      if (ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash === hash)) continue;
       await store.putOp({ opId: uuid(), profileId: p.id, kind: 'put', doc, hash, createdAt: now() });
     }
   }
@@ -280,6 +281,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             continue;
           }
           local.remove(id);
+          if (local.durable && !local.durable()) return 'error'; // 이 기기에서 지운 것이 남지 않았다: tombstone을 확인한 것으로 치지 않는다
         }
         await setSynced(id, row.revision, '', { deleted: true });
         continue;
