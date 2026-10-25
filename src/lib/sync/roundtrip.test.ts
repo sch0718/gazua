@@ -283,6 +283,42 @@ describe('1단계 완료 기준', () => {
     expect(a.engine.status()).toMatchObject({ enabled: false, phase: 'off' });
   });
 
+  // Codex 리뷰(PR #39) 4차 1: 응답을 잃은 업로드(A→B) 뒤 이 기기에서 A로 되돌린 변경을 서버의 B로 덮어쓰지 않는다.
+  it('응답을 잃은 업로드 뒤 되돌린 변경을 지키고 서버로 올린다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'B', items: [] }] });
+    s.dropNextResponse = true;
+    await a.engine.flush();
+    expect(a.engine.status()).toMatchObject({ phase: 'offline', pending: 1 });
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await a.engine.syncNow();
+    expect(a.app.watchlists.groups[0].name).toBe('A');
+    expect(a.engine.status()).toMatchObject({ phase: 'idle', pending: 0, conflicts: [] });
+    const got = await a.api.getProfile(a.app.meta.activeProfileId);
+    expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('A');
+  });
+
+  // Codex 리뷰(PR #39) 4차 2: 여러 작업을 보내는 도중 다른 탭이 끄면 나머지는 보내지 않는다.
+  it('여러 작업을 보내는 도중 다른 탭이 끄면 나머지는 보내지 않는다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.addProfile('둘째');
+    a.app.addProfile('셋째');
+    const orig = a.api.putProfile.bind(a.api);
+    let puts = 0;
+    a.api.putProfile = async (...args) => {
+      puts++;
+      const r = await orig(...args);
+      await a.store.setMeta('enabled', false); // 첫 업로드가 끝날 즈음 다른 탭이 끈다
+      return r;
+    };
+    await a.engine.flush();
+    expect(puts).toBe(1);
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

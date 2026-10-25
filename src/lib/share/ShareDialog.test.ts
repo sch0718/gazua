@@ -64,4 +64,20 @@ describe('ShareDialog', () => {
     await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('50개'));
   });
+
+  // Codex 리뷰(PR #39) 4차 3: 링크를 만드는 중에 닫았다가 다른 것을 열면, 늦게 온 이전 링크를 보여 주지 않는다.
+  it('만드는 중에 닫으면 늦게 온 링크를 다음 공유에 보여 주지 않는다', async () => {
+    let finish!: (v: Made) => void;
+    const s = sync(vi.fn(() => new Promise<Made>((r) => (finish = r))));
+    const view = render(ShareDialog, { request: groupReq, sync: s, onclose: () => {} });
+    await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
+    await view.rerender({ request: null, sync: s, onclose: () => {} });
+    const other: ShareRequest = { ...groupReq, name: '배당', build: () => groupSnapshot({ id: 'h', name: '배당', items: [] }) };
+    await view.rerender({ request: other, sync: s, onclose: () => {} });
+    finish({ url: 'https://app.example.test/#/s/' + 'y'.repeat(43), expiresAt: NOW });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByLabelText('공유 링크')).toBeNull();
+    expect(screen.getByRole('button', { name: '링크 만들기' })).toBeTruthy();
+  });
 });
+

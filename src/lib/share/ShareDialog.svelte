@@ -24,13 +24,24 @@
   const snapshot = $derived<ShareSnapshot | null>(request ? request.build(hideCapital) : null);
   const ttlValid = $derived(Number.isInteger(ttl) && ttl >= 1 && ttl <= SHARE_TTL_MAX_DAYS);
 
+  // 닫거나 다른 공유를 열면 늘린다. 그 전에 보낸 요청의 응답은 버린다(다른 대상에 이전 링크가 보이지 않게).
+  let attempt = 0;
   async function create() {
     if (!request || !snapshot || !ttlValid) return;
+    const mine = ++attempt;
     failed = null;
     sync.clearError();
-    link = await sync.createShare(request.profileId, request.kind, snapshot, ttl);
+    const made = await sync.createShare(request.profileId, request.kind, snapshot, ttl);
+    if (mine !== attempt) return;
+    link = made;
     if (!link) failed = sync.error ?? '링크를 만들지 못했어요';
   }
+  $effect(() => {
+    void request;
+    attempt++;
+    link = null;
+    failed = null;
+  });
 
   async function copyLink() {
     if (!link) return;
@@ -43,6 +54,7 @@
   }
 
   function close() {
+    attempt++;
     link = null;
     failed = null;
     ttl = SHARE_TTL_DEFAULT_DAYS;

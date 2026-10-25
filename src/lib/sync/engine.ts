@@ -191,7 +191,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   async function push(): Promise<SyncPhase> {
     const conflicts = new Set((await store.conflicts()).map((c) => c.profileId));
     for (const op of await store.ops()) {
-      if (!status.enabled) return 'off'; // 보내는 도중 꺼졌다
+      if (!status.enabled || (await store.getMeta<boolean>('enabled')) !== true) return 'off'; // 보내는 도중 꺼졌다(이 탭·다른 탭)
       if (conflicts.has(op.profileId)) {
         await store.deleteOp(op.opId); // 충돌 사본이 로컬 문서를 들고 있다
         continue;
@@ -287,6 +287,14 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       }
       const doc = local.read(id);
       const localHash = await docHash(doc);
+      // 보냈지만 응답을 못 받은 업로드가 서버에 반영돼 있으면, 그것을 확인된 상태로 삼는다.
+      // 그래야 그 뒤 이 기기에서 바꾼 것(예: 되돌리기)을 "변경 없음"으로 잘못 보고 서버 것으로 덮어쓰지 않는다.
+      const sent = ops.find((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash === remoteHash);
+      if (sent) {
+        await store.deleteOp(sent.opId);
+        await setSynced(id, got.data.revision, remoteHash);
+        continue; // 로컬이 다르면 이어지는 보내기가 새 작업으로 올린다
+      }
       if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash)) {
         if (localHash !== remoteHash) local.write(id, got.data.doc);
         await dropOps(id);
