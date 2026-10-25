@@ -224,3 +224,13 @@
 - **원주가 추가 확인**: 과거 체결이 있는 모든 종목에 `adjusted=false`가 요청되고 마지막 요청일은 어제인지, 오늘 체결은 배율 1인지 확인해요. 일부 과거 체결일의 원주가가 빠져도 추정 안내에 종목 이름이 나와야 해요. 5% 무상증자 두 번(누적 1.1025배)과 저가 종목의 원 단위 반올림도 실제 수량·회수액과 견줘요.
 - **바꿀 곳**: `src/lib/providers/toss.ts`의 `mapOrder`(필드·거를 상태 `DUPLICATE_ORDER_STATUSES`), `TOSS_QUEUE_RATES.ORDER_HISTORY`, `ORDER_PAGE_SIZE`. 원주가가 없을 때만 쓰는 체결가 추정 여유는 `src/lib/perf/portfolio.ts`의 `SPLIT_MARGIN`. 스펙 2.3·2.6.
 - 결과: 필드 __ / 부분 체결 취소 __ / REPLACED·*_REJECTED __ / filledAt __ / 페이지·커서 __ / 첫 주문일 __ / 수량 대조 __ / 한도 __
+
+## ㉘ 동기화·공유 1단계 실배포
+
+- **무엇을**: `sync-worker`(Cloudflare Worker + D1)와 Firebase Auth(Spark, Google 로그인만)를 실제로 켜고 기기마다 로그인·동기화·공유가 되는지. 특히 아이폰 홈 화면 PWA의 Google 로그인과 다시 열었을 때 로그인이 유지되는지(제안서 검토에서 위험으로 적은 항목).
+- **어떻게**: `sync-worker/README.md` 「처음 배포하기」 순서대로 배포한 뒤 「배포 뒤 확인」을 차례로 해요. 키·이메일·D1 ID는 여기에 적지 않아요.
+- **바꿀 곳**: 로그인은 `src/lib/sync/firebaseImpl.ts`·`controller.svelte.ts`, 도우미 서빙은 `auth-helper.config.ts`·`pwa.config.ts`, 서버는 `sync-worker/src/`.
+- 결과:
+  - 2026-10-26 배포: D1 `gazua-sync`(APAC) 마이그레이션 `0001_init` 적용, Worker `gazua-sync.sch0718.workers.dev` 배포. Cron은 계정 전체에서 이 Worker의 1개뿐이에요(증권사 프록시는 Tunnel, 랜드마크는 Pages라 Cron 없음, API로 확인). GitHub Variables 5개를 넣고 앱을 다시 배포해 CSP에 `apis.google.com`·`frame-src`가 들어간 것을 확인했어요.
+  - 2026-10-26 Mac 터미널(curl): 앱 출처 `OPTIONS /v1/profiles` 204, 다른 출처 403, 토큰 없는 `GET /v1/profiles` 401.
+  - 2026-10-26 Mac Claude 인앱 브라우저(Chromium, 팝업 없음): 「Google로 로그인」이 리다이렉트로 넘어가 계정 선택·동의까지 갔지만, 앱으로 돌아오면 로그인되지 않았어요. Firebase 저장소(`firebaseLocalStorageDb`)가 비어 있었어요. `authDomain`이 `<프로젝트>.firebaseapp.com`(다른 출처)이라 서드파티 저장소 차단에 걸린 거예요. iOS Safari도 같은 원인으로 막히므로, 로그인 도우미를 앱 도메인에서 서빙하고 `authDomain`을 앱 도메인으로 바꿨어요(`auth-helper.config.ts`).

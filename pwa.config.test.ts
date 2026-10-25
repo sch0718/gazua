@@ -52,6 +52,14 @@ describe('pwaOptions', () => {
     expect(wb.globIgnores).toContain('assets/firebaseImpl-*.js');
   });
 
+  // 같은 도메인에서 서빙하는 Firebase 로그인 도우미(/__/auth/handler 등). 앱 셸로 대신 답하면 로그인이 돌아오지 못한다.
+  it('lets the self-hosted Firebase auth helper pages through and keeps them out of the precache', () => {
+    const deny = wb.navigateFallbackDenylist ?? [];
+    expect(deny.some((re) => re.test('/__/auth/handler'))).toBe(true);
+    expect(deny.some((re) => re.test('/__/auth/iframe'))).toBe(true);
+    expect(wb.globIgnores).toContain('__/**');
+  });
+
   it('never caches sync or share responses (they carry personal data and capabilities)', () => {
     for (const rule of wb.runtimeCaching ?? []) {
       const match = rule.urlPattern as (ctx: { url: URL; sameOrigin: boolean }) => boolean;

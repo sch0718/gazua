@@ -62,7 +62,10 @@ corepack pnpm --filter sync-worker smoke    # 실제 workerd + 로컬 D1(wrangle
 1. [Firebase 콘솔](https://console.firebase.google.com/)에서 프로젝트를 만들어요. Google Analytics는 꺼도 돼요. **요금제는 Spark 그대로 두고 결제 계정을 연결하지 않아요.**
 2. Authentication › 시작하기 › 로그인 방법에서 **Google**을 사용 설정해요.
 3. Authentication › 설정 › 승인된 도메인에 앱 도메인(`gazua.sch0718.dev`)을 더해요. 개발할 때 `localhost`는 기본으로 들어 있어요.
-4. 프로젝트 설정 › 내 앱 › 웹 앱을 추가하고 `apiKey`, `authDomain`, `projectId`, `appId`를 확인해요. Firebase Hosting은 켜지 않아도 돼요. Firestore는 만들지 않아요.
+4. 프로젝트 설정 › 내 앱 › 웹 앱을 추가하고 `apiKey`, `projectId`, `appId`를 확인해요. Firebase Hosting은 켜지 않아도 돼요. Firestore는 만들지 않아요.
+5. [Google Cloud 콘솔](https://console.cloud.google.com/apis/credentials) › 같은 프로젝트 › OAuth 2.0 클라이언트 ID › `Web client (auto created by Google Service)`의 **승인된 리디렉션 URI**에 `https://gazua.sch0718.dev/__/auth/handler`를 더해요.
+
+`authDomain`은 Firebase가 보여 주는 `<프로젝트>.firebaseapp.com`이 아니라 **앱 도메인(`gazua.sch0718.dev`)**으로 둬요. firebaseapp.com을 쓰면 로그인 결과가 다른 출처의 저장소를 거치는데, 서드파티 저장소를 막는 브라우저(iOS Safari·홈 화면 PWA, 저장소를 나누는 Chromium 계열)에서는 리다이렉트로 돌아와도 로그인이 되지 않아요(2026-10-26 확인). 앱 도메인으로 두면 빌드가 Firebase 로그인 도우미(`/__/auth/handler`·`iframe` 등 5개)를 `<프로젝트>.firebaseapp.com`에서 받아 `dist/__/auth/`에 넣어요(`auth-helper.config.ts`). Firebase 문서 「Best practices for using signInWithRedirect on browsers that block third-party storage」의 3번 방법이에요.
 
 ### 2. Cloudflare D1과 Worker
 
@@ -91,11 +94,11 @@ GitHub 저장소 Settings › Secrets and variables › Actions › **Variables*
 |---|---|
 | `VITE_SYNC_API_URL` | 배포한 Worker 주소(예: `https://gazua-sync.<계정>.workers.dev`) |
 | `VITE_FIREBASE_API_KEY` | 웹 앱 `apiKey` |
-| `VITE_FIREBASE_AUTH_DOMAIN` | `authDomain`(예: `<프로젝트>.firebaseapp.com`) |
+| `VITE_FIREBASE_AUTH_DOMAIN` | 앱 도메인 `gazua.sch0718.dev`(위 1단계 설명). 로컬 개발 서버는 도우미를 서빙하지 않으니 `.env.local`에는 `<프로젝트>.firebaseapp.com`을 넣어요 |
 | `VITE_FIREBASE_PROJECT_ID` | `projectId` |
 | `VITE_FIREBASE_APP_ID` | `appId` |
 
-하나라도 비면 동기화·공유 기능이 꺼진 채로 빌드돼요. 지금과 똑같이 동작해요. 값이 있으면 빌드가 `index.html` CSP에 `script-src https://apis.google.com`과 `frame-src https://<authDomain>`을 더해요. 로컬 개발은 저장소 루트의 `.env.local`에 같은 값을 넣어요(`.env.example` 참고).
+하나라도 비면 동기화·공유 기능이 꺼진 채로 빌드돼요. 지금과 똑같이 동작해요. 값이 있으면 빌드가 `index.html` CSP에 `script-src https://apis.google.com`과 `frame-src https://<authDomain>`을 더해요. `authDomain`이 firebaseapp.com·web.app이 아니면 빌드가 로그인 도우미를 받아 오고, 받지 못하면 빌드가 실패해요. 로컬 개발은 저장소 루트의 `.env.local`에 같은 값을 넣어요(`.env.example` 참고).
 
 ### 4. 배포 뒤 확인
 
