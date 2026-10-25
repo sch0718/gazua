@@ -72,3 +72,18 @@ describe('help routes', () => {
     expect(hashFor({ name: 'help', helpId: 'performance' })).toBe('#/help/performance');
   });
 });
+
+describe('shared route', () => {
+  const cap = 'A'.repeat(20) + '_-' + 'b'.repeat(21);
+  it('parses a 43-char capability and writes it back', () => {
+    expect(parseHash(`#/s/${cap}`)).toEqual({ name: 'shared', capability: cap });
+    expect(hashFor({ name: 'shared', capability: cap })).toBe(`#/s/${cap}`);
+  });
+  it('keeps the shared screen for a malformed capability without carrying it', () => {
+    expect(parseHash('#/s/short')).toEqual({ name: 'shared' });
+    expect(parseHash(`#/s/${cap}x`)).toEqual({ name: 'shared' });
+    expect(parseHash(`#/s/${cap}/extra`)).toBeNull();
+    expect(hashFor({ name: 'shared' })).toBeNull();
+  });
+});
+

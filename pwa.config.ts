@@ -29,7 +29,8 @@ export const pwaOptions: Partial<VitePWAOptions> = {
     // 앱 셸만 미리 담는다. Pretendard 글꼴 조각(woff2 약 90개)과 universe.json은 제외한다.
     globPatterns: ['**/*.{html,js,css,svg,png,webmanifest}'],
     // 도움말 그림(help/img, 약 400KB)은 도움말을 열 때 받아 담는다(아래 gazua-help).
-    globIgnores: ['help/**'],
+    // Firebase Auth 청크(약 155KB)는 동기화에 로그인한 사용자만 받는다. 로그인은 어차피 온라인이어야 한다.
+    globIgnores: ['help/**', 'assets/firebaseImpl-*.js'],
     // 확장자가 있는 주소(universe.json·assets 등)는 앱 셸 index.html로 대신 답하지 않는다.
     navigateFallbackDenylist: [/\.\w+$/],
     runtimeCaching: [

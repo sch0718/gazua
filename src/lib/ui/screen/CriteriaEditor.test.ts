@@ -97,6 +97,19 @@ describe('conditions', () => {
     expect(app.criteria[0].conditions.marketCap).toEqual({ on: true, minEok: 3000 });
   });
 
+  // Codex 리뷰(PR #39) 7차: 편집기가 열린 채 원격으로 기준이 바뀌면, 다음 저장이 그 변경을 되돌리지 않는다(고친 조건은 지킨다).
+  it('a remote change while the editor is open survives the next local edit', async () => {
+    const { app, view } = setup();
+    const c0 = app.criteria[0];
+    const remote = { ...c0, conditions: { ...c0.conditions, tradingValue: { ...c0.conditions.tradingValue, minEok: 77 } }, updatedAt: NOW + 1 };
+    app.setCriteria([remote]);
+    await view.rerender({ criteria: remote });
+    await fireEvent.click(screen.getByRole('switch', { name: '시가총액 사용' }));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(app.criteria[0].conditions.tradingValue.minEok).toBe(77);
+    expect(app.criteria[0].conditions.marketCap.on).toBe(true);
+  });
+
   it('no on conditions shows the warning but does not block the run', async () => {
     const { onRun } = setup();
     await fireEvent.click(screen.getByRole('switch', { name: '거래대금 사용' }));

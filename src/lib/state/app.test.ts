@@ -1368,6 +1368,45 @@ describe('help route', () => {
   });
 });
 
+describe('leaving a shared link through a gate', () => {
+  // Codex 리뷰(PR #39) 2차 3: 공유 화면에서 `가즈아 열기`로 나갈 때 관문(프로필 선택)을 거쳐도 공유 화면으로 되돌아오지 않는다.
+  it('clears the shared hash so finishing the profile picker opens the app, not the share again', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    location.hash = `#/s/${'a'.repeat(43)}`;
+    const app = make(backing);
+    expect(app.route.name).toBe('shared');
+    app.navigate({ name: 'compare' });
+    expect(app.route.name).toBe('profiles');
+    expect(location.hash.startsWith('#/s/')).toBe(false);
+    app.switchProfile('p1');
+    expect(app.route.name).toBe('compare');
+  });
+});
+
+describe('cross-tab profile removal', () => {
+  // Codex 리뷰(PR #39) 5: 다른 탭이 지금 프로필을 지우면(원격 삭제 적용) 이 탭도 남은 프로필로 옮긴다.
+  it('another tab removing the active profile switches this tab to a remaining one', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', { ...META_TWO, activeProfileId: 'p2' });
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p2:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    seed(backing, 'p:p2:watchlists', lists('g2'));
+    const app = make(backing);
+    app.switchProfile('p2');
+    expect(app.meta.activeProfileId).toBe('p2');
+    const fresh = { ...META_ONE, activeProfileId: 'p1' };
+    backing.setItem('gazua:v1:meta', JSON.stringify(fresh));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:meta', newValue: JSON.stringify(fresh) }));
+    expect(app.meta.profiles.map((p) => p.id)).toEqual(['p1']);
+    expect(app.meta.activeProfileId).toBe('p1');
+    expect(app.watchlists.groups.map((g) => g.id)).toEqual(['g1']);
+  });
+});
+
 describe('order cache (내 성과)', () => {
   const entry = { orders: [], syncedAt: 1, syncedThrough: '2026-10-01' };
   function makeWith(backing: Storage | null) {

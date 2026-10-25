@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { mergeDraft } from '../draftMerge';
   // 선정 기준 편집(스펙 7.3): 접힌 6개 구역(조건만 처음부터 열림) + 미리 보기 + 맨 아래 실행 버튼.
   // 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다. 미리 보기는 0.3초 쉬면 다시 계산한다(Worker).
   import { onDestroy, onMount, tick, untrack } from 'svelte';
@@ -81,6 +82,8 @@
 
   const profile = untrack(() => app.meta.activeProfileId);
   let draft = $state<SelectionCriteria>(untrack(() => $state.snapshot(criteria) as SelectionCriteria));
+  // 작업본의 기준(마지막으로 불러오거나 저장한 저장본). 바깥에서 criteria가 바뀌면 이것과 비교해 작업본에 합친다.
+  let baseline: SelectionCriteria = untrack(() => $state.snapshot(criteria) as SelectionCriteria);
   let nameText = $state(untrack(() => criteria.name));
   let nameError = $state('');
   let openKeys = $state<Partial<Record<Key, boolean>>>({ conditions: true });
@@ -99,6 +102,7 @@
     // 프로필이 바뀌었거나 기준이 지워졌으면 다른 곳을 건드리지 않는다.
     if (app.meta.activeProfileId !== profile || !app.criteria.some((c) => c.id === draft.id)) return;
     const next = { ...($state.snapshot(draft) as SelectionCriteria), updatedAt: Date.now() };
+    baseline = next;
     app.setCriteria(app.criteria.map((c) => (c.id === next.id ? next : c)));
   }
 
@@ -112,6 +116,19 @@
   $effect(() => {
     const snap = $state.snapshot(draft) as SelectionCriteria;
     untrack(() => ondraft?.(snap));
+  });
+
+  // 편집기가 열린 채 바깥(원격 동기화 적용·다른 탭)에서 이 저장본이 바뀌면 작업본에 합친다.
+  // 그대로 두면 다음 저장이 오래된 작업본 전체를 써서 바깥 변경을 조용히 되돌린다. 아직 저장 전인 내 수정은 지킨다.
+  $effect(() => {
+    const incoming = $state.snapshot(criteria) as SelectionCriteria;
+    untrack(() => {
+      if (JSON.stringify(incoming) === JSON.stringify(baseline)) return;
+      const mine = $state.snapshot(draft) as SelectionCriteria;
+      draft = mergeDraft(baseline, mine, incoming);
+      baseline = incoming;
+      if (!dirty) nameText = draft.name;
+    });
   });
 
   onDestroy(flush);

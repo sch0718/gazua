@@ -104,6 +104,31 @@ describe('StrategyEditor 구역', () => {
     expect(screen.getByText('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 A 돌파')).toBeTruthy();
   });
 
+  // Codex 리뷰(PR #39) 7차: 편집기가 열린 채 원격(다른 기기·탭)으로 전략이 바뀌면, 다음 저장이 그 변경을 되돌리지 않는다.
+  it('a remote change while the editor is open is kept by the next local edit', async () => {
+    const { app, view } = setup();
+    const remote = { ...saved(app), capital: { ...saved(app).capital, initial: 50_000_000 }, updatedAt: NOW + 500 };
+    app.setStrategies([remote]);
+    await view.rerender({ strategy: remote });
+    await openSection('매수');
+    await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
+    await settle();
+    expect(saved(app).capital.initial).toBe(50_000_000);
+    expect(saved(app).entry.triggers.breakout.level).toBe('A');
+  });
+
+  it('a remote change arriving during a pending local edit keeps both (different sections)', async () => {
+    const { app, view } = setup();
+    await openSection('매수');
+    await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
+    const remote = { ...saved(app), capital: { ...saved(app).capital, initial: 50_000_000 }, updatedAt: NOW + 500 };
+    app.setStrategies([remote]);
+    await view.rerender({ strategy: remote });
+    await settle();
+    expect(saved(app).capital.initial).toBe(50_000_000);
+    expect(saved(app).entry.triggers.breakout.level).toBe('A');
+  });
+
   it('a pending edit is saved when the editor goes away', async () => {
     const { app, view } = setup();
     await openSection('분할 매수');

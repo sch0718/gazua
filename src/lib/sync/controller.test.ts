@@ -1,0 +1,283 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from 'vitest';
+import { createApp, type App } from '../state/app.svelte';
+import { createSafeStorage } from '../state/storage';
+import { memoryBacking } from '../state/testStorage';
+import { createMemoryOrderCache } from '../perf/orderCache';
+import { groupSnapshot } from '../share/snapshot';
+import { testServer, SYNC_BASE, type TestServer } from '../../../sync-worker/test/server';
+import { ME, OTHER } from '../../../sync-worker/test/harness';
+import type { AuthClient } from './auth';
+import { createSyncController, type SyncController } from './controller.svelte';
+import { createMemorySyncStore, type SyncStore } from './store';
+
+const CONFIG = { apiUrl: SYNC_BASE, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
+
+function fakeAuth(s: TestServer, email = ME): AuthClient & { signedIn: boolean } {
+  const a = {
+    signedIn: false,
+    ready: async () => (a.signedIn ? { uid: 'uid-me', email } : null),
+    signIn: async () => {
+      a.signedIn = true;
+      return { user: { uid: 'uid-me', email }, idToken: await s.h.token({ email, sub: 'uid-me' }) };
+    },
+    redirectResult: async () => null,
+    signOut: async () => {
+      a.signedIn = false;
+    },
+    idToken: async () => (a.signedIn ? s.h.token({ email, sub: 'uid-me' }) : null),
+  };
+  return a;
+}
+
+const cleanups: (() => void)[] = [];
+afterEach(() => cleanups.splice(0).forEach((c) => c()));
+
+async function setup(s: TestServer, opts: { auth?: AuthClient & { signedIn: boolean }; store?: SyncStore } = {}) {
+  const storage = createSafeStorage(memoryBacking());
+  const auth = opts.auth ?? fakeAuth(s);
+  const store = opts.store ?? createMemorySyncStore();
+  const sync = createSyncController({ config: CONFIG, storage, auth, store: async () => store, fetchImpl: s.fetch, now: () => s.h.clock.now, deviceLabel: () => '테스트' });
+  const app: App = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache(), onSyncableChange: (e) => sync.onSyncableChange(e) });
+  await sync.attach(app);
+  cleanups.push(() => {
+    sync.destroy();
+    app.destroy();
+  });
+  return { sync, app, auth, store };
+}
+
+describe('SyncController', () => {
+  it('설정이 없으면 아무것도 하지 않는다', async () => {
+    const sync: SyncController = createSyncController({ config: null, storage: createSafeStorage(memoryBacking()) });
+    expect(sync.configured).toBe(false);
+    expect(sync.api).toBeNull();
+  });
+
+  it('로그인하면 기기 세션을 만들고, 켜면 동기화한다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    expect(sync.account).toBeNull();
+    await sync.signIn('내 노트북');
+    expect(sync.account).toEqual({ email: ME });
+    expect(s.h.env.DB.raw.prepare('SELECT label FROM sessions').all()).toEqual([{ label: '내 노트북' }]);
+    expect(await sync.preview()).toEqual({ upload: ['내 프로필'], download: 0 });
+    await sync.setEnabled(true);
+    expect(sync.status).toMatchObject({ enabled: true, phase: 'idle', pending: 0 });
+    const remote = await sync.remoteProfiles();
+    expect(remote?.map((r) => r.profileId)).toEqual([app.meta.activeProfileId]);
+  });
+
+  it('허용 목록 밖 계정은 세션 없이 로그아웃시킨다', async () => {
+    const s = testServer();
+    const auth = fakeAuth(s, 'stranger@example.test');
+    const { sync } = await setup(s, { auth });
+    await sync.signIn();
+    expect(sync.account).toBeNull();
+    expect(sync.error).toContain('허용 목록');
+    expect(auth.signedIn).toBe(false);
+  });
+
+  it('다시 열면 저장된 세션으로 이어 가고, SDK에 로그인 상태가 없으면 세션을 버린다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const auth = fakeAuth(s);
+    const first = await setup(s, { store, auth });
+    await first.sync.signIn();
+    const again = await setup(s, { store, auth });
+    expect(again.sync.account).toEqual({ email: ME });
+    auth.signedIn = false;
+    const third = await setup(s, { store, auth });
+    expect(third.sync.account).toBeNull();
+    expect(await store.getMeta('session')).toBeUndefined();
+  });
+
+  it('오프라인이라 SDK를 불러오지 못해도 저장된 세션을 버리지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const auth = fakeAuth(s);
+    await (await setup(s, { store, auth })).sync.signIn();
+    const offline = { ...auth, ready: async () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')) };
+    const again = await setup(s, { store, auth: offline as typeof auth });
+    expect(again.sync.account).toEqual({ email: ME });
+    expect(await store.getMeta('session')).toBeTruthy();
+  });
+
+  it('다른 기기에서 철회되면 로그인 필요 상태로 돌아가고 안내한다', async () => {
+    const s = testServer();
+    const a = await setup(s);
+    await a.sync.signIn();
+    await a.sync.setEnabled(true);
+    const b = await setup(s);
+    await b.sync.signIn();
+    expect(await b.sync.revokeSession('others')).toBe(true);
+    await a.sync.syncNow();
+    expect(a.sync.account).toBeNull();
+    expect(a.sync.error).toContain('다시 로그인');
+  });
+
+  it('로그아웃하면 서버 세션도 철회한다', async () => {
+    const s = testServer();
+    const { sync, auth } = await setup(s);
+    await sync.signIn();
+    await sync.signOut();
+    expect(sync.account).toBeNull();
+    expect(auth.signedIn).toBe(false);
+    expect(s.h.env.DB.raw.prepare('SELECT revoked_at IS NOT NULL AS r FROM sessions').all()).toEqual([{ r: 1 }]);
+  });
+
+  it('공유 링크는 capability를 fragment에 담고, 원본 프로필을 먼저 올린다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    await sync.setEnabled(true);
+    app.setWatchlists({ groups: [{ id: 'g', name: '공유', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] }] });
+    const made = await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 7);
+    expect(made?.url).toMatch(new RegExp(`^${location.origin}/#/s/[A-Za-z0-9_-]{43}$`));
+    expect(s.requests.some((r) => r.path.includes('?') || /[A-Za-z0-9_-]{43}/.test(r.path))).toBe(false);
+    expect((await sync.shares())?.length).toBe(1);
+    expect(await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 31)).toBeNull();
+    expect(sync.error).toBeTruthy();
+  });
+
+  it('기기 목록·과거 버전·새 프로필로 복원', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    await sync.setEnabled(true);
+    expect((await sync.sessions())?.map((d) => d.current)).toEqual([true]);
+    const revs = await sync.revisions(app.meta.activeProfileId);
+    expect(revs?.map((r) => r.revision)).toEqual([1]);
+    const id = await sync.restoreRevision(app.meta.activeProfileId, 1);
+    expect(app.meta.profiles.find((p) => p.id === id)?.name).toBe('내 프로필 (복원)');
+  });
+
+  // Codex 리뷰(PR #39) 1: 동기화 상태(켜짐·대기 작업·리비전)는 로그인한 계정에 묶인다.
+  it('다른 계정으로 로그인하면 이전 계정의 동기화 상태를 버리고 다시 켜야 올린다', async () => {
+    const s = testServer();
+    const who = { email: ME, uid: 'uid-me' };
+    const auth = {
+      signedIn: false,
+      ready: async () => (auth.signedIn ? { uid: who.uid, email: who.email } : null),
+      signIn: async () => {
+        auth.signedIn = true;
+        return { user: { uid: who.uid, email: who.email }, idToken: await s.h.token({ email: who.email, sub: who.uid }) };
+      },
+      redirectResult: async () => null,
+      signOut: async () => {
+        auth.signedIn = false;
+      },
+      idToken: async () => (auth.signedIn ? s.h.token({ email: who.email, sub: who.uid }) : null),
+    };
+    const { sync, app } = await setup(s, { auth });
+    await sync.signIn();
+    await sync.setEnabled(true);
+    app.addProfile('A 계정에서 만든 것');
+    await sync.signOut();
+    who.email = OTHER;
+    who.uid = 'uid-other';
+    await sync.signIn();
+    expect(sync.account).toEqual({ email: OTHER });
+    expect(sync.status).toMatchObject({ enabled: false, pending: 0 });
+    expect(await sync.remoteProfiles()).toEqual([]);
+  });
+
+  // Codex 리뷰(PR #39) 6: 동기화를 켜지 않았으면 공유 원본이 서버에 없으니 먼저 켜 달라고 알린다.
+  it('동기화가 꺼져 있으면 공유를 만들지 않고 켜 달라고 알린다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    app.setWatchlists({ groups: [{ id: 'g', name: '공유', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] }] });
+    expect(await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 7)).toBeNull();
+    expect(sync.error).toContain('동기화를 켜');
+    expect(s.requests.some((r) => r.path === '/v1/shares')).toBe(false);
+  });
+
+  // Codex 리뷰(PR #39) 2차 4: 리다이렉트 로그인을 시작한 적이 없으면 시작할 때 Firebase를 불러오지 않는다.
+  it('리다이렉트 로그인을 시작한 적이 없으면 리다이렉트 결과를 읽지 않는다', async () => {
+    const s = testServer();
+    const auth = fakeAuth(s);
+    let reads = 0;
+    auth.redirectResult = async () => {
+      reads++;
+      return null;
+    };
+    const store = createMemorySyncStore();
+    await setup(s, { auth, store });
+    expect(reads).toBe(0);
+    await store.setMeta('redirect-pending', true);
+    await setup(s, { auth, store });
+    expect(reads).toBe(1);
+    expect(await store.getMeta('redirect-pending')).toBeUndefined();
+  });
+
+  // Codex 리뷰(PR #39) 5차 3: 동기화가 꺼진 채 다른 기기에서 철회되면, 관리 목록을 열 때도 로그아웃 상태로 돌아간다.
+  it('관리 요청이 세션 철회로 실패하면 로그인 필요 상태로 돌아간다', async () => {
+    const s = testServer();
+    const a = await setup(s);
+    await a.sync.signIn();
+    const b = await setup(s);
+    await b.sync.signIn();
+    expect(await b.sync.revokeSession('others')).toBe(true);
+    expect(await a.sync.sessions()).toBeNull();
+    expect(a.sync.account).toBeNull();
+    expect(a.sync.error).toContain('다시 로그인');
+  });
+
+  // Codex 리뷰(PR #39) 11차 2: 오래된 탭이 철회된 세션을 정리하면서 다른 탭이 새로 만든 세션을 지우지 않는다.
+  it('오래된 탭의 로그아웃 정리가 다른 탭의 새 세션을 지우지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const auth = fakeAuth(s);
+    const tab1 = await setup(s, { store, auth });
+    await tab1.sync.signIn();
+    const tab2 = await setup(s, { store, auth });
+    expect(tab2.sync.account).toEqual({ email: ME });
+    await tab1.sync.signOut();
+    await tab1.sync.signIn();
+    const fresh = await store.getMeta<{ id: string }>('session');
+    expect(await tab2.sync.sessions()).toBeNull(); // 이 탭의 세션은 철회됐다
+    expect(tab2.sync.account).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
+  });
+
+  // Codex 리뷰(PR #39) 12차 1: 로그아웃 뒤 다시 로그인하는 사이 늦게 온 이전 세션의 철회 응답이 새 로그인을 지우지 않는다.
+  it('늦게 온 이전 세션의 인증 실패는 새 세션을 지우지 않는다', async () => {
+    const s = testServer();
+    const store = createMemorySyncStore();
+    const storage = createSafeStorage(memoryBacking());
+    let release: (() => void) | null = null;
+    let hold = false;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (hold) {
+        hold = false;
+        await new Promise<void>((r) => (release = r));
+      }
+      return s.fetch(input, init);
+    }) as typeof fetch;
+    const auth = fakeAuth(s);
+    const sync = createSyncController({ config: CONFIG, storage, auth, store: async () => store, fetchImpl, now: () => s.h.clock.now, deviceLabel: () => '테스트' });
+    const app: App = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache(), onSyncableChange: (e) => sync.onSyncableChange(e) });
+    await sync.attach(app);
+    cleanups.push(() => {
+      sync.destroy();
+      app.destroy();
+    });
+    await sync.signIn();
+    await sync.setEnabled(true);
+    hold = true;
+    const late = sync.syncNow(); // 이 요청은 이전 세션으로 나가 늦게 돌아온다
+    await new Promise((r) => setTimeout(r, 0));
+    await sync.signOut();
+    const again = sync.signIn(); // 새 세션을 만든 뒤 동기화는 앞 요청을 기다린다
+    let fresh: { id: string } | undefined;
+    while (!(fresh = await store.getMeta<{ id: string }>('session'))) await new Promise((r) => setTimeout(r, 0));
+    release!();
+    await late;
+    await again;
+    expect(sync.account).toEqual({ email: ME });
+    expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
+  });
+});
+

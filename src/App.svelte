@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { sessionsForDay, type DaySession, type TradingDay } from './lib/market/sessions';
   import { createApp } from './lib/state/app.svelte';
   import { createClock } from './lib/state/clock.svelte';
@@ -20,11 +20,29 @@
   import Simulate from './routes/Simulate.svelte';
   import Settings from './routes/Settings.svelte';
   import Unlock from './routes/Unlock.svelte';
+  import SharedView from './routes/SharedView.svelte';
+  import ShareHost from './lib/share/ShareHost.svelte';
+  import { setShareController } from './lib/share/shareStore.svelte';
+  import { createSyncApi } from './lib/sync/api';
+  import { readSyncConfig } from './lib/sync/config';
+  import { createSyncController } from './lib/sync/controller.svelte';
 
-  const app = createApp({ storage: createSafeStorage(), now: () => Date.now() });
+  const storage = createSafeStorage();
+  // 동기화 설정(VITE_*)이 없는 빌드면 configured=false로 아무것도 하지 않는다.
+  const syncConfig = readSyncConfig();
+  const sync = createSyncController({ config: syncConfig, storage });
+  const app = createApp({ storage, now: () => Date.now(), onSyncableChange: (e) => sync.onSyncableChange(e) });
+  setShareController(sync);
+  // 공유 읽기는 로그인 없이 capability 헤더로만 읽는다.
+  const publicApi = syncConfig ? createSyncApi(syncConfig.apiUrl, { idToken: async () => null, sessionId: async () => null }) : null;
   const clock = createClock();
+  onMount(() => {
+    void sync.attach(app);
+  });
   onDestroy(() => {
     clock.destroy();
+    sync.destroy();
+    setShareController(null);
     app.destroy();
   });
 
@@ -79,7 +97,7 @@
 </script>
 
 <div class="shell">
-  {#each app.banners as b (b.id)}
+  {#each route.name === 'shared' ? [] : app.banners as b (b.id)}
     <Banner
       message={b.text}
       actionLabel={b.action?.label}
@@ -88,7 +106,13 @@
     />
   {/each}
 
-  {#if route.name === 'profiles'}
+  {#if route.name === 'shared'}
+    <SharedView
+      capability={route.capability}
+      read={publicApi ? (cap) => publicApi.readShare(cap) : null}
+      onexit={() => app.navigate({ name: 'compare' })}
+    />
+  {:else if route.name === 'profiles'}
     <ProfilePicker {app} />
   {:else if route.name === 'unlock'}
     <Unlock {app} />
@@ -105,7 +129,7 @@
   {:else if route.name === 'help'}
     <Help {app} {barEnd} />
   {:else}
-    <Settings {app} {barEnd} />
+    <Settings {app} {barEnd} {sync} />
   {/if}
 </div>
 
@@ -153,7 +177,8 @@
   </button>
 {/snippet}
 
-<HelpIntro {app} />
+{#if route.name !== 'shared'}<HelpIntro {app} />{/if}
+<ShareHost />
 <SnackbarHost />
 
 <style>

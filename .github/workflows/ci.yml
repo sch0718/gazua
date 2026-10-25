@@ -48,6 +48,8 @@ jobs:
           path: public/universe.json
           key: universe-${{ steps.week.outputs.key }}
       - run: pnpm --filter proxy test
+      - run: pnpm --filter sync-worker check
+      - run: pnpm --filter sync-worker test
 
   e2e:
     runs-on: ubuntu-latest

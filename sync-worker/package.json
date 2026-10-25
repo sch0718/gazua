@@ -1,0 +1,25 @@
+{
+  "name": "sync-worker",
+  "private": true,
+  "version": "0.7.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply gazua-sync --local",
+    "migrate:remote": "wrangler d1 migrations apply gazua-sync --remote",
+    "deploy": "wrangler deploy",
+    "smoke": "node test/smoke.ts"
+  },
+  "dependencies": {
+    "jose": "^6.2.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7",
+    "wrangler": "^4.149.0"
+  }
+}
