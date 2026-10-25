@@ -319,6 +319,45 @@ describe('1단계 완료 기준', () => {
     expect(puts).toBe(1);
   });
 
+  // Codex 리뷰(PR #39) 5차 1: 원격 삭제를 적용하는 도중(비동기 대기 중) 이 기기에서 고친 내용은 지우지 않고 충돌로 남긴다.
+  it('원격 삭제를 적용하는 도중 고친 프로필은 지우지 않고 충돌로 남긴다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    const extra = a.app.addProfile('겹친 수정');
+    await a.engine.flush();
+    const b = await enabled(s);
+    b.app.switchProfile(extra.id);
+    a.app.deleteProfile(extra.id);
+    await a.engine.flush();
+    const orig = b.store.ops.bind(b.store);
+    let calls = 0;
+    b.store.ops = async () => {
+      calls++;
+      if (calls === 2) b.app.setWatchlists({ groups: [{ id: 'g', name: '도중에 고침', items: [] }] });
+      return orig();
+    };
+    await b.engine.pull();
+    b.store.ops = orig;
+    expect(b.app.meta.profiles.some((p) => p.id === extra.id)).toBe(true);
+    expect(b.engine.status().conflicts[0]).toMatchObject({ profileId: extra.id, kind: 'deleted' });
+  });
+
+  // Codex 리뷰(PR #39) 5차 2: 응답을 잃은 업로드(B) 뒤 A로 되돌렸으면, B를 다시 보낸 뒤 A도 올린다(보내기만으로도).
+  it('응답을 잃은 업로드 뒤 되돌린 변경은 보내기만 해도 뒤이어 올린다', async () => {
+    const s = testServer();
+    const a = await enabled(s);
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'B', items: [] }] });
+    s.dropNextResponse = true;
+    await a.engine.flush();
+    a.app.setWatchlists({ groups: [{ id: 'g', name: 'A', items: [] }] });
+    await a.engine.flush(); // 한 번의 보내기로 B를 확인하고 A까지 올린다
+    expect(a.engine.status()).toMatchObject({ phase: 'idle', pending: 0 });
+    const got = await a.api.getProfile(a.app.meta.activeProfileId);
+    expect(got.ok && got.data.doc.watchlists.groups[0].name).toBe('A');
+  });
+
   // Codex 리뷰(PR #39) 2차 1: 다른 탭이 동기화를 끄면(같은 IndexedDB) 이 탭도 더 보내거나 받지 않는다.
   it('다른 탭이 동기화를 끄면 이 탭도 보내지 않는다', async () => {
     const s = testServer();

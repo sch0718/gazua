@@ -163,7 +163,10 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
   const ok = <T>(r: { ok: true; data: T } | ApiFail): T | null => {
     if (r.ok) return r.data;
-    error = describeFail(r);
+    // 관리 요청(기기·공유·과거 버전 등)이 세션 문제로 실패해도 엔진과 같은 정리로 로그인 필요 상태로 돌린다
+    if (r.kind === 'auth') onAuthFailure(r.code);
+    else if (r.kind === 'not-allowed') onAuthFailure('not-allowed');
+    else error = describeFail(r);
     return null;
   };
 

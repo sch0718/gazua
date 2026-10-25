@@ -210,5 +210,18 @@ describe('SyncController', () => {
     expect(reads).toBe(1);
     expect(await store.getMeta('redirect-pending')).toBeUndefined();
   });
+
+  // Codex 리뷰(PR #39) 5차 3: 동기화가 꺼진 채 다른 기기에서 철회되면, 관리 목록을 열 때도 로그아웃 상태로 돌아간다.
+  it('관리 요청이 세션 철회로 실패하면 로그인 필요 상태로 돌아간다', async () => {
+    const s = testServer();
+    const a = await setup(s);
+    await a.sync.signIn();
+    const b = await setup(s);
+    await b.sync.signIn();
+    expect(await b.sync.revokeSession('others')).toBe(true);
+    expect(await a.sync.sessions()).toBeNull();
+    expect(a.sync.account).toBeNull();
+    expect(a.sync.error).toContain('다시 로그인');
+  });
 });
 

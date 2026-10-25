@@ -90,6 +90,8 @@ export function suffixed(name: string, suffix: string): string {
   return docName(`${[...docName(name)].slice(0, room).join('').trim()}${suffix}`);
 }
 const MAX_BACKOFF = 5 * 60 * 1000;
+/** 두 문서가 같은지(동기, 그 사이 다른 코드가 끼어들지 않는다). */
+const sameDoc = (a: ProfileDocV1, b: ProfileDocV1) => JSON.stringify(a) === JSON.stringify(b);
 const BASE_BACKOFF = 5000;
 
 export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
@@ -174,7 +176,9 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const hash = await docHash(doc);
       const st = await store.state(p.id);
       const unsent = ops.filter((o) => o.profileId === p.id && o.sentAt === undefined);
-      if (st && !st.deleted && st.syncedHash === hash) {
+      // 응답을 못 받은 업로드가 다른 내용이면, 그것이 다시 보내져 서버가 바뀐다. 지금 문서가 확인된 것과 같아도 뒤에 다시 올려야 한다.
+      const sentOther = ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
+      if (st && !st.deleted && st.syncedHash === hash && !sentOther) {
         for (const o of unsent) await store.deleteOp(o.opId);
         continue;
       }
@@ -260,11 +264,13 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       if (row.deletedAt !== null) {
         if (st?.deleted && st.syncedRevision >= row.revision) continue;
         if (localIds.has(id)) {
+          await dropOps(id);
           const doc = local.read(id);
           const dirty = !st || st.syncedHash !== (await docHash(doc));
-          await dropOps(id);
-          if (dirty) {
-            await store.putConflict({ profileId: id, kind: 'deleted', local: doc, deletedAt: row.deletedAt, purgeAt: row.purgeAt, remoteRevision: row.revision, detectedAt: now() });
+          // 기다리는 동안 이 기기에서 고쳤을 수 있다(앱 저장은 잠금을 기다리지 않는다). 지우기 직전에 같은 문서인지 다시 본다.
+          const latest = local.read(id);
+          if (dirty || !sameDoc(latest, doc)) {
+            await store.putConflict({ profileId: id, kind: 'deleted', local: latest, deletedAt: row.deletedAt, purgeAt: row.purgeAt, remoteRevision: row.revision, detectedAt: now() });
             continue;
           }
           local.remove(id);
@@ -296,7 +302,14 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         continue; // 로컬이 다르면 이어지는 보내기가 새 작업으로 올린다
       }
       if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash)) {
-        if (localHash !== remoteHash) local.write(id, got.data.doc);
+        if (localHash !== remoteHash) {
+          // 해시를 기다리는 동안 고쳤으면 덮어쓰지 않는다: 서버 것을 확인된 상태로만 삼고, 고친 것은 이어지는 보내기가 올린다
+          if (!sameDoc(local.read(id), doc)) {
+            await setSynced(id, got.data.revision, remoteHash);
+            continue;
+          }
+          local.write(id, got.data.doc);
+        }
         await dropOps(id);
         await setSynced(id, got.data.revision, remoteHash);
         continue;
