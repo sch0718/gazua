@@ -5,14 +5,40 @@
   import type { SyncController } from '../sync/controller.svelte';
   import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
   import type { ShareRequest } from './shareStore.svelte';
-  import { snapshotLines } from './shareText';
+  import type { UniverseItem } from '../data/universe';
+  import { sharedUniverse } from '../../sheets/universeSource';
+  import { snapshotLines, symbolNames, type SymbolNames } from './shareText';
 
   let {
     request,
     sync,
     onclose,
     copy = (text: string) => navigator.clipboard.writeText(text),
-  }: { request: ShareRequest | null; sync: SyncController; onclose: () => void; copy?: (text: string) => Promise<void> } = $props();
+    universe = sharedUniverse,
+  }: {
+    request: ShareRequest | null;
+    sync: SyncController;
+    onclose: () => void;
+    copy?: (text: string) => Promise<void>;
+    universe?: () => Promise<UniverseItem[]>;
+  } = $props();
+
+  // 종목 이름은 앱의 종목 목록에서 찾는다(열었을 때만 받는다). 받지 못하면 코드만 보인다.
+  let names = $state<SymbolNames | undefined>(undefined);
+  const opened = $derived(request !== null);
+  $effect(() => {
+    if (!opened || names) return;
+    let alive = true;
+    universe().then(
+      (items) => {
+        if (alive) names = symbolNames(items);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  });
 
   const uid = Math.random().toString(36).slice(2, 8);
   let ttl = $state(SHARE_TTL_DEFAULT_DAYS);
@@ -76,7 +102,7 @@
       {:else}
         <p class="lead">아래 내용만 보내요. 프로필 이름·키·계좌·프록시 주소는 넣지 않아요.</p>
         <ul class="preview" aria-label="보낼 내용">
-          {#each snapshotLines(snapshot) as line, i (i)}<li>{line}</li>{/each}
+          {#each snapshotLines(snapshot, names) as line, i (i)}<li>{line}</li>{/each}
         </ul>
         <details>
           <summary>보낼 원문 보기</summary>

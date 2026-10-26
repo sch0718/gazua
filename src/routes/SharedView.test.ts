@@ -20,6 +20,20 @@ describe('SharedView', () => {
     expect(localStorage.length).toBe(before);
   });
 
+  it('종목 목록에서 이름을 찾아 「이름(코드)」로 보여 준다', async () => {
+    const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: DATA }));
+    const universe = vi.fn(async () => [{ s: '005930', n: '삼성전자', m: 'KOSPI', t: 'STOCK' as const }]);
+    render(SharedView, { capability: CAP, read, onexit: () => {}, universe });
+    await waitFor(() => expect(screen.getByText(/삼성전자\(005930\)/)).toBeTruthy());
+  });
+
+  it('종목 목록을 받지 못하면 코드만 보여 준다', async () => {
+    const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: DATA }));
+    const universe = vi.fn(async () => Promise.reject(new Error('offline')));
+    render(SharedView, { capability: CAP, read, onexit: () => {}, universe });
+    await waitFor(() => expect(screen.getByText('종목 1개: 005930')).toBeTruthy());
+  });
+
   it.each([
     ['gone', '만료됐거나 철회된 공유예요.'],
     ['not-found', '링크가 맞지 않아요'],
