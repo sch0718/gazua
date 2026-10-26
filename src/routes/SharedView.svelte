@@ -1,18 +1,37 @@
 <script lang="ts">
   // 공유 읽기 화면(#/s/<capability>): 로그인·프로필 없이 읽기 전용으로 본다. 받은 스냅샷은 저장소·캐시에 남기지 않는다.
   import type { ApiResult, SharedRead } from '../lib/sync/api';
-  import { snapshotLines } from '../lib/share/shareText';
+  import type { UniverseItem } from '../lib/data/universe';
+  import { snapshotLines, symbolNames, type SymbolNames } from '../lib/share/shareText';
+  import { sharedUniverse } from '../sheets/universeSource';
 
   let {
     capability,
     read,
     onexit,
+    universe = sharedUniverse,
   }: {
     capability: string | undefined;
     /** 동기화 설정이 없는 빌드면 null */
     read: ((cap: string) => Promise<ApiResult<SharedRead>>) | null;
     onexit: () => void;
+    universe?: () => Promise<UniverseItem[]>;
   } = $props();
+
+  // 종목 이름은 앱의 종목 목록에서 찾는다. 받지 못하면 코드만 보인다.
+  let names = $state<SymbolNames | undefined>(undefined);
+  $effect(() => {
+    let alive = true;
+    universe().then(
+      (items) => {
+        if (alive) names = symbolNames(items);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  });
 
   type View = { state: 'loading' } | { state: 'ok'; data: SharedRead } | { state: 'gone' | 'missing' | 'offline' | 'unavailable' | 'error' };
   let view = $state<View>({ state: 'loading' });
@@ -66,7 +85,7 @@
     <h1>{view.data.title}</h1>
     <p class="meta">{KIND[view.data.kind]} · {fmtDate(view.data.expiresAt)}까지 볼 수 있어요</p>
     <ul class="lines">
-      {#each snapshotLines(view.data.snapshot) as line, i (i)}<li>{line}</li>{/each}
+      {#each snapshotLines(view.data.snapshot, names) as line, i (i)}<li>{line}</li>{/each}
     </ul>
     {#if view.data.snapshot.kind !== 'group'}
       <!-- 요약 줄은 일부만 보여 준다. 받은 규칙 전부(조건·정렬·매수 신호·묶음 종목 등)를 그대로 읽을 수 있게 한다. -->

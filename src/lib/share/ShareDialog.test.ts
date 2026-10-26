@@ -38,6 +38,12 @@ describe('ShareDialog', () => {
     expect(copy).toHaveBeenCalledWith('https://app.example.test/#/s/' + 'x'.repeat(43));
   });
 
+  it('미리 보기에 종목 이름을 함께 보여 준다', async () => {
+    const universe = vi.fn(async () => [{ s: '005930', n: '삼성전자', m: 'KOSPI', t: 'STOCK' as const }]);
+    render(ShareDialog, { request: groupReq, sync: sync(), onclose: () => {}, universe });
+    await waitFor(() => expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('삼성전자(005930)'));
+  });
+
   it('만료는 1~30일만', async () => {
     const s = sync();
     render(ShareDialog, { request: groupReq, sync: s, onclose: () => {} });
