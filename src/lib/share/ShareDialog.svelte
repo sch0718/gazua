@@ -105,7 +105,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding-bottom: 8px;
+    /* 시트 제목(왼쪽 20px)과 맞춘다. 시트 본문에는 기본 여백이 없다. */
+    padding: 0 20px 8px;
   }
   .lead {
     font-size: var(--fs-body);
