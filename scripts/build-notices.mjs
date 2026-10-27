@@ -6,13 +6,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const OUTPUT = fileURLToPath(new URL('../public/licenses.txt', import.meta.url));
-const NOTICE_FILE = /^(licen[cs]e|copying|notice)(\..*)?$/i;
+export const NOTICE_FILE = /^(licen[cs]e|copying|notice)([-._].*)?$/i; // LICENSE, LICENSE.md, LICENSE-MIT.txt 등
+// devDependencies지만 런타임 코드가 번들에 들어가는 패키지(Svelte 런타임, PWA 서비스 워커의 Workbox).
+export const BUNDLED_DEV = (name) => ['svelte', 'clsx', 'esm-env'].includes(name) || /^workbox-(?!build$)/.test(name);
 
-/** pnpm licenses list --json 결과를 [{name, version, license, path}]로 편다. */
-export function flatten(byLicense) {
+/** pnpm licenses list --json 결과를 [{name, version, license, path}]로 편다. keep이 있으면 그 이름만 남긴다. */
+export function flatten(byLicense, keep = () => true) {
   const out = [];
   for (const [license, pkgs] of Object.entries(byLicense)) {
-    for (const p of pkgs) {
+    for (const p of pkgs.filter((q) => keep(q.name))) {
       p.versions.forEach((version, i) => out.push({ name: p.name, version, license, author: p.author, path: p.paths[i] }));
     }
   }
@@ -20,15 +22,8 @@ export function flatten(byLicense) {
 }
 
 /** 패키지마다 라이선스·NOTICE 파일 본문을 붙여 하나의 텍스트로 만든다.
- * 파일이 없는 패키지(@firebase/* 등)는 같은 라이선스의 전문을 맨 끝에 한 번 싣고 그쪽을 가리킨다. */
+ * 파일이 없는 패키지(@firebase/* 등)는 다른 패키지의 전문(남의 저작권 줄이 들어 있다)을 빌리지 않고 SPDX 표준 전문과 저작권자를 적는다. */
 export function render(pkgs, readTexts) {
-  const texts = new Map(pkgs.map((p) => [p, readTexts(p.path)]));
-  const common = new Map();
-  for (const p of pkgs) {
-    if (texts.get(p).length || common.has(p.license)) continue;
-    const donor = pkgs.find((q) => q.license === p.license && texts.get(q).some((t) => /^licen[cs]e/i.test(t.file)));
-    common.set(p.license, donor ? texts.get(donor).find((t) => /^licen[cs]e/i.test(t.file)).text : null);
-  }
   const head = [
     '가즈아가 쓰는 오픈소스 소프트웨어',
     '',
@@ -36,17 +31,14 @@ export function render(pkgs, readTexts) {
     '아래는 앱에 포함되거나 함께 쓰이는 패키지와 그 라이선스 전문입니다.',
   ].join('\n');
   const blocks = pkgs.map((p) => {
-    const own = texts.get(p);
+    const own = readTexts(p.path);
     const by = p.author ? `, 저작권자: ${p.author}` : '';
     const body = own.length
       ? own.map((t) => `--- ${t.file} ---\n${t.text.trim()}`).join('\n\n')
-      : common.get(p.license)
-        ? `(패키지에 라이선스 파일이 없어요. 맨 끝의 ${p.license} 전문을 따라요${by})`
-        : `(라이선스 파일 없음 — ${p.license}${by})`;
+      : `(패키지에 라이선스 파일이 없어요. ${p.license} 표준 전문을 따라요: https://spdx.org/licenses/${p.license}.html${by})`;
     return `${'='.repeat(72)}\n${p.name} ${p.version} (${p.license})\n${'='.repeat(72)}\n${body}`;
   });
-  const tails = [...common].filter(([, text]) => text).map(([id, text]) => `${'='.repeat(72)}\n${id} 전문\n${'='.repeat(72)}\n${text.trim()}`);
-  return `${head}\n\n${[...blocks, ...tails].join('\n\n')}\n`;
+  return `${head}\n\n${blocks.join('\n\n')}\n`;
 }
 
 // 패키지 루트에 없으면 dist/에서 찾는다(pretendard는 dist/LICENSE.txt에 둔다).
@@ -66,8 +58,12 @@ function readTexts(dir) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const json = execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  const pkgs = flatten(JSON.parse(json));
+  const list = (...args) =>
+    JSON.parse(execFileSync('pnpm', ['licenses', 'list', ...args, '--json'], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+  const prod = flatten(list('--prod'));
+  const seen = new Set(prod.map((p) => `${p.name}@${p.version}`));
+  const extra = flatten(list(), BUNDLED_DEV).filter((p) => !seen.has(`${p.name}@${p.version}`));
+  const pkgs = [...prod, ...extra].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.version < b.version ? -1 : 1));
   mkdirSync(dirname(OUTPUT), { recursive: true });
   const tmp = `${OUTPUT}.tmp`;
   writeFileSync(tmp, render(pkgs, readTexts));
