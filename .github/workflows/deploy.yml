@@ -43,6 +43,8 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # 카카오톡 공유(선택). 앱 번들에 들어가는 공개 키라 Variables에 둔다. 비면 링크 복사만 보인다.
+          VITE_KAKAO_JS_KEY: ${{ vars.VITE_KAKAO_JS_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@sch0718/kakao-share':
+        specifier: 0.1.0
+        version: 0.1.0
       '@sch0718/seen-store':
         specifier: 0.1.0
         version: 0.1.0
@@ -1720,6 +1723,9 @@ packages:
     resolution: {integrity: sha512-IhV6ew/DuzUWwHaYmlh7MrPCV3lKFUq/amTEwysi4r/mwNPAEfAMh5dYWeTSPTeMy2pFHGMEWYtPkHzfX3tG5A==}
     cpu: [x64]
     os: [win32]
+
+  '@sch0718/kakao-share@0.1.0':
+    resolution: {integrity: sha512-lgSY3HSgteh4CF34drdM/VHdaQruTTGi7GhYiGlBHjSYqlpwiqSe7rfsNSfqTQDEqi6z+As3CtHvUJ9fApHXwg==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.0/9d9e19a76fb9b7ac55b893ee74762881dda1c8c7}
 
   '@sch0718/seen-store@0.1.0':
     resolution: {integrity: sha512-RHPUy1yySNSbRsmAa4jlemTl2I43mRhCOK5tMQvuNMCq+9Y0RnwpJHaaPvTIqsfdsRrAqwVfDvMDobAmWHPEAg==, tarball: https://npm.pkg.github.com/download/@sch0718/seen-store/0.1.0/445958d792aba693e9f6ab294a1e1dd96d189d7d}
@@ -4863,6 +4869,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
+
+  '@sch0718/kakao-share@0.1.0': {}
 
   '@sch0718/seen-store@0.1.0': {}
 
