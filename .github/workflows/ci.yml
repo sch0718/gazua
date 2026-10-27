@@ -7,6 +7,10 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # 공용 패키지(@sch0718/*)를 GitHub Packages에서 받으려면 packages: read가 필요하다(.npmrc).
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -14,7 +18,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # pnpm은 프로젝트 .npmrc의 인증 줄에서 환경변수를 풀지 않는다. 인증은 사용자 ~/.npmrc에 둔다(docs/development.md).
+      - run: echo '//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}' >> ~/.npmrc
       - run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm check
       - run: pnpm check:e2e
       - run: pnpm test
@@ -53,6 +61,10 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # 공용 패키지(@sch0718/*)를 GitHub Packages에서 받으려면 packages: read가 필요하다(.npmrc).
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -60,7 +72,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # pnpm은 프로젝트 .npmrc의 인증 줄에서 환경변수를 풀지 않는다. 인증은 사용자 ~/.npmrc에 둔다(docs/development.md).
+      - run: echo '//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}' >> ~/.npmrc
       - run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: 유니버스 주 키 계산
         id: week
         run: echo "key=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"

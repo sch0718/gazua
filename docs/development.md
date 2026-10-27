@@ -44,6 +44,16 @@ corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 
 Node 22 이상이 필요해요. 패키지 관리자는 `package.json`의 `packageManager`가 정한 pnpm이에요.
 
+**설치에는 GitHub Packages 토큰이 필요해요.** 공용 패키지(`@sch0718/seen-store` 등)는 [sch0718-toolkit-web](https://github.com/sch0718/sch0718-toolkit-web)에서 GitHub Packages로 발행돼요. 저장소 루트의 `.npmrc`는 `@sch0718/*`만 GitHub Packages에서 받게 하고, 나머지 의존성은 그대로 npmjs.com에서 받아요.
+
+- `read:packages` 권한만 준 personal access token (classic)을 만들어 셸 설정(`~/.zshrc` 등)에 `export GITHUB_PACKAGES_TOKEN=<토큰>`으로 넣어요.
+- 사용자 `~/.npmrc`에 아래 한 줄을 넣어요. 토큰 값이 아니라 변수 이름만 적어요. 지금 쓰는 pnpm(10.34.6)은 저장소에 커밋되는 프로젝트 `.npmrc`의 인증 줄에서는 `${변수}`를 풀지 않고 무시해서, 인증은 사용자 설정에 둬야 해요.
+  ```ini
+  //npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}
+  ```
+- 토큰이 없으면 `pnpm install`이 공용 패키지를 받지 못해 실패해요(401). 설치가 아닌 명령(`test`·`build`·`--filter proxy build` 등)은 그대로 돌아요.
+- 토큰 값은 저장소·`.npmrc`·로그에 적지 않아요. classic 토큰은 만료되면 모든 곳의 설치가 함께 실패해요. 만료일을 적어 두고, 바꿀 때 이 기기와 클라우드 세션 환경 변수를 함께 갱신해요.
+
 ```bash
 corepack pnpm install
 corepack pnpm dev          # 개발 서버 (http://localhost:5173/)
@@ -64,10 +74,10 @@ README 소개 그림(`docs/readme/`)과 [도움말](help/README.md) 그림(`publ
 
 클라우드 세션은 매번 새 Ubuntu 가상 머신에서 시작해요. Node 22·pnpm·git은 기본으로 있어요.
 
-- **의존성**: 저장소의 `.claude/settings.json` SessionStart hook(`.claude/hooks/session-start.sh`)이 `CLAUDE_CODE_REMOTE=true`일 때만 `corepack pnpm install --frozen-lockfile`을 돌려요. 락파일이 그대로면 건너뛰어요. 로컬 세션에서는 아무것도 하지 않아요.
+- **의존성**: 저장소의 `.claude/settings.json` SessionStart hook(`.claude/hooks/session-start.sh`)이 `CLAUDE_CODE_REMOTE=true`일 때만 `corepack pnpm install --frozen-lockfile`을 돌려요. 락파일이 그대로면 건너뛰어요. 로컬 세션에서는 아무것도 하지 않아요. `GITHUB_PACKAGES_TOKEN`이 없으면 설치하지 않고 안내만 남겨요. 있으면 사용자 `~/.npmrc`에 인증 줄(변수 이름만)을 넣고 설치해요.
 - **도구는 클라우드 환경 설정에서 넣어요**(claude.ai/code › 환경 선택 › 설정). 설정 스크립트는 첫 세션에 한 번 돌고 결과가 캐시돼요.
-  - 네트워크: Custom + "Also include default list of common package managers", 그리고 `new.real.download.dws.co.kr`(종목 유니버스), `cdn.playwright.dev`, `playwright.download.prss.microsoft.com`, `playwright.azureedge.net`
-  - 환경 변수: `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`
+  - 네트워크: Custom + "Also include default list of common package managers", 그리고 `npm.pkg.github.com`(공용 패키지), `new.real.download.dws.co.kr`(종목 유니버스), `cdn.playwright.dev`, `playwright.download.prss.microsoft.com`, `playwright.azureedge.net`
+  - 환경 변수: `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`, `GITHUB_PACKAGES_TOKEN=<read:packages classic 토큰>`(공용 패키지 설치용)
   - 설정 스크립트:
     ```bash
     #!/bin/bash
@@ -89,6 +99,8 @@ README 소개 그림(`docs/readme/`)과 [도움말](help/README.md) 그림(`publ
 GitHub Pages로 배포해요. 워크플로는 [.github/workflows/deploy.yml](../.github/workflows/deploy.yml)이고 `main`에 push할 때, 수동 실행할 때, 그리고 평일 06:00(KST)에 돌아요. 평일 아침 실행은 종목 유니버스를 새로 받아 다시 배포하는 용도예요.
 
 GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크플로를 자동으로 끄니, 유니버스 갱신이 멈췄다면 Actions 탭에서 워크플로를 다시 켜거나 수동으로 실행해요.
+
+**공용 패키지 접근 권한.** 공용 패키지마다 GitHub 패키지 설정 › **Manage Actions access** › Add repository로 `sch0718/gazua`에 **Read** 권한을 줘요(지금은 `@sch0718/seen-store`). 빠지면 CI·배포의 `pnpm install`이 403으로 실패해요. 워크플로는 설치하는 job에 `packages: read` 권한을 두고, 러너의 `~/.npmrc`에 인증 줄을 넣은 뒤 `GITHUB_PACKAGES_TOKEN`으로 `secrets.GITHUB_TOKEN`을 넘겨요.
 
 저장소 설정은 한 번 직접 바꿔야 해요.
 
