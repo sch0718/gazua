@@ -3,7 +3,7 @@
   // 전략 편집(스펙 7.3): 접힌 7개 구역 + 맨 아래 실행 버튼. 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다.
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { UniverseItem } from '../../data/universe';
-  import { MAX_STRATEGIES, NAME_MAX } from '../../sim/defaults';
+  import { NAME_MAX } from '../../sim/defaults';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { strategyIssues, type Issue } from '../../sim/validate';
@@ -211,7 +211,8 @@
       />
       {#if nameError}<p class="name-err" id="ed-{uid}-name-err" role="alert">{nameError}</p>{/if}
     </div>
-    <button type="button" class="dup" disabled={app.strategies.length >= MAX_STRATEGIES} onclick={duplicate}>복제</button>
+    <!-- 한도에서도 누를 수 있어야 이유(스낵바)를 알린다 -->
+    <button type="button" class="dup" onclick={duplicate}>복제</button>
   </div>
 
   {#each SECTIONS as { key, title } (key)}
@@ -293,9 +294,6 @@
     border-radius: 12px;
     background: var(--surface);
     font-weight: 700;
-  }
-  .dup:disabled {
-    opacity: 0.5;
   }
   .runbar {
     position: sticky;

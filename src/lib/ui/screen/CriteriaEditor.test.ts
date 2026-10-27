@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { UniverseItem } from '../../data/universe';
-import { newCriteria } from '../../screen/defaults';
+import { MAX_CRITERIA, newCriteria } from '../../screen/defaults';
+import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
 import { PreviewError } from '../../screen/validationController.svelte';
 import type { Selection } from '../../screen/select';
 import { NOW } from '../../screen/testData';
@@ -469,3 +471,17 @@ describe('프로필 전환', () => {
   });
 });
 
+
+describe('복제 한도', () => {
+  it('한도에서도 복제 버튼은 눌리고, 누르면 이유를 스낵바로 알리며 늘리지 않는다', async () => {
+    const { app } = setup();
+    const others = Array.from({ length: MAX_CRITERIA - 1 }, (_, i) => ({ ...newCriteria(NOW, RANGE, `기준${i}`), id: `x${i}` }));
+    app.setCriteria([...app.criteria, ...others]);
+    await tick();
+    const dup = screen.getByRole('button', { name: '복제' }) as HTMLButtonElement;
+    expect(dup.disabled).toBe(false);
+    await fireEvent.click(dup);
+    expect(app.criteria).toHaveLength(MAX_CRITERIA);
+    expect(currentSnackbar()?.message).toBe(CRITERIA_CAP_MESSAGE);
+  });
+});

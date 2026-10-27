@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../../data/universe';
-import { newStrategy } from '../../sim/defaults';
+import { MAX_STRATEGIES, newStrategy } from '../../sim/defaults';
+import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
 import type { Strategy } from '../../sim/types';
 import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
@@ -388,6 +390,18 @@ describe('머리줄', () => {
     expect(copy.id).not.toBe('s1');
     expect(location.hash).toBe(`#/simulate/${copy.id}`);
     expect(app.route).toEqual({ name: 'simulate', strategyId: copy.id });
+  });
+
+  it('한도에서도 복제 버튼은 눌리고, 누르면 이유를 스낵바로 알리며 늘리지 않는다', async () => {
+    const { app } = setup();
+    const others = Array.from({ length: MAX_STRATEGIES - 1 }, (_, i) => ({ ...newStrategy(NOW, 'g1', `전략${i}`), id: `x${i}` }));
+    app.setStrategies([...app.strategies, ...others]);
+    await tick();
+    const dup = screen.getByRole('button', { name: '복제' }) as HTMLButtonElement;
+    expect(dup.disabled).toBe(false);
+    await fireEvent.click(dup);
+    expect(app.strategies).toHaveLength(MAX_STRATEGIES);
+    expect(currentSnackbar()?.message).toBe(STRATEGY_CAP_MESSAGE);
   });
 
   it('이름을 비우면 칸 아래 오류를 보이고(조용히 되돌리지 않는다) 저장된 이름은 그대로', async () => {
