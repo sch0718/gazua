@@ -10,8 +10,10 @@ import { macroKnownFrom } from './macro';
 import { finMissingAt, flowMissingAt, PrecomputeMismatchError, selectAt } from './select';
 import {
   betaOn,
+  cutFin,
   DATES,
   FIN_BASE,
+  finStock as mkFinStock,
   lcg,
   mkFile,
   mkFileV2,
@@ -31,6 +33,7 @@ import {
   withFin,
   withFlow,
   ymd,
+  type FinPatch,
   type FinStock,
   type FlowStock,
   type Stock,
@@ -999,9 +1002,7 @@ describe('selectAt: 수급 미리 계산과 다른 기준', () => {
 
 // FIN_BASE(testData) 종목: D의 p(2025-02-05)에 202409까지 알려지고, 시가총액 10억 원이면
 // PER 5 · PBR 1.25 · ROE 20 · 영업이익률 10 · 매출 +25 · 영업이익 +50 · 부채비율 50
-type FinPatch = Partial<Omit<FinSeries, 'a'>>;
-const finStock = (s: string, patch: FinPatch = {}, meta: Partial<Stock> = {}): FinStock =>
-  withFin(mkStock(s, flat(), { shares: 1e7, ...meta }), { ...FIN_BASE, ...patch });
+const finStock = (s: string, patch: FinPatch = {}, meta: Partial<Stock> = {}): FinStock => mkFinStock(s, N, patch, meta);
 const finRun = (stocks: FinStock[], c: SelectionCriteria, d = D) => selectAt(d, precompute(mkFileV4(stocks, N), c, null), c);
 const finCond = (patch: (f: SelectionCriteria['conditions']['fin']) => void): SelectionCriteria => {
   const c = offCriteria();
@@ -1054,7 +1055,7 @@ describe('selectAt: 재무 조건(스펙 3.2)', () => {
   });
 
   it('흑자: TTM 순이익 > 0만 통과. 적자·TTM 계산 불가(3분기)는 탈락', () => {
-    const three = Object.fromEntries(Object.entries(FIN_BASE).map(([k, a]) => [k, (a as unknown[]).slice(-3)])) as FinPatch;
+    const three = cutFin((a) => a.slice(-3));
     const zero = finStock('Z', { ni: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5] }); // TTM 0
     const r = finRun([A, finStock('L', { ni: scaled(-1) }), finStock('T', three), zero, mkStock('N', flat())], finCond((f) => (f.profitable.on = true)));
     expect(symbols(r)).toEqual(['A']);
@@ -1146,7 +1147,7 @@ describe('selectAt: 재무 공시 시점(스펙 2.3)', () => {
   const at = (prev: string) => {
     const c = finCond((f) => (f.per = { on: true, min: 0, max: 1000 }));
     const n = DATES.indexOf(prev) + 2;
-    const st = withFin(mkStock('A', Array(n).fill(100), { shares: 1e7 }), nine.fin!);
+    const st = mkFinStock('A', n, nine.fin!);
     return selectAt(DATES[n - 1], precompute(mkFileV4([st], n), c, null), c).picked[0].values;
   };
 
@@ -1159,7 +1160,7 @@ describe('selectAt: 재무 공시 시점(스펙 2.3)', () => {
 
 describe('selectAt: 재무 미리 계산과 finMissingAt', () => {
   const A = finStock('A');
-  const seven = Object.fromEntries(Object.entries(FIN_BASE).map(([k, a]) => [k, (a as unknown[]).slice(1)])) as FinPatch;
+  const seven = cutFin((a) => a.slice(1));
   const per = finCond((f) => (f.per = { on: true, min: 0, max: 100 }));
 
   it('재무 없이 미리 계산했으면 조건·정렬 어느 쪽이든 거부한다', () => {
