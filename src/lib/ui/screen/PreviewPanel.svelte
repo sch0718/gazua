@@ -32,7 +32,8 @@
   {#if !hasData}
     <p class="muted">시장 데이터를 가져오면 미리 볼 수 있어요</p>
   {:else}
-    {#if asOf}<p class="muted">{asOf} 기준</p>{/if}
+    <!-- 막혔으면 계산하지 않으므로 기준일도 보이지 않는다 -->
+    {#if asOf && !blocked}<p class="muted">{asOf} 기준</p>{/if}
     <!-- 끝난 결과도 이 라이브 영역에 넣어 화면 낭독기가 읽게 한다. 계산 중에는 옛 결과를 그대로 보인다 -->
     <p class="state" class:count={!blocked && !pending && !!selection && !failed} role="status">
       {blocked ? '고칠 곳을 고치면 미리 볼 수 있어요' : pending ? '계산하는 중이에요' : selection && !failed ? countText(selection) : ''}
