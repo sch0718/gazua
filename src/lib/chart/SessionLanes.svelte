@@ -140,6 +140,7 @@
 <style>
   .lanes {
     display: block;
+    flex: none;
     overflow: visible;
   }
   text {

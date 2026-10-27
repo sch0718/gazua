@@ -59,9 +59,13 @@
       padding: 6px 12px 0 var(--gutter);
     }
   }
+  /* 높이를 고정하지 않고 최소 높이로 둔다. 차트(최소 260px) 아래 세션 레인이 종목 수만큼 늘어나므로,
+     종목이 많은 좁은 폰(360×780에서 10종목이면 260 + 109px > 45dvh)에서는 이 칸이 함께 늘어나 범례와 겹치지 않는다. */
   .chart {
-    height: max(260px, 45vh);
-    height: max(260px, 45dvh);
+    display: flex;
+    flex-direction: column;
+    min-height: max(260px, 45vh);
+    min-height: max(260px, 45dvh);
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
@@ -70,8 +74,8 @@
      노트북 화면(768px)에서도 범례가 화면 안에 들어오게 한다. */
   @media (min-width: 1024px) {
     .chart {
-      height: max(360px, min(62vh, 100vh - 320px));
-      height: max(360px, min(62dvh, 100dvh - 320px));
+      min-height: max(360px, min(62vh, 100vh - 320px));
+      min-height: max(360px, min(62dvh, 100dvh - 320px));
     }
   }
   .loading {

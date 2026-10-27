@@ -2,6 +2,7 @@
   import type { Group } from '../../state/schema';
 
   // 앱 바의 그룹 탭(가로 스크롤) + 새 그룹 + 그룹 관리. ≥1024에서는 레일이 그룹을 보여 주므로 숨긴다.
+  // 폰 폭(<600)에서는 앱 바 아래 줄을 혼자 쓴다(Layout barWrap). 한 줄이면 360px에서 상태 칩·아이콘이 폭을 거의 다 써서 이름이 잘렸다.
   let {
     groups,
     currentId,
@@ -103,6 +104,12 @@
   .tab.add {
     min-width: var(--touch);
     font-weight: 500;
+  }
+  @media (max-width: 599px) {
+    .tabs {
+      order: 1;
+      flex-basis: 100%;
+    }
   }
   @media (min-width: 1024px) {
     .tabs {

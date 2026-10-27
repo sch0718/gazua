@@ -22,6 +22,12 @@ export default defineConfig({
   },
   projects: [
     { name: 'phone', use: { browserName: 'chromium', viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true } },
+    // 좁은 폰(갤럭시 플립·S 시리즈 기본 폭 360px). 비교 화면 흐름과 레이아웃 검사만 한 번 더 돌린다.
+    {
+      name: 'phone-narrow',
+      testMatch: ['compare.spec.ts', 'layout.spec.ts'],
+      use: { browserName: 'chromium', viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true },
+    },
     { name: 'tablet-portrait', use: { browserName: 'chromium', viewport: { width: 820, height: 1180 } } },
     { name: 'tablet-landscape', use: { browserName: 'chromium', viewport: { width: 1180, height: 820 } } },
     { name: 'desktop', use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
