@@ -135,6 +135,18 @@ export const FIN_BASE: Omit<FinSeries, 'a'> = {
   debt: [4, 4, 4, 4, 4, 4, 4, 4],
 };
 
+export type FinPatch = Partial<Omit<FinSeries, 'a'>>;
+
+/** 종가가 n일 내내 100원이고 상장주식수 1e7주(시가총액 10억 원)인 종목에 FIN_BASE와 patch를 덮은 재무를 붙인다 */
+export function finStock(s: string, n: number, patch: FinPatch = {}, meta: Partial<Stock> = {}): FinStock {
+  return withFin(mkStock(s, Array(n).fill(100), { shares: 1e7, ...meta }), { ...FIN_BASE, ...patch });
+}
+
+/** 재무의 모든 배열을 같은 방식으로 자른다(분기 수 경계 테스트용). 기본은 FIN_BASE */
+export function cutFin(cut: (a: unknown[]) => unknown[], fin: Omit<FinSeries, 'a'> = FIN_BASE): Omit<FinSeries, 'a'> {
+  return Object.fromEntries(Object.entries(fin).map(([k, a]) => [k, cut(a as unknown[])])) as Omit<FinSeries, 'a'>;
+}
+
 /** v3 파일을 v4로: 종목마다 fin이 붙을 수 있다 */
 export function mkFileV4(stocks: FinStock[], n: number): MarketDataFileV4 {
   return { ...mkFileV3(stocks, n), version: 4, stocks };

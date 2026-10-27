@@ -134,7 +134,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   if (file.criteria !== undefined && !Array.isArray(file.criteria)) return fail(IMPORT_BAD_FORMAT);
   const { criteria, repaired: criteriaRepaired } = sanitizeCriteria(file, now());
   if (file.baskets !== undefined && !Array.isArray(file.baskets)) return fail(IMPORT_BAD_FORMAT);
-  const { baskets, repaired: basketsRepaired } = sanitizeBaskets(file, now());
+  const { baskets, repaired: basketsRepaired } = sanitizeBaskets(file);
 
   let secrets: Secrets | LockedSecrets | null = null;
   if (file.secrets !== undefined) {

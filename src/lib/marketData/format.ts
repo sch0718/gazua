@@ -93,29 +93,33 @@ export type MarketDataCheck =
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 
-const isNumArray = (x: unknown, len: number, positive = false): x is number[] =>
-  Array.isArray(x) && x.length === len && x.every((n) => typeof n === 'number' && Number.isFinite(n) && (!positive || n > 0));
+// sign: 'pos'면 0 초과, 'nonneg'면 0 이상만 허용한다
+const isNumArray = (x: unknown, len: number, sign?: 'pos' | 'nonneg'): x is number[] =>
+  Array.isArray(x) &&
+  x.length === len &&
+  x.every((n) => typeof n === 'number' && Number.isFinite(n) && (sign === 'pos' ? n > 0 : sign === 'nonneg' ? n >= 0 : true));
 
 // 날짜는 8자리 문자열이고 엄격하게 오름차순이어야 한다.
 const isAscendingDates = (d: unknown): d is string[] =>
   Array.isArray(d) && d.every((x, i) => typeof x === 'string' && /^\d{8}$/.test(x) && (i === 0 || (d[i - 1] as string) < x));
 
+// 수집기는 가격이 0 이하인 행(거래정지일 빈 행 등)을 버리므로 o·h·l·c는 0 초과, 거래량·대금은 0 이상이다.
 function stockCorrupt(s: Record<string, unknown>): boolean {
   if (!isAscendingDates(s.d)) return true;
   const n = s.d.length;
   return !(
-    isNumArray(s.o, n) &&
-    isNumArray(s.h, n) &&
-    isNumArray(s.l, n) &&
-    isNumArray(s.c, n, true) &&
-    isNumArray(s.v, n) &&
-    isNumArray(s.tv, n)
+    isNumArray(s.o, n, 'pos') &&
+    isNumArray(s.h, n, 'pos') &&
+    isNumArray(s.l, n, 'pos') &&
+    isNumArray(s.c, n, 'pos') &&
+    isNumArray(s.v, n, 'nonneg') &&
+    isNumArray(s.tv, n, 'nonneg')
   );
 }
 
 function indexCorrupt(i: Record<string, unknown>): boolean {
   if (!isAscendingDates(i.d)) return true;
-  return !(isNumArray(i.o, i.d.length, true) && isNumArray(i.c, i.d.length, true));
+  return !(isNumArray(i.o, i.d.length, 'pos') && isNumArray(i.c, i.d.length, 'pos'));
 }
 
 const MARKETS = ['KOSPI', 'KOSDAQ'];
@@ -142,7 +146,9 @@ function metaOk(x: Record<string, unknown>): boolean {
       s.sec.every((c) => typeof c === 'string') &&
       typeof s.shares === 'number' &&
       Number.isFinite(s.shares) &&
-      s.shares >= 0,
+      s.shares >= 0 &&
+      typeof s.managed === 'boolean' &&
+      typeof s.halted === 'boolean',
   );
 }
 
@@ -162,7 +168,7 @@ function macroCorrupt(m: Record<string, unknown>): boolean {
   for (const [key, positive] of [['usdkrw', true], ['wti', false]] as const) {
     const s = m[key] as Record<string, unknown>;
     if (!isAscendingDates(s.d)) return true;
-    if (!isNumArray(s.v, s.d.length, positive)) return true;
+    if (!isNumArray(s.v, s.d.length, positive ? 'pos' : undefined)) return true;
   }
   return false;
 }

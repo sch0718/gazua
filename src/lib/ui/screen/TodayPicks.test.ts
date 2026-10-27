@@ -75,6 +75,9 @@ describe('TodayPicks', () => {
     const g = app.watchlists.groups.find((x) => x.id === 'part')!;
     expect(g.items.map((i) => i.symbol)).toEqual([symbols[0], '200000', ...symbols.slice(1, MAX_ITEMS - 1)]);
     expect(screen.getByText(new RegExp(`'일부'에 ${MAX_ITEMS - 2}개를 넣었어요\\(이미 있던 1개는 건너뛰었어요\\)`))).toBeTruthy();
+    // 이미 있는 1개를 빼도 빈자리(MAX_ITEMS - 2)보다 하나 많아서, 두 번째 줄은 잘린 개수를 말한다
+    expect(symbols.length - 1 - (MAX_ITEMS - 2)).toBe(1);
+    expect(screen.getByText('빈자리가 모자라 1개는 넣지 못했어요')).toBeTruthy();
   });
 
   it('an empty name falls back to the criteria name', async () => {

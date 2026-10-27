@@ -21,9 +21,11 @@ type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 const SYMBOL_RE = /^[0-9A-Z]{6}$/;
 
-/** `{ baskets: [...] }`를 고친다. id·name이 틀리거나 종목이 남지 않은 항목, id가 겹치는 항목, 30개 초과는 버린다. */
-export function sanitizeBaskets(raw: unknown, now = Date.now()): { baskets: Basket[]; repaired: boolean } {
-  void now;
+/**
+ * `{ baskets: [...] }`를 고친다. id·name이 틀리거나 종목이 남지 않은 항목, id가 겹치는 항목, 30개 초과는 버린다.
+ * `baskets` 칸이 없으면(이전 내보내기 파일) 조용히 빈 목록이다. 저장소에서 읽을 때의 판단은 loadBaskets가 따로 한다.
+ */
+export function sanitizeBaskets(raw: unknown): { baskets: Basket[]; repaired: boolean } {
   if (!isRecord(raw) || !Array.isArray(raw.baskets))
     return { baskets: [], repaired: isRecord(raw) ? raw.baskets !== undefined : raw !== undefined && raw !== null };
   const baskets: Basket[] = [];
@@ -59,7 +61,10 @@ export function sanitizeBaskets(raw: unknown, now = Date.now()): { baskets: Bask
   return { baskets, repaired };
 }
 
-/** 읽을 때 검증한다. 모양이 깨졌거나 고친 것이 있으면 저장소 배너로 알리고, 저장된 값은 덮어쓰지 않는다. */
+/**
+ * 읽을 때 검증한다. 모양이 깨졌거나 고친 것이 있으면 저장소 배너로 알리고, 저장된 값은 덮어쓰지 않는다.
+ * 앱은 늘 `{ baskets: [...] }`로 쓰므로 sanitize와 달리 `{}`도 손상으로 본다(loadCriteria와 같다).
+ */
 export function loadBaskets(st: SafeStorage, profileId: string): Basket[] {
   const key = profileKeys.baskets(profileId);
   const raw = st.get<unknown>(key, null);

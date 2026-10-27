@@ -9,7 +9,7 @@
   import type { UniverseItem } from '../../data/universe';
   import type { MarketDataInfo, MarketSector, MarketThemeSummary } from '../../marketData/store';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
-  import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX } from '../../screen/defaults';
+  import { BENCH_MAX, MAX_INITIAL, NAME_MAX } from '../../screen/defaults';
   import { rankFinOf } from '../../screen/fin';
   import type { WorkerInput } from '../../screen/runValidation';
   import type { Selection } from '../../screen/select';
@@ -371,7 +371,8 @@
       />
       {#if nameError}<p class="name-err" id="ed-{uid}-name-err" role="alert">{nameError}</p>{/if}
     </div>
-    <button type="button" class="dup" disabled={app.criteria.length >= MAX_CRITERIA} onclick={duplicate}>복제</button>
+    <!-- 한도에서도 누를 수 있어야 이유(스낵바)를 알린다 -->
+    <button type="button" class="dup" onclick={duplicate}>복제</button>
   </div>
 
   {#each SECTIONS as { key, title } (key)}
@@ -642,7 +643,6 @@
     background: var(--surface);
     font-weight: 700;
   }
-  .dup:disabled,
   .act:disabled {
     opacity: 0.5;
   }

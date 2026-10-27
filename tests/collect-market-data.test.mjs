@@ -1250,6 +1250,48 @@ test('(S7) --update: 이전 flow 뒤로 이어 붙인다(수급 끝에서 5번�
   }
 });
 
+test('(S7c) --update: 새 일봉이 0개면 일봉과 수급이 이전 파일과 같고, 수급은 겹친 5일만 다시 받는다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    const fake = fakeKis(flowDataFor(60), { flowPage: 3 });
+    const r = await runF(dir, null, { fake, update: first.file, out: join(dir, 'b') });
+    assertValidFile(r.file);
+    assert.equal(r.summary.refetched, 0);
+    for (const s of ['000010', '000020', '000030']) {
+      assert.deepEqual(byS(r.file, s).d, byS(first.file, s).d);
+      assert.deepEqual(byS(r.file, s).c, byS(first.file, s).c);
+      assert.deepEqual(byS(r.file, s).flow, byS(first.file, s).flow);
+    }
+    // 수급은 종목마다 겹친 5일(55~59)만 받는다: 3행씩 받는 서버에서 종목당 2쪽
+    assert.equal(fake.calls.flow.length, 6);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(S7d) --update: 수정주가로 일봉을 다시 받은 종목도 이전 수급을 새 일봉에 맞춰 지키고 뒤로 이어 붙인다', async () => {
+  const dir = tmpDir();
+  try {
+    const first = await runF(dir, flowDataFor(60));
+    const data2 = flowDataFor(62);
+    data2.symbols['000020'] = stockRows(62, 7); // 과거 종가가 달라졌다(액면분할 등)
+    const r = await runF(dir, data2, { update: first.file, out: join(dir, 'b') });
+    assertValidFile(r.file);
+    assert.equal(r.summary.refetched, 1);
+    const st = byS(r.file, '000020');
+    assert.equal(st.c[0], 1005 + 7);
+    assert.equal(st.d.length, 62);
+    assert.equal(st.flow.from, dateStr(0));
+    assert.equal(st.flow.f.length, 62);
+    // 겹친 5일 앞의 수급은 이전 파일 값 그대로다
+    assert.deepEqual(st.flow.f.slice(0, 55), byS(first.file, '000020').flow.f.slice(0, 55));
+    assert.deepEqual(st.flow, byS(r.file, '000010').flow);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('(S7b) --update: 수급 끝의 마지막 5일은 새로 받은 값으로 덮어쓰고 그 앞 날은 건드리지 않는다(ruling P8)', async () => {
   const dir = tmpDir();
   try {

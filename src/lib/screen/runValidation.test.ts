@@ -453,12 +453,13 @@ describe('runValidation: 투자자 수급', () => {
   });
 
   it("후보 전체가 수급 계산 불가인 재선정일이 있으면 'flowGap'(늦게 시작한 종목만 후보)", () => {
-    const late: Basket[] = [{ id: 'late', name: '늦은 수급', updatedAt: NOW, symbols: ['113332'] }];
-    const full: Basket[] = [{ id: 'late', name: '외국인', updatedAt: NOW, symbols: ['106666'] }];
-    const c = crit((c) => (foreign(c), (c.pool.baskets = ['late']), (c.conditions.tradingValue.on = false)));
+    // 같은 묶음 id('pool')에 담긴 종목만 바꿔 후보를 정한다
+    const late: Basket[] = [{ id: 'pool', name: '늦은 수급', updatedAt: NOW, symbols: ['113332'] }];
+    const full: Basket[] = [{ id: 'pool', name: '외국인', updatedAt: NOW, symbols: ['106666'] }];
+    const c = crit((c) => (foreign(c), (c.pool.baskets = ['pool']), (c.conditions.tradingValue.on = false)));
     expect(run(c, [], fixture, late).notes).toContain('flowGap');
     expect(run(c, [], fixture, full).notes).not.toContain('flowGap');
-    expect(run(crit((c) => ((c.pool.baskets = ['late']), (c.conditions.tradingValue.on = false))), [], fixture, late).notes).not.toContain('flowGap');
+    expect(run(crit((c) => ((c.pool.baskets = ['pool']), (c.conditions.tradingValue.on = false))), [], fixture, late).notes).not.toContain('flowGap');
   });
 
   it("수급이 없는 데이터(v1·v2, 또는 수급 있는 종목 0)인데 수급을 쓰면 'no-flow' 오류. 쓰지 않으면 그대로 돈다", () => {
@@ -512,9 +513,10 @@ describe('runValidation: 재무', () => {
   });
 
   it("후보 전체가 재무 계산 불가인 재선정일이 있으면 'finGap'(재무가 늦게 시작한 종목만 후보)", () => {
-    const late: Basket[] = [{ id: 'late', name: '늦은 재무', updatedAt: NOW, symbols: ['103333'] }];
-    const value: Basket[] = [{ id: 'late', name: '저PER', updatedAt: NOW, symbols: ['114443'] }];
-    const base = (c: SelectionCriteria) => ((c.pool.baskets = ['late']), (c.pool.excludeManaged = false), (c.conditions.tradingValue.on = false));
+    // 같은 묶음 id('pool')에 담긴 종목만 바꿔 후보를 정한다
+    const late: Basket[] = [{ id: 'pool', name: '늦은 재무', updatedAt: NOW, symbols: ['103333'] }];
+    const value: Basket[] = [{ id: 'pool', name: '저PER', updatedAt: NOW, symbols: ['114443'] }];
+    const base = (c: SelectionCriteria) => ((c.pool.baskets = ['pool']), (c.pool.excludeManaged = false), (c.conditions.tradingValue.on = false));
     const c = crit((c) => (base(c), per(c)));
     expect(run(c, [], fixture, late).notes).toContain('finGap');
     expect(run(c, [], fixture, value).notes).not.toContain('finGap');

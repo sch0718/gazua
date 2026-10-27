@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { finKnownFrom, finMetricsAt, lastKnownQuarter, type FinValues } from './fin';
 import { precompute } from './precompute';
-import { DATES, FIN_BASE, mkFileV4, mkStock, offCriteria, withFin, type Stock } from './testData';
-import type { FinSeries } from '../marketData/format';
+import { cutFin, DATES, FIN_BASE, finStock as mkFinStock, mkFileV4, mkStock, offCriteria, type FinPatch, type Stock } from './testData';
 import type { SelectionCriteria } from './types';
 
 describe('finKnownFrom: 공시 시점 규칙(스펙 2.3, 결정 D8)', () => {
@@ -74,8 +73,7 @@ const finCrit = (): SelectionCriteria => {
   c.conditions.fin.per.on = true;
   return c;
 };
-const finStock = (patch: Partial<Omit<FinSeries, 'a'>> = {}, meta: Partial<Stock> = {}) =>
-  withFin(mkStock('A', Array(N).fill(100), { shares: 1e7, ...meta }), { ...FIN_BASE, ...patch });
+const finStock = (patch: FinPatch = {}, meta: Partial<Stock> = {}) => mkFinStock('A', N, patch, meta);
 /** 소수 오차를 지운 값(NaN은 그대로) */
 const round = (v: FinValues | null) =>
   v && Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === 'number' ? Math.round(x * 1e9) / 1e9 : x]));
@@ -83,7 +81,6 @@ const metricsOf = (st: ReturnType<typeof finStock>, pIdx = P, p = DATES[P]) => {
   const pre = precompute(mkFileV4([st], N), finCrit(), null);
   return round(finMetricsAt(pre, pre.stocks[0], pIdx, p));
 };
-const last4 = <T>(a: T[]): T[] => a.slice(-4);
 
 describe('finMetricsAt: 스펙 3.1 지표 손계산', () => {
   it('8분기가 있으면 모든 지표를 계산하고 쓴 분기 L을 돌려준다', () => {
@@ -104,14 +101,14 @@ describe('finMetricsAt: 스펙 3.1 지표 손계산', () => {
   });
 
   it('연속 8분기 경계: 7분기면 증가율만 계산 불가(ROE는 L−4가 있어 계산)', () => {
-    const seven = Object.fromEntries(Object.entries(FIN_BASE).map(([k, a]) => [k, (a as unknown[]).slice(1)])) as Omit<FinSeries, 'a'>;
+    const seven = cutFin((a) => a.slice(1));
     expect(metricsOf(finStock(seven))).toEqual({ ...BASE_VALUES, revGrowth: NaN, opGrowth: NaN });
   });
 
   it('연속 4분기 경계: 4분기면 TTM은 계산하고 L−4 자본이 없어 ROE는 계산 불가, 3분기면 TTM 지표 모두 불가', () => {
-    const four = Object.fromEntries(Object.entries(FIN_BASE).map(([k, a]) => [k, last4(a as unknown[])])) as Omit<FinSeries, 'a'>;
+    const four = cutFin((a) => a.slice(-4));
     expect(metricsOf(finStock(four))).toEqual({ ...BASE_VALUES, roe: NaN, revGrowth: NaN, opGrowth: NaN });
-    const three = Object.fromEntries(Object.entries(four).map(([k, a]) => [k, (a as unknown[]).slice(1)])) as Omit<FinSeries, 'a'>;
+    const three = cutFin((a) => a.slice(1), four);
     expect(metricsOf(finStock(three))).toEqual({
       quarter: '202409',
       per: NaN,
