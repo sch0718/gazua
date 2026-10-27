@@ -44,6 +44,7 @@
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "@sch0718/seen-store": "0.1.0",
     "firebase": "^12.19.0",
     "idb": "^8.0.4",
     "lightweight-charts": "^5.2.1",
