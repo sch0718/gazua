@@ -1,4 +1,5 @@
-import { at, esc, motionCss, svgDocument, text, textWidth } from './kit.mjs';
+import { at, esc, motionCss, svgDocument, text, textWidth } from '@sch0718/motion-kit';
+import { MOTION } from './kit.mjs';
 import { PAGES } from './help-pages.mjs';
 
 // 메뉴별 도움말 그림. 왼쪽에 단계 목록, 오른쪽에 휴대폰 화면을 두고 단계마다 실제 화면 흐름을 보여 준다.
@@ -88,7 +89,7 @@ ${screens}</g>`;
     h: H,
     title: `가즈아 도움말 — ${page.title}`,
     desc: plain(`${page.title} 사용법: ${page.steps.map((s, i) => `${i + 1}. ${s.title}(${s.sub})`).join(' ')}`),
-    css: motionCss({ sceneLength: STEP, scenes: page.steps.length }),
+    css: motionCss({ sceneLength: STEP, scenes: page.steps.length, ...MOTION }),
     body,
   });
 }

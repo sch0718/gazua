@@ -1,4 +1,5 @@
-import { at, card, chart, chip, motionCss, segmented, svgDocument, text, textWidth, walk } from './kit.mjs';
+import { at, motionCss, svgDocument, text, textWidth } from '@sch0718/motion-kit';
+import { MOTION, card, chart, chip, segmented, walk } from './kit.mjs';
 
 // README 맨 위의 소개 그림. 장면 넷(비교하기 → 규칙 시험하기 → 기준 검증하기 → 내 성과 보기)이 이어서 돈다.
 
@@ -164,7 +165,7 @@ ${rise(3, 1.9, text(P.x, P.y + 306, '종목별 기여도와 보유 수량 대조
     h: H,
     title: '가즈아 — 관심종목을 한 차트에 놓고 비교하는 주식 앱',
     desc: '관심종목을 한 차트에 나란히 비교하고, 내 매매 규칙을 과거 데이터로 시험하고, 종목 선정 기준을 시점마다 검증하고, 토스 계좌의 실제 거래를 지수와 비교하는 흐름을 차례로 보여 주는 그림',
-    css: motionCss({ sceneLength: SCENE, scenes: SCENES }),
+    css: motionCss({ sceneLength: SCENE, scenes: SCENES, ...MOTION }),
     body: `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" rx="28" fill="${t.bg}" stroke="${t.line}"/>
 <g transform="translate(40 44) scale(0.109375)">${logo}</g>
 ${text(112, 76, '가즈아', { size: 30, weight: 800, fill: t.t1 })}
