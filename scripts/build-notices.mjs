@@ -58,8 +58,11 @@ function readTexts(dir) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // pnpm 스크립트로 돌면 npm_execpath가 pnpm의 JS 진입점이라 node로 바로 띄운다(Windows의 .cmd 심은 execFileSync로 못 띄운다).
+  const viaNode = /\.c?js$/.test(process.env.npm_execpath ?? '');
+  const [cmd, pre, shell] = viaNode ? [process.execPath, [process.env.npm_execpath], false] : ['pnpm', [], process.platform === 'win32'];
   const list = (...args) =>
-    JSON.parse(execFileSync('pnpm', ['licenses', 'list', ...args, '--json'], { encoding: 'utf8', maxBuffer: 64 << 20 }));
+    JSON.parse(execFileSync(cmd, [...pre, 'licenses', 'list', ...args, '--json'], { encoding: 'utf8', maxBuffer: 64 << 20, shell }));
   const prod = flatten(list('--prod'));
   const seen = new Set(prod.map((p) => `${p.name}@${p.version}`));
   const extra = flatten(list(), BUNDLED_DEV).filter((p) => !seen.has(`${p.name}@${p.version}`));
