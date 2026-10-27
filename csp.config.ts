@@ -2,6 +2,7 @@
 // 빌드는 connect-src 'self' https: 그대로다. 로컬 http 프록시(Node 컨테이너·wrangler dev)는
 // 개발 서버(pnpm dev)에서만 쓸 수 있게 connect-src에 로컬 http 출처를 더한다.
 // 연결 폼의 검사(normalizeProxyUrl)도 같은 규칙을 따른다(개발 서버에서만 http://localhost 허용).
+import { KAKAO_SDK_URL } from '@sch0718/kakao-share';
 import type { Plugin } from 'vite';
 
 export const DEV_LOCAL_PROXY_SOURCES = ['http://localhost:*', 'http://127.0.0.1:*', 'http://[::1]:*'];
@@ -44,6 +45,29 @@ export function firebaseCspPlugin(): Plugin {
       authDomain = typeof v === 'string' && v.trim() ? v.trim() : undefined;
     },
     transformIndexHtml: (html) => firebaseCsp(html, authDomain),
+  };
+}
+
+/** 카카오톡 공유 SDK를 받는 출처(SRI로 확인한다). 공유 화면은 sharer.kakao.com으로 이동하므로 다른 지시어는 그대로다. */
+export const KAKAO_SCRIPT_SOURCES = [new URL(KAKAO_SDK_URL).origin];
+
+/** 카카오 JS 키(VITE_KAKAO_JS_KEY)가 있을 때만 script-src에 SDK 출처를 더한다. 없으면 index.html의 CSP를 그대로 둔다. */
+export function kakaoCsp(html: string, enabled: boolean): string {
+  if (!enabled) return html;
+  const script = "script-src 'self'";
+  if (!html.includes(script)) throw new Error(`index.html CSP has no "${script}"`);
+  return html.replace(script, `${script} ${KAKAO_SCRIPT_SOURCES.join(' ')}`);
+}
+
+export function kakaoCspPlugin(): Plugin {
+  let enabled = false;
+  return {
+    name: 'gazua-kakao-csp',
+    configResolved(c) {
+      const v = c.env.VITE_KAKAO_JS_KEY;
+      enabled = typeof v === 'string' && v.trim() !== '';
+    },
+    transformIndexHtml: (html) => kakaoCsp(html, enabled),
   };
 }
 
