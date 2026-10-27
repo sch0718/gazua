@@ -525,6 +525,19 @@ describe('buyWindows', () => {
     expect(inside.skipped).toEqual([]);
   });
 
+  it('창 밖에서 막힌 추가 매수는 창이 다시 열린 뒤 같은 가격에 오면 그 가격에 체결한다', () => {
+    const s = strat((x) => {
+      x.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+      x.exit.stopLoss.basis = 'avgAfterScaleIn';
+    });
+    // d(10)은 창 밖이라 97에서 막히고, d(11)에 창이 열린 뒤 99에서 96.5로 내려오며 다시 97을 지난다
+    const rest: O[] = [[100, 100, 100, 100], [100, 100, 96, 98], [99, 99, 96.5, 98]];
+    const core = withWindows(s, [candles(BASE, rest)], [{ from: d(0), to: d(9) }, { from: d(11), to: d(20) }]);
+    expect(kinds(core.trades)).toEqual(['buy@100x10000', 'add@97x10309']);
+    expect(core.trades[1].date).toBe(d(11));
+    expect(core.skipped).toEqual([{ date: d(10), symbol: 'S0', reason: OUT }]);
+  });
+
   it('패턴 추적기는 창과 무관하게 돌아, 창 밖에서 건너뛴 뒤 창이 열리면 다음 신호에서 산다', () => {
     // 같은 하락·반등 신호가 d(9)에 건너뛴 뒤에도 매일 새로 나므로 창이 열린 d(10) 체결이 된다
     const core = withWindows(strat(), [candles(BASE, [[87, 88, 86, 87], [87, 88, 86, 88]])], [{ from: d(10), to: d(20) }]);
