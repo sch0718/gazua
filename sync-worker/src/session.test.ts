@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CertsUnavailableError } from '@sch0718/firebase-session/worker';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import { DAY } from './env';
 import { REAUTH_WINDOW, SESSION_TTL } from './session';
@@ -196,5 +197,18 @@ describe('라우터', () => {
     expect(all).not.toContain(ME);
     expect(all).not.toContain('FAKE-SECRET');
     expect(h.logs.at(-1)).toMatch(/^PUT \/v1\/profiles\/:id 422 \d+ms$/);
+  });
+
+  it('Google 공개 인증서를 받지 못하면 인증이 필요한 요청은 503 certs-unavailable', async () => {
+    const h = harness();
+    const me = await h.login();
+    h.deps.certs = {
+      key: async () => {
+        throw new CertsUnavailableError('down');
+      },
+    };
+    const r = await me.as('GET', '/v1/profiles');
+    expect(r.status).toBe(503);
+    expect(await body(r)).toEqual({ error: 'certs-unavailable' });
   });
 });
