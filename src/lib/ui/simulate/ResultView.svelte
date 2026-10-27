@@ -3,8 +3,8 @@
   // 탭 본문은 TradeList·SymbolTab·SkipList로 나눴다.
   import type { Trade } from '../../sim/types';
   import type { Issue } from '../../sim/validate';
-  import Badge from '../components/Badge.svelte';
-  import Segmented from '../components/Segmented.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import EquityChart, { EQUITY_LINES, type EquityKey } from './EquityChart.svelte';
   import LineSwatch from './LineSwatch.svelte';
   import type { DoneState } from './runController.svelte';

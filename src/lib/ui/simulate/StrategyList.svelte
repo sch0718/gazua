@@ -6,8 +6,8 @@
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { kstDate } from '../../time/kst';
-  import Sheet from '../components/Sheet.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { strategyLine } from './simText';
   import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
   import { canShare, openShare } from '../../share/shareStore.svelte';

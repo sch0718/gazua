@@ -22,14 +22,14 @@
   import Headline from '../lib/ui/compare/Headline.svelte';
   import Leaderboard from '../lib/ui/compare/Leaderboard.svelte';
   import { issueView, runIssueAction } from '../lib/ui/compare/loadIssue';
-  import Banner from '../lib/ui/components/Banner.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
   import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, isSuspended, rowSeries, sortRows } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
   import { bindShortcuts } from '../lib/ui/shortcuts';

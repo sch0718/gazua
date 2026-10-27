@@ -2,7 +2,7 @@
   // 검증 결과(스펙 7.4): 오늘 기준 선별 · 요약 카드 · 자산 곡선 · 시장별 표 · 선정 이력 · 해석 도움말.
   import type { ValidationResult } from '../../screen/runValidation';
   import type { App } from '../../state/app.svelte';
-  import Banner from '../components/Banner.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
   import EquityChart, { type CurveLine } from '../simulate/EquityChart.svelte';
   import { BENCH_STYLES, INDEX_STYLES } from './curveStyles';
   import { fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';

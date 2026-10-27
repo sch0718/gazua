@@ -4,7 +4,7 @@
   import type { App } from '../lib/state/app.svelte';
   import type { Group } from '../lib/state/schema';
   import { MAX_ITEMS, moveGroup, renameGroup } from '../lib/state/watchlist';
-  import Sheet from '../lib/ui/components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
   import { deleteGroupWithUndo } from './groupActions';
   import TossImport from './TossImport.svelte';
   import { canShare, openShare } from '../lib/share/shareStore.svelte';

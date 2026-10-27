@@ -7,9 +7,9 @@
   import type { App } from '../lib/state/app.svelte';
   import { MAX_ITEMS } from '../lib/state/watchlist';
   import type { SnapshotSeries } from '../lib/ui/compare/compareController.svelte';
-  import Badge from '../lib/ui/components/Badge.svelte';
-  import Sheet from '../lib/ui/components/Sheet.svelte';
-  import { holdSnackbarWhileFocused } from '../lib/ui/components/snackbarStore.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { holdSnackbarWhileFocused } from '@sch0718/ui-svelte';
   import { fmtPct, fmtWon, trendClass } from '../lib/ui/format';
   import { moveToGroup, removeWithUndo } from './groupActions';
   import { detailView, quoteVenuesFor } from './stockDetail';

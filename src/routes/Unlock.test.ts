@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { StoredKeysNotRemovedError, type App } from '../lib/state/app.svelte';
-import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import { KEYS_NOT_REMOVED } from '../lib/ui/settings/KeyLock.svelte';
 import { WrongPassphraseError } from '../lib/state/secrets';
 import Unlock from './Unlock.svelte';

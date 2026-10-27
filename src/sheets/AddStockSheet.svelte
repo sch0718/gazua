@@ -5,9 +5,9 @@
   import type { StockMeta } from '../lib/providers/types';
   import type { App } from '../lib/state/app.svelte';
   import { MAX_ITEMS } from '../lib/state/watchlist';
-  import Badge from '../lib/ui/components/Badge.svelte';
-  import Sheet from '../lib/ui/components/Sheet.svelte';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { FULL_MESSAGE, addToGroup, removeWithUndo } from './groupActions';
   import { sharedUniverse } from './universeSource';
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   // 읽기 전용 공유 링크 만들기(제안서 6절): 보낼 내용을 먼저 보여 주고, 만료(기본 7일·최대 30일)를 고른 뒤 링크를 만든다.
-  import Sheet from '../ui/components/Sheet.svelte';
-  import { showSnackbar } from '../ui/components/snackbarStore.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import type { SyncController } from '../sync/controller.svelte';
   import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
   import type { ShareRequest } from './shareStore.svelte';

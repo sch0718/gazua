@@ -5,9 +5,9 @@
   import { createClock } from './lib/state/clock.svelte';
   import { createSafeStorage } from './lib/state/storage';
   import { kstDate } from './lib/time/kst';
-  import Banner from './lib/ui/components/Banner.svelte';
-  import SnackbarHost from './lib/ui/components/SnackbarHost.svelte';
-  import { dismissSnackbar } from './lib/ui/components/snackbarStore.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
+  import { SnackbarHost } from '@sch0718/ui-svelte';
+  import { dismissSnackbar } from '@sch0718/ui-svelte';
   import StatusChip from './lib/ui/StatusChip.svelte';
   import { helpIdForRoute } from './lib/help/routing';
   import HelpButton from './lib/ui/help/HelpButton.svelte';

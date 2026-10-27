@@ -6,7 +6,7 @@
   import type { App } from '../lib/state/app.svelte';
   import HelpFigure from '../lib/ui/help/HelpFigure.svelte';
   import HelpText from '../lib/ui/help/HelpText.svelte';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
 

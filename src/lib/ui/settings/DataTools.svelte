@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { exportFileName } from '../../state/exportImport';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { fmtMB } from '../format';
   import { openMarketData, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
 

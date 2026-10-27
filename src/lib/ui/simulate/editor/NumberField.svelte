@@ -3,7 +3,7 @@
   // 토글이 있으면 라벨은 토글과 연결된다(라벨을 누르면 켜고 끈다). 숫자 칸 박스는 입력과 연결된 label이라 어디를 눌러도 입력에 포커스.
   // 토글 이름은 `{라벨} 사용`(보이는 라벨로 시작, WCAG 2.5.3). 단위·금액 힌트·오류는 입력의 설명(aria-describedby).
   import { tick, untrack } from 'svelte';
-  import Toggle from '../../components/Toggle.svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
   import { fmtWon } from '../../format';
   import { money } from '../simText';
 

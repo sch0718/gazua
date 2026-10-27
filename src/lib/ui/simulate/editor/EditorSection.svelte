@@ -2,7 +2,7 @@
   // 접고 펼치는 구역 하나: 머리(제목 / 두 줄까지의 요약, 경고 표시, 셰브런)와, 펼쳤을 때 이 구역의 경고(Banner) + 본문.
   import type { Snippet } from 'svelte';
   import type { Issue } from '../../../sim/validate';
-  import Banner from '../../components/Banner.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
 
   let {
     title,

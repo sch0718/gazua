@@ -20,9 +20,9 @@
   import type { Strategy } from '../../sim/types';
   import type { Basket } from '../../screen/baskets';
   import type { App } from '../../state/app.svelte';
-  import Segmented from '../components/Segmented.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
-  import Toggle from '../components/Toggle.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
   import EditorSection from '../simulate/editor/EditorSection.svelte';
   import EntrySection from '../simulate/editor/EntrySection.svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';

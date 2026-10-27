@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../lib/data/universe';
 import type { App } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
-import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import { MAX_ITEMS } from '../lib/state/watchlist';
 import PickByCriteriaSheet from './PickByCriteriaSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';

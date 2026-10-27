@@ -1,7 +1,7 @@
 <script lang="ts">
   import { StoredKeysNotRemovedError, type App } from '../lib/state/app.svelte';
   import { WrongPassphraseError } from '../lib/state/secrets';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { KEYS_NOT_REMOVED } from '../lib/ui/settings/KeyLock.svelte';
 
   let { app, confirmFn = (m: string) => window.confirm(m) }: { app: App; confirmFn?: (message: string) => boolean } =

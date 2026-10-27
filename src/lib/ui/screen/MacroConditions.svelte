@@ -2,7 +2,7 @@
   // 환율·유가 소구역(스펙 5.2): 계열마다(원/달러, WTI) 민감도와 흐름 따라가기 두 줄 + 공통 민감도 계산 기간.
   // 데이터에 환율·유가가 없으면(v1) 새로 켜는 것과 값 고치기를 막는다. 이미 켜져 있던 조건은 끌 수 있다.
   import type { MacroSeriesKey, SelectionCriteria } from '../../screen/types';
-  import Segmented from '../components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';
   import ConditionRow from './ConditionRow.svelte';
   import { macroBetaHelp, macroTrendHelp, NEED_RECOLLECT_TEXT, SERIES_LABEL, SERIES_ORDER } from './screenText';

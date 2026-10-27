@@ -1,14 +1,24 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { BENCH_STYLES, INDEX_STYLES } from './screen/curveStyles';
 
-const css = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8');
+// 범용 토큰(@sch0718/ui-svelte) 다음에 가즈아 전용 토큰을 불러온다(main.ts와 같은 순서).
+const require = createRequire(import.meta.url);
+const css = [
+  readFileSync(require.resolve('@sch0718/ui-svelte/tokens.css'), 'utf8'),
+  readFileSync(new URL('./tokens.css', import.meta.url), 'utf8'),
+].join('\n');
 
+/** 같은 선택자 블록을 두 파일에서 모두 찾아 이어 붙인다. */
 const block = (selector: string) => {
-  const start = css.indexOf(`${selector} {`);
-  expect(start, selector).toBeGreaterThanOrEqual(0);
-  return css.slice(start, css.indexOf('}', start));
+  const parts: string[] = [];
+  for (let i = css.indexOf(`${selector} {`); i >= 0; i = css.indexOf(`${selector} {`, i + 1)) {
+    parts.push(css.slice(i, css.indexOf('}', i)));
+  }
+  expect(parts.length, selector).toBeGreaterThan(0);
+  return parts.join('\n');
 };
 
 describe('tokens.css', () => {

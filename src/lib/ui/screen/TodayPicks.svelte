@@ -4,7 +4,7 @@
   import type { App } from '../../state/app.svelte';
   import { NAME_MAX } from '../../screen/defaults';
   import { MAX_ITEMS } from '../../state/watchlist';
-  import Sheet from '../components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
   import { dotDate } from '../simulate/simText';
   import { cutText, freeSlots, picksToGroup, picksToNewGroup, type PickGroupResult } from './pickGroup';
 

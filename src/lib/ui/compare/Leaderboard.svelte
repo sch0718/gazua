@@ -11,7 +11,7 @@
 <script lang="ts">
   import { MAX_ITEMS } from '../../state/watchlist';
   import { onDestroy, untrack } from 'svelte';
-  import Badge from '../components/Badge.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
   import { fmtWon, trendClass } from '../format';
   import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
   import type { BoardOrder } from '../../state/schema';

@@ -13,7 +13,7 @@
   import type { Candle } from '../../data/metrics';
   import type { Trade } from '../../sim/types';
   import { kstDate } from '../../time/kst';
-  import Sheet from '../components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
   import { fmtWon } from '../format';
   import { positionOf, positionReturnPct } from './positions';
   import { returnClass, shortDate, trendReturn } from './simText';

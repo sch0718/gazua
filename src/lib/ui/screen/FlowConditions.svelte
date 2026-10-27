@@ -2,7 +2,7 @@
   // 투자자 매매동향 소구역(3단계 스펙 4.1): 순매수 규모 · 연속 순매수 두 줄 + 공통 안내.
   // 데이터에 수급이 없으면(v1·v2) 새로 켜는 것과 값 고치기를 막는다. 이미 켜져 있던 조건은 끌 수 있다(MacroConditions와 같다).
   import type { FlowWho, SelectionCriteria } from '../../screen/types';
-  import Segmented from '../components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';
   import ConditionRow from './ConditionRow.svelte';
   import { FLOW_AMOUNT_HELP, FLOW_LAG_HINT, FLOW_STREAK_HELP, FLOW_WHO_LABEL, FLOW_WHO_ORDER, NEED_RECOLLECT_TEXT } from './screenText';

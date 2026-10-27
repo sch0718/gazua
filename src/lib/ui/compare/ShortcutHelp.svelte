@@ -12,7 +12,7 @@
 </script>
 
 <script lang="ts">
-  import Sheet from '../components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
 
   let { open, onclose }: { open: boolean; onclose: () => void } = $props();
 </script>

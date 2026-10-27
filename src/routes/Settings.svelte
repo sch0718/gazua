@@ -5,7 +5,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import type { App } from '../lib/state/app.svelte';
   import type { Settings } from '../lib/state/schema';
-  import Segmented from '../lib/ui/components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
   import About from '../lib/ui/settings/About.svelte';

@@ -1,8 +1,8 @@
 <script lang="ts">
   // 매수: 하락 조건 2줄, 트리거 4줄, 필터 1줄(스펙 7.3). 줄마다 라벨 · 숫자 칸 · 오른쪽 토글(이름 `{라벨} 사용`).
   import type { Strategy } from '../../../sim/types';
-  import Segmented from '../../components/Segmented.svelte';
-  import Toggle from '../../components/Toggle.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
   import NumberField from './NumberField.svelte';
   import PatternHelp from './PatternHelp.svelte';
 

@@ -2,7 +2,7 @@
   // 매도: 익절 단계(최대 3), 손절폭·기준, 1단계 익절 뒤 손절선.
   import { MAX_TAKE_STAGES } from '../../../sim/defaults';
   import type { StopBasis, Strategy } from '../../../sim/types';
-  import Segmented from '../../components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import { STOP_BASIS_LABEL } from '../simText';
   import NumberField from './NumberField.svelte';
 

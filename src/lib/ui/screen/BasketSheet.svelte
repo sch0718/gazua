@@ -9,8 +9,8 @@
   import { NAME_MAX } from '../../sim/defaults';
   import type { MarketThemeSummary } from '../../marketData/store';
   import type { App } from '../../state/app.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { NEED_RECOLLECT_TEXT, nextCriteriaName } from './screenText';
 
   let {

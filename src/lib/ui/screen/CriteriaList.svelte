@@ -7,8 +7,8 @@
   import { MAX_CRITERIA, NAME_MAX, newCriteria } from '../../screen/defaults';
   import type { SelectionCriteria } from '../../screen/types';
   import type { App } from '../../state/app.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { duplicateCriteria } from './criteriaActions.svelte';
   import { returnClass, trendReturn } from '../simulate/simText';
   import type { MarketSector } from '../../marketData/store';

@@ -1,7 +1,7 @@
 <script lang="ts">
   // 시장 데이터 안내(스펙 4·7.2): 없으면 카드, 30일 넘게 지났으면 닫을 수 있는 경고.
   import type { MarketDataInfo } from '../../marketData/store';
-  import Banner from '../components/Banner.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
   import { NO_DATA_TEXT, STALE_DAYS, staleText } from './screenText';
 
   // 수집 방법은 개발 문서(docs/development.md)에 있다

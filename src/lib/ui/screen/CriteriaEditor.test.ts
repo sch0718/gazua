@@ -12,7 +12,7 @@ import { NOW } from '../../screen/testData';
 import type { SelectionCriteria } from '../../screen/types';
 import { newStrategy } from '../../sim/defaults';
 import type { App } from '../../state/app.svelte';
-import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import CriteriaEditor from './CriteriaEditor.svelte';
 import { CONDITION_HELP } from './screenText';
 

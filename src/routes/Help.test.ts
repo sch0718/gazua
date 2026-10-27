@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
-import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
-import { dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { SnackbarHost } from '@sch0718/ui-svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HELP_PAGES } from '../lib/help/content';
 import type { App } from '../lib/state/app.svelte';

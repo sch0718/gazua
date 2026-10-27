@@ -2,7 +2,7 @@
   // 프로필(스펙 7.4): 목록·전환·추가·이름 변경·삭제(확인 후). 마지막 프로필은 지울 수 없다.
   import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
 
   let {
     app,

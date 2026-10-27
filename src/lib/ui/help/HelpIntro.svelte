@@ -6,7 +6,7 @@
   import { helpIdForRoute, introIdFor } from '../../help/routing';
   import { helpSeen, type HelpSeenStore } from '../../help/seen';
   import type { App } from '../../state/app.svelte';
-  import Sheet from '../components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
   import HelpFigure from './HelpFigure.svelte';
   import HelpText from './HelpText.svelte';
 

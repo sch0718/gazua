@@ -15,7 +15,7 @@
   import { strategyIssues, type Issue } from '../lib/sim/validate';
   import type { App } from '../lib/state/app.svelte';
   import { runIssueAction } from '../lib/ui/compare/loadIssue';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
   import { sharedUniverse } from '../sheets/universeSource';
