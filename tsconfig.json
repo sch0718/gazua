@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "vitest.config.ts", "pwa.config.ts", "pwa.config.test.ts", "csp.config.ts", "csp.config.test.ts", "auth-helper.config.ts", "auth-helper.config.test.ts", "tests/e2e/**/*.ts", "playwright.config.ts"],
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "vitest.config.ts", "pwa.config.ts", "pwa.config.test.ts", "tests/e2e/**/*.ts", "playwright.config.ts"],
   "exclude": []
 }

@@ -16,7 +16,7 @@ const LOCAL_DEV_ONLY = `${NEED_HTTPS} · http://localhost 프록시는 개발 �
 /**
  * 앞뒤 공백·끝 슬래시를 지운다. 빈 값은 '지움'. https만 받는다.
  * 빌드의 CSP(connect-src 'self' https:)가 http를 막으므로, http://localhost 프록시는 CSP를 넓힌
- * 개발 서버(allowLocalHttp, 기본은 import.meta.env.DEV)에서만 받는다(csp.config.ts).
+ * 개발 서버(allowLocalHttp, 기본은 import.meta.env.DEV)에서만 받는다(@sch0718/vite-app의 devCsp).
  */
 export function normalizeProxyUrl(raw: string, opts: { allowLocalHttp?: boolean } = {}): UrlResult {
   const allowLocalHttp = opts.allowLocalHttp ?? import.meta.env.DEV;
