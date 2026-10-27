@@ -229,7 +229,7 @@
 
 - **무엇을**: `sync-worker`(Cloudflare Worker + D1)와 Firebase Auth(Spark, Google 로그인만)를 실제로 켜고 기기마다 로그인·동기화·공유가 되는지. 특히 아이폰 홈 화면 PWA의 Google 로그인과 다시 열었을 때 로그인이 유지되는지(제안서 검토에서 위험으로 적은 항목).
 - **어떻게**: `sync-worker/README.md` 「처음 배포하기」 순서대로 배포한 뒤 「배포 뒤 확인」을 차례로 해요. 키·이메일·D1 ID는 여기에 적지 않아요.
-- **바꿀 곳**: 로그인은 `src/lib/sync/firebaseImpl.ts`·`controller.svelte.ts`, 도우미 서빙은 `vite.config.ts`(`firebaseAuthHelper`, `@sch0718/firebase-session/vite`)·`pwa.config.ts`, 서버는 `sync-worker/src/`.
+- **바꿀 곳**: 로그인은 `@sch0718/firebase-session/client`(`firebaseAuth`)·`controller.svelte.ts`, 도우미 서빙은 `vite.config.ts`(`firebaseAuthHelper`, `@sch0718/firebase-session/vite`)·`pwa.config.ts`, 서버는 `sync-worker/src/`.
 - 결과:
   - 2026-10-26 배포: D1 `gazua-sync`(APAC) 마이그레이션 `0001_init` 적용, Worker `gazua-sync.sch0718.workers.dev` 배포. Cron은 계정 전체에서 이 Worker의 1개뿐이에요(증권사 프록시는 Tunnel, 랜드마크는 Pages라 Cron 없음, API로 확인). GitHub Variables 5개를 넣고 앱을 다시 배포해 CSP에 `apis.google.com`·`frame-src`가 들어간 것을 확인했어요.
   - 2026-10-26 Mac 터미널(curl): 앱 출처 `OPTIONS /v1/profiles` 204, 다른 출처 403, 토큰 없는 `GET /v1/profiles` 401.

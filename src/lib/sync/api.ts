@@ -1,22 +1,53 @@
-// sync-worker HTTP 클라이언트. 응답을 동기화 엔진이 다루는 몇 가지 결과로 나눈다.
-// ID 토큰은 매 요청 Authorization: Bearer로, 기기 세션은 X-Gazua-Session으로 보낸다. 토큰·세션은 로그에 남기지 않는다.
+// sync-worker HTTP 클라이언트. 토큰·세션 헤더, 재시도, 공통 실패 매핑은 @sch0718/firebase-session/client가 한다.
+// 여기서는 가즈아 고유 실패(409 conflict, 410 gone)와 profiles·shares 메서드를 더한다.
+import {
+  createSessionClient,
+  type ApiResult as BaseResult,
+  type BaseFail,
+  type Credentials,
+  type DeviceSession,
+} from '@sch0718/firebase-session/client';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import type { ProfileDocV1 } from './dto';
 
-export type ApiFail =
+export type { Credentials, DeviceSession };
+
+/** 설치된 PWA가 보내는 헤더라 바꾸지 않는다(sync-worker의 SESSION_HEADER와 같다). */
+export const SESSION_HEADER = 'X-Gazua-Session';
+
+type GazuaFail =
   | { ok: false; kind: 'conflict'; revision: number; doc: ProfileDocV1 | null }
-  | { ok: false; kind: 'gone'; deletedAt: number | null; purgeAt: number | null; revision?: number }
-  /** 다시 로그인해야 한다. code: missing-token·invalid-token·no-session·session-revoked·session-expired·reauth-required */
-  /** session: 실패한 요청이 쓴 기기 세션(그 사이 새로 로그인했으면 이 실패는 무시해야 한다). */
-  | { ok: false; kind: 'auth'; code: string; session?: string }
-  | { ok: false; kind: 'not-allowed' }
-  | { ok: false; kind: 'offline' }
-  /** 자체 한도(공유 50개)·무료 한도 초과(429·503) */
-  | { ok: false; kind: 'limit'; code: string }
-  | { ok: false; kind: 'invalid'; code: string; path?: string }
-  | { ok: false; kind: 'not-found' }
-  | { ok: false; kind: 'server'; status: number };
-export type ApiResult<T> = { ok: true; data: T } | ApiFail;
+  | {
+      ok: false;
+      kind: 'gone';
+      deletedAt: number | null;
+      purgeAt: number | null;
+      revision?: number;
+    };
+
+/** 공통 실패(auth·not-allowed·offline·limit·invalid·not-found·server)와 가즈아 고유 실패(conflict·gone) */
+export type ApiFail = BaseFail | GazuaFail;
+export type ApiResult<T> = BaseResult<T, ApiFail>;
+
+function mapStatus(status: number, body: Record<string, unknown>): GazuaFail | undefined {
+  if (status === 409)
+    return {
+      ok: false,
+      kind: 'conflict',
+      revision: Number(body.revision ?? 0),
+      doc: (body.doc as ProfileDocV1 | undefined) ?? null,
+    };
+  if (status === 410) {
+    return {
+      ok: false,
+      kind: 'gone',
+      deletedAt: typeof body.deletedAt === 'number' ? body.deletedAt : null,
+      purgeAt: typeof body.purgeAt === 'number' ? body.purgeAt : null,
+      ...(typeof body.revision === 'number' && { revision: body.revision }),
+    };
+  }
+  return undefined;
+}
 
 export interface IndexRow {
   profileId: string;
@@ -24,14 +55,6 @@ export interface IndexRow {
   updatedAt: number;
   deletedAt: number | null;
   purgeAt: number | null;
-}
-export interface DeviceSession {
-  id: string;
-  label: string;
-  createdAt: number;
-  lastUsedAt: number;
-  expiresAt: number;
-  current: boolean;
 }
 export interface ShareRow {
   id: string;
@@ -48,12 +71,6 @@ export interface SharedRead {
   snapshot: ShareSnapshot;
   createdAt: number;
   expiresAt: number;
-}
-
-export interface Credentials {
-  /** forceRefresh면 SDK에서 새 ID 토큰을 받는다. 로그인돼 있지 않으면 null. */
-  idToken(forceRefresh?: boolean): Promise<string | null>;
-  sessionId(): Promise<string | null>;
 }
 
 export interface SyncApi {
@@ -74,112 +91,37 @@ export interface SyncApi {
   readShare(capability: string): Promise<ApiResult<SharedRead>>;
 }
 
-const AUTH_CODES = new Set(['missing-token', 'invalid-token', 'no-session', 'session-revoked', 'session-expired', 'reauth-required']);
-
-async function toResult<T>(res: Response): Promise<ApiResult<T>> {
-  let body: Record<string, unknown> = {};
-  try {
-    body = (await res.json()) as Record<string, unknown>;
-  } catch {
-    // 본문이 없거나 JSON이 아니다
-  }
-  if (res.ok) return { ok: true, data: body as T };
-  const code = typeof body.error === 'string' ? body.error : '';
-  switch (res.status) {
-    case 401:
-      return { ok: false, kind: 'auth', code: AUTH_CODES.has(code) ? code : 'invalid-token' };
-    case 403:
-      return code === 'not-allowed' ? { ok: false, kind: 'not-allowed' } : { ok: false, kind: 'server', status: 403 };
-    case 404:
-      return { ok: false, kind: 'not-found' };
-    case 409:
-      return { ok: false, kind: 'conflict', revision: Number(body.revision ?? 0), doc: (body.doc as ProfileDocV1 | undefined) ?? null };
-    case 410:
-      return {
-        ok: false,
-        kind: 'gone',
-        deletedAt: typeof body.deletedAt === 'number' ? body.deletedAt : null,
-        purgeAt: typeof body.purgeAt === 'number' ? body.purgeAt : null,
-        ...(typeof body.revision === 'number' && { revision: body.revision }),
-      };
-    case 413:
-      return { ok: false, kind: 'invalid', code: 'too-large' };
-    case 422:
-      return { ok: false, kind: 'invalid', code: code || 'invalid', ...(typeof body.path === 'string' && { path: body.path }) };
-    case 429:
-    case 503:
-      return { ok: false, kind: 'limit', code: code || String(res.status) };
-    default:
-      return { ok: false, kind: 'server', status: res.status };
-  }
-}
-
-export function createSyncApi(baseUrl: string, creds: Credentials, fetchImpl: typeof fetch = (...a) => fetch(...a)): SyncApi {
-  const base = baseUrl.replace(/\/+$/, '');
-
-  async function send<T>(method: string, path: string, opts: { body?: unknown; auth?: 'session' | 'token' | 'none'; headers?: Record<string, string>; token?: string } = {}): Promise<ApiResult<T>> {
-    const auth = opts.auth ?? 'session';
-    const attempt = async (force: boolean): Promise<ApiResult<T>> => {
-      const headers: Record<string, string> = { ...opts.headers };
-      let used: string | null = null; // 이 요청이 쓴 기기 세션
-      if (auth !== 'none') {
-        // 토큰 갱신은 네트워크를 쓴다(오프라인이면 예외). 예외로 새지 않게 offline 실패로 바꿔 엔진의 백오프·재시도에 맡긴다.
-        let token: string | null;
-        let s: string | null = null;
-        try {
-          token = opts.token ?? (await creds.idToken(force));
-          if (token && auth === 'session') s = await creds.sessionId();
-        } catch {
-          return { ok: false, kind: 'offline' };
-        }
-        if (!token) return { ok: false, kind: 'auth', code: 'missing-token' };
-        headers.Authorization = `Bearer ${token}`;
-        if (auth === 'session') {
-          if (!s) return { ok: false, kind: 'auth', code: 'no-session' };
-          headers['X-Gazua-Session'] = s;
-          used = s;
-        }
-      }
-      if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-      let res: Response;
-      try {
-        res = await fetchImpl(base + path, {
-          method,
-          headers,
-          body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-          cache: 'no-store',
-          credentials: 'omit',
-          referrerPolicy: 'no-referrer',
-        });
-      } catch {
-        return { ok: false, kind: 'offline' };
-      }
-      const r = await toResult<T>(res);
-      if (!r.ok && r.kind === 'auth' && used) return { ...r, session: used };
-      return r;
-    };
-    const first = await attempt(false);
-    // 만료 직전에 받은 ID 토큰이면 한 번만 새로 받아 다시 보낸다
-    if (!first.ok && first.kind === 'auth' && first.code === 'invalid-token' && auth !== 'none' && !opts.token) return attempt(true);
-    return first;
-  }
-
+export function createSyncApi(
+  baseUrl: string,
+  creds: Credentials,
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+): SyncApi {
+  const c = createSessionClient<GazuaFail>({
+    baseUrl,
+    credentials: creds,
+    sessionHeader: SESSION_HEADER,
+    fetch: fetchImpl,
+    mapStatus,
+  });
+  const send = c.send;
   const enc = encodeURIComponent;
   return {
-    createSession: (idToken, label) => send('POST', '/v1/session', { auth: 'token', token: idToken, body: { label } }),
-    endSession: () => send('DELETE', '/v1/session'),
-    listSessions: () => send('GET', '/v1/sessions'),
-    revokeSession: (id) => (id === 'others' ? send('DELETE', '/v1/sessions?others=1') : send('DELETE', `/v1/sessions/${enc(id)}`)),
+    createSession: c.createSession,
+    endSession: c.endSession,
+    listSessions: c.listSessions,
+    revokeSession: c.revokeSession,
     listProfiles: () => send('GET', '/v1/profiles'),
     getProfile: (id) => send('GET', `/v1/profiles/${enc(id)}`),
     putProfile: (id, body) => send('PUT', `/v1/profiles/${enc(id)}`, { body }),
     deleteProfile: (id, body) => send('DELETE', `/v1/profiles/${enc(id)}`, { body }),
-    restoreProfile: (id, opId) => send('POST', `/v1/profiles/${enc(id)}/restore`, { body: { opId } }),
+    restoreProfile: (id, opId) =>
+      send('POST', `/v1/profiles/${enc(id)}/restore`, { body: { opId } }),
     listRevisions: (id) => send('GET', `/v1/profiles/${enc(id)}/revisions`),
     getRevision: (id, rev) => send('GET', `/v1/profiles/${enc(id)}/revisions/${rev}`),
     createShare: (body) => send('POST', '/v1/shares', { body }),
     listShares: () => send('GET', '/v1/shares'),
     revokeShare: (id) => send('DELETE', `/v1/shares/${enc(id)}`),
-    readShare: (capability) => send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),
+    readShare: (capability) =>
+      send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),
   };
 }
