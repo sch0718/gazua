@@ -21,27 +21,56 @@ export function flatten(byLicense, keep = () => true) {
   return out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.version < b.version ? -1 : 1));
 }
 
+// 배포본에 라이선스 파일이 없는 패키지는 upstream 저장소의 원문을 scripts/licenses/에 두고 쓴다.
+export function upstreamFile(name) {
+  if (name === 'firebase' || name.startsWith('@firebase/')) return 'firebase.txt';
+  if (name === 'fancy-canvas') return 'fancy-canvas.txt';
+  return null;
+}
+
 /** 패키지마다 라이선스·NOTICE 파일 본문을 붙여 하나의 텍스트로 만든다.
- * 파일이 없는 패키지(@firebase/* 등)는 다른 패키지의 전문(남의 저작권 줄이 들어 있다)을 빌리지 않고 SPDX 표준 전문과 저작권자를 적는다. */
-export function render(pkgs, readTexts) {
+ * 패키지에 파일이 없으면 readUpstream(scripts/licenses/)의 원문을 쓰고, 그것도 없으면 멈춘다(고지가 빠진 채 배포하지 않는다). */
+export function render(pkgs, readTexts, readUpstream) {
   const head = [
     '가즈아가 쓰는 오픈소스 소프트웨어',
     '',
     '가즈아 자체는 PolyForm Noncommercial 1.0.0을 따릅니다: https://github.com/sch0718/gazua/blob/main/LICENSE',
     '아래는 앱에 포함되거나 함께 쓰이는 패키지와 그 라이선스 전문입니다.',
   ].join('\n');
+  const missing = [];
+  const shown = new Map(); // upstream 파일 → 처음 실은 패키지(같은 원문은 한 번만 싣는다. @firebase/* 44개가 한 파일을 쓴다)
   const blocks = pkgs.map((p) => {
-    const own = readTexts(p.path);
-    const by = p.author ? `, 저작권자: ${p.author}` : '';
-    const body = own.length
-      ? own.map((t) => `--- ${t.file} ---\n${t.text.trim()}`).join('\n\n')
-      : `(패키지에 라이선스 파일이 없어요. ${p.license} 표준 전문을 따라요: https://spdx.org/licenses/${p.license}.html${by})`;
+    let texts = readTexts(p.path);
+    if (!texts.length) {
+      const file = upstreamFile(p.name);
+      const text = file && readUpstream(file);
+      const label = `upstream LICENSE (scripts/licenses/${file})`;
+      if (!text) missing.push(`${p.name}@${p.version}`);
+      else if (shown.has(file)) texts = [{ file: label, text: `(위 ${shown.get(file)}에 실은 원문과 같아요)` }];
+      else {
+        shown.set(file, `${p.name} ${p.version}`);
+        texts = [{ file: label, text }];
+      }
+    }
+    const body = texts.map((t) => `--- ${t.file} ---\n${t.text.trim()}`).join('\n\n');
     return `${'='.repeat(72)}\n${p.name} ${p.version} (${p.license})\n${'='.repeat(72)}\n${body}`;
   });
+  if (missing.length) {
+    throw new Error(`라이선스 원문을 찾지 못한 패키지: ${missing.join(', ')}. upstream LICENSE를 scripts/licenses/에 두고 upstreamFile()에 등록하세요`);
+  }
   return `${head}\n\n${blocks.join('\n\n')}\n`;
 }
 
 // 패키지 루트에 없으면 dist/에서 찾는다(pretendard는 dist/LICENSE.txt에 둔다).
+const LICENSES_DIR = fileURLToPath(new URL('./licenses/', import.meta.url));
+const readUpstream = (file) => {
+  try {
+    return readFileSync(join(LICENSES_DIR, file), 'utf8');
+  } catch {
+    return null;
+  }
+};
+
 function readTexts(dir) {
   for (const d of [dir, join(dir, 'dist')]) {
     try {
@@ -69,7 +98,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const pkgs = [...prod, ...extra].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.version < b.version ? -1 : 1));
   mkdirSync(dirname(OUTPUT), { recursive: true });
   const tmp = `${OUTPUT}.tmp`;
-  writeFileSync(tmp, render(pkgs, readTexts));
+  writeFileSync(tmp, render(pkgs, readTexts, readUpstream));
   renameSync(tmp, OUTPUT);
   console.log(`licenses.txt: 패키지 ${pkgs.length}개`);
 }
