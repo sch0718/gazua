@@ -1,9 +1,9 @@
 // 프로필 API: expectedRevision 조건부 갱신, opId 재시도, tombstone 삭제와 30일 복구, 리비전 보존(현재 + 과거 10개).
 // 비교·갱신·이력 기록은 D1 batch(한 트랜잭션)로 묶고, 뒤 문장은 `last_op_id = 이 작업`일 때만 적용한다.
 import { checkProfileDoc } from '../../src/lib/sync/dto';
-import type { D1PreparedStatement } from './db';
+import type { D1PreparedStatement } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
-import { HttpError } from './http';
+import { HttpError } from '@sch0718/firebase-session/worker';
 import type { AuthContext } from './session';
 
 export const PAST_REVISIONS = 10;

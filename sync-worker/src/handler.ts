@@ -1,10 +1,32 @@
 // 개인 동기화 Worker의 라우터. 증권사 호출은 없다(프록시와 분리). 로그에는 메서드·경로 패턴·상태·시간만 남긴다.
-import { CertsUnavailableError } from './auth/certs';
-import { corsHeaders, matchOrigin, preflight } from './cors';
+import {
+  CertsUnavailableError,
+  corsHeaders,
+  errorBody,
+  HttpError,
+  json,
+  matchOrigin,
+  preflight,
+  readJson,
+} from '@sch0718/firebase-session/worker';
+import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import type { SyncDeps, SyncEnv } from './env';
-import { errorBody, HttpError, json, readJson } from './http';
-import { deleteProfile, getProfile, getRevision, listProfiles, listRevisions, putProfile, restoreProfile } from './profiles';
-import { authenticate, createSession, listSessions, revokeSessions, type AuthContext } from './session';
+import {
+  deleteProfile,
+  getProfile,
+  getRevision,
+  listProfiles,
+  listRevisions,
+  putProfile,
+  restoreProfile,
+} from './profiles';
+import {
+  authenticate,
+  createSession,
+  listSessions,
+  revokeSessions,
+  type AuthContext,
+} from './session';
 import { createShare, listShares, readShare, revokeShare } from './shares';
 
 type Handler = (a: { req: Request; env: SyncEnv; deps: SyncDeps; params: string[]; url: URL }) => Promise<Response>;
@@ -19,18 +41,18 @@ const authed =
 
 const ROUTES: [string, RegExp, string, Handler][] = [
   ['POST', /^\/v1\/session$/, '/v1/session', async ({ req, env, deps }) => ok(await createSession(req, env, deps, await readJson(req)))],
-  ['DELETE', /^\/v1\/session$/, '/v1/session', authed(async ({ env, deps, ctx }) => ok({ revoked: await revokeSessions(env, ctx, deps.now(), 'current') }))],
-  ['GET', /^\/v1\/sessions$/, '/v1/sessions', authed(async ({ env, deps, ctx }) => ok({ sessions: await listSessions(env, ctx, deps.now()) }))],
+  ['DELETE', /^\/v1\/session$/, '/v1/session', authed(async ({ env, deps, ctx }) => ok({ revoked: await revokeSessions(env, deps, ctx, 'current') }))],
+  ['GET', /^\/v1\/sessions$/, '/v1/sessions', authed(async ({ env, deps, ctx }) => ok({ sessions: await listSessions(env, deps, ctx) }))],
   [
     'DELETE',
     /^\/v1\/sessions$/,
     '/v1/sessions',
     authed(async ({ env, deps, ctx, url }) => {
       if (url.searchParams.get('others') !== '1') throw new HttpError(400, 'bad-request');
-      return ok({ revoked: await revokeSessions(env, ctx, deps.now(), 'others') });
+      return ok({ revoked: await revokeSessions(env, deps, ctx, 'others') });
     }),
   ],
-  ['DELETE', /^\/v1\/sessions\/([^/]+)$/, '/v1/sessions/:id', authed(async ({ env, deps, ctx, params }) => ok({ revoked: await revokeSessions(env, ctx, deps.now(), { id: params[0] }) }))],
+  ['DELETE', /^\/v1\/sessions\/([^/]+)$/, '/v1/sessions/:id', authed(async ({ env, deps, ctx, params }) => ok({ revoked: await revokeSessions(env, deps, ctx, { id: params[0] }) }))],
   ['GET', /^\/v1\/profiles$/, '/v1/profiles', authed(async ({ env, ctx }) => ok({ profiles: await listProfiles(env, ctx) }))],
   ['GET', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ env, ctx, params }) => ok(await getProfile(env, ctx, params[0])))],
   ['PUT', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ req, env, deps, ctx, params }) => ok(await putProfile(env, ctx, params[0], await readJson(req), deps.now())))],
@@ -69,7 +91,7 @@ export async function handle(req: Request, env: SyncEnv, deps: SyncDeps): Promis
   if (!origin) {
     res = json(403, errorBody('origin'));
   } else if (req.method === 'OPTIONS') {
-    res = preflight(origin);
+    res = preflight(origin, { methods: ALLOWED_METHODS, headers: ALLOWED_HEADERS });
     pattern = 'preflight';
   } else {
     const r = route(req.method, url.pathname);

@@ -1,4 +1,4 @@
-import { googleCerts } from './auth/certs';
+import { googleCerts } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from './env';
 import { handle } from './handler';
 import { purge } from './purge';

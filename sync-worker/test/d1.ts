@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { D1Database, D1PreparedStatement, D1Result } from '../src/db';
+import type { D1Database, D1PreparedStatement, D1Result } from '@sch0718/firebase-session/worker';
 
 const MIGRATIONS = join(import.meta.dirname, '..', 'migrations');
 const RETURNS_ROWS = /^\s*(select|with)\b|\breturning\b/i;
