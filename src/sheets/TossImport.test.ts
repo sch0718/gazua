@@ -6,7 +6,7 @@ import { ApiError } from '../lib/providers/errors';
 import type { GroupImportSource, ImportStock } from '../lib/providers/types';
 import type { App } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
-import { currentSnackbar, dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import TossImport from './TossImport.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 

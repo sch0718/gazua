@@ -6,7 +6,7 @@
   import type { SimFailure, SimFailureReason } from '../../sim/loadSimData';
   import type { Issue } from '../../sim/validate';
   import { connectionIssue, META_ERROR } from '../compare/loadIssue';
-  import Banner from '../components/Banner.svelte';
+  import { Banner } from '@sch0718/ui-svelte';
   import ResultView from './ResultView.svelte';
   import type { RunState } from './runController.svelte';
 

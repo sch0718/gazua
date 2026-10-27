@@ -2,7 +2,7 @@
 // 종목 단위 오류(upstream 등)는 그 행에만 보이고, 연결 수준 오류만 화면 위쪽에 알린다.
 import { ApiError, describeError, type ErrorActionTarget, type ErrorCode } from '../../providers/errors';
 import type { App } from '../../state/app.svelte';
-import { showSnackbar } from '../components/snackbarStore.svelte';
+import { showSnackbar } from '@sch0718/ui-svelte';
 import { kstHHMM } from './compareText';
 
 /** 종목 정보(메타)를 받지 못했을 때의 행 문구. 오류 코드를 모를 때 연결 문구의 fallback으로도 쓴다. */

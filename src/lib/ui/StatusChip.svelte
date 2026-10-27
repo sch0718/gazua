@@ -2,7 +2,7 @@
   import type { DaySession } from '../market/sessions';
   import { sessionLabelAt } from '../market/tradable';
   import { kstMinuteOfDay } from '../time/kst';
-  import Sheet from './components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
 
   let { sessions, isOpenToday, now }: { sessions: DaySession[]; isOpenToday: boolean; now: number } = $props();
 

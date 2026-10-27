@@ -2,8 +2,8 @@
   import { PERIOD_COUNTS } from '../../market/periods';
   import type { Venue, VenueMode } from '../../market/tradable';
   import type { Period, PeriodUnit } from '../../state/schema';
-  import Chip from '../components/Chip.svelte';
-  import Segmented from '../components/Segmented.svelte';
+  import { Chip } from '@sch0718/ui-svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import { effectiveVenueMode } from './venue';
 
   // 컨트롤 줄(스펙 7.2-5): 기간 단위 + 개수 칩, 지표 칩, 거래소 세그먼트.

@@ -4,7 +4,7 @@
   import { runDiagnostics, type DiagStep } from '../../providers/diagnostics';
   import { describeError } from '../../providers/errors';
   import type { App } from '../../state/app.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
 
   let {
     app,

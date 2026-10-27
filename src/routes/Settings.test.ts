@@ -6,7 +6,7 @@ import { makeTestApp } from '../sheets/testApp';
 import type { App } from '../lib/state/app.svelte';
 import type { Settings as SettingsT } from '../lib/state/schema';
 import { kstEpoch } from '../lib/time/kst';
-import { dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import Settings from './Settings.svelte';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');

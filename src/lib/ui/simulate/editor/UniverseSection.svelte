@@ -6,8 +6,8 @@
   import { resolveSymbols } from '../../../sim/validate';
   import type { App } from '../../../state/app.svelte';
   import AddStockSheet from '../../../../sheets/AddStockSheet.svelte';
-  import Chip from '../../components/Chip.svelte';
-  import Segmented from '../../components/Segmented.svelte';
+  import { Chip } from '@sch0718/ui-svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
 
   let {
     app,

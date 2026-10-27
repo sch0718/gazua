@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Group, WatchItem, Watchlists } from '../lib/state/schema';
 import { addItem } from '../lib/state/watchlist';
-import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '@sch0718/ui-svelte';
 import { FULL_MESSAGE, addToGroup, deleteGroupWithUndo, moveToGroup, removeWithUndo, type WatchlistStore } from './groupActions';
 
 type Slot = WatchItem['colorSlot'];

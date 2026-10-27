@@ -1,7 +1,7 @@
 <script lang="ts">
   // 조건 하나: 이름 · 켜기 토글 · 한 줄 설명 · (아래에, 있으면) 숫자 칸. 꺼도 칸은 흐리게 보이고 계속 고칠 수 있다.
   import type { Snippet } from 'svelte';
-  import Toggle from '../components/Toggle.svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
 
   let {
     label,

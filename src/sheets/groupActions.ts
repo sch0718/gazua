@@ -11,7 +11,7 @@ import {
   restoreItem,
   type RemovedItem,
 } from '../lib/state/watchlist';
-import { showSnackbar, type SnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
+import { showSnackbar, type SnackbarAction } from '@sch0718/ui-svelte';
 
 /** App이 이 모양을 만족한다. */
 export interface WatchlistStore {

@@ -11,7 +11,7 @@ import type { Selection } from '../../screen/select';
 import { NOW } from '../../screen/testData';
 import type { SelectionCriteria } from '../../screen/types';
 import type { App } from '../../state/app.svelte';
-import { dismissSnackbar } from '../components/snackbarStore.svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import CriteriaEditor from './CriteriaEditor.svelte';
 
 const RANGE = { from: '2024-10-16', to: '2026-10-15' };

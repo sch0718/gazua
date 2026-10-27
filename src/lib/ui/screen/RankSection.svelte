@@ -4,7 +4,7 @@
   import { rankFinOf } from '../../screen/fin';
   import { rankFlowOf } from '../../screen/precompute';
   import type { FinMetric, FlowWho, SelectionCriteria } from '../../screen/types';
-  import Segmented from '../components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';
   import { FIN_METRIC_ORDER, FIN_RANK_LABEL, FLOW_WHO_LABEL, FLOW_WHO_ORDER, RANK_LABEL, SERIES_LABEL } from './screenText';
 

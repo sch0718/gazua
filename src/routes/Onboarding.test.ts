@@ -7,7 +7,7 @@ import type { App } from '../lib/state/app.svelte';
 import { DEMO_BANNER } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
 import { EXAMPLE_SYMBOLS } from '../lib/ui/compare/compareView';
-import { dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import { makeTestApp } from '../sheets/testApp';
 import Onboarding from './Onboarding.svelte';
 

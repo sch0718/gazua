@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
-import SnackbarHost from '../components/SnackbarHost.svelte';
-import { dismissSnackbar } from '../components/snackbarStore.svelte';
+import { SnackbarHost } from '@sch0718/ui-svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import { openMarketData, type ImportDeps } from '../../marketData/store';
 import DataTools from './DataTools.svelte';
 

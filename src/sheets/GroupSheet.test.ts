@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { App } from '../lib/state/app.svelte';
 import type { Group } from '../lib/state/schema';
 import { kstEpoch } from '../lib/time/kst';
-import SnackbarHost from '../lib/ui/components/SnackbarHost.svelte';
-import { dismissSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { SnackbarHost } from '@sch0718/ui-svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import GroupSheet from './GroupSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 

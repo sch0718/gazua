@@ -2,7 +2,7 @@
   // 시장별 표(스펙 7.4-4): KOSPI 주식 · KOSDAQ 주식 · ETF의 ① 총수익률, 최대 낙폭, 평균 선정 수, 지수 대비.
   // 후보 범위에 원래 없던 시장도 비교로 계산하므로 원래 범위에는 표시를 단다.
   import type { ValidationResult } from '../../screen/runValidation';
-  import Badge from '../components/Badge.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
   import { fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';
   import { trendPp, vsIndex } from './screenText';
 

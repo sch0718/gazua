@@ -6,7 +6,7 @@ import { MAX_CRITERIA, newCriteria } from '../../screen/defaults';
 import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
 import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
-import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import CriteriaList from './CriteriaList.svelte';
 import type { LastResult } from './screenText';
 

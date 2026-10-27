@@ -8,7 +8,7 @@
   import { periodRanges, viewOf } from '../lib/perf/view';
   import type { App } from '../lib/state/app.svelte';
   import { kstHHMM } from '../lib/ui/compare/compareText';
-  import Badge from '../lib/ui/components/Badge.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
   import { fmtWon } from '../lib/ui/format';
   import Layout from '../lib/ui/Layout.svelte';
   import ContributionTable from '../lib/ui/perf/ContributionTable.svelte';

@@ -14,11 +14,12 @@
     "smoke": "node test/smoke.ts"
   },
   "dependencies": {
-    "jose": "^6.2.13"
+    "@sch0718/firebase-session": "0.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^22.20.5",
+    "jose": "^6.2.13",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
     "wrangler": "^4.149.0"

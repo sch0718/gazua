@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { newStrategy } from '../sim/defaults';
 import type { SyncController } from '../sync/controller.svelte';
-import { currentSnackbar, dismissSnackbar } from '../ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import ShareDialog from './ShareDialog.svelte';
 import { groupSnapshot, strategySnapshot } from './snapshot';
 import type { ShareRequest } from './shareStore.svelte';

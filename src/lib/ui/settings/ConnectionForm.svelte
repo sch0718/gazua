@@ -10,7 +10,7 @@
   import { untrack } from 'svelte';
   import { KeyLockedElsewhereError, StoredKeysNotRemovedError, type App } from '../../state/app.svelte';
   import { trimCredential, type Secrets } from '../../state/secrets';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { KEY_FIELDS, maskTail, mergeKeys, normalizeProxyUrl } from './connection';
 
   let {

@@ -5,7 +5,7 @@ import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import ConnectionForm, { KEY_LOCKED_ELSEWHERE, KEYS_NOT_REMOVED_SAVE } from './ConnectionForm.svelte';
 import { createApp } from '../../state/app.svelte';
 import { DEFAULT_SETTINGS } from '../../state/schema';

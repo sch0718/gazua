@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
-import { authHelperPlugin } from './auth-helper.config';
-import { devCspPlugin, firebaseCspPlugin, kakaoCspPlugin } from './csp.config';
+import { firebaseAuthHelper, firebaseCsp } from '@sch0718/firebase-session/vite';
+import { devCsp } from '@sch0718/vite-app';
+import { kakaoCspPlugin } from './kakao-csp.config';
 import { pwaOptions } from './pwa.config';
 
 export default defineConfig({
   // 커스텀 도메인(gazua.sch0718.dev)의 루트에서 서비스한다. GitHub Pages Settings › Custom domain과 함께 바꾼다.
   base: '/',
-  plugins: [svelte(), VitePWA(pwaOptions), devCspPlugin, firebaseCspPlugin(), kakaoCspPlugin(), authHelperPlugin()],
+  // 개발 서버만 로컬 http 프록시(Node 컨테이너·wrangler dev)를 connect-src에 더한다. 연결 폼의 normalizeProxyUrl도 같은 규칙이다.
+  plugins: [svelte(), VitePWA(pwaOptions), devCsp(), firebaseCsp(), kakaoCspPlugin(), firebaseAuthHelper()],
 });

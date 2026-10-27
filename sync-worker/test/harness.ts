@@ -1,6 +1,6 @@
 // 테스트 하네스: 지어낸 RSA 키로 Firebase 모양 토큰을 만들고, 테스트용 D1 위에서 핸들러를 부른다.
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import type { CertSource } from '../src/auth/certs';
+import type { CertSource } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from '../src/env';
 import { handle } from '../src/handler';
 import { createTestD1, type TestD1 } from './d1';

@@ -12,7 +12,7 @@ import { validationResult } from '../lib/ui/screen/resultFixture';
 import { simulate } from '../lib/sim/simulate';
 import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
 import { kstEpoch } from '../lib/time/kst';
-import { dismissSnackbar, currentSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+import { dismissSnackbar, currentSnackbar } from '@sch0718/ui-svelte';
 import Simulate from './Simulate.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());

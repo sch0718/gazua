@@ -6,7 +6,7 @@ import type { UniverseItem } from '../../data/universe';
 import { BASKET_CAP_MESSAGE, MAX_BASKETS, newBasket, type Basket } from '../../screen/baskets';
 import { NOW } from '../../screen/testData';
 import type { App } from '../../state/app.svelte';
-import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '@sch0718/ui-svelte';
 import BasketSheet from './BasketSheet.svelte';
 
 const ITEMS = [

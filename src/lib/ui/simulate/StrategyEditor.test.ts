@@ -9,7 +9,7 @@ import type { Strategy } from '../../sim/types';
 import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
 import { makeTestApp, itemsOf } from '../../../sheets/testApp';
-import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import StrategyEditor from './StrategyEditor.svelte';
 import editorSectionSource from './editor/EditorSection.svelte?raw';
 import periodSource from './editor/PeriodSection.svelte?raw';

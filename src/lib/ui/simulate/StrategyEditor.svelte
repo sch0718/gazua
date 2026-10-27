@@ -9,7 +9,7 @@
   import { strategyIssues, type Issue } from '../../sim/validate';
   import type { App } from '../../state/app.svelte';
   import { sharedUniverse } from '../../../sheets/universeSource';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import BenchmarkSection from './editor/BenchmarkSection.svelte';
   import CostSection from './editor/CostSection.svelte';
   import EditorSection from './editor/EditorSection.svelte';

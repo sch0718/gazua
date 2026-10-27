@@ -7,8 +7,8 @@
   import type { Period } from '../lib/state/schema';
   import { MAX_ITEMS } from '../lib/state/watchlist';
   import { formatMetricValue } from '../lib/ui/compare/compareText';
-  import Sheet from '../lib/ui/components/Sheet.svelte';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { planGroup, withNewGroup } from './groupImport';
   import { sharedUniverse } from './universeSource';
 

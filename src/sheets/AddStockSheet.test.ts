@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../lib/data/universe';
 import type { App } from '../lib/state/app.svelte';
 import { kstEpoch } from '../lib/time/kst';
-import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '../lib/ui/components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar, runSnackbarAction } from '@sch0718/ui-svelte';
 import AddStockSheet from './AddStockSheet.svelte';
 import { itemsOf, makeTestApp } from './testApp';
 

@@ -4,7 +4,7 @@
   import type { App } from '../../state/app.svelte';
   import type { DeviceSession, IndexRow, ShareRow } from '../../sync/api';
   import type { SyncController } from '../../sync/controller.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
 
   let { app, sync, confirmFn = (m: string) => window.confirm(m) }: { app: App; sync: SyncController; confirmFn?: (m: string) => boolean } = $props();
 

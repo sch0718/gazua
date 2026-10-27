@@ -3,7 +3,7 @@
   // 좁은 화면은 종목·차이·대조 배지만 보이고 나머지 값은 펼친 줄에 둔다.
   import type { Reconciliation } from '../../perf/reconcile';
   import type { SymbolRow } from '../../perf/types';
-  import Badge from '../components/Badge.svelte';
+  import { Badge } from '@sch0718/ui-svelte';
   import { fmtWon } from '../format';
   import { dotDate } from '../simulate/simText';
   import { irrText, RECONCILE_LABEL, signClass, signedWon } from './perfText';

@@ -1,7 +1,7 @@
 <script lang="ts">
   // 분할 매수: 산 뒤 일정 %씩 더 떨어질 때마다 추가로 산다.
   import type { Strategy } from '../../../sim/types';
-  import Toggle from '../../components/Toggle.svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
   import NumberField from './NumberField.svelte';
 
   let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();

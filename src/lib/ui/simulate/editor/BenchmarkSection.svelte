@@ -4,7 +4,7 @@
   import type { Strategy } from '../../../sim/types';
   import type { App } from '../../../state/app.svelte';
   import AddStockSheet from '../../../../sheets/AddStockSheet.svelte';
-  import Segmented from '../../components/Segmented.svelte';
+  import { Segmented } from '@sch0718/ui-svelte';
 
   let {
     app,

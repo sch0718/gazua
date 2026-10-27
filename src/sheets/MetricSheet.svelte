@@ -13,7 +13,7 @@
 <script lang="ts">
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { MetricId } from '../lib/state/schema';
-  import Sheet from '../lib/ui/components/Sheet.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
 
   // 지표 선택 시트(스펙 7.3, 9-5·6): 고를 수 없는 지표는 비활성 + 이유, 고르면 바로 반영하고 닫는다.
   let {

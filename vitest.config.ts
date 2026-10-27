@@ -7,6 +7,6 @@ export default defineConfig({
   // Svelte 5 component tests must load Svelte's client build, not the SSR one.
   resolve: { conditions: ['browser'] },
   test: {
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'pwa.config.test.ts', 'csp.config.test.ts', 'auth-helper.config.test.ts'],
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'pwa.config.test.ts', 'kakao-csp.config.test.ts'],
   },
 });

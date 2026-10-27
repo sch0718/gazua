@@ -2,7 +2,7 @@
 // 만료 기본 7일·최대 30일, 언제든 철회, 원본 프로필이 삭제되면 읽을 수 없다. 응답은 캐시하지 않는다.
 import { checkShareSnapshot, SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS } from '../../src/lib/share/snapshot';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
-import { base64url, HttpError, isCapability, sha256Hex } from './http';
+import { base64url, HttpError, isCapability, sha256Hex } from '@sch0718/firebase-session/worker';
 import { checkId } from './profiles';
 import type { AuthContext } from './session';
 

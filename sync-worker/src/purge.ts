@@ -1,5 +1,6 @@
 // 하루 한 번 Cron: 삭제 30일 지난 프로필의 본문·이력·공유·색인, 오래된 공유·세션을 지운다.
 // 무료 쓰기 한도를 아끼려고 한 번에 지우는 양을 제한한다. 남은 것은 다음 날 이어서 지운다.
+import { purgeSessions } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
 
 export const PURGE_PROFILES_PER_RUN = 50;
@@ -32,11 +33,7 @@ export async function purge(env: SyncEnv, now: number): Promise<{ profiles: numb
     )
     .bind(old, old, PURGE_ROWS_PER_RUN)
     .run();
-  const sessions = await db
-    .prepare(
-      `DELETE FROM sessions WHERE id_hash IN (SELECT id_hash FROM sessions WHERE last_used_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?) LIMIT ?)`,
-    )
-    .bind(old - 30 * DAY, old, PURGE_ROWS_PER_RUN)
-    .run();
-  return { profiles: due.length, shares: shares.meta.changes, sessions: sessions.meta.changes };
+  // 세션은 패키지가 소유한 테이블이다. 같은 규칙(만료·철회 후 30일)으로 지운다.
+  const sessions = await purgeSessions(db, now, PURGE_ROWS_PER_RUN);
+  return { profiles: due.length, shares: shares.meta.changes, sessions };
 }

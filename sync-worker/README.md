@@ -65,7 +65,7 @@ corepack pnpm --filter sync-worker smoke    # 실제 workerd + 로컬 D1(wrangle
 4. 프로젝트 설정 › 내 앱 › 웹 앱을 추가하고 `apiKey`, `projectId`, `appId`를 확인해요. Firebase Hosting은 켜지 않아도 돼요. Firestore는 만들지 않아요.
 5. [Google Cloud 콘솔](https://console.cloud.google.com/apis/credentials) › 같은 프로젝트 › OAuth 2.0 클라이언트 ID › `Web client (auto created by Google Service)`의 **승인된 리디렉션 URI**에 `https://gazua.sch0718.dev/__/auth/handler`를 더해요.
 
-`authDomain`은 Firebase가 보여 주는 `<프로젝트>.firebaseapp.com`이 아니라 **앱 도메인(`gazua.sch0718.dev`)**으로 둬요. firebaseapp.com을 쓰면 로그인 결과가 다른 출처의 저장소를 거치는데, 서드파티 저장소를 막는 브라우저(iOS Safari·홈 화면 PWA, 저장소를 나누는 Chromium 계열)에서는 리다이렉트로 돌아와도 로그인이 되지 않아요(2026-10-26 확인). 앱 도메인으로 두면 빌드가 Firebase 로그인 도우미(`/__/auth/handler`·`iframe` 등 5개)를 `<프로젝트>.firebaseapp.com`에서 받아 `dist/__/auth/`에 넣어요(`auth-helper.config.ts`). Firebase 문서 「Best practices for using signInWithRedirect on browsers that block third-party storage」의 3번 방법이에요.
+`authDomain`은 Firebase가 보여 주는 `<프로젝트>.firebaseapp.com`이 아니라 **앱 도메인(`gazua.sch0718.dev`)**으로 둬요. firebaseapp.com을 쓰면 로그인 결과가 다른 출처의 저장소를 거치는데, 서드파티 저장소를 막는 브라우저(iOS Safari·홈 화면 PWA, 저장소를 나누는 Chromium 계열)에서는 리다이렉트로 돌아와도 로그인이 되지 않아요(2026-10-26 확인). 앱 도메인으로 두면 빌드가 Firebase 로그인 도우미(`/__/auth/handler`·`iframe` 등 5개)를 `<프로젝트>.firebaseapp.com`에서 받아 `dist/__/auth/`에 넣어요(`vite.config.ts`가 쓰는 `@sch0718/firebase-session/vite`의 `firebaseAuthHelper()` 플러그인). Firebase 문서 「Best practices for using signInWithRedirect on browsers that block third-party storage」의 3번 방법이에요.
 
 ### 2. Cloudflare D1과 Worker
 

@@ -25,9 +25,9 @@
   // 키 보호(스펙 10.2): `키를 암호로 잠그기` 토글, 이 기기에서 키 삭제, 토스 키 잠금 권장.
   // 켜기 = 암호 두 번 → setSecrets(키, 암호). 끄기 = 현재 암호 확인 → disableKeyLock().
   import type { App } from '../../state/app.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import { showSnackbar } from '../components/snackbarStore.svelte';
-  import Toggle from '../components/Toggle.svelte';
+  import { Sheet } from '@sch0718/ui-svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
+  import { Toggle } from '@sch0718/ui-svelte';
 
   let {
     app,

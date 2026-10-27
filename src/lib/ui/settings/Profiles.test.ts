@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
-import { dismissSnackbar } from '../components/snackbarStore.svelte';
+import { dismissSnackbar } from '@sch0718/ui-svelte';
 import Profiles from './Profiles.svelte';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');

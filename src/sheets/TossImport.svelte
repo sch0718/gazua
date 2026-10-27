@@ -4,7 +4,7 @@
   import type { App } from '../lib/state/app.svelte';
   import { MAX_ITEMS } from '../lib/state/watchlist';
   import { errorText } from '../lib/ui/compare/compareController.svelte';
-  import { showSnackbar } from '../lib/ui/components/snackbarStore.svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
   import { planGroup, withNewGroup, type GroupPlan } from './groupImport';
   import { sharedUniverse } from './universeSource';
 

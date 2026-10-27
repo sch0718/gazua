@@ -6,7 +6,7 @@ import type { App } from '../../state/app.svelte';
 import type { Settings } from '../../state/schema';
 import type { Secrets } from '../../state/secrets';
 import { kstEpoch } from '../../time/kst';
-import { currentSnackbar, dismissSnackbar } from '../components/snackbarStore.svelte';
+import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import KeyLock, {
   KEY_LOCK_NOT_CLEARED,
   KEY_LOCK_NOT_SAVED,

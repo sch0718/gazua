@@ -1,5 +1,4 @@
-import type { D1Database } from './db';
-import type { CertSource } from './auth/certs';
+import type { CertSource, D1Database } from '@sch0718/firebase-session/worker';
 
 export interface SyncEnv {
   DB: D1Database;
