@@ -97,8 +97,19 @@ GitHub 저장소 Settings › Secrets and variables › Actions › **Variables*
 | `VITE_FIREBASE_AUTH_DOMAIN` | 앱 도메인 `gazua.sch0718.dev`(위 1단계 설명). 로컬 개발 서버는 도우미를 서빙하지 않으니 `.env.local`에는 `<프로젝트>.firebaseapp.com`을 넣어요 |
 | `VITE_FIREBASE_PROJECT_ID` | `projectId` |
 | `VITE_FIREBASE_APP_ID` | `appId` |
+| `VITE_KAKAO_JS_KEY` | (선택) 카카오톡 공유용 Kakao Developers 앱의 JavaScript 키. 아래 「카카오톡으로 보내기」 참고 |
 
 하나라도 비면 동기화·공유 기능이 꺼진 채로 빌드돼요. 지금과 똑같이 동작해요. 값이 있으면 빌드가 `index.html` CSP에 `script-src https://apis.google.com`과 `frame-src https://<authDomain>`을 더해요. `authDomain`이 firebaseapp.com·web.app이 아니면 빌드가 로그인 도우미를 받아 오고, 받지 못하면 빌드가 실패해요. 로컬 개발은 저장소 루트의 `.env.local`에 같은 값을 넣어요(`.env.example` 참고).
+
+### 카카오톡으로 보내기(선택)
+
+공유 링크를 만든 뒤 「카카오톡으로 보내기」 단추가 보이게 하려면 [Kakao Developers](https://developers.kakao.com)에서 이렇게 해요.
+
+1. 내 애플리케이션 › 애플리케이션 추가하기로 앱을 만들고, 앱 키의 **JavaScript 키**를 확인해요.
+2. 플랫폼 › Web › 사이트 도메인에 `https://gazua.sch0718.dev`와 로컬 개발 주소(`http://localhost:5173`)를 넣어요. 메시지의 링크도 이 도메인이어야 열려요.
+3. 위 Variables에 `VITE_KAKAO_JS_KEY`로 키를 넣고 다시 배포해요. 로컬은 `.env.local`에 넣어요.
+
+키가 없거나 SDK(`t1.kakaocdn.net`)를 받지 못하면 단추가 보이지 않고 링크 복사는 그대로예요. 키가 있으면 빌드가 CSP `script-src`에 `https://t1.kakaocdn.net`을 더해요. 메시지에는 공유 링크와 미리 보기에 보이는 요약(제목, 종목 「이름(코드)」 등)만 들어가요. 공유 스냅샷 원문이나 키는 들어가지 않아요.
 
 ### 4. 배포 뒤 확인
 

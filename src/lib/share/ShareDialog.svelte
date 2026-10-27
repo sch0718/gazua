@@ -8,6 +8,8 @@
   import type { UniverseItem } from '../data/universe';
   import { sharedUniverse } from '../../sheets/universeSource';
   import { snapshotLines, symbolNames, type SymbolNames } from './shareText';
+  import { kakaoLinkFits, preloadKakao, sendKakao, type KakaoShareConfig } from '@sch0718/kakao-share';
+  import { kakaoCard, readKakaoConfig } from './kakao';
 
   let {
     request,
@@ -15,12 +17,15 @@
     onclose,
     copy = (text: string) => navigator.clipboard.writeText(text),
     universe = sharedUniverse,
+    kakao = readKakaoConfig(),
   }: {
     request: ShareRequest | null;
     sync: SyncController;
     onclose: () => void;
     copy?: (text: string) => Promise<void>;
     universe?: () => Promise<UniverseItem[]>;
+    /** 카카오 JS 키(빌드 설정). 없으면 카카오톡 단추를 숨기고 링크 복사만 둔다. */
+    kakao?: KakaoShareConfig | null;
   } = $props();
 
   // 종목 이름은 앱의 종목 목록에서 찾는다(열었을 때만 받는다). 받지 못하면 코드만 보인다.
@@ -43,7 +48,8 @@
   const uid = Math.random().toString(36).slice(2, 8);
   let ttl = $state(SHARE_TTL_DEFAULT_DAYS);
   let hideCapital = $state(true);
-  let link = $state<{ url: string; expiresAt: number } | null>(null);
+  // 링크와 함께 그 링크를 만든 스냅샷을 둔다. 카카오톡 메시지는 이 스냅샷의 요약만 쓴다.
+  let link = $state<{ url: string; expiresAt: number; snapshot: ShareSnapshot } | null>(null);
   let failed = $state<string | null>(null);
 
   const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준' } as const;
@@ -57,9 +63,10 @@
     const mine = ++attempt;
     failed = null;
     sync.clearError();
-    const made = await sync.createShare(request.profileId, request.kind, snapshot, ttl);
+    const sent = snapshot;
+    const made = await sync.createShare(request.profileId, request.kind, sent, ttl);
     if (mine !== attempt) return;
-    link = made;
+    link = made && { ...made, snapshot: sent };
     if (!link) failed = sync.error ?? '링크를 만들지 못했어요';
   }
   $effect(() => {
@@ -77,6 +84,35 @@
     } catch {
       showSnackbar('복사하지 못했어요. 링크를 길게 눌러 복사해 주세요');
     }
+  }
+
+  // 링크가 생기면 SDK를 미리 받는다. 클릭 안에서 기다림 없이 보내야 PC 팝업 차단을 피한다.
+  // 받지 못하면 단추를 숨기고 링크 복사만 남긴다.
+  let kakaoState = $state<'off' | 'loading' | 'ready'>('off');
+  const kakaoUrl = $derived(link && kakao && kakaoLinkFits(link.url, kakao) ? link.url : null);
+  $effect(() => {
+    if (!kakaoUrl || !kakao) {
+      kakaoState = 'off';
+      return;
+    }
+    let alive = true;
+    kakaoState = 'loading';
+    preloadKakao(kakao).then(
+      () => {
+        if (alive) kakaoState = 'ready';
+      },
+      () => {
+        if (alive) kakaoState = 'off';
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  });
+
+  function sendToKakao() {
+    if (!link || !kakao) return;
+    if (!sendKakao(kakaoCard(link.snapshot, link.url, names), kakao)) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
   }
 
   function close() {
@@ -98,6 +134,11 @@
         <p class="lead">링크를 가진 사람은 누구나 {fmtDate(link.expiresAt)}까지 읽을 수 있어요.</p>
         <input class="url" readonly value={link.url} aria-label="공유 링크" onfocus={(e) => e.currentTarget.select()} />
         <button type="button" class="primary" onclick={copyLink}>링크 복사</button>
+        {#if kakaoState !== 'off'}
+          <button type="button" class="kakao" disabled={kakaoState !== 'ready'} onclick={sendToKakao}>
+            {kakaoState === 'ready' ? '카카오톡으로 보내기' : '카카오톡 준비 중…'}
+          </button>
+        {/if}
         <p class="hint">설정 › 동기화 › 내 공유에서 언제든 철회할 수 있어요. 이미 본 내용·캡처는 지울 수 없어요.</p>
       {:else}
         <p class="lead">아래 내용만 보내요. 프로필 이름·키·계좌·프록시 주소는 넣지 않아요.</p>
@@ -207,6 +248,15 @@
     color: var(--on-accent, #fff);
     font-weight: 700;
   }
+  .kakao {
+    min-height: var(--touch);
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--t1);
+    font-weight: 700;
+  }
+  .kakao:disabled,
   .primary:disabled {
     opacity: 0.5;
   }

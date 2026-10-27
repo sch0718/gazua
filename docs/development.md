@@ -100,7 +100,7 @@ GitHub Pages로 배포해요. 워크플로는 [.github/workflows/deploy.yml](../
 
 GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크플로를 자동으로 끄니, 유니버스 갱신이 멈췄다면 Actions 탭에서 워크플로를 다시 켜거나 수동으로 실행해요.
 
-**공용 패키지 접근 권한.** 공용 패키지마다 GitHub 패키지 설정 › **Manage Actions access** › Add repository로 `sch0718/gazua`에 **Read** 권한을 줘요(지금은 `@sch0718/seen-store`). 빠지면 CI·배포의 `pnpm install`이 403으로 실패해요. 워크플로는 설치하는 job에 `packages: read` 권한을 두고, 러너의 `~/.npmrc`에 인증 줄을 넣은 뒤 `GITHUB_PACKAGES_TOKEN`으로 `secrets.GITHUB_TOKEN`을 넘겨요.
+**공용 패키지 접근 권한.** 공용 패키지마다 GitHub 패키지 설정 › **Manage Actions access** › Add repository로 `sch0718/gazua`에 **Read** 권한을 줘요(지금은 `@sch0718/seen-store`, `@sch0718/kakao-share`). 빠지면 CI·배포의 `pnpm install`이 403으로 실패해요. 워크플로는 설치하는 job에 `packages: read` 권한을 두고, 러너의 `~/.npmrc`에 인증 줄을 넣은 뒤 `GITHUB_PACKAGES_TOKEN`으로 `secrets.GITHUB_TOKEN`을 넘겨요.
 
 저장소 설정은 한 번 직접 바꿔야 해요.
 
@@ -113,7 +113,7 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
    - 커스텀 도메인 없이 `https://<사용자>.github.io/gazua/`로 쓰려면 `base`를 `/gazua/`로 되돌려요. 도메인 지정과 `base`는 함께 바꿔야 해요. 하나만 바뀌면 화면 파일 경로가 어긋나 빈 화면이 떠요.
 4. 프록시의 `ALLOWED_ORIGINS`에 앱 출처(`https://gazua.<도메인>`)를 넣어요.
 5. 주소(출처)가 바뀌면 브라우저 저장소가 따로라 그룹·설정·키·시장 데이터가 따라오지 않아요. 옛 주소에서 설정 › 데이터 › 내보내기 한 파일을 새 주소에서 가져와요.
-6. (선택) 동기화·공유를 켜려면 [sync-worker/README.md](../sync-worker/README.md)의 순서대로 Firebase(Spark)·D1·Worker를 준비하고, 저장소 Actions **Variables**에 `VITE_SYNC_API_URL`, `VITE_FIREBASE_*`를 넣어요. 비어 있으면 동기화 없이 지금처럼 빌드돼요.
+6. (선택) 동기화·공유를 켜려면 [sync-worker/README.md](../sync-worker/README.md)의 순서대로 Firebase(Spark)·D1·Worker를 준비하고, 저장소 Actions **Variables**에 `VITE_SYNC_API_URL`, `VITE_FIREBASE_*`를 넣어요. 카카오톡으로 보내기는 `VITE_KAKAO_JS_KEY`도 넣어요(선택). 비어 있으면 동기화 없이 지금처럼 빌드돼요.
 
 ## 설계·계획 문서
 
