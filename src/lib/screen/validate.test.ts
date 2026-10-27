@@ -345,21 +345,19 @@ describe('새 필드(테마·묶음·환율·유가)', () => {
     expect(r2.repaired).toBe(true);
   });
 
-  it('pool.themes는 POOL_THEMES_MAX개, pool.baskets는 MAX_BASKETS개까지 앞에서부터 남기고 repaired', () => {
+  it('pool.themes는 POOL_THEMES_MAX개까지 앞에서부터 남기고 repaired', () => {
     const themes = Array.from({ length: POOL_THEMES_MAX + 1 }, (_, i) => `T${i}`);
-    const baskets = Array.from({ length: MAX_BASKETS + 1 }, (_, i) => `b${i}`);
-    const r = run((c) => {
-      c.pool.themes = themes;
-      c.pool.baskets = baskets;
-    });
+    const r = run((c) => (c.pool.themes = themes));
     expect(r.criteria[0].pool.themes).toEqual(themes.slice(0, POOL_THEMES_MAX));
-    expect(r.criteria[0].pool.baskets).toEqual(baskets.slice(0, MAX_BASKETS));
     expect(r.repaired).toBe(true);
-    const ok = run((c) => {
-      c.pool.themes = themes.slice(0, POOL_THEMES_MAX);
-      c.pool.baskets = baskets.slice(0, MAX_BASKETS);
-    });
-    expect(ok.repaired).toBe(false);
+    expect(run((c) => (c.pool.themes = themes.slice(0, POOL_THEMES_MAX))).repaired).toBe(false);
+  });
+
+  it('pool.baskets는 MAX_BASKETS를 넘어도 그대로 둔다(지운 묶음 참조가 경고용으로 남아 30개 묶음을 모두 고른 뒤 바꿔 고르면 넘을 수 있다)', () => {
+    const baskets = Array.from({ length: MAX_BASKETS + 1 }, (_, i) => `b${i}`);
+    const r = run((c) => (c.pool.baskets = baskets));
+    expect(r.criteria[0].pool.baskets).toEqual(baskets);
+    expect(r.repaired).toBe(false);
   });
 
   it('rank.by macroBeta는 받고, series는 그때만 검증한다', () => {

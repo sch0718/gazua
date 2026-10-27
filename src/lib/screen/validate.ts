@@ -3,7 +3,7 @@ import { kstDate, kstEpoch } from '../time/kst';
 import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, POOL_THEMES_MAX, TAKE_MAX, newCriteria } from './defaults';
-import { MAX_BASKETS, type Basket } from './baskets';
+import type { Basket } from './baskets';
 import type { FinMetric, FlowWho, MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
 
 type Row = Record<string, unknown>;
@@ -73,7 +73,7 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
   } else if (pl.sectors !== undefined) repaired = true;
   // 문자열 목록(테마 코드·묶음 id). 틀린 항목은 버리고 고침으로 센다
   // 문자열만 중복 없이 max개까지 앞에서부터 남긴다
-  const strList = (v: unknown, def: string[], max: number): string[] => {
+  const strList = (v: unknown, def: string[], max = Infinity): string[] => {
     if (!Array.isArray(v)) {
       if (v !== undefined) repaired = true;
       return def;
@@ -84,7 +84,8 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
   };
   const pool = {
     themes: strList(pl.themes, d.pool.themes, POOL_THEMES_MAX),
-    baskets: strList(pl.baskets, d.pool.baskets, MAX_BASKETS),
+    // 묶음 참조는 상한을 두지 않는다: 지운 묶음 id가 경고용으로 남아 실제 묶음 수(MAX_BASKETS)를 넘을 수 있다
+    baskets: strList(pl.baskets, d.pool.baskets),
     markets: list(pl.markets, d.pool.markets, MARKETS, false),
     types: list(pl.types, d.pool.types, TYPES, false),
     excludeManaged: bool(pl.excludeManaged, d.pool.excludeManaged),
