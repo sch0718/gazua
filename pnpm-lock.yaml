@@ -33,6 +33,18 @@ importers:
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
+      '@sch0718/firebase-session':
+        specifier: 0.1.0
+        version: 0.1.0(firebase@12.19.0)
+      '@sch0718/license-notices':
+        specifier: 0.1.0
+        version: 0.1.0
+      '@sch0718/ui-svelte':
+        specifier: 0.1.0
+        version: 0.1.0(svelte@5.57.2)
+      '@sch0718/vite-app':
+        specifier: 0.1.0
+        version: 0.1.0(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.1.1
         version: 5.1.1(svelte@5.57.2)(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
@@ -93,9 +105,9 @@ importers:
 
   sync-worker:
     dependencies:
-      jose:
-        specifier: ^6.2.13
-        version: 6.2.13
+      '@sch0718/firebase-session':
+        specifier: 0.1.0
+        version: 0.1.0(firebase@12.19.0)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
@@ -103,6 +115,9 @@ importers:
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
+      jose:
+        specifier: ^6.2.13
+        version: 6.2.13
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1724,11 +1739,34 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@sch0718/firebase-session@0.1.0':
+    resolution: {integrity: sha512-e4uHcE4DJI+hMQUrDCVd4e7vRFY2hA8dHR+zsCKQ7Qa814OGrdZtFCGtVBAK/RftYrbzsJLp6JMV8OnryGoS4w==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.1.0/d2a3bce151ea00efff0d354578bfc0e51013fc44}
+    peerDependencies:
+      firebase: ^12.0.0
+    peerDependenciesMeta:
+      firebase:
+        optional: true
+
   '@sch0718/kakao-share@0.1.0':
     resolution: {integrity: sha512-lgSY3HSgteh4CF34drdM/VHdaQruTTGi7GhYiGlBHjSYqlpwiqSe7rfsNSfqTQDEqi6z+As3CtHvUJ9fApHXwg==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.0/9d9e19a76fb9b7ac55b893ee74762881dda1c8c7}
 
+  '@sch0718/license-notices@0.1.0':
+    resolution: {integrity: sha512-sCJ65Cj0SoXdeeCf8qYP12nJ813YEXmDLA38YIz/Ct0CkcbpCuy8b2FI2POXbH3Z71YyTo2eTDKqp35pHE7trg==, tarball: https://npm.pkg.github.com/download/@sch0718/license-notices/0.1.0/147b9d45ae06fe1265466c0ae13a26730f17af3d}
+    engines: {node: '>=22'}
+
   '@sch0718/seen-store@0.1.0':
     resolution: {integrity: sha512-RHPUy1yySNSbRsmAa4jlemTl2I43mRhCOK5tMQvuNMCq+9Y0RnwpJHaaPvTIqsfdsRrAqwVfDvMDobAmWHPEAg==, tarball: https://npm.pkg.github.com/download/@sch0718/seen-store/0.1.0/445958d792aba693e9f6ab294a1e1dd96d189d7d}
+
+  '@sch0718/ui-svelte@0.1.0':
+    resolution: {integrity: sha512-OqW7wvA8E9NHnng8FlrvqY2Cmc6u1XP7iOJfjYXJ/HHt90uVEDu346QTSn8yH9EGcKt1OurWCQ+Nm2Afw8JbUQ==, tarball: https://npm.pkg.github.com/download/@sch0718/ui-svelte/0.1.0/6f3f6be40180cdf60ac02b53fed20ad3df2257f4}
+    peerDependencies:
+      svelte: ^5.57.0
+
+  '@sch0718/vite-app@0.1.0':
+    resolution: {integrity: sha512-bcSRBvLAhWyI/e5Iha/Mn+JQePnyQmZDuFD8B1k+3igj/LOjz9XWqMKeaYrBRjAYzzT+8tg/DN+gpdR2dbU9jA==, tarball: https://npm.pkg.github.com/download/@sch0718/vite-app/0.1.0/3bbcfc15ea2349bf79477adce1ef6ab6eaa87b3c}
+    peerDependencies:
+      vite: ^6.0.0 || ^7.0.0 || ^8.0.0
+      vite-plugin-pwa: ^2.0.0
 
   '@sindresorhus/is@7.2.0':
     resolution: {integrity: sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw==}
@@ -4870,9 +4908,26 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
+  '@sch0718/firebase-session@0.1.0(firebase@12.19.0)':
+    dependencies:
+      jose: 6.2.13
+    optionalDependencies:
+      firebase: 12.19.0
+
   '@sch0718/kakao-share@0.1.0': {}
 
+  '@sch0718/license-notices@0.1.0': {}
+
   '@sch0718/seen-store@0.1.0': {}
+
+  '@sch0718/ui-svelte@0.1.0(svelte@5.57.2)':
+    dependencies:
+      svelte: 5.57.2
+
+  '@sch0718/vite-app@0.1.0(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))':
+    dependencies:
+      vite: 6.4.4(@types/node@22.20.5)(terser@5.51.2)
+      vite-plugin-pwa: 2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1)
 
   '@sindresorhus/is@7.2.0': {}
 
