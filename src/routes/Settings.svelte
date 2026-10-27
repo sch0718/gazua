@@ -1,6 +1,6 @@
 <script lang="ts">
   import { helpSeen } from '../lib/help/seen';
-  // 설정 화면(스펙 7.4, 목업 ⑤): 공급자 → 연결 → 연결 진단 → 키 보호 → 표시 → 데이터 → 프로필.
+  // 설정 화면(스펙 7.4, 목업 ⑤): 공급자 → 연결 → 연결 진단 → 키 보호 → 표시 → 데이터 → 도움말 → 프로필 → 정보.
   import type { Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import type { App } from '../lib/state/app.svelte';
@@ -8,6 +8,7 @@
   import Segmented from '../lib/ui/components/Segmented.svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
+  import About from '../lib/ui/settings/About.svelte';
   import ConnectionForm from '../lib/ui/settings/ConnectionForm.svelte';
   import DataTools from '../lib/ui/settings/DataTools.svelte';
   import Diagnostics from '../lib/ui/settings/Diagnostics.svelte';
@@ -149,6 +150,11 @@
         <section aria-labelledby="set-profiles">
           <h2 id="set-profiles">프로필</h2>
           <Profiles {app} />
+        </section>
+
+        <section aria-labelledby="set-about">
+          <h2 id="set-about">정보</h2>
+          <About />
         </section>
       </div>
     {/key}

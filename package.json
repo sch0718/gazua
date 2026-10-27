@@ -2,6 +2,7 @@
   "name": "gazua",
   "private": true,
   "version": "0.7.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "packageManager": "pnpm@10.34.6",
   "engines": {
@@ -12,7 +13,7 @@
     "universe": "node scripts/build-universe.mjs",
     "build:motion": "node scripts/build-motion.mjs",
     "collect": "node scripts/collect-market-data.mjs",
-    "prebuild": "node scripts/build-universe.mjs",
+    "prebuild": "node scripts/build-universe.mjs && node scripts/build-notices.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && svelte-check --tsconfig ./tsconfig.json",
@@ -22,7 +23,8 @@
     "test:demo": "node --test tests/demo.test.mjs",
     "test:universe": "node --test tests/universe-reuse.test.mjs",
     "test:scripts": "node --test tests/*.test.mjs",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "notices": "node scripts/build-notices.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

@@ -41,7 +41,7 @@ describe('Settings', () => {
   it('shows the sections in order and the profile note at the top', () => {
     setup();
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(['데이터 공급자', '연결', '연결 진단', '키 보호', '표시', '데이터', '도움말', '프로필']);
+    expect(headings).toEqual(['데이터 공급자', '연결', '연결 진단', '키 보호', '표시', '데이터', '도움말', '프로필', '정보']);
     expect(screen.getByText('프로필은 편의 기능이지 보안 경계가 아니에요')).toBeTruthy();
   });
 
