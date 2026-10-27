@@ -504,10 +504,11 @@
 </div>
 
 <style>
+  /* 부모(ChartPanel의 .chart)가 최소 높이만 주므로 height: 100% 대신 flex로 채운다. 레인은 줄어들지 않는다. */
   .compare-chart {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1 1 auto;
   }
   .plot {
     position: relative;

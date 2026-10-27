@@ -374,7 +374,7 @@
   }
 </script>
 
-<Layout side={items.length > 0 ? side : undefined}>
+<Layout side={items.length > 0 ? side : undefined} barWrap>
   {#snippet rail()}
     <Rail {app}>
       <button type="button" class="ritem add" onclick={addGroup}>＋ 새 그룹</button>
