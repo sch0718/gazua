@@ -70,6 +70,32 @@ describe('validateMarketData', () => {
     expect(validateMarketData(nan)).toEqual({ ok: false, reason: 'corrupt' });
   });
 
+  it.each(['o', 'h', 'l'] as const)('%s에 0이 있으면 corrupt다(수집기는 가격이 0 이하인 행을 버린다)', (k) => {
+    const x = sample();
+    x.stocks[0][k] = [x.stocks[0][k][0], 0];
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'corrupt' });
+  });
+
+  it('v·tv는 0을 허용하고 음수는 corrupt다', () => {
+    const zero = sample();
+    zero.stocks[0].v = [0, 0];
+    zero.stocks[0].tv = [0, 0];
+    expect(validateMarketData(zero).ok).toBe(true);
+    for (const k of ['v', 'tv'] as const) {
+      const neg = sample();
+      neg.stocks[0][k] = [-1, 200];
+      expect(validateMarketData(neg)).toEqual({ ok: false, reason: 'corrupt' });
+    }
+  });
+
+  it.each(['managed', 'halted'] as const)('%s가 불리언이 아니면 format이다', (k) => {
+    const x: any = sample();
+    x.stocks[0][k] = 'false';
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+    delete x.stocks[0][k];
+    expect(validateMarketData(x)).toEqual({ ok: false, reason: 'format' });
+  });
+
   it('지수의 o와 c 길이가 다르면 corrupt다', () => {
     const x = sample();
     x.indices[0].o = [2500];
