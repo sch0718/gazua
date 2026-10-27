@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
 import { kstEpoch } from '../time/kst';
-import { newCriteria } from './defaults';
+import { MAX_BASKETS } from './baskets';
+import { newCriteria, POOL_THEMES_MAX } from './defaults';
 import type { SelectionCriteria } from './types';
 import { criteriaIssues, finOn, flowOn, sanitizeCriteria, usesFin, usesFlow } from './validate';
 
@@ -342,6 +343,23 @@ describe('새 필드(테마·묶음·환율·유가)', () => {
     const r2 = run((c) => (c.pool.themes = 'x'));
     expect(r2.criteria[0].pool.themes).toEqual([]);
     expect(r2.repaired).toBe(true);
+  });
+
+  it('pool.themes는 POOL_THEMES_MAX개, pool.baskets는 MAX_BASKETS개까지 앞에서부터 남기고 repaired', () => {
+    const themes = Array.from({ length: POOL_THEMES_MAX + 1 }, (_, i) => `T${i}`);
+    const baskets = Array.from({ length: MAX_BASKETS + 1 }, (_, i) => `b${i}`);
+    const r = run((c) => {
+      c.pool.themes = themes;
+      c.pool.baskets = baskets;
+    });
+    expect(r.criteria[0].pool.themes).toEqual(themes.slice(0, POOL_THEMES_MAX));
+    expect(r.criteria[0].pool.baskets).toEqual(baskets.slice(0, MAX_BASKETS));
+    expect(r.repaired).toBe(true);
+    const ok = run((c) => {
+      c.pool.themes = themes.slice(0, POOL_THEMES_MAX);
+      c.pool.baskets = baskets.slice(0, MAX_BASKETS);
+    });
+    expect(ok.repaired).toBe(false);
   });
 
   it('rank.by macroBeta는 받고, series는 그때만 검증한다', () => {

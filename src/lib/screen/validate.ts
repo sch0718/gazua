@@ -2,8 +2,8 @@
 import { kstDate, kstEpoch } from '../time/kst';
 import { ruleIssues, sanitizeEntry } from '../sim/validate';
 import type { Strategy } from '../sim/types';
-import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, TAKE_MAX, newCriteria } from './defaults';
-import type { Basket } from './baskets';
+import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, POOL_THEMES_MAX, TAKE_MAX, newCriteria } from './defaults';
+import { MAX_BASKETS, type Basket } from './baskets';
 import type { FinMetric, FlowWho, MacroSeriesCond, MacroSeriesKey, Market, RankBy, Rebalance, SecurityType, SelectionCriteria } from './types';
 
 type Row = Record<string, unknown>;
@@ -72,18 +72,19 @@ function sanitizeOne(raw: Row, now: number, template: SelectionCriteria): { crit
     if (sectors.length !== pl.sectors.length) repaired = true;
   } else if (pl.sectors !== undefined) repaired = true;
   // 문자열 목록(테마 코드·묶음 id). 틀린 항목은 버리고 고침으로 센다
-  const strList = (v: unknown, def: string[]): string[] => {
+  // 문자열만 중복 없이 max개까지 앞에서부터 남긴다
+  const strList = (v: unknown, def: string[], max: number): string[] => {
     if (!Array.isArray(v)) {
       if (v !== undefined) repaired = true;
       return def;
     }
-    const out = [...new Set(v.filter((x): x is string => typeof x === 'string' && x !== ''))];
+    const out = [...new Set(v.filter((x): x is string => typeof x === 'string' && x !== ''))].slice(0, max);
     if (out.length !== v.length) repaired = true;
     return out;
   };
   const pool = {
-    themes: strList(pl.themes, d.pool.themes),
-    baskets: strList(pl.baskets, d.pool.baskets),
+    themes: strList(pl.themes, d.pool.themes, POOL_THEMES_MAX),
+    baskets: strList(pl.baskets, d.pool.baskets, MAX_BASKETS),
     markets: list(pl.markets, d.pool.markets, MARKETS, false),
     types: list(pl.types, d.pool.types, TYPES, false),
     excludeManaged: bool(pl.excludeManaged, d.pool.excludeManaged),

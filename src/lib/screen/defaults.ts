@@ -5,6 +5,8 @@ export { MAX_INITIAL, NAME_MAX };
 export const MAX_CRITERIA = 20;
 export const TAKE_MAX = 30;
 export const BENCH_MAX = 3;
+// 기준에 고를 수 있는 테마 수. KIS 테마는 약 300개(2026-10-16 302개)라 넉넉히 잡는다
+export const POOL_THEMES_MAX = 500;
 
 /** 데이터 시작 + 1년 ~ 데이터 끝. 윤일이면 2월 28일로 맞추고, 1년이 안 되는 데이터면 시작부터 쓴다. 데이터가 없으면 최근 3년. */
 export function defaultCriteriaPeriod(now: number, dataRange: { from: string; to: string } | null): { from: string; to: string } {

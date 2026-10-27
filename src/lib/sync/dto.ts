@@ -99,7 +99,7 @@ export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
   for (const [key, cleaned] of [
     ['strategies', sanitizeStrategies({ strategies: raw.strategies }, now).strategies],
     ['criteria', sanitizeCriteria({ criteria: raw.criteria }, now).criteria],
-    ['baskets', sanitizeBaskets({ baskets: raw.baskets }, now).baskets],
+    ['baskets', sanitizeBaskets({ baskets: raw.baskets }).baskets],
   ] as const) {
     if (!Array.isArray(raw[key])) return fail('invalid', key);
     const d = sameAs(raw[key], cleaned, key);

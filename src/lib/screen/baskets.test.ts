@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
+import { loadCriteria } from './criteriaStore';
 import { BASKET_CAP_MESSAGE, BASKET_SYMBOLS_MAX, MAX_BASKETS, assertBasketCap, assertBasketsWritable, loadBaskets, newBasket, sanitizeBaskets, saveBaskets } from './baskets';
 
 const NOW = 1_700_000_000_000;
@@ -58,37 +59,47 @@ describe('baskets', () => {
   });
 
   it('이름은 30자로 자르고 고침으로 센다', () => {
-    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], name: '가'.repeat(31) }] }, NOW);
+    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], name: '가'.repeat(31) }] });
     expect(r.baskets[0].name).toBe('가'.repeat(30));
     expect(r.repaired).toBe(true);
-    expect(sanitizeBaskets({ baskets: [{ ...mk(1)[0], name: '가'.repeat(30) }] }, NOW).repaired).toBe(false);
+    expect(sanitizeBaskets({ baskets: [{ ...mk(1)[0], name: '가'.repeat(30) }] }).repaired).toBe(false);
   });
 
   it('종목은 6자 [0-9A-Z]만, 중복 없이, 300개까지', () => {
     const many = Array.from({ length: 301 }, (_, i) => String(100000 + i));
-    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: many }] }, NOW);
+    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: many }] });
     expect(r.baskets[0].symbols).toHaveLength(300);
     expect(r.repaired).toBe(true);
-    const r2 = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: ['005930', '005930', '12345', 'abcdef', '0000D0', 7] }] }, NOW);
+    const r2 = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: ['005930', '005930', '12345', 'abcdef', '0000D0', 7] }] });
     expect(r2.baskets[0].symbols).toEqual(['005930', '0000D0']);
     expect(r2.repaired).toBe(true);
-    expect(sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: many.slice(0, 300) }] }, NOW).repaired).toBe(false);
+    expect(sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: many.slice(0, 300) }] }).repaired).toBe(false);
   });
 
   it('종목이 하나도 남지 않으면 그 묶음은 버린다', () => {
-    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: [] }] }, NOW);
+    const r = sanitizeBaskets({ baskets: [{ ...mk(1)[0], symbols: [] }] });
     expect(r).toEqual({ baskets: [], repaired: true });
   });
 
   it('id가 겹치거나 30개를 넘는 항목은 버린다', () => {
-    const r = sanitizeBaskets({ baskets: [...mk(31), mk(1)[0]] }, NOW);
+    const r = sanitizeBaskets({ baskets: [...mk(31), mk(1)[0]] });
     expect(r.baskets).toHaveLength(30);
     expect(r.repaired).toBe(true);
   });
 
-  it('루트가 없으면 조용히 빈 목록', () => {
-    expect(sanitizeBaskets({}, NOW)).toEqual({ baskets: [], repaired: false });
-    expect(sanitizeBaskets(null, NOW)).toEqual({ baskets: [], repaired: false });
+  it('루트가 없으면 조용히 빈 목록(baskets 칸이 없는 이전 내보내기 파일)', () => {
+    expect(sanitizeBaskets({})).toEqual({ baskets: [], repaired: false });
+    expect(sanitizeBaskets(null)).toEqual({ baskets: [], repaired: false });
+  });
+
+  it('저장소의 {}는 손상으로 알린다(앱은 늘 { baskets: [...] }로 쓰므로). 선정 기준 저장소와 같은 판단이다', () => {
+    const backing = memoryBacking();
+    seed(backing, profileKeys.baskets('p1'), {});
+    seed(backing, profileKeys.criteria('p1'), {});
+    const st = createSafeStorage(backing);
+    expect(loadBaskets(st, 'p1')).toEqual([]);
+    expect(loadCriteria(st, 'p1')).toEqual([]);
+    expect(st.issues.filter((i) => i.kind === 'corrupt').map((i) => i.key).sort()).toEqual([profileKeys.baskets('p1'), profileKeys.criteria('p1')].sort());
   });
 
   it('쓸 때 종목이 없거나 300개를 넘거나 이름이 30자를 넘으면 던지고 쓰지 않는다', () => {
