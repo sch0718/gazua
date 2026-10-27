@@ -39,6 +39,9 @@ importers:
       '@sch0718/license-notices':
         specifier: 0.1.0
         version: 0.1.0
+      '@sch0718/motion-kit':
+        specifier: 0.1.0
+        version: 0.1.0
       '@sch0718/ui-svelte':
         specifier: 0.1.0
         version: 0.1.0(svelte@5.57.2)
@@ -1752,6 +1755,10 @@ packages:
 
   '@sch0718/license-notices@0.1.0':
     resolution: {integrity: sha512-sCJ65Cj0SoXdeeCf8qYP12nJ813YEXmDLA38YIz/Ct0CkcbpCuy8b2FI2POXbH3Z71YyTo2eTDKqp35pHE7trg==, tarball: https://npm.pkg.github.com/download/@sch0718/license-notices/0.1.0/147b9d45ae06fe1265466c0ae13a26730f17af3d}
+    engines: {node: '>=22'}
+
+  '@sch0718/motion-kit@0.1.0':
+    resolution: {integrity: sha512-XrHb+CtScRVxSNlgpK8HpaoEpTvd9lWg3rzRVLA5rzHxHk+24A4+3WOVwGVM6LN6v7w4mPKFTqCN1XJIOnSR0A==, tarball: https://npm.pkg.github.com/download/@sch0718/motion-kit/0.1.0/d8cde1651a14c577d909277d022f5c4b18a184d3}
     engines: {node: '>=22'}
 
   '@sch0718/seen-store@0.1.0':
@@ -4917,6 +4924,8 @@ snapshots:
   '@sch0718/kakao-share@0.1.0': {}
 
   '@sch0718/license-notices@0.1.0': {}
+
+  '@sch0718/motion-kit@0.1.0': {}
 
   '@sch0718/seen-store@0.1.0': {}
 

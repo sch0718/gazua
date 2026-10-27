@@ -1,21 +1,31 @@
-// README·도움말의 움직이는 그림(애니메이션 SVG)이 함께 쓰는 그리기 도구.
-// GitHub는 SVG를 <img>로 보여 주므로 스크립트·웹 글꼴 없이 CSS 애니메이션만 쓴다.
+// README·도움말의 움직이는 그림(애니메이션 SVG)에서 가즈아만 쓰는 그리기 도구와 값.
+// 글자·장면·움직임 CSS·SVG 틀 같은 기반 함수는 @sch0718/motion-kit에 있다.
 import { readFileSync } from 'node:fs';
+import { effects, text, textWidth } from '@sch0718/motion-kit';
 
 export const FONT =
   "'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif";
 
-/** 앱 토큰(src/lib/ui/tokens.css)에서 라이트(`:root`)·다크(`:root[data-theme='dark']`) 색을 읽는다. */
-export function loadTheme(cssPath) {
-  const css = readFileSync(cssPath, 'utf8');
-  const block = (selector) => {
+/** motionCss에 넘기는 가즈아의 글꼴과 움직임. `motionCss({ sceneLength, scenes, ...MOTION })` */
+export const MOTION = {
+  font: FONT,
+  effects: [effects.rise, effects.pop, effects.draw({ seconds: 1.2 }), effects.fade, effects.tap],
+};
+
+/**
+ * 토큰 파일들에서 라이트(`:root`)·다크(`:root[data-theme='dark']`) 색을 읽는다.
+ * 앞 파일(범용 토큰)을 뒤 파일(앱 토큰)이 덮는다. 앱이 불러오는 순서와 같다.
+ */
+export function loadTheme(cssPaths) {
+  const block = (css, selector) => {
     const start = css.indexOf(`${selector} {`);
     if (start < 0) throw new Error(`tokens.css에 ${selector} 블록이 없어요`);
     const body = css.slice(start, css.indexOf('\n}', start));
     return Object.fromEntries([...body.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
   };
-  const light = block(':root');
-  const dark = { ...light, ...block(":root[data-theme='dark']") };
+  const files = cssPaths.map((p) => readFileSync(p, 'utf8'));
+  const light = Object.assign({}, ...files.map((css) => block(css, ':root')));
+  const dark = Object.assign({ ...light }, ...files.map((css) => block(css, ":root[data-theme='dark']")));
   const pick = (v) => ({
     bg: v.bg,
     surface: v.surface,
@@ -38,30 +48,6 @@ export function loadTheme(cssPath) {
     s: Array.from({ length: 10 }, (_, i) => v[`s${i + 1}`]),
   });
   return { light: pick(light), dark: pick(dark) };
-}
-
-export const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-/** 장면 `scene`(0부터)이 시작하고 `offset`초 뒤에 움직임을 시작한다. */
-export const at =
-  (sceneLength) =>
-  (scene, offset = 0) =>
-    `animation-delay:${(scene * sceneLength + offset).toFixed(2)}s`;
-
-export function text(x, y, value, { size = 14, weight = 400, fill, anchor = 'start', cls = '', style = '' } = {}) {
-  const extra = `${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`;
-  return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}"${extra}>${esc(value)}</text>`;
-}
-
-/** 글자 폭 근사(한글 1em, 이모지 1.2em, 그 밖 0.6em). */
-export function textWidth(label, size) {
-  let w = 0;
-  for (const ch of String(label)) {
-    if (/\p{Extended_Pictographic}/u.test(ch)) w += size * 1.2;
-    else if (/[ㄱ-힝]/u.test(ch)) w += size;
-    else if (ch !== '️') w += size * 0.6;
-  }
-  return Math.round(w);
 }
 
 /** 폭 `maxW`를 넘으면 뒤를 자르고 …를 붙인다. */
@@ -173,44 +159,4 @@ export function change(x, y, value, t, { size = 13, anchor = 'end', weight = 800
   const up = value >= 0;
   const label = `${up ? '▲ +' : '▼ −'}${Math.abs(value).toFixed(2)}${unit}`;
   return text(x, y, label, { size, weight, fill: up ? t.up : t.down, anchor });
-}
-
-/**
- * 애니메이션 CSS. 장면 길이 `sceneLength`초, 장면 수 `scenes`. 각 장면의 요소는 `at(scene, offset)`으로 늦춘다.
- * 모든 움직임은 한 바퀴(`cycle`) 동안 한 번 일어나고, 장면 그룹(`.sc`)이 자기 차례에만 보인다.
- */
-export function motionCss({ sceneLength, scenes, font = FONT }) {
-  const cycle = sceneLength * scenes;
-  const p = (s) => `${((s / cycle) * 100).toFixed(3)}%`;
-  return `
-text{font-family:${font}}
-.sc{opacity:0;animation:scene ${cycle}s linear infinite backwards}
-.rise{transform-box:fill-box;animation:rise ${cycle}s cubic-bezier(.2,.8,.2,1) infinite backwards}
-.pop{transform-box:fill-box;transform-origin:center;animation:pop ${cycle}s ease-out infinite backwards}
-.draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw ${cycle}s ease-out infinite backwards}
-.fade{opacity:0;animation:fade ${cycle}s linear infinite backwards}
-.tap{transform-box:fill-box;transform-origin:center;opacity:0;animation:tap ${cycle}s ease-out infinite backwards}
-@keyframes scene{0%{opacity:0}${p(0.35)}{opacity:1}${p(sceneLength - 0.35)}{opacity:1}${p(sceneLength)}{opacity:0}100%{opacity:0}}
-@keyframes rise{0%{opacity:0;transform:translateY(14px)}${p(0.45)}{opacity:1;transform:none}100%{opacity:1;transform:none}}
-@keyframes pop{0%{transform:scale(0)}${p(0.3)}{transform:scale(1.15)}${p(0.45)}{transform:scale(1)}100%{transform:scale(1)}}
-@keyframes draw{0%{stroke-dashoffset:1}${p(1.2)}{stroke-dashoffset:0}100%{stroke-dashoffset:0}}
-@keyframes fade{0%{opacity:0}${p(0.3)}{opacity:1}100%{opacity:1}}
-@keyframes tap{0%{opacity:0;transform:scale(.4)}${p(0.12)}{opacity:1;transform:scale(1)}${p(0.7)}{opacity:0;transform:scale(1.9)}100%{opacity:0;transform:scale(1.9)}}
-@media (prefers-reduced-motion:reduce){
-*{animation:none!important}
-.s0{opacity:1}
-.rise,.fade{opacity:1;transform:none}
-.pop{transform:none}
-.draw{stroke-dasharray:none;stroke-dashoffset:0}
-}`;
-}
-
-export function svgDocument({ w, h, title, desc, css, body }) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-labelledby="motion-title motion-desc">
-<title id="motion-title">${esc(title)}</title>
-<desc id="motion-desc">${esc(desc)}</desc>
-<style>${css}</style>
-${body}
-</svg>
-`;
 }

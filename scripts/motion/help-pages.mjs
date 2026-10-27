@@ -1,4 +1,5 @@
-import { button, card, chart, chip, esc, fit, segmented, tap, text, textWidth, walk } from './kit.mjs';
+import { esc, text, textWidth } from '@sch0718/motion-kit';
+import { button, card, chart, chip, fit, segmented, tap, walk } from './kit.mjs';
 
 // 메뉴별 도움말의 단계와 휴대폰 화면. 문구는 앱 화면의 실제 문구를 그대로 쓴다(src/routes·src/sheets·src/lib/ui).
 // 좌표는 help.mjs의 휴대폰 화면(x 612–888, y 32–488) 기준이다. 본문은 x 626–874, y 102–472.
