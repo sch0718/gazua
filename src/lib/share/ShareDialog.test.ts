@@ -92,17 +92,17 @@ describe('ShareDialog', () => {
 
   describe('카카오톡으로 보내기', () => {
     const KAKAO = { appKey: 'test-kakao-key' };
+    // 실제 SDK처럼 init 뒤에야 Share를 붙인다. 시험은 돌려받은 Share로 호출을 확인한다.
     function fakeKakao() {
       let initialized = false;
-      const sdk = {
-        init: vi.fn(() => {
-          initialized = true;
-        }),
-        isInitialized: () => initialized,
-        Share: { sendDefault: vi.fn() },
-      };
+      const Share = { sendDefault: vi.fn() };
+      const init = vi.fn(() => {
+        initialized = true;
+        Object.assign(sdk, { Share });
+      });
+      const sdk = { init, isInitialized: () => initialized };
       Object.assign(window, { Kakao: sdk });
-      return sdk;
+      return { init, Share };
     }
     const universe = vi.fn(async () => [{ s: '005930', n: '삼성전자', m: 'KOSPI', t: 'STOCK' as const }]);
     async function made(kakao: { appKey: string; sdkUrl?: string } | null) {
