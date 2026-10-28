@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@sch0718/kakao-share':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.1
+        version: 0.1.1
       '@sch0718/seen-store':
         specifier: 0.1.0
         version: 0.1.0
@@ -1750,8 +1750,8 @@ packages:
       firebase:
         optional: true
 
-  '@sch0718/kakao-share@0.1.0':
-    resolution: {integrity: sha512-lgSY3HSgteh4CF34drdM/VHdaQruTTGi7GhYiGlBHjSYqlpwiqSe7rfsNSfqTQDEqi6z+As3CtHvUJ9fApHXwg==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.0/9d9e19a76fb9b7ac55b893ee74762881dda1c8c7}
+  '@sch0718/kakao-share@0.1.1':
+    resolution: {integrity: sha512-kdct0RCf/R2opgkGYnePJEIDGR7t5gH7xdaLJh8or9skqPrEyJXb/j8KZCQkxhjLqjkaSVqpWRMqPYFNtPCqNw==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.1/b004e9d981adb6d5f1227e1120fc0b2b05988f93}
 
   '@sch0718/license-notices@0.1.0':
     resolution: {integrity: sha512-sCJ65Cj0SoXdeeCf8qYP12nJ813YEXmDLA38YIz/Ct0CkcbpCuy8b2FI2POXbH3Z71YyTo2eTDKqp35pHE7trg==, tarball: https://npm.pkg.github.com/download/@sch0718/license-notices/0.1.0/147b9d45ae06fe1265466c0ae13a26730f17af3d}
@@ -4921,7 +4921,7 @@ snapshots:
     optionalDependencies:
       firebase: 12.19.0
 
-  '@sch0718/kakao-share@0.1.0': {}
+  '@sch0718/kakao-share@0.1.1': {}
 
   '@sch0718/license-notices@0.1.0': {}
 
