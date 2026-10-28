@@ -132,13 +132,13 @@
 `feat/macro-theme-criteria`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.
 
 - ~~`fetch-fred`가 4xx에도 재시도함, 시간 초과 테스트가 없고 `now`를 인자로 받지 않음 · `scripts/fetch-fred.mjs` · 4xx는 바로 실패로 보고, 시간 초과와 `now` 주입 테스트를 더해요.~~ → 해결: 4xx(429 제외)는 바로 실패해요. 시간 초과는 `timeoutMs`로 줄여 테스트해요. `now`는 기간을 늘 호출하는 쪽이 넘겨서 쓰는 곳이 없어 넣지 않았어요. (`f4b0e54`)
-- 키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.
+- ~~키가 없는 이전 데이터에서 `themes()`가 호출마다 본문 전체를 읽음 · `src/lib/marketData/store.ts` · 읽은 요약을 한 번 저장해 둬요.~~ → 해결: 처음 읽을 때 본문에서 만든 요약을 `current-themes`에 채워 둬요(테마별 종목 키도 함께). 읽기와 쓰기를 한 readwrite 트랜잭션에서 해서 그 사이 가져오기가 끼어들어도 어긋나지 않아요. 채우기에 실패하면 이번에 읽은 요약만 돌려줘요. 본문 읽기 횟수를 세는 테스트(새 store 객체에서도 1번)를 더했어요. (`perf/market-data-theme-reads`)
 - ~~`loadBaskets`는 `{}`를 손상으로 알리지만 sanitize는 빈 것으로 봄, 쓰이지 않는 `now` 인자가 있음, `pool.themes`와 묶음 개수에 상한이 없음 · `src/lib/screen/baskets.ts`의 묶음 저장·정리 · 두 쪽 판단을 맞추고 인자를 지우고 상한을 정해요.~~ → 해결 (판단 차이는 의도로 결정): sanitize는 `baskets` 칸이 없는 이전 내보내기 파일을 받아야 해서 `{}`를 빈 목록으로 보고, 저장소는 앱이 늘 `{ baskets: [...] }`로 쓰므로 `{}`를 손상으로 봐요. `loadCriteria`도 같은 규칙이라 주석과 테스트로 고정했어요. `sanitizeBaskets`의 `now` 인자를 지웠어요. 선정 기준의 `pool.themes`는 `POOL_THEMES_MAX`(500, KIS 테마 약 300개)개까지 앞에서부터 남기고 `repaired`로 알려요. `pool.baskets`는 상한을 두지 않기로 했어요. 지운 묶음 id가 경고용으로 남아서, 30개를 모두 고른 뒤 하나를 바꿔 고르면 정상 사용으로도 30개를 넘고, 이때 잘라 내면 새로 고른 묶음이 사라져요(Codex 리뷰 지적). (`claude/chore-small-cleanup-bbfe95`)
 - 중분류 대장주 회귀 케이스가 모든 곳에서 0을 줘서 확인이 약함: 데모에 중분류 코드가 없어요 · `tests/fixtures/market-data-demo.json.gz`, `scripts/make-demo-market-data.mjs` · 데모에 중분류 코드를 넣어요.
 - ~~정렬을 민감도 큰 순(`macroBeta`)만으로 할 때 워밍업 구간의 빈 칸을 메모하지 않음 · `src/lib/ui/screen/ValidationResult.svelte` · 조건에 민감도를 켠 경우의 안내와 맞춰요.~~ → 해결: 민감도 순으로 정렬하면 β가 필요하다고 보고, 후보 전체에 β가 없는 재선정일에 `macroGap` 메모를 남겨요. (`feat/followups-4`)
 - ~~PreviewPanel이 막힌 상태에서도 기준일 줄과 `.state` 스타일을 보여줌(보기만 어색함) · `src/lib/ui/screen/PreviewPanel.svelte`~~ → 해결: 막혔으면 기준일 줄을 감추고 상태 영역(`role="status"`)에 안내만 보여요. 상태 영역은 화면 낭독기 알림 때문에 그대로 둬요. `PreviewPanel.test`를 더했어요. (`claude/chore-small-cleanup-bbfe95`)
 - 민감도를 켜면 봉마다 메모리가 약 24 B(β용 Float64 두 배열과 Int32 색인 두 배열)라 449만 봉이면 약 108 MB인데, 스펙 3.4는 72 MB로만 어림함 · `src/lib/screen` 사전 계산과 스펙 3.4 · 5년 실행에서 실제 사용량을 재고 스펙의 어림값을 고치거나 배열을 줄여요.
-- 테마를 가져올 때 데이터 파일 전체를 읽음 · `src/lib/marketData` · 테마 부분만 따로 읽는 길을 찾아요.
+- ~~테마를 가져올 때 데이터 파일 전체를 읽음 · `src/lib/marketData` · 테마 부분만 따로 읽는 길을 찾아요.~~ → 해결 (사용자 결정: 새 키): 가져올 때 테마별 종목을 `current-theme-symbols`에 함께 쓰고, `store.themeSymbols(code)`가 이 키만 읽어요. DB 버전·기존 키는 그대로라 upgrade가 없어요. 이 키를 모르는 이전 앱이 새 파일을 가져와 키가 낡는 경우는 가져올 때마다 정하는 `importId`(`current-info`에도 넣음)가 다르면 본문에서 다시 만들어 막아요. 키가 없는 이전 데이터는 처음 한 번만 본문을 읽어 채워요. [4단계 스펙](../specs/2026-10-16-macro-theme-criteria-design.md) 2.2에 적었어요. (`perf/market-data-theme-reads`)
 
 ### 3단계에서 미룬 것 (2026-10-17)
 `feat/investor-flow`의 작업별·최종 리뷰에서 나온 것 중 영향이 작아 미룬 것들이에요.

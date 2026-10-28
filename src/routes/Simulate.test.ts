@@ -915,10 +915,11 @@ describe('Simulate 선정 기준 탭', () => {
     expect(document.querySelector('[data-fin-value]')!.textContent).toBe('ROE 25% (2026년 2분기까지)');
   });
 
-  it('v2 data: the editor gets the theme list from the store, and 테마에서 가져오기 reads the theme symbols from the file', async () => {
+  it('v2 data: the editor gets the theme list from the store, and 테마에서 가져오기 reads only that theme\'s symbols', async () => {
     const V2 = { collectedAt: '2026-10-10T09:00:00+09:00', stocks: 30, range: RANGE, version: 2 as const, hasMacro: true, themeCount: 1 };
-    const load = vi.fn(async () => ({ version: 2, themes: [{ code: 'T01', name: '반도체', symbols: ['005930', '000660'] }] }));
-    const { app } = setupCriteria({ info: V2 as never, data: { themes: async () => [{ code: 'T01', name: '반도체', count: 2 }], load } });
+    const themeSymbols = vi.fn(async (code: string) => (code === 'T01' ? ['005930', '000660'] : []));
+    const load = vi.fn(async () => null);
+    const { app } = setupCriteria({ info: V2 as never, data: { themes: async () => [{ code: 'T01', name: '반도체', count: 2 }], themeSymbols, load } });
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
     await fireEvent.click(await screen.findByRole('button', { name: /^후보 범위/ }));
     expect(await screen.findByRole('checkbox', { name: /반도체/ })).toBeTruthy();
@@ -927,7 +928,8 @@ describe('Simulate 선정 기준 탭', () => {
     await fireEvent.click(screen.getByRole('button', { name: '테마에서 가져오기' }));
     await waitFor(() => expect(app.baskets).toHaveLength(1));
     expect(app.baskets[0].symbols).toEqual(['005930', '000660']);
-    expect(load).toHaveBeenCalledTimes(1);
+    expect(themeSymbols.mock.calls).toEqual([['T01']]);
+    expect(load).not.toHaveBeenCalled();
   });
 
   it('v1 data: no theme list is asked of the store and the picker says to re-collect', async () => {

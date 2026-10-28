@@ -42,7 +42,7 @@
 
 | DB 이름 / 스키마 버전 | object store / 키 | 저장 내용·범위 |
 |---|---|---|
-| `gazua-market-data` / 1 | `files` / `current`, `current-info`, `current-sectors`, `current-themes` | 가져온 시장 데이터 본문 하나와 요약·업종·테마 요약이에요. 프로필 공통이에요. [store.ts](../../src/lib/marketData/store.ts) |
+| `gazua-market-data` / 1 | `files` / `current`, `current-info`, `current-sectors`, `current-themes`, `current-theme-symbols` | 가져온 시장 데이터 본문 하나와 요약·업종·테마 요약·테마별 종목이에요. 프로필 공통이에요. [store.ts](../../src/lib/marketData/store.ts) |
 | `gazua-account` / 1 | `orders`, `keyPath: 'key'` / `<profileId>\|<providerId>\|<accountId>` | 정규화한 주문 배열, `syncedAt`, KST 날짜 `syncedThrough`예요. 마지막 날짜의 7일 전부터 다시 받아 주문 ID로 합쳐요. [orderCache.ts](../../src/lib/perf/orderCache.ts) |
 | `gazua-cache` / 1 | `candles`, `keyPath: 'key'` / 공급자·종목·봉 종류·날짜 등을 조합 | 종목 분봉·지수 봉과 만료·최근 사용 시각·크기예요. 종목 단위로 오래 안 쓴 항목을 지워요. [candleCache.ts](../../src/lib/data/candleCache.ts), [candleService.ts](../../src/lib/data/candleService.ts) |
 
