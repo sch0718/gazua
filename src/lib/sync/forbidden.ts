@@ -45,11 +45,27 @@ export const FORBIDDEN_KEYS: readonly string[] = [
 
 const FORBIDDEN = new Set(FORBIDDEN_KEYS.map((k) => k.toLowerCase()));
 
-/** 금지 키가 처음 나온 경로(`a.b[2].c`). 없으면 null. 대소문자는 가리지 않는다. */
-export function findForbidden(v: unknown, path = ''): string | null {
+/** 스냅샷·문서의 실제 깊이는 10 안팎이다. 이보다 깊으면 재귀하지 않고 거절한다(설계 2.7) */
+export const JSON_DEPTH_MAX = 32;
+
+/** 어느 객체·배열이 깊이 max를 넘는가(루트 0). 재귀 없이 돈다. */
+export function exceedsDepth(v: unknown, max = JSON_DEPTH_MAX): boolean {
+  const stack: [unknown, number][] = [[v, 0]];
+  while (stack.length) {
+    const [x, d] = stack.pop()!;
+    if (typeof x !== 'object' || x === null) continue;
+    if (d > max) return true;
+    for (const child of Array.isArray(x) ? x : Object.values(x)) stack.push([child, d + 1]);
+  }
+  return false;
+}
+
+/** 금지 키가 처음 나온 경로(`a.b[2].c`). 없으면 null. 대소문자는 가리지 않는다. 깊이 상한을 넘는 곳은 보지 않는다(exceedsDepth가 먼저 거절한다). */
+export function findForbidden(v: unknown, path = '', depth = 0): string | null {
+  if (depth > JSON_DEPTH_MAX) return null;
   if (Array.isArray(v)) {
     for (let i = 0; i < v.length; i++) {
-      const hit = findForbidden(v[i], `${path}[${i}]`);
+      const hit = findForbidden(v[i], `${path}[${i}]`, depth + 1);
       if (hit) return hit;
     }
     return null;
@@ -58,7 +74,7 @@ export function findForbidden(v: unknown, path = ''): string | null {
   for (const [k, child] of Object.entries(v)) {
     const p = path ? `${path}.${k}` : k;
     if (FORBIDDEN.has(k.toLowerCase())) return p;
-    const hit = findForbidden(child, p);
+    const hit = findForbidden(child, p, depth + 1);
     if (hit) return hit;
   }
   return null;
@@ -67,12 +83,21 @@ export function findForbidden(v: unknown, path = ''): string | null {
 /**
  * 두 JSON 값이 같은지(객체 키 순서는 무시). 다르면 처음 다른 경로와 종류를 돌려준다.
  * extra: 입력(a)에만 있는 키 — 알 수 없는 필드다.
+ * ignoreMissing: 정리 결과(b)에만 있는 키(입력에서 빠진 필드)는 차이로 보지 않고 건너뛴다(공유 받는 쪽 검사, 설계 2.7).
+ * 깊이 상한을 넘으면 그 자리에서 value 차이로 멈춘다.
  */
-export function jsonDiff(a: unknown, b: unknown, path = ''): { path: string; kind: 'extra' | 'value' } | null {
+export function jsonDiff(
+  a: unknown,
+  b: unknown,
+  path = '',
+  opts: { ignoreMissing?: boolean } = {},
+  depth = 0,
+): { path: string; kind: 'extra' | 'value' } | null {
+  if (depth > JSON_DEPTH_MAX) return { path, kind: 'value' };
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return { path, kind: 'value' };
     for (let i = 0; i < a.length; i++) {
-      const d = jsonDiff(a[i], b[i], `${path}[${i}]`);
+      const d = jsonDiff(a[i], b[i], `${path}[${i}]`, opts, depth + 1);
       if (d) return d;
     }
     return null;
@@ -82,10 +107,10 @@ export function jsonDiff(a: unknown, b: unknown, path = ''): { path: string; kin
     for (const k of Object.keys(a)) {
       const p = path ? `${path}.${k}` : k;
       if (!Object.hasOwn(b, k)) return { path: p, kind: 'extra' };
-      const d = jsonDiff(a[k], b[k], p);
+      const d = jsonDiff(a[k], b[k], p, opts, depth + 1);
       if (d) return d;
     }
-    for (const k of Object.keys(b)) if (!Object.hasOwn(a, k)) return { path: path ? `${path}.${k}` : k, kind: 'value' };
+    if (!opts.ignoreMissing) for (const k of Object.keys(b)) if (!Object.hasOwn(a, k)) return { path: path ? `${path}.${k}` : k, kind: 'value' };
     return null;
   }
   return Object.is(a, b) ? null : { path, kind: 'value' };
