@@ -46,6 +46,21 @@ describe('validationSnapshot', () => {
     expect(b.reduced).toContain('thinned');
   });
 
+  it('4000일에 보유 곡선만 있으면 계산값 이력을 유지하고 축만 솎는다', () => {
+    const run = bigValidationRun({ days: 4000, every: 21, take: 1 });
+    run.result.trading = null;
+    run.result.indices = run.result.indices.map((x) => ({ ...x, curve: null, reason: '받지 못했어요' as const, stats: null }));
+    run.result.benchmarks = run.result.benchmarks.map((x) => ({ ...x, curve: null, reason: '받지 못했어요' as const, stats: null }));
+    run.result.hold.beat = null;
+    const b = validationSnapshot(run, { hideCapital: false, now: NOW });
+    expect(b.ok).toBe(true);
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    expect(b.reduced).toEqual(['thinned']);
+    expect(b.snapshot.result.history).toBe('full');
+    expect(b.snapshot.result.sampled?.from).toBe(4000);
+    expect(b.snapshot.result.axis.offsets.length).toBeLessThanOrEqual(AXIS_MAX);
+  });
+
   it('재선정일은 솎아도 축에 남는다', () => {
     const b = validationSnapshot(bigValidationRun({ days: 2450, every: 21, take: 30, baskets: 2 }), { hideCapital: false, now: NOW });
     if (!b.ok) throw new Error(JSON.stringify(b));
