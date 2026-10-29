@@ -29,7 +29,8 @@ export function createFakeSocial(o: { clientIds: Record<SocialProvider, string>;
       return { code };
     },
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const req = new Request(input, init);
+      // jsdom 시험에서는 URLSearchParams·AbortSignal이 다른 realm이라 Node 22의 Request가 거부한다.
+      const req = new Request(input, { method: init?.method, headers: init?.headers, body: init?.body == null ? init?.body : String(init.body) });
       const provider = (Object.keys(SOCIAL_PROVIDERS) as SocialProvider[]).find((p) => req.url === SOCIAL_PROVIDERS[p].tokenUrl);
       if (!provider) throw new TypeError('가짜 공급자 밖의 주소예요');
       calls.push(req.url);
