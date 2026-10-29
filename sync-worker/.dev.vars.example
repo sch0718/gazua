@@ -1,0 +1,8 @@
+# wrangler dev에서 쓸 로컬 비밀값 이름이다. .dev.vars에 값을 채워 넣고 커밋하지 않는다.
+# 허용 이메일과 공급자 계정은 콤마로 구분한다.
+ALLOWED_EMAILS=
+ALLOWED_ACCOUNTS=
+KAKAO_CLIENT_ID=
+KAKAO_CLIENT_SECRET=
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=

@@ -1,5 +1,5 @@
 // 테스트 전용: sync-worker 핸들러를 같은 프로세스에서 부르는 fetch. 테스트용 D1(node:sqlite)과 지어낸 서명 키를 쓴다.
-import { harness, ME, ORIGIN, type Harness } from './harness';
+import { harness, ME, ORIGIN, type Harness, type SocialOptions } from './harness';
 import { createSyncApi, type Credentials, type SyncApi } from '../../src/lib/sync/api';
 
 export const SYNC_BASE = 'https://sync.example.test';
@@ -14,8 +14,8 @@ export interface TestServer {
   requests: { method: string; path: string }[];
 }
 
-export function testServer(): TestServer {
-  const h = harness();
+export function testServer(opts: { social?: SocialOptions } = {}): TestServer {
+  const h = harness(opts);
   const s: TestServer = {
     h,
     online: true,

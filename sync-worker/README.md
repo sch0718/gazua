@@ -20,13 +20,16 @@
 
 모든 요청은 `Origin`이 `ALLOWED_ORIGINS`와 정확히 같아야 해요. 다르면 `403 origin`이에요. preflight는 `GET, POST, PUT, DELETE`와 `Authorization, Content-Type, X-Gazua-Session, X-Share-Token` 헤더만 허용해요. 모든 응답은 `Cache-Control: no-store`예요.
 
-개인 API는 매 요청에 두 가지를 보내요.
+Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보내요.
 - `Authorization: Bearer <Firebase ID 토큰>`: RS256 서명과 `aud`, `iss`, `exp`, `iat`, `auth_time`, `sub`를 검사해요. 이메일은 `email_verified`여야 하고 `ALLOWED_EMAILS`에 있어야 해요.
 - `X-Gazua-Session: <기기 세션>`: D1에는 SHA-256만 둬요. 마지막 사용 후 30일이 지나면 만료되고, 언제든 철회할 수 있어요.
+
+소셜 세션은 `Authorization` 없이 `X-Gazua-Session` 헤더만으로 인증해요. `ALLOWED_ACCOUNTS`는 매 요청 다시 확인하고, Google 세션은 계속 Firebase ID 토큰이 필요해요.
 
 | 메서드·경로 | 설명 |
 |---|---|
 | `POST /v1/session` | 기기 세션 만들기. `auth_time`이 5분 이내인 토큰만 받아요. 철회된 기기는 Google 로그인을 다시 거쳐야 해요 |
+| `POST /v1/session/social` | 카카오·네이버 코드를 교환해 세션을 만들어요. `{ provider, code, codeVerifier, redirectUri, label? }` → `{ sessionId, expiresAt, user }`. 400 요청 오류, 401 코드·토큰 오류, 403 허용 밖 계정(`account` 포함), 404 소셜 꺼짐, 503 공급자 장애예요 |
 | `DELETE /v1/session` | 이 기기 로그아웃 |
 | `GET /v1/sessions`, `DELETE /v1/sessions/:id`, `DELETE /v1/sessions?others=1` | 기기 목록과 철회 |
 | `GET /v1/profiles` | 프로필 색인(리비전, 삭제 시각, 정리 예정 시각) |
@@ -48,10 +51,22 @@ capability는 256비트(base64url 43자)예요. 만들 때 한 번만 돌려주�
 ```bash
 corepack pnpm --filter sync-worker test     # 테스트용 D1(node:sqlite) 위의 단위·API 테스트
 corepack pnpm --filter sync-worker check    # 타입 검사
+corepack pnpm --filter sync-worker dev:social # 실제 키 없이 가짜 카카오·네이버 화면을 시험해요
 corepack pnpm --filter sync-worker smoke    # 실제 workerd + 로컬 D1(wrangler dev)에서 흐름 확인. 지어낸 키만 써요
 ```
 
 `test/devEntry.ts`는 스모크 전용 진입점이에요. Google 인증서 대신 지어낸 공개키로 검증해요. **배포에 쓰지 마세요.** `wrangler.toml`의 `main`은 `src/worker.ts`예요.
+
+`dev:social`은 로컬 D1 마이그레이션을 적용한 뒤 `test/devSocialEntry.ts`를 기본 8788 포트에서 띄워요. **개발용 가짜 공급자이므로 절대 배포하지 마세요.** 운영 진입점은 계속 `src/worker.ts`예요. 앱 작업이 연결되면 루트 `.env.local`에 아래 값을 넣고 앱 개발 서버를 다시 시작해요.
+
+```dotenv
+VITE_SYNC_API_URL=http://localhost:8788
+VITE_KAKAO_LOGIN_CLIENT_ID=dev-kakao
+VITE_NAVER_LOGIN_CLIENT_ID=dev-naver
+VITE_SOCIAL_DEV_MOCK=true
+```
+
+`DEV_APP_ORIGIN`은 앱 개발 서버의 출처(기본 `http://localhost:5173`), `DEV_SOCIAL_PORT`는 가짜 Worker 포트, `DEV_ALLOWED_ACCOUNTS`는 허용 계정(기본 `kakao:dev-user,naver:dev-user`)을 바꿔요. 포트를 바꾸면 `VITE_SYNC_API_URL`도 맞춰요. 화면에서 계정 ID를 바꿀 수 있고, 허용 목록 밖 ID는 403, `error-503`·`error-code`·`no-id-token`은 각각 공급자 장애·코드 오류·토큰 누락을 재현해요. 이 ID와 시크릿은 지어낸 상수예요. 실제 로컬 비밀값을 쓰는 `wrangler dev`는 `.dev.vars.example`의 이름을 참고해 `.dev.vars`에 값을 넣어요. `.dev.vars`는 저장소에서 제외해요.
 
 ## 처음 배포하기 (사용자가 직접 해요)
 
