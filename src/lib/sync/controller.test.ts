@@ -292,7 +292,7 @@ describe('카카오·네이버 로그인', () => {
   afterEach(() => vi.unstubAllGlobals());
   const socialConfig: SyncConfig = { ...CONFIG, social: { kakao: { clientId: 'kakao-test-client' }, naver: { clientId: 'naver-test-client' } } };
 
-  async function socialSetup(s: TestServer, o: { store?: SyncStore; config?: SyncConfig | null; auth?: AuthClient; socialStorage?: Storage } = {}) {
+  async function socialSetup(s: TestServer, o: { store?: SyncStore; config?: SyncConfig | null; auth?: AuthClient; socialStorage?: Storage; fetchImpl?: typeof fetch; socialTimeout?: number; notify?: (message: string) => void; reauthReadWait?: number; attach?: boolean; storeFactory?: () => Promise<SyncStore> } = {}) {
     const storage = createSafeStorage(memoryBacking());
     const socialStorage = o.socialStorage ?? memoryBacking();
     const store = o.store ?? createMemorySyncStore();
@@ -301,11 +301,11 @@ describe('카카오·네이버 로그인', () => {
     const received: Headers[] = [];
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
       received.push(new Headers(init?.headers));
-      return s.fetch(input, init);
+      return (o.fetchImpl ?? s.fetch)(input, init);
     }) as typeof fetch;
-    const sync = createSyncController({ config: o.config === undefined ? socialConfig : o.config, storage, auth, socialStorage, navigate, origin: 'https://app.example.test', random: (n) => crypto.getRandomValues(new Uint8Array(n)), store: async () => store, fetchImpl, now: () => s.h.clock.now, deviceLabel: () => '기본 기기' });
+    const sync = createSyncController({ socialTimeout: o.socialTimeout, notify: o.notify, reauthReadWait: o.reauthReadWait, config: o.config === undefined ? socialConfig : o.config, storage, auth, socialStorage, navigate, origin: 'https://app.example.test', random: (n) => crypto.getRandomValues(new Uint8Array(n)), store: o.storeFactory ?? (async () => store), fetchImpl, now: () => s.h.clock.now, deviceLabel: () => '기본 기기' });
     const app = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache(), onSyncableChange: (e) => sync.onSyncableChange(e) });
-    await sync.attach(app);
+    if (o.attach !== false) await sync.attach(app);
     cleanups.push(() => { sync.destroy(); app.destroy(); });
     async function callback(provider: SocialProvider = 'kakao', sub = 'kakao-me', query?: string): Promise<SocialReturn> {
       await sync.signInWith(provider, ' 내 폰 ');
@@ -319,6 +319,129 @@ describe('카카오·네이버 로그인', () => {
     return { sync, app, store, auth, received, callback, navigate };
   }
 
+  function heldFetch(s: TestServer) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/session/social')) await gate;
+      return s.fetch(input, init);
+    }) as typeof fetch;
+    return { fetchImpl, release };
+  }
+
+  it('응답이 없으면 제한 시간 뒤 timeout으로 끝나고 busy를 풀어요', async () => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const a = await socialSetup(s, { ...held, socialTimeout: 20 });
+    const ret = await a.callback();
+    vi.useFakeTimers();
+    try {
+      const done = vi.fn();
+      const pending = a.sync.completeSocialSignIn(ret).then(done);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(done).toHaveBeenCalledWith({ ok: false, provider: 'kakao', reason: 'timeout' });
+      expect(a.sync.busy).toBe(false);
+      await pending;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('기다림을 버리면 곧바로 끝나고 타이머와 busy를 풀어요', async () => {
+    const s = testServer({ social: true });
+    const a = await socialSetup(s, heldFetch(s));
+    const pending = a.sync.completeSocialSignIn(await a.callback());
+    await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
+    a.sync.abandonSocialSignIn();
+    expect(await pending).toMatchObject({ ok: false, reason: 'timeout' });
+    expect(a.sync.busy).toBe(false);
+  });
+
+  it.each(['timeout', 'abandon'] as const)('기다림을 끝낸 뒤 성공하면 세션을 보관하고 한 번 알려 줘요: %s', async (escape) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const notify = vi.fn();
+    const a = await socialSetup(s, { ...held, notify, socialTimeout: 100 });
+    const pending = a.sync.completeSocialSignIn(await a.callback());
+    await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
+    if (escape === 'abandon') a.sync.abandonSocialSignIn();
+    expect(await pending).toMatchObject({ reason: 'timeout' });
+    held.release();
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledExactlyOnceWith('카카오 계정으로 로그인했어요'));
+    expect(a.sync.account?.id).toBe('kakao:kakao-me');
+    const again = await socialSetup(s, { store: a.store });
+    expect(again.sync.account).toEqual(a.sync.account);
+    expect((await again.sync.sessions())?.[0]).toMatchObject({ current: true });
+  });
+
+  it.each(['timeout', 'abandon'] as const)('기다림을 끝낸 뒤 403이면 오류와 알림을 남겨요: %s', async (escape) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const notify = vi.fn();
+    const a = await socialSetup(s, { ...held, notify, socialTimeout: 100 });
+    const pending = a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'));
+    await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
+    if (escape === 'abandon') a.sync.abandonSocialSignIn();
+    expect(await pending).toMatchObject({ reason: 'timeout' });
+    held.release();
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    expect(a.sync.error).toContain('이 카카오 계정은 아직 허용 목록에 없어요');
+    expect(notify).toHaveBeenCalledWith(a.sync.error);
+    expect(a.sync.account).toBeNull();
+  });
+
+  it.each(['kakao-me', 'stranger'])('늦은 응답이 다른 작업의 busy를 풀지 않아요: %s', async (sub) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const notify = vi.fn();
+    const a = await socialSetup(s, { notify, auth: fakeAuth(s), fetchImpl: async (input, init) => {
+      if (String(input).endsWith('/profiles')) await gate;
+      return held.fetchImpl(input, init);
+    } });
+    await a.sync.signIn();
+    const pending = a.sync.completeSocialSignIn(await a.callback('kakao', sub));
+    await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    const other = a.sync.remoteProfiles();
+    expect(a.sync.busy).toBe(true);
+    held.release();
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    expect(a.sync.busy).toBe(true);
+    release();
+    await other;
+    expect(a.sync.busy).toBe(false);
+  });
+
+  it.each(['timeout', 'abandon'] as const)('앱 연결을 기다릴 때도 대기를 끝내고 늦은 성공을 알려 줘요: %s', async (escape) => {
+    const s = testServer({ social: true });
+    const first = await socialSetup(s);
+    const ret = await first.callback();
+    let release!: (store: SyncStore) => void;
+    const gate = new Promise<SyncStore>((resolve) => { release = resolve; });
+    const notify = vi.fn();
+    const a = await socialSetup(s, { attach: false, storeFactory: () => gate, socialTimeout: 20, notify });
+    const attaching = a.sync.attach(a.app);
+    vi.useFakeTimers();
+    try {
+      const done = vi.fn();
+      const pending = a.sync.completeSocialSignIn(ret).then(done);
+      await vi.advanceTimersByTimeAsync(0);
+      if (escape === 'abandon') a.sync.abandonSocialSignIn();
+      await vi.advanceTimersByTimeAsync(20);
+      expect(done).toHaveBeenCalledWith({ ok: false, provider: 'kakao', reason: 'timeout' });
+      expect(a.sync.busy).toBe(false);
+      expect(a.received).toHaveLength(0);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+      release(a.store);
+      await attaching;
+    }
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledExactlyOnceWith('카카오 계정으로 로그인했어요'));
+    expect(a.sync.account?.id).toBe('kakao:kakao-me');
+  });
+
   it.each([undefined, '#/watchlist'])('로그인 복귀 화면은 전달한 값을 우선하고 없으면 현재 화면을 쓴다: %s', async (returnHash) => {
     const socialStorage = memoryBacking();
     const a = await socialSetup(testServer({ social: true }), { socialStorage });
@@ -326,6 +449,78 @@ describe('카카오·네이버 로그인', () => {
     await a.sync.signInWith('kakao', '내 폰', returnHash);
     expect(JSON.parse(socialStorage.getItem(SOCIAL_RETURN_KEY)!)).toMatchObject({ hash: returnHash ?? '#/groups', label: '내 폰' });
     expect(a.navigate).toHaveBeenCalledOnce();
+  });
+
+  it('재인증 플래그를 읽지 못해도 안전하게 재인증으로 시작해요', async () => {
+    const a = await socialSetup(testServer({ social: true }));
+    const getMeta = a.store.getMeta.bind(a.store);
+    vi.spyOn(a.store, 'getMeta').mockImplementation((key) => {
+      if (key === 'social-reauth') return Promise.reject(new Error('저장소 읽기 실패'));
+      return getMeta(key);
+    });
+    await a.sync.signInWith('kakao');
+    expect(a.sync.error).toBeNull();
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
+  it('attach가 오래 걸리면 상한까지만 기다리고 재인증으로 시작해요', async () => {
+    let release!: (store: SyncStore) => void;
+    const gate = new Promise<SyncStore>((resolve) => { release = resolve; });
+    const a = await socialSetup(testServer({ social: true }), { attach: false, storeFactory: () => gate, reauthReadWait: 20 });
+    const attaching = a.sync.attach(a.app);
+    vi.useFakeTimers();
+    try {
+      const pending = a.sync.signInWith('kakao');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(a.navigate).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(20);
+      await vi.waitFor(() => expect(a.navigate).toHaveBeenCalledOnce(), { timeout: 100, interval: 1 });
+      await pending;
+      expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+      expect(a.sync.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      release(a.store);
+      await attaching;
+    }
+  });
+
+  it.each([true, undefined])('attach 전에 시작해도 상한 안에 연결되면 저장된 플래그를 읽어요: %s', async (flag) => {
+    let release!: (store: SyncStore) => void;
+    const gate = new Promise<SyncStore>((resolve) => { release = resolve; });
+    const a = await socialSetup(testServer({ social: true }), { attach: false, storeFactory: () => gate, reauthReadWait: 1000 });
+    if (flag) await a.store.setMeta('social-reauth', flag);
+    const attaching = a.sync.attach(a.app);
+    vi.useFakeTimers();
+    try {
+      const pending = a.sync.signInWith('kakao');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(a.navigate).not.toHaveBeenCalled();
+      release(a.store);
+      await attaching;
+      await pending;
+      expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe(flag ? 'login' : null);
+      const timers = vi.getTimerCount();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(vi.getTimerCount()).toBe(timers);
+    } finally {
+      vi.useRealTimers();
+      release(a.store);
+      await attaching;
+    }
+  });
+
+  it('메모리의 재인증 플래그가 있으면 attach를 기다리지 않아요', async () => {
+    const a = await socialSetup(testServer({ social: true }), { attach: false, reauthReadWait: 1000 });
+    await a.sync.signOut();
+    vi.useFakeTimers();
+    try {
+      const pending = a.sync.signInWith('kakao');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(a.navigate).toHaveBeenCalledOnce(), { timeout: 100, interval: 1 });
+      await pending;
+      expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+    } finally { vi.useRealTimers(); }
   });
 
   it('로그아웃한 적 없으면 카카오 재인증을 요청하지 않는다', async () => {

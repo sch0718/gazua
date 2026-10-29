@@ -13,6 +13,7 @@ function fakeSync(outcome: SocialOutcome) {
   return {
     providers: { google: true, kakao: true, naver: true },
     busy: false,
+    abandonSocialSignIn: vi.fn(),
     completeSocialSignIn: vi.fn(async () => outcome),
     signInWith: vi.fn(async () => {}),
   } as unknown as SyncController;
@@ -45,6 +46,7 @@ describe('소셜 로그인 콜백 화면', () => {
       await tick();
       expect(screen.getByText('시간이 걸리고 있어요. 돌아가서 다시 시도할 수 있어요.')).toBeTruthy();
       await fireEvent.click(screen.getByRole('button', { name: '돌아가기' }));
+      expect(sync.abandonSocialSignIn).toHaveBeenCalledOnce();
       expect(ondone).toHaveBeenCalledWith('#/settings');
     } finally { view.unmount(); }
   });
@@ -66,6 +68,13 @@ describe('소셜 로그인 콜백 화면', () => {
     expect(currentSnackbar()).toBeNull();
   });
 
+  it('서버 응답 제한 시간이 지나면 다시 로그인할 수 있어요', async () => {
+    render(SocialCallback, { sync: fakeSync({ ok: false, provider: 'kakao', reason: 'timeout' }), ret: RET, ondone: vi.fn() });
+    await screen.findByRole('heading', { name: '동기화 서버의 응답이 늦어요' });
+    expect(screen.getByRole('alert').textContent).toContain('결과가 오면 알려 드려요. 지금 다시 로그인할 수도 있어요.');
+    expect(screen.getByRole('button', { name: '다시 로그인' })).toBeTruthy();
+  });
+
   it('허용 목록 밖 계정 값을 보여 주고 복사한다', async () => {
     const copy = vi.fn(async () => {});
     render(SocialCallback, { sync: fakeSync({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:123' }), ret: RET, ondone: vi.fn(), copy });
@@ -76,11 +85,26 @@ describe('소셜 로그인 콜백 화면', () => {
     await screen.findByText('복사했어요');
   });
 
-  it('허용 목록 밖에서는 다른 계정으로 재인증을 요청한다', async () => {
+  it('카카오 일반 브라우저에서는 재시도와 다른 계정 로그인을 따로 할 수 있어요', async () => {
     const sync = fakeSync({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:123' });
-    render(SocialCallback, { sync, ret: RET, ondone: vi.fn() });
-    await fireEvent.click(await screen.findByRole('button', { name: '다른 계정으로 로그인' }));
-    expect(sync.signInWith).toHaveBeenCalledWith('kakao', '내 폰', '#/settings', { reauth: true });
+    render(SocialCallback, { sync, ret: RET, ondone: vi.fn(), userAgent: 'Mozilla/5.0 Chrome/120.0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '다시 로그인' }));
+    expect(sync.signInWith).toHaveBeenNthCalledWith(1, 'kakao', '내 폰', '#/settings');
+    await fireEvent.click(screen.getByRole('button', { name: '다른 계정으로 로그인' }));
+    expect(sync.signInWith).toHaveBeenNthCalledWith(2, 'kakao', '내 폰', '#/settings', { reauth: true });
+  });
+
+  it.each([
+    ['kakao', '카카오', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.4.0'],
+    ['naver', '네이버', 'Mozilla/5.0 Chrome/120.0'],
+  ] as const)('계정 선택을 강제할 수 없으면 공급자 로그아웃을 안내해요: %s', async (provider, name, userAgent) => {
+    const sync = fakeSync({ ok: false, provider, reason: 'not-allowed' });
+    render(SocialCallback, { sync, ret: RET, ondone: vi.fn(), userAgent });
+    await screen.findByRole('heading', { name: `이 ${name} 계정은 아직 허용 목록에 없어요` });
+    expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).toBeNull();
+    expect(screen.getByText(`다른 계정으로 로그인하려면 ${name}에서 로그아웃한 뒤 다시 로그인해 주세요.`)).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '다시 로그인' }));
+    expect(sync.signInWith).toHaveBeenCalledWith(provider, '내 폰', '#/settings');
   });
 
   it('복사하지 못하면 계정 값을 선택하고 직접 복사하도록 알린다', async () => {

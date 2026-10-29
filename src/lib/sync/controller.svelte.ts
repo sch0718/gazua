@@ -1,5 +1,6 @@
 // 설정 화면·공유가 쓰는 동기화 상태. 공급자 로그인 → 기기 세션 → 동기화 엔진을 묶는다.
 // 로그인·세션이 없거나 실패해도 로컬 사용은 그대로다. 동기화 설정이 없는 빌드에서는 configured=false로 아무것도 하지 않는다.
+import { showSnackbar } from '@sch0718/ui-svelte';
 import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
@@ -15,6 +16,11 @@ import type { SocialProvider } from '@sch0718/firebase-session/client';
 /** 포커스로 다시 받는 최소 간격(할당량 절약). */
 export const FOCUS_PULL_INTERVAL = 5 * 60 * 1000;
 
+/** 세션 요청은 계속 두고 기다림만 끝내요. */
+export const SOCIAL_SESSION_TIMEOUT = 20_000;
+/** 저장한 재인증 플래그를 읽기 위해 연결을 기다리는 상한이에요. */
+export const REAUTH_READ_WAIT = 1500;
+
 export interface SyncControllerDeps {
   config: SyncConfig | null;
   storage: SafeStorage;
@@ -29,6 +35,9 @@ export interface SyncControllerDeps {
   navigate?: (url: string) => void;
   random?: (n: number) => Uint8Array;
   origin?: string;
+  socialTimeout?: number;
+  reauthReadWait?: number;
+  notify?: (message: string) => void;
 }
 
 export interface SyncAccount {
@@ -56,6 +65,7 @@ export interface SyncController {
   signIn(label?: string): Promise<void>;
   signInWith(provider: SocialProvider, label?: string, returnHash?: string, opts?: { reauth?: boolean }): Promise<void>;
   completeSocialSignIn(ret: SocialReturn): Promise<SocialOutcome>;
+  abandonSocialSignIn(): void;
   signOut(): Promise<void>;
   preview(): Promise<{ upload: string[]; download: number } | null>;
   setEnabled(on: boolean): Promise<void>;
@@ -127,6 +137,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   let engine: SyncEngine | null = null;
   let session: SessionMeta | null = null;
   let socialReauth = false;
+  let socialAttempt: { escape: () => void } | null = null;
+  const notify = deps.notify ?? showSnackbar;
   let didAttach!: () => void;
   const attached = new Promise<void>((resolve) => didAttach = resolve);
   let lastFocusPull = 0;
@@ -139,6 +151,23 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       )
     : null;
   const cleanups: (() => void)[] = [];
+
+  async function needsSocialReauth(): Promise<boolean> {
+    if (socialReauth) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const ready = await Promise.race([
+        attached.then(() => true),
+        new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), deps.reauthReadWait ?? REAUTH_READ_WAIT); }),
+      ]);
+      if (!ready || !store) return true;
+      return (await store.getMeta<boolean>(SOCIAL_REAUTH_KEY)) === true;
+    } catch {
+      return true;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function clearSocialReauth() {
     socialReauth = false;
@@ -185,6 +214,48 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     await clearSocialReauth();
     error = null;
     if (engine?.status().enabled) await engine.syncNow();
+  }
+
+  function socialSessionFailure(r: ApiFail, provider: SocialProvider): SocialOutcome {
+    const reason = r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
+      : r.kind === 'auth' ? r.code === 'invalid-code' ? 'invalid-code' : 'invalid-token'
+      : r.kind === 'not-found' ? 'not-enabled' : r.kind === 'server' && r.status === 400 ? 'bad-request' : 'server';
+    return { ok: false, provider, reason, ...(r.kind === 'not-allowed' && r.account && { account: r.account }) };
+  }
+
+  async function acceptSocialSession(data: Extract<Awaited<ReturnType<SyncApi['createSocialSession']>>, { ok: true }>['data'], provider: SocialProvider) {
+    if (session) {
+      try { await api!.endSession(); } catch { /* 이전 세션 정리는 가능한 만큼 해요. */ }
+      if (!session.provider) {
+        try { await auth?.signOut(); } catch { /* 새 로그인은 이어 가요. */ }
+      }
+    }
+    const user = data.user;
+    const owner = await store!.getMeta<string>(OWNER_KEY);
+    if (owner !== user.sub) {
+      if (owner !== undefined) await engine?.reset();
+      await store!.setMeta(OWNER_KEY, user.sub);
+    }
+    session = { id: data.sessionId, email: '', provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
+    await store!.setMeta(SESSION_KEY, session);
+    account = { provider, id: user.sub, display: session.display! };
+    await clearSocialReauth();
+    error = null;
+    if (engine?.status().enabled) await engine.syncNow();
+  }
+
+  async function notifySocialOutcome(outcome: SocialOutcome) {
+    if (outcome.ok) {
+      notify(`${PROVIDER_NAMES[outcome.provider]} 계정으로 로그인했어요`);
+      return;
+    }
+    let message = ERRORS.server;
+    try {
+      const { socialFailureText } = await import('./socialText');
+      message = socialFailureText(outcome).title;
+    } catch { /* 안내 청크를 못 받아도 일반 오류를 알려요. */ }
+    error = message;
+    notify(message);
   }
 
   async function guarded<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -314,12 +385,13 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         }
         error = null;
         try {
+          const reauth = opts?.reauth || await needsSocialReauth();
           const { startSocialSignIn } = await import('./socialFlow');
           await startSocialSignIn(provider, {
             clientId: config.social![provider]!.clientId, apiUrl: config.apiUrl,
             label: label?.trim() ?? '', returnHash: returnHash ?? (globalThis.location?.hash || '#/settings'),
             storage: deps.socialStorage, navigate: deps.navigate, random: deps.random, origin: deps.origin, now,
-            reauth: opts?.reauth || socialReauth || (await store?.getMeta<boolean>(SOCIAL_REAUTH_KEY)) === true,
+            reauth,
           });
         } catch {
           error = '이 브라우저에서는 로그인을 시작할 수 없어요. 저장소를 쓸 수 없어요(사생활 보호 모드 등). 다른 브라우저로 열어 주세요.';
@@ -327,41 +399,55 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       }, undefined),
 
     async completeSocialSignIn(ret) {
-      await attached;
       const cb = ret.callback;
       const provider = cb?.provider ?? null;
-      // 설정이 없으면 대기 요청보다 빌드 설정 안내를 먼저 한다.
-      if (!config || (provider && !providers[provider])) return { ok: false, provider, reason: 'not-configured' };
-      if (!cb) return { ok: false, provider, reason: 'no-pending' };
-      if (!cb.ok) return { ok: false, provider, reason: cb.reason === 'redirect-mismatch' || cb.reason === 'state-mismatch' ? 'mismatch' : cb.reason, ...(cb.error && { error: cb.error }) };
-      return guarded<SocialOutcome>(async () => {
-        const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)());
-        if (!r.ok) {
-          const reason = r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
-            : r.kind === 'auth' ? r.code === 'invalid-code' ? 'invalid-code' : 'invalid-token'
-            : r.kind === 'not-found' ? 'not-enabled' : r.kind === 'server' && r.status === 400 ? 'bad-request' : 'server';
-          return { ok: false, provider: cb.provider, reason, ...(r.kind === 'not-allowed' && r.account && { account: r.account }) };
+      busy = true;
+      let escaped = false;
+      let escape!: () => void;
+      const fallback: SocialOutcome = { ok: false, provider, reason: 'timeout' };
+      const escapeResult = new Promise<SocialOutcome>((resolve) => {
+        escape = () => {
+          if (escaped) return;
+          escaped = true;
+          clearTimeout(timer);
+          busy = false;
+          resolve(fallback);
+        };
+      });
+      const attempt = { escape };
+      socialAttempt = attempt;
+      const timer = setTimeout(escape, deps.socialTimeout ?? SOCIAL_SESSION_TIMEOUT);
+      const request = (async (): Promise<SocialOutcome> => {
+        try {
+          await attached;
+          // 설정이 없으면 대기 요청보다 빌드 설정을 먼저 안내해요.
+          if (!config || (provider && !providers[provider])) return { ok: false, provider, reason: 'not-configured' };
+          if (!cb) return { ok: false, provider, reason: 'no-pending' };
+          if (!cb.ok) return { ok: false, provider, reason: cb.reason === 'redirect-mismatch' || cb.reason === 'state-mismatch' ? 'mismatch' : cb.reason, ...(cb.error && { error: cb.error }) };
+          const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)());
+          if (!r.ok) return socialSessionFailure(r, cb.provider);
+          await acceptSocialSession(r.data, cb.provider);
+          return { ok: true, provider: cb.provider };
+        } catch {
+          if (!escaped) error = ERRORS.server;
+          return { ok: false, provider, reason: 'server' };
         }
-        if (session) {
-          try { await api!.endSession(); } catch { /* 이전 세션 정리는 최선으로 한다. */ }
-          if (!session.provider) {
-            try { await auth?.signOut(); } catch { /* 새 로그인은 이어 간다. */ }
-          }
-        }
-        const user = r.data.user;
-        const owner = await store!.getMeta<string>(OWNER_KEY);
-        if (owner !== user.sub) {
-          if (owner !== undefined) await engine?.reset();
-          await store!.setMeta(OWNER_KEY, user.sub);
-        }
-        session = { id: r.data.sessionId, email: '', provider: cb.provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
-        await store!.setMeta(SESSION_KEY, session);
-        account = { provider: cb.provider, id: user.sub, display: session.display! };
-        await clearSocialReauth();
-        error = null;
-        if (engine?.status().enabled) await engine.syncNow();
-        return { ok: true, provider: cb.provider };
-      }, { ok: false, provider: cb.provider, reason: 'server' });
+      })().then(async (outcome) => {
+        if (escaped) await notifySocialOutcome(outcome);
+        return outcome;
+      });
+      try {
+        return await Promise.race([request, escapeResult]);
+      } finally {
+        clearTimeout(timer);
+        if (socialAttempt === attempt) socialAttempt = null;
+        // 기다림을 끝낸 시도는 다른 작업의 busy를 바꾸지 않아요.
+        if (!escaped) busy = false;
+      }
+    },
+
+    abandonSocialSignIn() {
+      socialAttempt?.escape();
     },
 
     signOut: () =>

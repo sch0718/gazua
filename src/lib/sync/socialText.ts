@@ -1,9 +1,10 @@
-// 콜백 화면에서만 쓰는 실패 안내를 지연 로드한다.
+// 소셜 로그인 실패 안내는 필요할 때만 지연 로드해요.
 import { PROVIDER_NAMES, type SocialOutcome } from './social';
 
 export function socialFailureText(o: Extract<SocialOutcome, { ok: false }>): { title: string; detail: string } {
   const p = o.provider ? PROVIDER_NAMES[o.provider] : '카카오·네이버';
   const texts: Record<typeof o.reason, [string, string]> = {
+    timeout: ['동기화 서버의 응답이 늦어요', '결과가 오면 알려 드려요. 지금 다시 로그인할 수도 있어요.'],
     cancelled: ['로그인을 취소했어요', '다시 하려면 아래 단추를 눌러 주세요.'],
     mismatch: ['로그인 요청을 확인하지 못했어요', '다른 탭이나 창에서 시작한 로그인과 섞였을 수 있어요. 다시 로그인해 주세요.'],
     expired: ['로그인 시간이 지났어요', '시작한 지 10분이 지나 이어서 할 수 없어요. 다시 로그인해 주세요.'],

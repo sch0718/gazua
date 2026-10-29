@@ -16,4 +16,4 @@ export function restoreReferrerPolicy(doc: Document = document): void {
 export type SocialReturn = { callback: SocialCallback | null; hadParams: boolean; returnHash: string; label: string };
 export type SocialOutcome =
   | { ok: true; provider: SocialProvider }
-  | { ok: false; provider: SocialProvider | null; reason: 'cancelled' | 'mismatch' | 'expired' | 'provider-error' | 'no-pending' | 'not-configured' | 'not-allowed' | 'limit' | 'offline' | 'invalid-code' | 'invalid-token' | 'not-enabled' | 'bad-request' | 'server' | 'storage'; account?: string; error?: string };
+  | { ok: false; provider: SocialProvider | null; reason: 'cancelled' | 'mismatch' | 'expired' | 'provider-error' | 'no-pending' | 'not-configured' | 'not-allowed' | 'limit' | 'offline' | 'invalid-code' | 'invalid-token' | 'not-enabled' | 'bad-request' | 'server' | 'storage' | 'timeout'; account?: string; error?: string };
