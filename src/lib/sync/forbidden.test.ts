@@ -24,6 +24,18 @@ describe('jsonDiff ignoreMissing', () => {
 });
 
 describe('깊이 상한', () => {
+  it('깊이 32 객체 안의 원시값은 금지 경로가 아니다', () => {
+    expect(findForbidden(nest(32, { k: 1 }))).toBeNull();
+  });
+
+  it('깊이 32 배열 안의 원시값은 금지 경로가 아니다', () => {
+    expect(findForbidden(nest(31, { k: [1] }))).toBeNull();
+  });
+
+  it.each([null, undefined, 1, 'x', true])('원시값 %s는 깊이 상한 밖에서도 금지 경로가 아니다', (value) => {
+    expect(findForbidden(value, 'leaf', JSON_DEPTH_MAX + 1)).toBeNull();
+  });
+
   it('깊이 32 객체 안의 같은 원시값은 차이가 없다', () => {
     expect(jsonDiff(nest(32, { k: 1 }), nest(32, { k: 1 }))).toBeNull();
   });
