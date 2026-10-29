@@ -326,7 +326,8 @@ export type SharedPick = [symbol: string, retPct: number | null, mark: 0 | 1 | N
 - 오류 코드에 `unsupported`(모르는 `kind`)를 더한다. 받은 화면은 `unsupported`이면 "새 버전 앱에서 볼 수 있어요. 앱을 새로 고쳐 주세요", 그 밖의 실패(망가졌거나 정리할 수 없는 옛 공유)이면 "이 공유를 읽을 수 없어요. 보낸 사람에게 다시 만들어 달라고 해 주세요"로 나눠 보인다.
 - 전략·기준 부분은 지금 `strategy`·`criteria` 분기의 본문을 `checkStrategyPart(raw, title, now, mode)`·`checkCriteriaPart(raw, title, now, mode)`로 떼어 함께 쓴다.
 - **종목 코드 검사를 공유 경로에 더한다.** `sanitizeStrategies`는 `universe.symbols`·`benchmarks.symbol`을, `sanitizeCriteria`는 `benchmarks.symbols`를 문자열인지만 본다(`src/lib/sim/validate.ts`, `src/lib/screen/validate.ts`). 가져오면 이 값이 받은 사람 키로 보내는 시세 요청에 들어가므로 검사가 필요하다. 다만 **정리 함수(`sanitize*`)는 바꾸지 않는다.** 정리 함수는 저장소 읽기(손상 배너)와 동기화 DTO(`src/lib/sync/dto.ts`)도 쓰므로, 여기서 거절하면 이미 저장된 데이터가 손상으로 보이거나 동기화 push가 422가 된다. 검사는 공유 경로인 `checkStrategyPart`·`checkCriteriaPart`에만 둔다(관심목록도 저장 쪽 `state/validate.ts`는 아무 문자열이나 받으므로 그대로 둔다).
-- 공유용 종목 정규식은 하나로 정한다: `SHARE_SYMBOL_RE = /^(?:[0-9A-Z]{6}|Q[0-9A-Z]{6})$/`. 종목 목록을 만드는 `scripts/parse-master.mjs`의 `SYMBOL_PATTERN`과 같다(주식·ETF·리츠 6자리, ETN은 `Q` + 6자리, `src/lib/data/universe.ts` 주석). 그룹·묶음·전략(`universe.symbols`, `benchmarks.symbol`)·기준(`benchmarks.symbols`)·compare·결과 부분(`symbols`, `failed[].symbol`, 검증 `benchmarks[].symbol`, 선정 이력·오늘 선정)이 모두 이것을 쓰고, 각 목록 안에서 중복을 거절한다(한 재선정일·오늘 선정 안에서 중복 없음). 지금 `snapshot.ts`의 `SYMBOL_RE`(`^[0-9A-Z]{6}$`)는 ETN을 거르므로 ETN이 든 그룹·묶음 공유가 `invalid`가 되는 버그가 있다. 이것도 함께 고친다.
+- 공유용 종목 정규식은 하나로 정한다: `SHARE_SYMBOL_RE = /^(?:[0-9A-Z]{6}|Q[0-9A-Z]{6})$/`. 종목 목록을 만드는 `scripts/parse-master.mjs`의 `SYMBOL_PATTERN`과 같다(주식·ETF·리츠 6자리, ETN은 `Q` + 6자리, `src/lib/data/universe.ts` 주석). 그룹·전략(`universe.symbols`, `benchmarks.symbol`)·기준(`benchmarks.symbols`)·compare·결과 부분(`symbols`, `failed[].symbol`, 검증 `benchmarks[].symbol`, 선정 이력·오늘 선정)이 이것을 쓰고, 각 목록 안에서 중복을 거절한다(한 재선정일·오늘 선정 안에서 중복 없음). 지금 `snapshot.ts`의 `SYMBOL_RE`(`^[0-9A-Z]{6}$`)는 ETN을 거르므로 ETN이 든 그룹 공유가 `invalid`가 되는 버그가 있다. 이것도 함께 고친다.
+- **묶음의 종목만은 앱 묶음 규칙(6자리, `src/lib/screen/baskets.ts`의 `SYMBOL_RE`)을 그대로 쓴다.** 앱 묶음은 6자리만 받는다(`baskets.ts`, `BasketSheet.svelte`). 공유에서 ETN 묶음을 받으면 다음 로드에 `sanitizeBaskets`가 `repaired`로 보아 손상 배너가 뜨고 동기화 push가 422가 되기 때문이다. 그래서 criteria·validation의 `baskets[].symbols`에 ETN이 있으면 거절한다.
 - 결과 부분은 새 파일 `src/lib/share/checkResult.ts`가 맡는다. 원칙은 기존과 같다. 모르는 필드는 `unknown-field`, 모양·값이 틀리면 `invalid`, 가리키는 곳이 없으면 `reference`로 거절하고 고쳐 받지 않는다.
   - 축: `start`가 유효한 날짜, `offsets[0] === 0`, 엄격히 오름차순 정수, 길이 1~3,700(10년 일봉 여유).
   - 곡선: 길이가 축과 같고, 유한수(또는 허용된 곳만 null), 소수 둘째 자리 이하.
@@ -482,7 +483,7 @@ export interface CardCapture {
 - 카카오 키가 있고 `capture`가 있으면 열 때 한 번 캡처한다(보이는 화면 그대로). `null`이면(4.1) 캡처 부분을 통째로 숨기고 고정 이미지를 쓴다. `canvas.toDataURL('image/jpeg', 0.85)`를 `<img>`로 미리 보인다. CSP `img-src 'self' data:` 안이다. 그 아래에 다음을 둔다.
   - 체크 「화면 캡처 함께 보내기」(기본 켬)
   - 안내 `링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.` 기본으로 켜져 있어 링크를 만들기만 해도 올라간다는 것을 문구가 먼저 말한다.
-- 캡처를 올릴지는 **링크 전 화면의 체크로만 정한다.** 링크를 만들면 곧바로 올리므로 링크 화면에서는 끌 기회가 없다. 링크 화면에는 작은 미리 보기와 「이미지 빼고 보내기」 단추만 둔다. 누르면 올린 이미지를 지우고 고정 이미지 카드로 바꾼다(되돌리지 않는다).
+- 캡처를 올릴지는 **링크 전 화면의 체크로만 정한다.** 링크를 만들면 곧바로 올리므로 링크 화면에서는 끌 기회가 없다. 링크 화면에는 작은 미리 보기와 「이미지 빼고 보내기」 단추만 둔다. 누르면 올린 이미지를 지우고 고정 이미지 카드로 바꾼다(되돌리지 않는다). 업로드 중에 누르면 카드는 바로 고정 이미지가 되고, 늦게 온 업로드 응답은 `attempt` 규칙처럼 버리면서 그 이미지를 `deleteCardImage`로 지운다.
 - 링크 만들기 뒤 순서(카카오 단추 상태: `off` → `loading` → `uploading` → `ready`)
   1. 링크가 생기면 지금처럼 `preloadKakao`.
   2. 준비되고 캡처가 켜져 있으면 `cardFile(canvas)`로 파일을 만들어 `uploadCardImage(file)`. 단추 글은 `캡처 올리는 중…`이다.
@@ -692,7 +693,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 - 길이는 **UTF-16 `.length`** 로 잰다. 전략·기준·묶음의 저장 검사가 `raw.name.length > NAME_MAX`(`sim/validate.ts`, `screen/validate.ts`, `screen/baskets.ts`)로 재기 때문이다. 문자(code point) 단위로 재면 이모지가 든 이름이 저장 때 잘리거나 `repaired`가 된다. 공유 제목의 `shareTitle`·`validTitle`도 지금은 code point로 재므로 같은 기준(UTF-16, 서로게이트를 자르지 않음)으로 맞춘다.
 - 그룹 이름은 지금 한도가 없지만 같은 30 규칙을 쓴다(공유 제목이 이미 30 이내다).
 - 새 ID는 기존 생성 함수(`withNewGroup`, `newBasket`, `crypto.randomUUID`)로 만든다. 받은 `shared`·`b0` ID는 남기지 않는다. `updatedAt`은 `now`다.
-- 받은 전략·기준은 저장 전에 `sanitizeStrategies`·`sanitizeCriteria`를 한 번 더 지난다. 검사를 통과한 스냅샷이라 바뀌는 것이 없어야 하고, 바뀌면 저장하지 않고 `가져올 수 없는 공유예요`를 보인다.
+- 받은 전략·기준·묶음은 저장 전에 `sanitizeStrategies`·`sanitizeCriteria`·`sanitizeBaskets`를 한 번 더 지난다. 검사를 통과한 스냅샷이라 바뀌는 것이 없어야 하고, 바뀌면 저장하지 않고 `가져올 수 없는 공유예요`를 보인다.
 - 쓰기 순서는 묶음 → 기준이다. 기준 쓰기가 실패하면(한도 오류 등) 방금 더한 묶음을 되돌린다.
 
 ### 4.9 화면별 바뀌는 곳
@@ -739,7 +740,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 | `src/lib/ui/simulate/RunPanel.svelte`, `runController.svelte.ts` | 결과 공유 단추를 `ResultView`까지 넘김, `DoneMeta.symbols` |
 | `src/sheets/GroupSheet.svelte`, `src/lib/ui/simulate/StrategyList.svelte`, `src/lib/ui/screen/CriteriaList.svelte` | `build`가 `ShareBuild`를 돌려줌 |
 | `src/lib/state/app.svelte.ts` | `leaveShared()` |
-| `src/lib/sync/forbidden.ts` | `jsonDiff`의 `missing`, 재귀 깊이 상한 |
+| `src/lib/sync/forbidden.ts` | `jsonDiff`의 `ignoreMissing` 옵션, 재귀 깊이 상한 |
 | `pwa.config.ts` | `globIgnores`에 `share/**` |
 | `src/lib/ui/simulate/ResultView.svelte`, `TradeList.svelte`, `SymbolTab.svelte`, `SkipList.svelte`, `EquityChart.svelte` | 읽기 전용(`onEdit`·`onTrade` 선택)·금액 숨김·건너뜀 개수·솎기 안내·`screenshot()`·공유 단추 |
 | `src/lib/ui/screen/ValidationResult.svelte`, `TodayPicks.svelte`, `SelectionHistory.svelte` | `app` null, `colorConvention` prop, 캡처, 코드만 이력·다시 만든 구간 끝 |
@@ -812,7 +813,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 - 자금 숨김: qty·pnl이 null이고 JSON에 원래 초기 자금 숫자가 없다. 숨김인데 qty가 숫자면 `invalid`.
 - 만든 쪽 왕복: 고정 데이터로 만든 결과 스냅샷을 `JSON.parse(JSON.stringify(s))` 뒤 `checkShareSnapshot(…, 'create')`에 넣으면 통과한다. `NaN`이 null을 허용하지 않는 자리(예: `summary.totalReturnPct`, `curves.strategy`)에 섞인 결과는 만들기에서 `{ ok: false, code: 'invalid' }`로 막히고 서버에 보내지 않는다. null을 허용하는 자리(`curves.index`의 원소)의 `NaN`은 null이 되어 통과한다. 축 4,000점 결과는 먼저 솎여 `reduced`에 `thinned`, `sampled.from` 4,000으로 통과한다.
 - 받는 쪽 모드: 전략에서 키 하나를 지운 옛 스냅샷은 `create`에서 `invalid`, `read`에서 기본값이 채워져 통과. 모르는 키는 두 모드 모두 `unknown-field`. 모르는 `kind`는 `unsupported`.
-- 종목 코드: 전략 `universe.symbols`·`benchmarks.symbol`, 기준 `benchmarks.symbols`, 결과의 `symbols`·`failed`·검증 `benchmarks`·선정 종목에 `../x`나 소문자 코드를 넣으면 거절, 중복도 거절. ETN(`Q500023`)이 든 그룹·묶음·전략·simResult는 통과한다. 같은 잘못된 코드가 든 전략이라도 `sanitizeStrategies`(저장·동기화 경로)는 지금처럼 받는다(회귀 방지).
+- 종목 코드: 전략 `universe.symbols`·`benchmarks.symbol`, 기준 `benchmarks.symbols`, 결과의 `symbols`·`failed`·검증 `benchmarks`·선정 종목에 `../x`나 소문자 코드를 넣으면 거절, 중복도 거절. ETN(`Q500023`)이 든 그룹·전략·simResult는 통과하고, ETN이 든 묶음(criteria·validation의 `baskets`)은 거절한다. 같은 잘못된 코드가 든 전략이라도 `sanitizeStrategies`(저장·동기화 경로)는 지금처럼 받는다(회귀 방지).
 - 깊이: 깊이 1,000의 중첩 객체는 예외 없이 `invalid`.
 - 값 반올림: `finQuarter: 202406`, `leaderRank: 3`, `flowStreak: 12`는 그대로, `marketCap`·`return`은 4자리. `select.ts`가 만드는 키가 모두 `VALUE_KEYS`에 있다. 목록 밖 키·`__proto__`는 거절.
 - 대응 검사(2.7의 수·거래·`perSymbol`·`failed`·validation 항목)마다 어긋난 예 하나씩.
@@ -831,7 +832,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 ### 6.3 컴포넌트
 - `SharedView.test.ts`: 종류별 렌더(compare 요약, simResult 요약 카드·거래 줄·종목 이름, validation 카드·선정 이력), `unsupported`·`unreadable` 문구 구분, 자금 숨김 배지·가격만 보이는 거래 줄, 건너뜀 목록 없는 결과의 개수·탭 이름, 「규칙 전체 보기」에 `result`가 없음, UA `KAKAOTALK`이면 안내·단추(iOS 문구 포함), `내 앱에 가져오기`가 대기 값을 넣고 `onexit`을 부름. 종류마다 axe 위반 0. 단위 테스트용 axe 도구는 아직 없다. `@axe-core/playwright`가 이미 끌어오는 `axe-core@4.13.0`을 개발 의존성으로 명시하고 jsdom에서 `axe.run(container)`를 돌린다. jsdom은 색을 계산하지 않으므로 `color-contrast` 규칙은 끈다(대비는 기존 토큰 검사가 맡는다).
 - `ImportHost.test.ts`: 관문 경로(`profiles`·`unlock`·`onboarding`)에서는 열리지 않고 대기 값이 남음, 일반 경로가 되면 열림, 인앱 문구, 막힘 문구와 꺼진 저장 단추, 저장 뒤 이동 경로와 `clearImport`, axe 위반 0.
-- `ShareDialog.test.ts`: 거절 문구(`too-large`·`invalid`)와 꺼진 단추, `reduced` 안내, 결과 원문은 펼칠 때만 만들어짐, 캡처 미리 보기(data: URL)와 링크 전 화면의 체크(끄면 업로드 안 함), 링크 화면의 「이미지 빼고 보내기」(지우기 호출 + 고정 이미지 카드), 업로드 상태(`uploading` → `ready`), 업로드 실패 시 고정 이미지 카드, 보내지 않고 닫으면 지우기 호출, 보낸 뒤 닫으면 호출 안 함. 카카오 SDK와 업로드는 가짜로 넣는다.
+- `ShareDialog.test.ts`: 거절 문구(`too-large`·`invalid`)와 꺼진 단추, `reduced` 안내, 결과 원문은 펼칠 때만 만들어짐, 캡처 미리 보기(data: URL)와 링크 전 화면의 체크(끄면 업로드 안 함), 링크 화면의 「이미지 빼고 보내기」(지우기 호출 + 고정 이미지 카드, 업로드 중에 누르면 늦게 온 응답의 이미지도 지우고 카드는 고정 이미지), 업로드 상태(`uploading` → `ready`), 업로드 실패 시 고정 이미지 카드, 보내지 않고 닫으면 지우기 호출, 보낸 뒤 닫으면 호출 안 함. 카카오 SDK와 업로드는 가짜로 넣는다.
 - `kakao.test.ts`: 종류별 카드 설명 두 줄, 이미지 있음/없음, http 주소·200 미만 응답은 null.
 - `cardImage.test.ts`: jsdom에는 canvas가 없으므로 그리기 호출을 기록하는 가짜 2D context로 배치(글 위치·값 목록 순서)와 `cardFile`의 5 MB 초과 null만 본다. `lwcStub.ts`에 `takeScreenshot`을 더한다.
 - `ResultView`·`ValidationResult`·`TradeList`·`SymbolTab`의 새 prop(읽기 전용, 금액 숨김, `app` null).
