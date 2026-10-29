@@ -152,8 +152,8 @@ describe('selectAt: 재무 미래 정보 누설 방지(데모 데이터)', () =>
     }
   });
 
-  // 고ROE 종목의 ROE는 19.9~31.3, 나머지는 13.1 이하다
-  it('설계 종목: ROE ≥ 18은 고ROE 종목, 영업이익 증가율 ≥ 40은 고성장 종목, 흑자는 적자 종목을 뺀다', () => {
+  // 고ROE 종목의 ROE는 22.1~31.3, 나머지는 15.7 이하다
+  it('설계 종목: ROE ≥ 20은 고ROE 종목, 영업이익 증가율 ≥ 40은 고성장 종목, 흑자는 적자 종목을 뺀다', () => {
     const run = (patch: (f: SelectionCriteria['conditions']['fin']) => void) => {
       const c = offCriteria();
       c.pool.excludeManaged = false;
@@ -162,7 +162,7 @@ describe('selectAt: 재무 미래 정보 누설 방지(데모 데이터)', () =>
       const pre = precompute(fixture, c, null);
       return all.map((d) => symbols(selectAt(d, pre, c)).sort());
     };
-    for (const got of run((f) => (f.roe = { on: true, min: 18 }))) expect(got).toEqual([...FIN_QUALITY_CODES].sort());
+    for (const got of run((f) => (f.roe = { on: true, min: 20 }))) expect(got).toEqual([...FIN_QUALITY_CODES].sort());
     for (const got of run((f) => (f.opGrowth = { on: true, min: 40 }))) expect(got).toEqual([...FIN_GROWTH_CODES].sort());
     for (const got of run((f) => (f.profitable.on = true))) expect(got).not.toContain(FIN_LOSS_CODE);
   });

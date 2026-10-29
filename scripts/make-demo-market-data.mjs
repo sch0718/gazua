@@ -20,7 +20,7 @@ export const FLOW_INST_STREAK = 10;
 // 값은 앱의 기본 검증 기간(2025-10-16 ~ 2026-10-15) 매월 재선정일에 공시 시점 규칙(분기 +60일, 연간 +100일)으로 본 값이다.
 // 저PER은 설계 PER 4.5(ROE 13%라 PBR 약 0.6)다. 주가가 오른 재선정일에도 PER이 10 아래에 머물게 5보다 조금 낮게 잡았다
 export const FIN_VALUE_CODES = ['114443', '115554', '213332']; // PER 약 5, PBR 약 0.6
-export const FIN_QUALITY_CODES = ['215554', '217776']; // ROE 약 25%, 영업이익률 약 20%
+export const FIN_QUALITY_CODES = ['215554', '217776']; // ROE 약 27%, 영업이익률 약 20%
 export const FIN_GROWTH_CODES = ['219998', '107777']; // 매출 약 +40%/년, 영업이익 약 +60%/년
 export const FIN_LOSS_CODE = '211110'; // 적자(TTM 순이익 < 0)
 export const FIN_LATE_CODE = '103333'; // 재무가 데이터 기간 중간(2025년 3분기)부터 시작
@@ -38,15 +38,29 @@ function rng(seed) {
 }
 const gauss = (r) => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
 
-// 2024-10-16 ~ 2026-10-15 평일(공휴일 무시)
+// ── KRX 휴장일(평일만) ──
+// 기간(2024-10-16 ~ 2026-10-15) 안의 실제 KRX 평일 휴장일이다. 설·추석 연휴, 대체공휴일, 임시공휴일(2025-01-27),
+// 선거일(2025-06-03 대선, 2026-06-03 지방선거), 2026년부터 다시 공휴일이 된 제헌절(2026-07-17), 연말 휴장일(12-31)을 넣었다.
+// 6·7월 2026년 휴장은 거래소 발표(2026-05-20 보도)로, 나머지는 공휴일 달력으로 2026-10-29 확인했다.
+export const KRX_HOLIDAYS = [
+  '20241225', '20241231',
+  '20250101', '20250127', '20250128', '20250129', '20250130', '20250303', '20250501', '20250505', '20250506', '20250603',
+  '20250606', '20250815', '20251003', '20251006', '20251007', '20251008', '20251009', '20251225', '20251231',
+  '20260101', '20260216', '20260217', '20260218', '20260302', '20260501', '20260505', '20260525', '20260603', '20260717',
+  '20260817', '20260924', '20260925', '20261005', '20261009',
+];
+
+// 2024-10-16 ~ 2026-10-15 KRX 거래일(평일에서 휴장일을 뺀 날)
 function weekdays() {
   const out = [];
   const t = Date.UTC(2024, 9, 16);
   const end = Date.UTC(2026, 9, 15);
+  const closed = new Set(KRX_HOLIDAYS);
   for (let ms = t; ms <= end; ms += 86400000) {
     const dt = new Date(ms);
     if (dt.getUTCDay() === 0 || dt.getUTCDay() === 6) continue;
-    out.push(dt.toISOString().slice(0, 10).replace(/-/g, ''));
+    const d = dt.toISOString().slice(0, 10).replace(/-/g, '');
+    if (!closed.has(d)) out.push(d);
   }
   return out;
 }
@@ -94,15 +108,32 @@ const fxChange = DATES.map((t, i) => {
   return a < 0 || b < 0 ? 0 : macro.usdkrw.v[a] / macro.usdkrw.v[b] - 1;
 });
 
+// 대분류는 앞의 다섯, 중분류는 그 아래 합성 코드다. 반도체는 KOSPI·KOSDAQ 둘 다 있어 시장을 넘는 한 묶음이다(R10)
 const sectors = [
   { code: '00013', name: '전기·전자', level: 1 },
   { code: '00016', name: '금융', level: 1 },
   { code: '00005', name: '화학', level: 1 },
   { code: '11028', name: '전기·전자', level: 1 },
   { code: '11027', name: '제약', level: 1 },
+  { code: '00101', name: '반도체', level: 2 },
+  { code: '00102', name: '디스플레이', level: 2 },
+  { code: '00161', name: '은행', level: 2 },
+  { code: '00162', name: '증권·보험', level: 2 },
+  { code: '00051', name: '기초화학', level: 2 },
+  { code: '11101', name: '반도체', level: 2 },
+  { code: '11102', name: '전자부품', level: 2 },
+  { code: '11271', name: '바이오의약', level: 2 },
 ];
 const SEC_KOSPI = ['00013', '00016', '00005'];
 const SEC_KOSDAQ = ['11028', '11027', '11028'];
+// 대분류마다 번갈아 붙이는 중분류(제약은 모두 바이오의약). ''는 중분류가 없는 종목(실제 마스터의 '0000')
+const MID = { '00013': ['00101', '00102'], '00016': ['00161', '00162'], '00005': ['00051', ''], '11028': ['11101', '11102'], '11027': ['11271', '11271'] };
+// k번째 종목의 대·중·소 코드. 같은 대분류 안에서 나오는 차례대로 중분류를 번갈아 붙인다
+const secOf = (k, big) => {
+  const top = pick(k, big);
+  const nth = Array.from({ length: k }, (_, j) => pick(j, big)).filter((x) => x === top).length;
+  return [top, MID[top][nth % 2], ''];
+};
 
 function series(seed, start, vol, drift, dates) {
   const r = rng(seed);
@@ -174,7 +205,7 @@ const BETA = { KOSPI: { 0: 1.5, 1: 1.5, 2: 1.5, 4: -1.0, 5: -1.0 }, KOSDAQ: { 0:
 
 let idx = 0;
 kospiNames.forEach((n, k) => {
-  const opt = { s: String(100000 + k * 1111).padStart(6, '0'), n, m: 'KOSPI', t: 'STOCK', sec: [pick(k, SEC_KOSPI), '', ''], shares: Math.round((2e7 + k * 1.3e7) / 1000) * 1000 };
+  const opt = { s: String(100000 + k * 1111).padStart(6, '0'), n, m: 'KOSPI', t: 'STOCK', sec: secOf(k, SEC_KOSPI), shares: Math.round((2e7 + k * 1.3e7) / 1000) * 1000 };
   if (k === 3) opt.managed = true;
   if (k === 11) opt.halted = true;
   if (k === 7) { opt.gapFrom = 200; opt.gapTo = 215; }
@@ -182,7 +213,7 @@ kospiNames.forEach((n, k) => {
   add(opt, idx++);
 });
 kosdaqNames.forEach((n, k) => {
-  const opt = { s: String(200000 + k * 2222).padStart(6, '0'), n, m: 'KOSDAQ', t: 'STOCK', sec: [pick(k, SEC_KOSDAQ), '', ''], shares: Math.round((8e6 + k * 4e6) / 1000) * 1000 };
+  const opt = { s: String(200000 + k * 2222).padStart(6, '0'), n, m: 'KOSDAQ', t: 'STOCK', sec: secOf(k, SEC_KOSDAQ), shares: Math.round((8e6 + k * 4e6) / 1000) * 1000 };
   if (k === 5) opt.managed = true;
   if (BETA.KOSDAQ[k] !== undefined) opt.beta = BETA.KOSDAQ[k];
   add(opt, idx++);
@@ -270,7 +301,7 @@ function finFor(st, i) {
   const r = rng(12000 + i);
   const kind = FIN_VALUE_CODES.includes(st.s) ? 'value' : FIN_QUALITY_CODES.includes(st.s) ? 'quality' : FIN_GROWTH_CODES.includes(st.s) ? 'growth' : st.s === FIN_LOSS_CODE ? 'loss' : 'other';
   const per = kind === 'value' ? 4.5 : 20 + r() * 10;
-  const roe = kind === 'value' ? 0.13 : kind === 'quality' ? 0.25 : kind === 'growth' ? 0.15 : 0.05 + r() * 0.08;
+  const roe = kind === 'value' ? 0.13 : kind === 'quality' ? 0.27 : kind === 'growth' ? 0.12 : 0.05 + r() * 0.08;
   const margin = kind === 'quality' ? 0.2 : kind === 'value' ? 0.08 : 0.05 + r() * 0.06;
   const debtRatio = 0.3 + r() * 1.2;
   const q = quarters(st.s === FIN_LATE_CODE ? FIN_LATE_FIRST : FIN_FIRST, FIN_LAST);
