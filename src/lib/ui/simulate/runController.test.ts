@@ -56,6 +56,18 @@ afterEach(() => {
 });
 
 describe('runController', () => {
+  it('실행한 종목을 요청 순서대로 meta.symbols에 둔다(그룹이 나중에 바뀌어도 그대로)', async () => {
+    const app = fakeApp(provider());
+    const ctl = ctlFor(app);
+    ctl.run(strat());
+    await settled(ctl);
+    const st = ctl.state;
+    if (st.kind !== 'done') throw new Error(st.kind);
+    expect(st.meta.symbols).toEqual(SYMBOLS);
+    app.watchlists.groups[0].items.reverse();
+    expect(st.meta.symbols).toEqual(SYMBOLS);
+  });
+
   it('데모 공급자: loading(진행이 늘어남) → done', async () => {
     const seen: number[] = [];
     let ctl!: ReturnType<typeof createRunController>;

@@ -2,6 +2,9 @@
 import { newBasket } from '../screen/baskets';
 import { newCriteria } from '../screen/defaults';
 import { newStrategy } from '../sim/defaults';
+import type { DoneState } from '../ui/simulate/runController.svelte';
+import type { Trade } from '../sim/types';
+import { SKIP_REASONS } from './resultEnums';
 import { criteriaSnapshot, strategySnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
 
 export const NOW = Date.UTC(2026, 9, 29, 3);
@@ -117,6 +120,88 @@ export function validationFixture(o: { capitalHidden?: boolean } = {}): Validati
       ],
       today: { date: '2026-02-04', passed: 25, picks: [{ symbol: '005930', values: [0, 25000000000, 2, true] }] },
       notes: ['survivorship', 'snapshot'],
+    },
+  };
+}
+
+/** from부터 주말을 뺀 n일(KST 날짜 문자열) */
+export function tradingDays(from: string, n: number): string[] {
+  const out: string[] = [];
+  let t = Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)));
+  while (out.length < n) {
+    const d = new Date(t);
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) out.push(d.toISOString().slice(0, 10));
+    t += 86_400_000;
+  }
+  return out;
+}
+
+export const BIG_SYMBOLS = ['005930', '000660', '035420', '035720', '051910', '006400', '005380', '000270'];
+
+/** 크기 예산(설계 3.5)용 결과: 8종목, 지수·지정 종목 곡선, 소수 자리가 긴 값(반올림 확인용) */
+export function bigDone(o: { days: number; trades: number; skips: number }): DoneState {
+  const strategy = newStrategy(NOW, null, '큰 전략');
+  strategy.universe = { kind: 'symbols', symbols: [...BIG_SYMBOLS] };
+  strategy.benchmarks = { index: 'KOSPI', symbol: '069500' };
+  const initial = strategy.capital.initial;
+  const dates = tradingDays('2016-01-04', o.days);
+  const wave = (i: number, a: number, f: number) => Math.round(initial * (1 + a * Math.sin(i / f) + i / (o.days * 5)));
+  const spread = (i: number, count: number) => dates[Math.floor((i * (o.days - 1)) / Math.max(1, count))];
+  const trades: Trade[] = Array.from({ length: o.trades }, (_, i) => {
+    const date = spread(i, o.trades);
+    const symbol = BIG_SYMBOLS[i % BIG_SYMBOLS.length];
+    return i % 2 === 0
+      ? { date, symbol, kind: 'buy', price: 50_000 + i, qty: 10 + (i % 7), fee: 75, tax: 0, reason: 'B 돌파' }
+      : { date, symbol, kind: 'take', stage: 1, price: 52_000 + i, qty: 10, fee: 78, tax: 120, reason: '1단계 익절 100%', pnlPct: 3.21 + (i % 13) / 7 };
+  });
+  return {
+    kind: 'done',
+    result: {
+      equity: dates.map((date, i) => ({
+        date,
+        strategy: wave(i, 0.2, 37),
+        hold: wave(i, 0.15, 53),
+        index: wave(i, 0.1, 71),
+        benchmark: i % 50 === 7 ? null : wave(i, 0.12, 29),
+        cash: initial / 2,
+      })),
+      summary: {
+        totalReturnPct: 12.34567,
+        cagrPct: 9.87654,
+        mddPct: -23.456789,
+        winRatePct: 55.5555,
+        wins: 10,
+        losses: 8,
+        avgWinPct: 8.123,
+        avgLossPct: -4.567,
+        roundTrips: Math.floor(o.trades / 2),
+        openPositions: 1,
+        avgHoldDays: 19.256,
+        avgCashPct: 62.1234,
+        skippedSignals: o.skips,
+        vsHoldPp: 16.111,
+        vsIndexPp: 21.4,
+        vsBenchmarkPp: 17.4444,
+      },
+      benchmarks: { holdReturnPct: 16.3333, indexReturnPct: 11.1111, benchmarkReturnPct: -2.5 },
+      trades,
+      skipped: Array.from({ length: o.skips }, (_, i) => ({ date: spread(i, o.skips), symbol: BIG_SYMBOLS[i % 8], reason: SKIP_REASONS[i % 4] })),
+      perSymbol: BIG_SYMBOLS.map((symbol, i) => ({ symbol, name: symbol, pnl: (i - 3) * 123_457.6, roundTrips: 3, firstDate: dates[0] })),
+      nearMiss: null,
+    },
+    meta: {
+      venueLabel: 'KRX 일봉',
+      fetchedAt: NOW,
+      from: dates[0],
+      to: dates[dates.length - 1],
+      demo: false,
+      failed: [],
+      indexFailed: null,
+      benchmarkFailed: false,
+      candles: {},
+      names: {},
+      strategy,
+      symbols: [...BIG_SYMBOLS],
     },
   };
 }
