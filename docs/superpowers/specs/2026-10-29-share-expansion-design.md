@@ -169,7 +169,7 @@ export interface SimResultSnapshot {
   kind: 'simResult';
   v: 1;
   title: string;
-  /** strategySnapshot 규칙: id 'shared', name = title, updatedAt 0. universe는 실행에 쓴 종목(perSymbol 순서) */
+  /** strategySnapshot 규칙: id 'shared', name = title, updatedAt 0. universe는 실행한 종목(DoneMeta.symbols, 요청 순서) */
   strategy: Strategy;
   /** true면 strategy.capital.initial은 기본값이고, 결과의 원 단위 금액·수량은 들어 있지 않다 */
   capitalHidden: boolean;
@@ -321,17 +321,19 @@ export type SharedPick = [symbol: string, retPct: number | null, mark: 0 | 1 | N
 - 모드를 둘로 나눈다. `checkShareSnapshot(raw, kind, now, mode = 'create')`
   - `create`(서버 `POST /v1/shares`, 만든 쪽의 보내기 전 검사): 지금처럼 엄격하다. 전략·기준은 정리(`sanitize*`) 결과와 완전히 같아야 한다.
   - `read`(받은 화면, 가져오기 대기 값): 금지 키·UUID·크기·종류·결과 부분의 모양과 참조는 똑같이 엄격하다. 전략·기준에서만 **입력에 없는 필드는 정리 결과의 기본값으로 채워** 받는다. 모르는 필드와 값이 다른 필드는 그대로 거절한다. 돌려주는 `snapshot`은 채운 값이다.
-  - 이를 위해 `jsonDiff`(`src/lib/sync/forbidden.ts`)의 종류에 `missing`(정리 결과에만 있는 키)을 더한다. 지금은 `value`로 묶여 있다.
+  - 방법: `jsonDiff`(`src/lib/sync/forbidden.ts`)는 첫 차이 하나만 돌려주므로 종류만 더해서는 "빠진 것만 있다"를 알 수 없다. 그래서 `jsonDiff(a, b, path, { ignoreMissing: true })` 옵션을 더한다. 켜면 정리 결과(b)에만 있는 키는 차이로 보지 않고 건너뛰며 비교를 이어 간다. 남은 차이(`extra` 또는 `value`)가 있으면 거절하고, 없으면 정리 결과를 쓴다. 꺼져 있을 때(기본, `create`)의 동작은 지금과 같다.
+  - 제목·이름 길이: `create`는 UTF-16 30 이내(4.8). `read`는 UTF-16 30 **또는** code point 30 이내를 받는다. 지금 만드는 쪽이 code point로 재어 만든 옛 공유(이모지가 든 그룹 이름 등)를 만료 전까지 열기 위해서다. 그런 제목을 가져올 때는 `uniqueName`이 UTF-16 30에 맞춰 자른다.
 - 오류 코드에 `unsupported`(모르는 `kind`)를 더한다. 받은 화면은 `unsupported`이면 "새 버전 앱에서 볼 수 있어요. 앱을 새로 고쳐 주세요", 그 밖의 실패(망가졌거나 정리할 수 없는 옛 공유)이면 "이 공유를 읽을 수 없어요. 보낸 사람에게 다시 만들어 달라고 해 주세요"로 나눠 보인다.
 - 전략·기준 부분은 지금 `strategy`·`criteria` 분기의 본문을 `checkStrategyPart(raw, title, now, mode)`·`checkCriteriaPart(raw, title, now, mode)`로 떼어 함께 쓴다.
-- **종목 코드 검사를 더한다.** `sanitizeStrategies`는 `universe.symbols`·`benchmarks.symbol`을, `sanitizeCriteria`는 `benchmarks.symbols`를 문자열인지만 본다(`src/lib/sim/validate.ts`, `src/lib/screen/validate.ts`). 가져오면 이 값이 받은 사람 키로 보내는 시세 요청에 들어가므로 두 함수에서 `SYMBOL_RE`(`^[0-9A-Z]{6}$`)와 중복 없음을 검사한다. 결과 부분의 `symbols`, `failed[].symbol`, 검증 `benchmarks[].symbol`, 선정 이력·오늘 선정의 종목 코드도 같은 규칙이다(한 재선정일·오늘 선정 안에서 중복 없음).
+- **종목 코드 검사를 공유 경로에 더한다.** `sanitizeStrategies`는 `universe.symbols`·`benchmarks.symbol`을, `sanitizeCriteria`는 `benchmarks.symbols`를 문자열인지만 본다(`src/lib/sim/validate.ts`, `src/lib/screen/validate.ts`). 가져오면 이 값이 받은 사람 키로 보내는 시세 요청에 들어가므로 검사가 필요하다. 다만 **정리 함수(`sanitize*`)는 바꾸지 않는다.** 정리 함수는 저장소 읽기(손상 배너)와 동기화 DTO(`src/lib/sync/dto.ts`)도 쓰므로, 여기서 거절하면 이미 저장된 데이터가 손상으로 보이거나 동기화 push가 422가 된다. 검사는 공유 경로인 `checkStrategyPart`·`checkCriteriaPart`에만 둔다(관심목록도 저장 쪽 `state/validate.ts`는 아무 문자열이나 받으므로 그대로 둔다).
+- 공유용 종목 정규식은 하나로 정한다: `SHARE_SYMBOL_RE = /^(?:[0-9A-Z]{6}|Q[0-9A-Z]{6})$/`. 종목 목록을 만드는 `scripts/parse-master.mjs`의 `SYMBOL_PATTERN`과 같다(주식·ETF·리츠 6자리, ETN은 `Q` + 6자리, `src/lib/data/universe.ts` 주석). 그룹·묶음·전략(`universe.symbols`, `benchmarks.symbol`)·기준(`benchmarks.symbols`)·compare·결과 부분(`symbols`, `failed[].symbol`, 검증 `benchmarks[].symbol`, 선정 이력·오늘 선정)이 모두 이것을 쓰고, 각 목록 안에서 중복을 거절한다(한 재선정일·오늘 선정 안에서 중복 없음). 지금 `snapshot.ts`의 `SYMBOL_RE`(`^[0-9A-Z]{6}$`)는 ETN을 거르므로 ETN이 든 그룹·묶음 공유가 `invalid`가 되는 버그가 있다. 이것도 함께 고친다.
 - 결과 부분은 새 파일 `src/lib/share/checkResult.ts`가 맡는다. 원칙은 기존과 같다. 모르는 필드는 `unknown-field`, 모양·값이 틀리면 `invalid`, 가리키는 곳이 없으면 `reference`로 거절하고 고쳐 받지 않는다.
   - 축: `start`가 유효한 날짜, `offsets[0] === 0`, 엄격히 오름차순 정수, 길이 1~3,700(10년 일봉 여유).
   - 곡선: 길이가 축과 같고, 유한수(또는 허용된 곳만 null), 소수 둘째 자리 이하.
   - 수: 횟수·개수(`counts`의 n, `roundTrips`, `passed`, `trades`, `beat`·`total`)는 0 이상 정수, `qty`는 양의 정수, `stage`는 1~3 정수, 가격은 양의 정수, `avgPicked`는 0 이상.
-  - 시뮬레이션 거래: `day`는 축 범위 안이고 오름차순(같은 날 허용), `kind`가 `buy`·`add`면 `stage`·`pnlPct`가 null, `take`·`gapTake`면 `stage`가 숫자, 매도 종류(`take`·`stop`·`gapStop`·`gapTake`)면 `pnlPct`가 숫자.
+  - 시뮬레이션 거래: `day`는 축 범위 안이고 오름차순(같은 날 허용), `kind`가 `buy`·`add`면 `stage`·`pnlPct`가 null, `take`·`gapTake`면 `stage`가 숫자, `stop`·`gapStop`이면 `stage`가 null(`simulate.ts`의 매도는 손절일 때 `stage`를 넣지 않는다), 매도 종류(`take`·`stop`·`gapStop`·`gapTake`)면 `pnlPct`가 숫자.
   - `perSymbol`: 길이 = `symbols` − `failed`, `symbols` 순서를 따르고 같은 종목이 두 번 없다. `failed`의 종목은 `symbols` 안이고 `perSymbol`과 겹치지 않는다.
-  - `skipped.counts`: 이유가 `SKIP_REASONS` 순서이고 중복 없음. `rows`가 있으면 이유별 개수가 `counts`와 같다.
+  - `skipped.counts`: 이유가 `SKIP_REASONS` 순서이고 중복 없음. `counts`의 n 합 = `summary.skippedSignals`. `rows`가 있으면 이유별 개수가 `counts`와 같다.
   - `sampled`가 null이 아니면 `from > offsets.length`.
   - `run.from`·`run.to`는 축의 첫날·마지막 날과 같다. `source`는 1~30자, `fetchedAt`은 양의 정수.
   - simResult의 `symbols`는 `strategy.universe.symbols`와 같다. `capitalHidden`이면 거래의 qty와 종목별 pnl이 모두 null이어야 하고, 아니면 모두 숫자여야 한다.
@@ -367,7 +369,7 @@ export function validationSnapshot(
 그룹·전략·기준·compare 만들기는 늘 `ok: true`, `reduced: []`로 감싼다.
 
 - 만든 쪽의 마지막 단계로 **JSON 왕복 뒤 `checkShareSnapshot(…, 'create')`를 돌린다.** 통과하지 못하면 `{ ok: false, code: 'invalid', path }`를 돌려주고, 대화 상자는 링크 만들기를 끄고 `이 결과는 공유 형식으로 바꾸지 못했어요`를 보인다(오류 경로는 원문 보기에만). 그래서 `ShareBuild`의 실패 코드는 `'too-large' | 'invalid'`다.
-- 축이 3,700점을 넘으면(10년 넘는 일봉) 크기와 상관없이 3,700점 아래로 먼저 솎는다(3.3의 `thinIndices`, `m` = 3,000).
+- 축이 3,700점을 넘으면(10년 넘는 일봉) 크기와 상관없이 먼저 솎는다(3.3의 `thinIndices`, `m` = 3,000). 이것도 솎기라 `reduced`에 `thinned`를 넣는다. `sampled.from`은 늘 **원래 축의 점 수**다. 3.4의 500 → 250 → 120 단계도 앞 단계 결과가 아니라 늘 **원래 축에서 다시** 솎는다(keep 점이 단계마다 같게).
 - `validationSnapshot`의 `collectedAt`은 `runSnap`에 실행 때 남긴 값이고 `demo`는 늘 false다(2.2).
 
 ### 3.2 크기 재기
@@ -391,7 +393,7 @@ export function thinIndices(n: number, m: number, keep: readonly number[]): numb
   - 곡선마다 최고점·최저점 위치(null은 건너뛰고, 같으면 처음 나온 위치)
   - 주 곡선(시뮬레이션은 `strategy`, 검증은 `hold`)의 최대 낙폭 시작점(직전 고점)과 바닥
   - 검증은 재선정일 위치(차트의 세로 눈금이 곡선 점과 맞게)
-- 같은 입력이면 늘 같은 결과다(난수·시각을 쓰지 않는다). 남는 점 수는 `m + keep 수` 이하다.
+- 같은 입력이면 늘 같은 결과다(난수·시각을 쓰지 않는다). 남는 점 수는 `m + keep 수` 이하다. 단계마다 원래 축에서 다시 솎는다(3.1).
 - `m`은 500 → 250 → 120 순서로 줄인다. **하한은 120점**이다. 3년 일봉이면 대략 9 거래일에 한 점이고, 최고·최저·낙폭 점은 늘 남는다.
 - 요약 카드·통계는 전체 데이터로 계산한 원래 값이다. 솎은 곡선에서 다시 계산하지 않는다. 받은 화면은 `sampled`가 있으면 차트 아래에 `곡선은 {from}점 중 {n}점으로 줄였어요 · 수치는 전체 기간 기준이에요`를 적는다.
 
@@ -480,13 +482,12 @@ export interface CardCapture {
 - 카카오 키가 있고 `capture`가 있으면 열 때 한 번 캡처한다(보이는 화면 그대로). `null`이면(4.1) 캡처 부분을 통째로 숨기고 고정 이미지를 쓴다. `canvas.toDataURL('image/jpeg', 0.85)`를 `<img>`로 미리 보인다. CSP `img-src 'self' data:` 안이다. 그 아래에 다음을 둔다.
   - 체크 「화면 캡처 함께 보내기」(기본 켬)
   - 안내 `링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.` 기본으로 켜져 있어 링크를 만들기만 해도 올라간다는 것을 문구가 먼저 말한다.
-- 링크를 만든 뒤 화면에도 같은 체크와 작은 미리 보기를 카카오톡 단추 바로 위에 둔다. 링크 화면에서 바꿀 수 있어야 업로드 전에 끌 수 있다.
+- 캡처를 올릴지는 **링크 전 화면의 체크로만 정한다.** 링크를 만들면 곧바로 올리므로 링크 화면에서는 끌 기회가 없다. 링크 화면에는 작은 미리 보기와 「이미지 빼고 보내기」 단추만 둔다. 누르면 올린 이미지를 지우고 고정 이미지 카드로 바꾼다(되돌리지 않는다).
 - 링크 만들기 뒤 순서(카카오 단추 상태: `off` → `loading` → `uploading` → `ready`)
   1. 링크가 생기면 지금처럼 `preloadKakao`.
   2. 준비되고 캡처가 켜져 있으면 `cardFile(canvas)`로 파일을 만들어 `uploadCardImage(file)`. 단추 글은 `캡처 올리는 중…`이다.
   3. 성공하면 받은 이미지 주소를 카드에 쓴다. 실패하면 고정 이미지로 돌아가고 `캡처를 올리지 못해 기본 그림으로 보내요`를 적는다. 어느 쪽이든 `ready`가 된다.
   4. 단추를 누르면 클릭 안에서 기다림 없이 `sendKakao`를 부른다(지금 규칙, PC 팝업 차단 방지).
-- 업로드 뒤에 캡처 체크를 끄면 그 이미지를 지우고 고정 이미지를 쓴다. 다시 켜면 같은 canvas로 다시 올린다(단추는 그동안 `캡처 올리는 중…`).
 - 대화 상자를 닫을 때 올린 이미지가 있고 카카오톡 단추를 누르지 않았으면 `deleteCardImage`를 부른다. 눌렀으면 메시지가 그 이미지를 가리키므로 지우지 않는다. 대화 상자를 닫지 않고 탭을 닫거나 다른 곳으로 가면(`pagehide`) 지우기 요청이 끝까지 가지 못할 수 있다. 이 한계는 5.3에 적는다.
 - 다른 요청으로 바뀌면 지금의 `attempt` 규칙대로 늦게 온 업로드 응답을 버린다(버린 응답의 이미지도 지운다).
 
@@ -608,7 +609,11 @@ export interface PendingImport {
 }
 /** sessionStorage에 둔다. 쓰지 못하면 false(그때는 메모리 값으로 같은 탭 안에서만 이어 간다) */
 export function stashImport(snapshot: ShareSnapshot, now: number, store?: Storage | null): boolean;
-/** 지우지 않고 읽는다. 30분이 지났거나 checkShareSnapshot(…, 'read')에 실패하면 지우고 null */
+/**
+ * 지우지 않고 읽는다. 다음 중 하나면 지우고 null:
+ * 30분이 지남, from이 SHARE_KINDS가 아님, snapshot.kind가 from에 맞지 않음
+ * (simResult → strategy, validation → criteria, 나머지는 같은 종류), checkShareSnapshot(…, 'read') 실패
+ */
 export function peekImport(now: number, store?: Storage | null): PendingImport | null;
 /** 저장하거나 닫을 때 지운다 */
 export function clearImport(store?: Storage | null): void;
@@ -616,7 +621,7 @@ export function clearImport(store?: Storage | null): void;
 
 - capability·링크 주소·만료일은 넣지 않는다. 가져올 스냅샷만 둔다. 결과 종류는 결과 부분을 버리고 규칙 부분만 둔다(sessionStorage에 100 KB를 둘 까닭이 없다).
 - 확인 창을 열 때는 `peekImport`로 읽기만 한다. 창이 떠 있는 동안 새로 고치거나 탭이 죽어도 다시 열린다. `저장`·`저장하지 않기`·`닫기`에서 `clearImport`한다.
-- 탭을 복제하면 sessionStorage도 복사되어 같은 가져오기가 두 번 저장될 수 있다. 저장할 때 `id`를 localStorage `gazua:v1:share-import-done`(최근 20개)에 남기고, 이미 있는 `id`면 확인 창 대신 `이미 가져왔어요` 스낵바를 띄우고 지운다.
+- 탭을 복제하면 sessionStorage도 복사되어 같은 가져오기가 두 번 저장될 수 있다. 저장할 때 `id`를 localStorage `gazua:v1:share-import-done`(최근 20개)에 남긴다. 확인 창을 열기 전에 확인하고, 이미 있는 `id`면 창 대신 `이미 가져왔어요` 스낵바를 띄우고 지운다. 두 탭이 함께 창을 띄운 경우를 위해 `저장`을 누른 직후, 쓰기 전에 한 번 더 확인한다.
 - sessionStorage는 탭을 닫으면 사라진다. 새로 고침과 관문(잠금 해제 등)을 지나도 남는다.
 - 접근이 막힌 환경(사생활 보호 등)이면 모듈 안 메모리 변수로 대신한다. SharedView → 앱 이동은 같은 페이지 안이라 이어진다.
 
@@ -638,8 +643,10 @@ export function clearImport(store?: Storage | null): void;
 |---|---|---|
 | group | 새 그룹(종목 목록에 있는 것만, 앞에서 10개) | 비교 `#/compare/<새 그룹>` |
 | compare | 새 그룹 + (체크 시) 보기 설정 4개 | 비교 `#/compare/<새 그룹>` |
-| strategy, simResult | 새 전략(종목은 그대로, 새 ID) | `#/simulate/<새 전략>` |
-| criteria, validation | 새 묶음들 + 새 기준(`pool.baskets`를 새 묶음 ID로 바꿈) | `#/simulate/criteria/<새 기준>` |
+| strategy(받은 것이 strategy 또는 simResult) | 새 전략(종목은 그대로, 새 ID) | `#/simulate/<새 전략>` |
+| criteria(받은 것이 criteria 또는 validation) | 새 묶음들 + 새 기준(`pool.baskets`를 새 묶음 ID로 바꿈) | `#/simulate/criteria/<새 기준>` |
+
+표의 첫 열은 대기 값의 `snapshot.kind`다. 결과에서 온 것인지는 `from`으로 알고, 확인 창의 결과 안내(결과는 저장하지 않음, ② 없음)만 `from`을 본다.
 
 **계획 함수 (`src/lib/share/importPlan.ts`, 순수 함수)**
 
@@ -670,9 +677,11 @@ export interface ImportApplied {
   settings?: Partial<Pick<Settings, 'period' | 'metric' | 'benchmark' | 'boardOrder'>>;
   route: Route;
 }
-export function planImport(s: ShareSnapshot, cur: ImportState): ImportPlan;
+/** 대기 값(PendingImport)의 snapshot·from. from은 확인 창 안내에만 쓴다 */
+export interface ImportInput { snapshot: ImportSnapshot; from: ShareKind }
+export function planImport(p: ImportInput, cur: ImportState): ImportPlan;
 /** planImport가 막지 않은 경우에만 부른다. 막힌 계획이면 던진다 */
-export function applyImport(s: ShareSnapshot, cur: ImportState, opts: { now: number; applyView: boolean }): ImportApplied;
+export function applyImport(p: ImportInput, cur: ImportState, opts: { now: number; applyView: boolean }): ImportApplied;
 /** base가 taken에 없으면 그대로, 있으면 ` 2`, ` 3`…을 붙인다. 붙인 결과가 30(UTF-16 길이, 저장 검사와 같은 기준)을 넘으면 이름 끝을 잘라 맞추되 서로게이트 쌍을 반으로 자르지 않는다 */
 export function uniqueName(base: string, taken: ReadonlySet<string>, max?: number): string;
 ```
@@ -730,7 +739,6 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 | `src/lib/ui/simulate/RunPanel.svelte`, `runController.svelte.ts` | 결과 공유 단추를 `ResultView`까지 넘김, `DoneMeta.symbols` |
 | `src/sheets/GroupSheet.svelte`, `src/lib/ui/simulate/StrategyList.svelte`, `src/lib/ui/screen/CriteriaList.svelte` | `build`가 `ShareBuild`를 돌려줌 |
 | `src/lib/state/app.svelte.ts` | `leaveShared()` |
-| `src/lib/sim/validate.ts`, `src/lib/screen/validate.ts` | 종목 코드 `SYMBOL_RE`·중복 검사(2.7) |
 | `src/lib/sync/forbidden.ts` | `jsonDiff`의 `missing`, 재귀 깊이 상한 |
 | `pwa.config.ts` | `globIgnores`에 `share/**` |
 | `src/lib/ui/simulate/ResultView.svelte`, `TradeList.svelte`, `SymbolTab.svelte`, `SkipList.svelte`, `EquityChart.svelte` | 읽기 전용(`onEdit`·`onTrade` 선택)·금액 숨김·건너뜀 개수·솎기 안내·`screenshot()`·공유 단추 |
@@ -738,7 +746,6 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 | `src/lib/ui/settings/SyncManage.svelte` | 종류 표시를 `kindLabel`로 |
 | `src/lib/sync/controller.svelte.ts` | `describeFail(f, ctx: 'profile' \| 'share')`로 `too-large` 문구 구분 |
 | `src/lib/sync/dto.ts` | `SETTING_OK` 내보내기 |
-| `src/lib/sim/types.ts` | `SKIP_REASONS` |
 | `src/lib/chart/lwcStub.ts` | `takeScreenshot` 가짜 |
 | `kakao-csp.config.ts` | `connect-src`를 좁힐 때의 주석 |
 | `sync-worker/src/shares.test.ts` | 새 종류 |
@@ -791,7 +798,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 ### 5.4 가져오기
 - 대기 값은 읽을 때 `checkShareSnapshot(…, 'read')`를 다시 지나야 쓴다(1.5-7). 저장 전 `sanitize*`를 한 번 더 지난다.
 - 확인 창 없이는 아무것도 저장하지 않는다. 기존 데이터를 덮어쓰지 않고 늘 새로 만든다.
-- 가져온 그룹으로 비교 화면을 열면 받은 사람의 키로 시세를 받는다. 받은 공유가 요청 대상을 고를 수 있는 것은 종목 코드뿐이고, 그 코드는 그룹·전략 종목·지정 종목·기준 비교 종목 모두 `SYMBOL_RE`로 검사한다(2.7). 지금 전략·기준 정리 함수는 문자열인지만 보므로 이 검사가 없으면 아무 문자열이 받은 사람의 시세 요청 경로에 들어갈 수 있다.
+- 가져온 그룹으로 비교 화면을 열면 받은 사람의 키로 시세를 받는다. 받은 공유가 요청 대상을 고를 수 있는 것은 종목 코드뿐이고, 그 코드는 그룹·전략 종목·지정 종목·기준 비교 종목 모두 `SHARE_SYMBOL_RE`로 검사한다(2.7, 공유 경로에서만). 지금 전략·기준 정리 함수는 문자열인지만 보므로 이 검사가 없으면 아무 문자열이 받은 사람의 시세 요청 경로에 들어갈 수 있다.
 
 ## 6. 테스트
 
@@ -803,9 +810,9 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 - 줄이는 순서: 3.5의 두 고정 데이터(3년 일봉·거래 300건, 3년 월간·상위 10)가 `reduced: []`로 들어간다. 거래 3,000건이면 `too-large`. 월간·상위 30·10년이면 `codes-only`까지 가서 들어간다.
 - 100 KiB 경계: 크기를 맞춘 스냅샷으로 정확히 `SHARE_MAX_BYTES`는 통과, 1바이트 넘으면 `too-large`.
 - 자금 숨김: qty·pnl이 null이고 JSON에 원래 초기 자금 숫자가 없다. 숨김인데 qty가 숫자면 `invalid`.
-- 만든 쪽 왕복: 고정 데이터로 만든 결과 스냅샷을 `JSON.parse(JSON.stringify(s))` 뒤 `checkShareSnapshot(…, 'create')`에 넣으면 통과한다. `NaN`이 섞인 결과, 축 4,000점 결과(먼저 솎여 통과)도 넣는다.
+- 만든 쪽 왕복: 고정 데이터로 만든 결과 스냅샷을 `JSON.parse(JSON.stringify(s))` 뒤 `checkShareSnapshot(…, 'create')`에 넣으면 통과한다. `NaN`이 null을 허용하지 않는 자리(예: `summary.totalReturnPct`, `curves.strategy`)에 섞인 결과는 만들기에서 `{ ok: false, code: 'invalid' }`로 막히고 서버에 보내지 않는다. null을 허용하는 자리(`curves.index`의 원소)의 `NaN`은 null이 되어 통과한다. 축 4,000점 결과는 먼저 솎여 `reduced`에 `thinned`, `sampled.from` 4,000으로 통과한다.
 - 받는 쪽 모드: 전략에서 키 하나를 지운 옛 스냅샷은 `create`에서 `invalid`, `read`에서 기본값이 채워져 통과. 모르는 키는 두 모드 모두 `unknown-field`. 모르는 `kind`는 `unsupported`.
-- 종목 코드: 전략 `universe.symbols`·`benchmarks.symbol`, 기준 `benchmarks.symbols`, 결과의 `symbols`·`failed`·검증 `benchmarks`·선정 종목에 `../x`나 소문자 코드를 넣으면 거절, 중복도 거절.
+- 종목 코드: 전략 `universe.symbols`·`benchmarks.symbol`, 기준 `benchmarks.symbols`, 결과의 `symbols`·`failed`·검증 `benchmarks`·선정 종목에 `../x`나 소문자 코드를 넣으면 거절, 중복도 거절. ETN(`Q500023`)이 든 그룹·묶음·전략·simResult는 통과한다. 같은 잘못된 코드가 든 전략이라도 `sanitizeStrategies`(저장·동기화 경로)는 지금처럼 받는다(회귀 방지).
 - 깊이: 깊이 1,000의 중첩 객체는 예외 없이 `invalid`.
 - 값 반올림: `finQuarter: 202406`, `leaderRank: 3`, `flowStreak: 12`는 그대로, `marketCap`·`return`은 4자리. `select.ts`가 만드는 키가 모두 `VALUE_KEYS`에 있다. 목록 밖 키·`__proto__`는 거절.
 - 대응 검사(2.7의 수·거래·`perSymbol`·`failed`·validation 항목)마다 어긋난 예 하나씩.
@@ -824,7 +831,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 ### 6.3 컴포넌트
 - `SharedView.test.ts`: 종류별 렌더(compare 요약, simResult 요약 카드·거래 줄·종목 이름, validation 카드·선정 이력), `unsupported`·`unreadable` 문구 구분, 자금 숨김 배지·가격만 보이는 거래 줄, 건너뜀 목록 없는 결과의 개수·탭 이름, 「규칙 전체 보기」에 `result`가 없음, UA `KAKAOTALK`이면 안내·단추(iOS 문구 포함), `내 앱에 가져오기`가 대기 값을 넣고 `onexit`을 부름. 종류마다 axe 위반 0. 단위 테스트용 axe 도구는 아직 없다. `@axe-core/playwright`가 이미 끌어오는 `axe-core@4.13.0`을 개발 의존성으로 명시하고 jsdom에서 `axe.run(container)`를 돌린다. jsdom은 색을 계산하지 않으므로 `color-contrast` 규칙은 끈다(대비는 기존 토큰 검사가 맡는다).
 - `ImportHost.test.ts`: 관문 경로(`profiles`·`unlock`·`onboarding`)에서는 열리지 않고 대기 값이 남음, 일반 경로가 되면 열림, 인앱 문구, 막힘 문구와 꺼진 저장 단추, 저장 뒤 이동 경로와 `clearImport`, axe 위반 0.
-- `ShareDialog.test.ts`: 거절 문구(`too-large`·`invalid`)와 꺼진 단추, `reduced` 안내, 결과 원문은 펼칠 때만 만들어짐, 캡처 미리 보기(data: URL)와 체크(링크 전·후 화면 모두), 끈 뒤 다시 켜면 다시 올림, 업로드 상태(`uploading` → `ready`), 업로드 실패 시 고정 이미지 카드, 보내지 않고 닫으면 지우기 호출, 보낸 뒤 닫으면 호출 안 함. 카카오 SDK와 업로드는 가짜로 넣는다.
+- `ShareDialog.test.ts`: 거절 문구(`too-large`·`invalid`)와 꺼진 단추, `reduced` 안내, 결과 원문은 펼칠 때만 만들어짐, 캡처 미리 보기(data: URL)와 링크 전 화면의 체크(끄면 업로드 안 함), 링크 화면의 「이미지 빼고 보내기」(지우기 호출 + 고정 이미지 카드), 업로드 상태(`uploading` → `ready`), 업로드 실패 시 고정 이미지 카드, 보내지 않고 닫으면 지우기 호출, 보낸 뒤 닫으면 호출 안 함. 카카오 SDK와 업로드는 가짜로 넣는다.
 - `kakao.test.ts`: 종류별 카드 설명 두 줄, 이미지 있음/없음, http 주소·200 미만 응답은 null.
 - `cardImage.test.ts`: jsdom에는 canvas가 없으므로 그리기 호출을 기록하는 가짜 2D context로 배치(글 위치·값 목록 순서)와 `cardFile`의 5 MB 초과 null만 본다. `lwcStub.ts`에 `takeScreenshot`을 더한다.
 - `ResultView`·`ValidationResult`·`TradeList`·`SymbolTab`의 새 prop(읽기 전용, 금액 숨김, `app` null).
@@ -837,7 +844,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 
 ### 6.5 e2e
 - 동기화 설정을 넣은 두 번째 빌드는 만들지 않는다(1.5-10). 지금 e2e 빌드에는 동기화 설정이 없어 SharedView가 `unavailable`이므로, SharedView 화면과 「내 앱에 가져오기」 → `leaveShared` 전이는 6.2·6.3이 덮는다.
-- `tests/e2e/share.spec.ts`(지금 빌드, 모든 뷰포트 프로젝트): `page.addInitScript`로 sessionStorage에 대기 값(고정 compare·strategy·criteria 스냅샷, 그리고 validation에서 바뀐 criteria)을 넣는다.
+- `tests/e2e/share.spec.ts`(지금 빌드, 모든 뷰포트 프로젝트): 대기 값(고정 compare·strategy·criteria 스냅샷, 그리고 validation에서 바뀐 criteria)을 sessionStorage에 넣는다. `page.addInitScript`는 다시 불러올 때마다 돌아 값을 다시 심으므로(`tests/e2e/helpers.ts`의 `openApp`도 이 방식) 쓰지 않는다. 첫 `page.goto` 뒤 `page.evaluate`로 **한 번만** 넣고 `page.reload()`한다.
   1. **온보딩 전:** 저장소가 빈 첫 실행으로 `#/compare`를 연다 → 온보딩이 먼저 뜨고 확인 창은 뜨지 않는다 → `데모로 둘러보기` → 확인 창 → `저장` → 만든 그룹의 비교 화면(또는 전략·기준 편집)이 열린다.
   2. **온보딩 후:** 데모로 온보딩을 마친 저장소에서 연다 → 바로 확인 창. 같은 이름 그룹을 먼저 만들어 두고 ` 2`로 저장되는지, `저장하지 않기`면 아무것도 생기지 않고 다시 열어도 창이 뜨지 않는지.
   3. 확인 창과 이동한 화면에서 axe 위반 0.
