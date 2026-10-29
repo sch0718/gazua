@@ -24,7 +24,7 @@ const groupReq: ShareRequest = {
 
 type Made = { url: string; expiresAt: number } | null;
 function sync(createShare = vi.fn(async (): Promise<Made> => ({ url: 'https://app.example.test/#/s/' + 'x'.repeat(43), expiresAt: NOW + 7 * 864e5 }))) {
-  return { busy: false, error: null, clearError: vi.fn(), createShare } as unknown as SyncController & { createShare: typeof createShare };
+  return { providers: { google: true, kakao: false, naver: false }, signInWith: vi.fn(), completeSocialSignIn: vi.fn(), busy: false, error: null, clearError: vi.fn(), createShare } as unknown as SyncController & { createShare: typeof createShare };
 }
 
 describe('ShareDialog', () => {

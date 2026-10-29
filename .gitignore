@@ -3,6 +3,7 @@ dist/
 .DS_Store
 .env
 .env.*
+.dev.vars
 !.env.example
 .wrangler/
 public/universe.json

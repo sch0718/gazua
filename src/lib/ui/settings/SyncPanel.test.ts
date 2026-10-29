@@ -16,6 +16,7 @@ function fakeSync(over: Partial<Omit<SyncController, 'status'>> & { status?: Par
   const { status, ...rest } = over;
   return {
     configured: true,
+    providers: { google: true, kakao: false, naver: false },
     account: null,
     status: { ...STATUS, ...status },
     busy: false,
@@ -24,6 +25,8 @@ function fakeSync(over: Partial<Omit<SyncController, 'status'>> & { status?: Par
     attach: vi.fn(),
     onSyncableChange: vi.fn(),
     signIn: vi.fn(async () => {}),
+    signInWith: vi.fn(async () => {}),
+    completeSocialSignIn: vi.fn(async () => ({ ok: false, provider: null, reason: 'no-pending' })),
     signOut: vi.fn(async () => {}),
     preview: vi.fn(async () => ({ upload: ['내 프로필'], download: 2 })),
     setEnabled: vi.fn(async () => {}),
@@ -73,7 +76,7 @@ describe('SyncPanel', () => {
   });
 
   it('처음 켤 때 올릴·받을 프로필을 확인받는다', async () => {
-    const sync = fakeSync({ account: { email: 'me@example.test' } });
+    const sync = fakeSync({ account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' } });
     render(SyncPanel, { app: app(), sync });
     await fireEvent.click(screen.getByRole('button', { name: '동기화 켜기' }));
     await waitFor(() => expect(screen.getByRole('group', { name: '동기화 켜기 확인' })).toBeTruthy());
@@ -83,7 +86,7 @@ describe('SyncPanel', () => {
   });
 
   it('켜져 있으면 상태·대기 수와 지금 동기화·끄기·로그아웃을 보인다', async () => {
-    const sync = fakeSync({ account: { email: 'me@example.test' }, status: { enabled: true, phase: 'offline', pending: 2 } });
+    const sync = fakeSync({ account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' }, status: { enabled: true, phase: 'offline', pending: 2 } });
     render(SyncPanel, { app: app(), sync });
     expect(screen.getByRole('status').textContent).toContain('오프라인이에요');
     expect(screen.getByRole('status').textContent).toContain('보낼 변경 2건');
@@ -97,7 +100,7 @@ describe('SyncPanel', () => {
     const a = app();
     const doc = buildProfileDoc(createSafeStorage(memoryBacking()), 'x', '내 프로필');
     const sync = fakeSync({
-      account: { email: 'me@example.test' },
+      account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' },
       status: {
         enabled: true,
         phase: 'idle',
@@ -123,7 +126,7 @@ describe('SyncPanel', () => {
 
   it('관리 목록은 펼칠 때 읽고, 기기를 철회할 수 있다', async () => {
     const sync = fakeSync({
-      account: { email: 'me@example.test' },
+      account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' },
       sessions: vi.fn(async () => [
         { id: 'aaaaaaaaaaaa', label: '이 노트북', createdAt: 1, lastUsedAt: 2, expiresAt: 3, current: true },
         { id: 'bbbbbbbbbbbb', label: '잃어버린 폰', createdAt: 1, lastUsedAt: 2, expiresAt: 3, current: false },
@@ -144,7 +147,7 @@ describe('SyncPanel', () => {
   it('과거 버전은 목록을 불러온 프로필에서 복원하고, 프로필을 바꾸면 목록을 다시 읽는다', async () => {
     const a = app();
     const first = a.meta.activeProfileId;
-    const sync = fakeSync({ account: { email: 'me@example.test' }, status: { enabled: true, phase: 'idle' }, revisions: vi.fn(async () => [{ revision: 3, createdAt: 1, deleted: false }]) });
+    const sync = fakeSync({ account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' }, status: { enabled: true, phase: 'idle' }, revisions: vi.fn(async () => [{ revision: 3, createdAt: 1, deleted: false }]) });
     render(SyncPanel, { app: a, sync });
     const details = screen.getByText('지금 프로필의 과거 버전').closest('details')!;
     details.open = true;
@@ -159,3 +162,82 @@ describe('SyncPanel', () => {
   });
 });
 
+
+describe('로그인 공급자', () => {
+  it.each([
+    [{ google: true, kakao: true, naver: true }, ['Google로 로그인', '카카오로 로그인', '네이버로 로그인']],
+    [{ google: false, kakao: true, naver: true }, ['카카오로 로그인', '네이버로 로그인']],
+    [{ google: false, kakao: false, naver: true }, ['네이버로 로그인']],
+    [{ google: false, kakao: false, naver: false }, []],
+  ])('설정된 공급자의 단추만 순서대로 보여 준다: %j', (providers, names) => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ providers }) });
+    expect(screen.queryAllByRole('button', { name: /로 로그인$/ }).map((b) => b.textContent)).toEqual(names);
+    if (!names.length) expect(screen.getByText('이 빌드에는 로그인 방법이 설정되지 않았어요')).toBeTruthy();
+  });
+
+  it('카카오로 로그인할 때 입력한 기기 이름을 넘긴다', async () => {
+    const sync = fakeSync({ providers: { google: false, kakao: true, naver: false } });
+    render(SyncPanel, { app: app(), sync });
+    expect(screen.getByText(/본인 카카오 계정으로 로그인하면/)).toBeTruthy();
+    expect(screen.queryByText(/Google/)).toBeNull();
+    await fireEvent.input(screen.getByLabelText('이 기기 이름(선택)'), { target: { value: '내 폰' } });
+    await fireEvent.click(screen.getByRole('button', { name: '카카오로 로그인' }));
+    expect(sync.signInWith).toHaveBeenCalledWith('kakao', '내 폰');
+  });
+
+  it('네이버 로그인도 기기 이름을 넘기고 처리 중에는 모든 단추를 막는다', async () => {
+    const sync = fakeSync({ providers: { google: true, kakao: true, naver: true } });
+    const view = render(SyncPanel, { app: app(), sync });
+    await fireEvent.input(screen.getByLabelText('이 기기 이름(선택)'), { target: { value: '집 PC' } });
+    await fireEvent.click(screen.getByRole('button', { name: '네이버로 로그인' }));
+    expect(sync.signInWith).toHaveBeenCalledWith('naver', '집 PC');
+    await view.rerender({ app: app(), sync: { ...sync, busy: true } });
+    for (const button of screen.getAllByRole('button', { name: /로 로그인$/ })) expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it.each([true, false])('인앱 브라우저에서 카카오 설정에 맞춰 안내한다: %s', (kakao) => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ providers: { google: true, kakao, naver: false } }), userAgent: 'KAKAOTALK Android' });
+    expect(screen.getByText(/카카오톡·네이버 앱 안의 브라우저에서는 Google 로그인이 막혀요/).textContent).toContain('다른 브라우저로 열어 주세요.');
+    expect(screen.queryByText(/카카오로 로그인을 쓰거나/)!==null).toBe(kakao);
+  });
+
+  it('Google이 꺼진 인앱 브라우저에는 Google 안내를 보이지 않는다', () => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ providers: { google: false, kakao: true, naver: true } }), userAgent: 'NAVER(inapp; search)' });
+    expect(screen.queryByText(/Google 로그인이 막혀요/)).toBeNull();
+  });
+
+  it('소셜 계정은 표시값과 공급자·허용 목록 값을 함께 보여 준다', () => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ account: { provider: 'kakao', id: 'kakao:123', display: 'me@example.test' } }) });
+    expect(screen.getByText('me@example.test')).toBeTruthy();
+    expect(screen.getByText('카카오 계정으로 로그인됨')).toBeTruthy();
+    expect(screen.getByText('kakao:123')).toBeTruthy();
+  });
+});
+
+
+describe('로그인 공급자 안내', () => {
+  it.each([
+    [{ google: true, kakao: false, naver: false }, '본인 Google 계정으로 로그인하면'],
+    [{ google: false, kakao: true, naver: false }, '본인 카카오 계정으로 로그인하면'],
+    [{ google: true, kakao: true, naver: false }, 'Google·카카오 중 쓸 수 있는 계정으로 로그인하면'],
+  ])('켜진 공급자 수에 맞춰 안내한다: %s', (providers, text) => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ providers }) });
+    expect(screen.getByText(/기기끼리 맞춰요/).textContent).toContain(text);
+  });
+});
+
+
+describe('공용 기기 로그아웃 안내', () => {
+  it.each(['kakao', 'naver', 'google'] as const)('소셜 계정 로그아웃 뒤에만 공급자 로그아웃을 안내한다: %s', async (provider) => {
+    const sync = fakeSync({ account: { provider, id: '내 계정', display: '내 계정' } });
+    const a = app();
+    const { rerender } = render(SyncPanel, { app: a, sync });
+    const text = '공용 기기라면 카카오·네이버에서도 로그아웃하세요.';
+    expect(screen.queryByText(text)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
+    expect(sync.signOut).toHaveBeenCalledOnce();
+    await rerender({ app: a, sync: { ...sync, account: null } });
+    if (provider === 'google') expect(screen.queryByText(text)).toBeNull();
+    else expect((await screen.findByRole('status')).textContent).toBe(text);
+  });
+});

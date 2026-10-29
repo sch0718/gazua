@@ -1,6 +1,8 @@
 // 테스트 하네스: 지어낸 RSA 키로 Firebase 모양 토큰을 만들고, 테스트용 D1 위에서 핸들러를 부른다.
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import type { CertSource } from '@sch0718/firebase-session/worker';
+import { socialAuthorizeUrl, socialNonce } from '@sch0718/firebase-session/client';
+import { createFakeSocial } from './fakeSocial';
+import type { CertSource, SocialProvider } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from '../src/env';
 import { handle } from '../src/handler';
 import { createTestD1, type TestD1 } from './d1';
@@ -16,7 +18,11 @@ const keys = await generateKeyPair('RS256', { extractable: true });
 const otherKeys = await generateKeyPair('RS256', { extractable: true });
 export { keys, otherKeys, exportJWK };
 
+export type SocialOptions = boolean | { kakao?: boolean; naver?: boolean; allowedAccounts?: string; redirectUris?: string };
+
 export interface Harness {
+  fake: ReturnType<typeof createFakeSocial>;
+  socialLogin(provider: SocialProvider, sub: string, opts?: { label?: string; redirectUri?: string }): Promise<{ response: Response; session: string; as: Caller }>;
   env: SyncEnv & { DB: TestD1 };
   deps: SyncDeps;
   clock: { now: number };
@@ -29,19 +35,30 @@ export interface Harness {
 
 export type Caller = (method: string, path: string, body?: unknown) => Promise<Response>;
 
-export function harness(opts: { allowed?: string } = {}): Harness {
+export function harness(opts: { allowed?: string; social?: SocialOptions } = {}): Harness {
   const clock = { now: T0 };
   const logs: string[] = [];
   let n = 0;
   const certs: CertSource = { key: async (kid) => (kid === 'k1' ? keys.publicKey : null) };
+  const fake = createFakeSocial({ clientIds: { kakao: 'kakao-test-client', naver: 'naver-test-client' }, clientSecrets: { kakao: 'kakao-test-secret', naver: 'naver-test-secret' }, now: () => clock.now });
   const deps: SyncDeps = {
     now: () => clock.now,
     certs,
+    socialKeys: opts.social ? fake.keys : { kakao: { key: async () => null }, naver: { key: async () => null } },
+    ...(opts.social && { socialFetch: fake.fetch }),
     random: (len) => crypto.getRandomValues(new Uint8Array(len)),
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
     log: (l) => logs.push(l),
   };
-  const env = { DB: createTestD1(), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}` };
+  const env: Harness['env'] = { DB: createTestD1(), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}` };
+
+  if (opts.social) {
+    const social = typeof opts.social === 'object' ? opts.social : {};
+    env.SOCIAL_REDIRECT_URIS = social.redirectUris ?? `${ORIGIN}/auth/callback/`;
+    env.ALLOWED_ACCOUNTS = social.allowedAccounts ?? 'kakao:kakao-me,naver:naver-me';
+    if (social.kakao !== false) { env.KAKAO_CLIENT_ID = 'kakao-test-client'; env.KAKAO_CLIENT_SECRET = 'kakao-test-secret'; }
+    if (social.naver !== false) { env.NAVER_CLIENT_ID = 'naver-test-client'; env.NAVER_CLIENT_SECRET = 'naver-test-secret'; }
+  }
 
   const token: Harness['token'] = async (claims = {}, o = {}) => {
     const sec = Math.floor(clock.now / 1000);
@@ -72,6 +89,17 @@ export function harness(opts: { allowed?: string } = {}): Harness {
   return {
     env,
     deps,
+    fake,
+    async socialLogin(provider, sub, o = {}) {
+      const codeVerifier = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+      const codeChallenge = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))).toString('base64url');
+      const redirectUri = o.redirectUri ?? `${ORIGIN}/auth/callback/`;
+      const params = new URL(socialAuthorizeUrl(provider, { clientId: `${provider}-test-client`, redirectUri, state: 'test-state', nonce: await socialNonce(codeVerifier), codeChallenge })).searchParams;
+      const { code } = fake.authorize(provider, params, sub);
+      const response = await call('POST', '/v1/session/social', { body: { provider, code, codeVerifier, redirectUri, label: o.label } });
+      const { sessionId = '' } = await response.clone().json() as { sessionId?: string };
+      return { response, session: sessionId, as: (method, path, body) => call(method, path, { session: sessionId, token: null, body }) };
+    },
     clock,
     logs,
     token,

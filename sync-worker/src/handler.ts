@@ -8,6 +8,7 @@ import {
   matchOrigin,
   preflight,
   readJson,
+  SESSION_PATHS,
 } from '@sch0718/firebase-session/worker';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import type { SyncDeps, SyncEnv } from './env';
@@ -23,6 +24,7 @@ import {
 import {
   authenticate,
   createSession,
+  createSocialSession,
   listSessions,
   revokeSessions,
   type AuthContext,
@@ -40,6 +42,7 @@ const authed =
     h({ ...a, ctx: await authenticate(a.req, a.env, a.deps) });
 
 const ROUTES: [string, RegExp, string, Handler][] = [
+  ['POST', new RegExp(`^${SESSION_PATHS.social}$`), SESSION_PATHS.social, async ({ req, env, deps }) => ok(await createSocialSession(req, env, deps, await readJson(req)))],
   ['POST', /^\/v1\/session$/, '/v1/session', async ({ req, env, deps }) => ok(await createSession(req, env, deps, await readJson(req)))],
   ['DELETE', /^\/v1\/session$/, '/v1/session', authed(async ({ env, deps, ctx }) => ok({ revoked: await revokeSessions(env, deps, ctx, 'current') }))],
   ['GET', /^\/v1\/sessions$/, '/v1/sessions', authed(async ({ env, deps, ctx }) => ok({ sessions: await listSessions(env, deps, ctx) }))],
@@ -105,7 +108,9 @@ export async function handle(req: Request, env: SyncEnv, deps: SyncDeps): Promis
       else if (e instanceof CertsUnavailableError) res = json(503, errorBody('certs-unavailable'));
       else {
         res = json(500, errorBody('internal'));
-        deps.log(`${req.method} ${pattern} internal ${e instanceof Error ? e.name : 'error'}`);
+        // 패키지의 설정 안내(예: 0002 마이그레이션 누락)만 문구를 남긴다. 그 밖의 오류는 이름만 남긴다(요청 정보가 섞일 수 있어서).
+        const hint = e instanceof Error && e.message.startsWith('@sch0718/firebase-session:') ? ` ${e.message}` : '';
+        deps.log(`${req.method} ${pattern} internal ${e instanceof Error ? e.name : 'error'}${hint}`);
       }
     }
     for (const [k, v] of Object.entries(corsHeaders(origin))) res.headers.set(k, v);
