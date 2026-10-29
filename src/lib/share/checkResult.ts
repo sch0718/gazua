@@ -21,6 +21,8 @@ export const SOURCE_MAX = 30;
 export const NAME_MAX = 30;
 /** 선정 기준 상위 N의 한도(TAKE_MAX) */
 export const PICKS_MAX = 30;
+/** sim/defaults.ts MAX_SYMBOLS와 같다 */
+export const SIM_SYMBOLS_MAX = 8;
 
 export type ResultFail = { code: 'invalid' | 'unknown-field' | 'reference'; path: string };
 
@@ -111,8 +113,11 @@ function checkCounts(v: unknown, path: string): ResultFail | number {
 
 /** 곡선·이유·통계 세 짝: 곡선이 없으면 이유가 있고 통계가 없다 */
 function checkTrio(v: Row, n: number, path: string): ResultFail | null {
-  if (v.curve === null) return oneOf(MISSING_REASONS, v.reason) && v.stats === null ? null : bad(path);
-  if (v.reason !== null) return bad(path);
+  if (v.curve === null) {
+    if (!oneOf(MISSING_REASONS, v.reason)) return bad(at(path, 'reason'));
+    return v.stats === null ? null : bad(at(path, 'stats'));
+  }
+  if (v.reason !== null) return bad(at(path, 'reason'));
   return checkCurve(v.curve, n, at(path, 'curve'), false) ?? checkStats(v.stats, at(path, 'stats'));
 }
 
@@ -197,7 +202,7 @@ export function checkSimResult(v: unknown, ctx: { universe: readonly string[]; c
   if (typeof r.benchmarkFailed !== 'boolean') return bad(at(path, 'benchmarkFailed'));
 
   const symbols = r.symbols;
-  if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length > 8 || !symbols.every(isSym) || new Set(symbols).size !== symbols.length)
+  if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length > SIM_SYMBOLS_MAX || !symbols.every(isSym) || new Set(symbols).size !== symbols.length)
     return bad(at(path, 'symbols'));
   if (symbols.length !== ctx.universe.length || symbols.some((s, i) => s !== ctx.universe[i])) return bad(at(path, 'symbols'));
   const symAt = (i: unknown) => isInt(i) && i < symbols.length;
@@ -342,7 +347,7 @@ export function checkValidation(v: unknown, ctx: { indices: readonly string[]; b
     const row = x as Row;
     if (row.id !== ctx.indices[i]) return bad(p);
     const trio = checkTrio(row, n, p);
-    if (trio) return bad(p);
+    if (trio) return trio;
   }
 
   const bp = at(path, 'benchmarks');
@@ -353,7 +358,8 @@ export function checkValidation(v: unknown, ctx: { indices: readonly string[]; b
     if (xk) return xk;
     const row = x as Row;
     if (row.symbol !== ctx.benchSymbols[i] || !isText(row.name, NAME_MAX)) return bad(p);
-    if (checkTrio(row, n, p)) return bad(p);
+    const trio = checkTrio(row, n, p);
+    if (trio) return trio;
   }
 
   const mp = at(path, 'byMarket');

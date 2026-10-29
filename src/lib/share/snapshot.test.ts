@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newCriteria } from '../screen/defaults';
-import { newStrategy } from '../sim/defaults';
+import { MAX_SYMBOLS, newStrategy } from '../sim/defaults';
 import { sanitizeStrategies } from '../sim/validate';
 import type { Watchlists } from '../state/schema';
 import { MAX_ITEMS } from '../state/watchlist';
@@ -15,6 +15,7 @@ import {
   strategySnapshot,
 } from './snapshot';
 import { compareSnapshot } from './compact';
+import { SIM_SYMBOLS_MAX } from './checkResult';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
 const PROFILE_NAME = '비밀 프로필 이름';
@@ -42,6 +43,10 @@ function allIds() {
 }
 
 describe('공유 스냅샷', () => {
+  it('시뮬레이션 결과의 종목 한도는 전략 기본값과 같다', () => {
+    expect(SIM_SYMBOLS_MAX).toBe(MAX_SYMBOLS);
+  });
+
   it('그룹: 숨긴 종목·색·추가 시각·ID를 넣지 않는다', () => {
     const s = groupSnapshot(w.groups[0]);
     expect(s).toEqual({ kind: 'group', v: 1, title: '반도체', symbols: ['005930'] });
