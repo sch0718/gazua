@@ -46,5 +46,9 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
     }
     case 'compare':
       return [`제목: ${s.title}`, `종목 ${s.symbols.length}개: ${symbolList(s.symbols, names)}`];
+    case 'simResult':
+      return [`제목: ${s.title}`, `기간: ${s.run.from} ~ ${s.run.to}`, `종목 ${s.result.symbols.length}개`];
+    case 'validation':
+      return [`제목: ${s.title}`, `기간: ${s.run.from} ~ ${s.run.to}`, `종목 ${s.result.today.picks.length}개`];
   }
 }

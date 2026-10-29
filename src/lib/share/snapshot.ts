@@ -2,17 +2,21 @@
 // 원본 객체 ID·프로필 이름·키·계좌·프록시·최근 종목은 넣지 않는다. 다른 객체 참조(그룹·전략·바구니)는 스냅샷 안에서 풀어 넣는다.
 // sync-worker가 같은 검사 함수를 쓴다(DOM·저장소 의존 금지).
 import { newCriteria } from '../screen/defaults';
-import type { SelectionCriteria } from '../screen/types';
+import type { Market, SelectionCriteria } from '../screen/types';
+import type { NotBoughtReason } from '../screen/holdSelection';
+import type { ByMarketKey, MissingReason, ValidationNote } from '../screen/runValidation';
 import { sanitizeCriteria } from '../screen/validate';
 import type { Basket } from '../screen/baskets';
 import { newStrategy } from '../sim/defaults';
-import type { Strategy } from '../sim/types';
+import type { SimResult, Skip, Strategy, Trade } from '../sim/types';
+import type { SimFailureReason } from '../sim/loadSimData';
 import { resolveSymbols, sanitizeStrategies } from '../sim/validate';
 import type { Group, Settings, Watchlists } from '../state/schema';
 import { SETTING_OK } from '../sync/dto';
 import { exceedsDepth, findForbidden, jsonBytes, jsonDiff } from '../sync/forbidden';
 import { isShareKind } from './kinds';
 import { SHARE_SYMBOL_RE } from './resultEnums';
+import { checkRun, checkSimResult, checkValidation, type ResultFail } from './checkResult';
 
 export type { ShareKind } from './kinds';
 
@@ -72,7 +76,146 @@ export interface CompareSnapshot {
   };
 }
 
-export type ShareSnapshot = GroupSnapshot | StrategySnapshot | CriteriaSnapshot | CompareSnapshot;
+/** 공유 날짜 축. offsets는 start(KST YYYY-MM-DD)로부터 지난 달력 일수. offsets[0] = 0, 엄격히 오름차순 */
+export interface ShareAxis {
+  start: string;
+  offsets: number[];
+}
+/** 곡선을 솎았으면 솎기 전 점 수. 솎지 않았으면 null */
+export type ShareSampled = { from: number } | null;
+
+/** 결과를 만든 실행. 받은 화면 머리줄(기간 · 시세 출처 · 받은 시각 · 데모 배지)에 쓴다 */
+export interface ShareRun {
+  /** 실제 계산 축의 첫날·마지막 날(KST YYYY-MM-DD) */
+  from: string;
+  to: string;
+  /** 시세 출처 라벨. 시뮬레이션은 DoneMeta.venueLabel, 검증은 '시장 데이터 파일'. 30자 이내 */
+  source: string;
+  /** 시뮬레이션은 DoneMeta.demo. 검증은 늘 false(아래 설명) */
+  demo: boolean;
+  /** 시세를 받은 시각(검증은 시장 파일 수집 시각), epoch ms */
+  fetchedAt: number;
+}
+
+export interface SimResultSnapshot {
+  kind: 'simResult';
+  v: 1;
+  title: string;
+  /** strategySnapshot 규칙: id 'shared', name = title, updatedAt 0. universe는 실행한 종목(DoneMeta.symbols, 요청 순서) */
+  strategy: Strategy;
+  /** true면 strategy.capital.initial은 기본값이고, 결과의 원 단위 금액·수량은 들어 있지 않다 */
+  capitalHidden: boolean;
+  run: ShareRun;
+  result: SharedSimResult;
+}
+
+export interface SharedSimResult {
+  axis: ShareAxis;
+  sampled: ShareSampled;
+  /** 초기 자금 대비 수익률(%). 길이는 axis.offsets와 같다. 지수·지정 종목이 없으면 null, 그날 값이 없으면 원소가 null */
+  curves: {
+    strategy: number[];
+    hold: number[];
+    index: (number | null)[] | null;
+    benchmark: (number | null)[] | null;
+  };
+  /** 반올림만 한 원본 요약·비교 값(곡선을 솎아도 이 값은 전체 기간으로 계산한 것이다) */
+  summary: SimResult['summary'];
+  benchmarks: SimResult['benchmarks'];
+  indexFailed: null | '받지 못했어요' | '기간 일부만 받았어요';
+  benchmarkFailed: boolean;
+  /** 거래·종목별·건너뜀 행의 종목 위치가 가리키는 코드. 실행한 종목(DoneMeta.symbols)이고 strategy.universe.symbols와 같다 */
+  symbols: string[];
+  trades: SharedTrade[];
+  perSymbol: SharedPerSymbol[];
+  skipped: {
+    /** 이유별 개수(늘 있다). SKIP_REASONS 순서 */
+    counts: [reason: Skip['reason'], n: number][];
+    /** 목록. 크기를 줄일 때 null이 된다(3.4) */
+    rows: [day: number, symbol: number, reason: number][] | null;
+  };
+  nearMiss: SimResult['nearMiss'];
+  /** 받지 못한 종목(종목별 탭 안내). symbols의 부분 집합이고 perSymbol과 겹치지 않는다. perSymbol ∪ failed = symbols */
+  failed: { symbol: string; reason: SimFailureReason }[];
+}
+
+/**
+ * 거래 한 줄. day는 axis.start로부터의 달력 일수, symbol은 symbols의 위치.
+ * 자금 숨김이면 qty는 null(가격은 시세라 남긴다, 사용자 결정 6). 수수료·세금은 받은 화면에 보이지 않아 늘 뺀다.
+ * 매수 줄의 pattern은 거래 차트 시트에만 쓰여 뺀다.
+ */
+export type SharedTrade = [
+  day: number,
+  symbol: number,
+  kind: Trade['kind'],
+  stage: number | null,
+  price: number,
+  qty: number | null,
+  reason: string,
+  pnlPct: number | null,
+];
+
+/** pnl은 원(자금 숨김이면 null), pnlPct는 초기 자금 대비 %(늘 있다). firstDay는 axis 기준 일수 */
+export type SharedPerSymbol = [symbol: number, pnl: number | null, pnlPct: number, roundTrips: number, firstDay: number | null];
+
+export interface ValidationSnapshot {
+  kind: 'validation';
+  v: 1;
+  title: string;
+  /** criteriaSnapshot 규칙(묶음 b0…, 반등 패턴 직접 정함, trading.strategyId null). 실행할 때의 기준이다 */
+  criteria: SelectionCriteria;
+  baskets: { id: string; name: string; symbols: string[] }[];
+  capitalHidden: boolean;
+  run: ShareRun;
+  result: SharedValidation;
+}
+
+/** 소수 둘째 자리 */
+export interface SharedStats {
+  totalPct: number;
+  cagrPct: number;
+  mddPct: number;
+  volPct: number;
+}
+
+export interface SharedValidation {
+  axis: ShareAxis;
+  sampled: ShareSampled;
+  /** 곡선은 시작 자본 대비 수익률(%). 길이는 axis.offsets와 같다 */
+  hold: { curve: number[]; stats: SharedStats; beat: { beat: number; total: number } | null };
+  trading: { curve: number[]; stats: SharedStats; trades: number; skipCounts: [reason: Skip['reason'], n: number][] } | null;
+  indices: { id: Market; curve: number[] | null; reason: MissingReason | null; stats: SharedStats | null }[];
+  benchmarks: { symbol: string; name: string; curve: number[] | null; reason: MissingReason | null; stats: SharedStats | null }[];
+  byMarket: { key: ByMarketKey; inPool: boolean; stats: SharedStats; avgPicked: number }[];
+  /** 선정 이력을 얼마나 담았나: 전부 / 조건 계산값 뺌 / 종목 코드만 */
+  history: 'full' | 'noValues' | 'codes';
+  /** ValuePairs의 키 위치가 가리키는 이름(선정 이력·오늘 선정 공용). VALUE_KEYS에 있는 이름만, 서로 다르게 */
+  valueKeys: string[];
+  rebalances: SharedRebalance[];
+  /** 오늘 기준 선별은 늘 조건 계산값까지 담는다(많아야 30종목) */
+  today: { date: string; passed: number; picks: { symbol: string; values: ValuePairs }[] };
+  notes: ValidationNote[];
+}
+
+/** [키 위치, 값, 키 위치, 값, …]. 키가 없는 값은 쌍을 두지 않는다(`k in values` 판단이 그대로 맞는다) */
+export type ValuePairs = (number | boolean | null)[];
+
+export interface SharedRebalance {
+  /** 재선정일, axis.start로부터의 일수 */
+  day: number;
+  passed: number;
+  /** history가 'codes'면 종목 코드 배열, 아니면 SharedPick 배열 */
+  picks: SharedPick[] | string[];
+}
+
+/**
+ * 선정 종목 한 줄. retPct는 그 구간 수익률(%).
+ * mark: 0 표시 없음, 1 마지막 종가에 판 것으로 셈(soldAtLastClose), 문자열이면 사지 못한 이유(notBought).
+ * values는 history가 'noValues'면 null
+ */
+export type SharedPick = [symbol: string, retPct: number | null, mark: 0 | 1 | NotBoughtReason, values: ValuePairs | null];
+
+export type ShareSnapshot = GroupSnapshot | StrategySnapshot | CriteriaSnapshot | CompareSnapshot | SimResultSnapshot | ValidationSnapshot;
 
 export type ShareError = 'invalid' | 'unknown-field' | 'forbidden-field' | 'too-large' | 'reference' | 'unsupported';
 export type ShareCheck = { ok: true; snapshot: ShareSnapshot } | { ok: false; code: ShareError; path?: string };
@@ -151,6 +294,8 @@ export function criteriaSnapshot(
 // ── 검사(클라이언트·서버 공용) ──────────────────────────────
 
 const fail = (code: ShareError, path?: string): PartFail => (path === undefined ? { ok: false, code } : { ok: false, code, path });
+
+const failOf = (r: ResultFail): PartFail => fail(r.code, r.path);
 
 function exactKeys(v: Row, keys: string[], path: string): PartFail | null {
   for (const k of Object.keys(v)) if (!keys.includes(k)) return fail('unknown-field', path ? `${path}.${k}` : k);
@@ -264,8 +409,32 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       for (const key of ['period', 'metric', 'benchmark', 'boardOrder'] as const) if (!SETTING_OK[key](raw.view[key])) return fail('invalid', `view.${key}`);
       return { ok: true, snapshot: raw as unknown as CompareSnapshot };
     }
+    case 'simResult': {
+      const k = exactKeys(raw, ['kind', 'v', 'title', 'strategy', 'capitalHidden', 'run', 'result'], '');
+      if (k) return k;
+      if (typeof raw.capitalHidden !== 'boolean') return fail('invalid', 'capitalHidden');
+      const st = checkStrategyPart(raw.strategy, raw.title, now, mode);
+      if (!st.ok) return st;
+      const universe = st.strategy.universe.kind === 'symbols' ? st.strategy.universe.symbols : [];
+      const r = checkSimResult(raw.result, { universe, capitalHidden: raw.capitalHidden });
+      if (r) return failOf(r);
+      const run = checkRun(raw.run, (raw.result as SharedSimResult).axis);
+      if (run) return failOf(run);
+      return { ok: true, snapshot: { ...raw, strategy: st.strategy } as unknown as SimResultSnapshot };
+    }
+    case 'validation': {
+      const k = exactKeys(raw, ['kind', 'v', 'title', 'criteria', 'baskets', 'capitalHidden', 'run', 'result'], '');
+      if (k) return k;
+      if (typeof raw.capitalHidden !== 'boolean') return fail('invalid', 'capitalHidden');
+      const cr = checkCriteriaPart(raw, now, mode);
+      if (!cr.ok) return cr;
+      const r = checkValidation(raw.result, { indices: cr.criteria.benchmarks.indices, benchSymbols: cr.criteria.benchmarks.symbols });
+      if (r) return failOf(r);
+      const run = checkRun(raw.run, (raw.result as SharedValidation).axis);
+      if (run) return failOf(run);
+      return { ok: true, snapshot: { ...raw, criteria: cr.criteria } as unknown as ValidationSnapshot };
+    }
     default:
-      // simResult·validation은 Task 3에서 더한다. 그 전에는 모르는 종류와 같게 거절한다.
       return fail('unsupported', 'kind');
   }
 }
