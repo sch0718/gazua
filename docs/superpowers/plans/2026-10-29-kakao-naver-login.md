@@ -12,7 +12,7 @@
 | 허용 기준 | 공급자 계정 ID `kakao:<sub>`·`naver:<sub>`. 비밀값 `ALLOWED_ACCOUNTS`(콤마 구분). 이메일로 식별·인가하지 않아요(소셜 사용자의 email은 `''`) |
 | 계정 연결 | 같은 사람의 Google·카카오·네이버 계정을 잇지 않아요. 공급자마다 데이터가 따로예요 |
 | 카카오 앱 | 카카오톡 공유에 쓰는 앱에 카카오 로그인을 켜서 함께 써요. 공유는 JavaScript 키, 로그인은 REST API 키·클라이언트 시크릿 |
-| 패키지 | `@sch0718/firebase-session` 0.2.0(앱·Worker 둘 다 정확한 버전). 0.2.1(API 같음)이 나오면 두 `package.json`의 버전만 바꿔요 |
+| 패키지 | `@sch0718/firebase-session` 0.2.1(앱·Worker 둘 다 정확한 버전). 0.2.0과 API가 같고, 토큰 엔드포인트 429를 503 `provider-unavailable`로, JWKS 조회 실패 뒤 30초 negative cache를 더했어요 |
 
 ## 이 계획에서 정한 것
 

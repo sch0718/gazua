@@ -34,8 +34,8 @@ importers:
         specifier: 1.63.0
         version: 1.63.0
       '@sch0718/firebase-session':
-        specifier: 0.2.0
-        version: 0.2.0(firebase@12.19.0)
+        specifier: 0.2.1
+        version: 0.2.1(firebase@12.19.0)
       '@sch0718/license-notices':
         specifier: 0.1.0
         version: 0.1.0
@@ -109,8 +109,8 @@ importers:
   sync-worker:
     dependencies:
       '@sch0718/firebase-session':
-        specifier: 0.2.0
-        version: 0.2.0(firebase@12.19.0)
+        specifier: 0.2.1
+        version: 0.2.1(firebase@12.19.0)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
@@ -1742,8 +1742,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@sch0718/firebase-session@0.2.0':
-    resolution: {integrity: sha512-ToQPbCFdtFmUusfqpYySwOCze3FAtIsBE+Wqseoq71YB8tb+dukxazv3ps5WZJnaJCcrjmixgE/xXj+ye3KMWA==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.2.0/6958b2f4413642088b21bea2f01881399edaf6ed}
+  '@sch0718/firebase-session@0.2.1':
+    resolution: {integrity: sha512-i/21W6u2FC+nWssIPQPmiKryrdDWWoYcR99nimkWz/xzlGyxBwY9lbvqCGUMJmuUJ7qz/iSh+T3xMXpdAZocwg==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.2.1/63707315358cf2f5766ce98b6ab419e8557034dc}
     peerDependencies:
       firebase: ^12.0.0
 
@@ -4912,7 +4912,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
-  '@sch0718/firebase-session@0.2.0(firebase@12.19.0)':
+  '@sch0718/firebase-session@0.2.1(firebase@12.19.0)':
     dependencies:
       firebase: 12.19.0
       jose: 6.2.13

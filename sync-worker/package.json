@@ -15,7 +15,7 @@
     "dev:social": "node test/devSocial.ts"
   },
   "dependencies": {
-    "@sch0718/firebase-session": "0.2.0"
+    "@sch0718/firebase-session": "0.2.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
