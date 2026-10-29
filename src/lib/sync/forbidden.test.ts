@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { exceedsDepth, findForbidden, JSON_DEPTH_MAX, jsonDiff } from './forbidden';
 
 /** 깊이 n의 중첩 객체: 가장 안쪽 객체가 깊이 n이다(루트 0). */
-function nest(n: number): Record<string, unknown> {
-  let v: Record<string, unknown> = {};
+function nest(n: number, leaf: Record<string, unknown> = {}): Record<string, unknown> {
+  let v: Record<string, unknown> = leaf;
   for (let i = 0; i < n; i++) v = { a: v };
   return v;
 }
@@ -24,6 +24,32 @@ describe('jsonDiff ignoreMissing', () => {
 });
 
 describe('깊이 상한', () => {
+  it('깊이 32 객체 안의 같은 원시값은 차이가 없다', () => {
+    expect(jsonDiff(nest(32, { k: 1 }), nest(32, { k: 1 }))).toBeNull();
+  });
+
+  it('깊이 32 객체 안의 다른 원시값은 value 차이다', () => {
+    expect(jsonDiff(nest(32, { k: 1 }), nest(32, { k: 2 }))).toEqual({
+      path: `${Array(32).fill('a').join('.')}.k`, kind: 'value',
+    });
+  });
+
+  it('깊이 32 배열 안의 같은 원시값은 차이가 없다', () => {
+    expect(jsonDiff(nest(31, { k: [1] }), nest(31, { k: [1] }))).toBeNull();
+  });
+
+  it('깊이 32 배열 안의 다른 원시값은 value 차이다', () => {
+    expect(jsonDiff(nest(31, { k: [1] }), nest(31, { k: [2] }))).toEqual({
+      path: `${Array(31).fill('a').join('.')}.k[0]`, kind: 'value',
+    });
+  });
+
+  it('금지 키가 깊이 상한 밖에 있어도 예외 없이 그 전에 거절한다', () => {
+    const deep = nest(40, { token: 1 });
+    expect(() => findForbidden(deep)).not.toThrow();
+    expect(findForbidden(deep)).toBe(Array(33).fill('a').join('.'));
+  });
+
   it(`깊이 ${JSON_DEPTH_MAX}까지는 괜찮고 넘으면 exceedsDepth`, () => {
     expect(JSON_DEPTH_MAX).toBe(32);
     expect(exceedsDepth(nest(32))).toBe(false);
@@ -37,7 +63,7 @@ describe('깊이 상한', () => {
     const deep = nest(1000);
     expect(exceedsDepth(deep)).toBe(true);
     expect(() => findForbidden(deep)).not.toThrow();
-    expect(findForbidden(deep)).toBeNull();
+    expect(findForbidden(deep)).toBe(Array(33).fill('a').join('.'));
     expect(() => jsonDiff(deep, nest(1000))).not.toThrow();
     expect(jsonDiff(deep, nest(1000))?.kind).toBe('value');
   });

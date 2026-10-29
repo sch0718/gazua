@@ -63,7 +63,7 @@ export const VALUE_KEYS: readonly (readonly [string, ValueRule])[] = [
 ];
 
 /** 프로토타입이 없는 표라 `__proto__`·`toString` 같은 이름이 규칙으로 잡히지 않는다 */
-export const VALUE_KEY_RULE: Readonly<Record<string, ValueRule>> = Object.freeze(
+export const VALUE_KEY_RULE: Readonly<Partial<Record<string, ValueRule>>> = Object.freeze(
   Object.assign(Object.create(null) as Record<string, ValueRule>, Object.fromEntries(VALUE_KEYS)),
 );
 

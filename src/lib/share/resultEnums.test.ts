@@ -18,6 +18,7 @@ import {
   VALIDATION_NOTES,
   VALUE_KEY_RULE,
   VALUE_KEYS,
+  type ValueRule,
 } from './resultEnums';
 
 // 두 타입이 정확히 같아야 true. 원래 타입에 값이 늘거나 줄면 `corepack pnpm check`가 실패한다.
@@ -31,16 +32,18 @@ const notBought: Same<(typeof NOT_BOUGHT_REASONS)[number], NotBoughtReason> = tr
 const byMarket: Same<(typeof BY_MARKET_KEYS)[number], ByMarketKey> = true;
 const markets: Same<(typeof MARKETS)[number], Market> = true;
 const notes: Same<(typeof VALIDATION_NOTES)[number], ValidationNote> = true;
+const valueRule: Same<(typeof VALUE_KEY_RULE)[string], ValueRule | undefined> = true;
 
 describe('결과 열거값', () => {
   it('원래 타입과 같다(타입 검사) · 배열에 중복이 없다', () => {
     expect([tradeKinds, sellKinds, skipReasons, simFailure, missing, notBought, byMarket, markets, notes].every(Boolean)).toBe(true);
-    for (const list of [TRADE_KINDS, SKIP_REASONS, SIM_FAILURE_REASONS, MISSING_REASONS, NOT_BOUGHT_REASONS, BY_MARKET_KEYS, VALIDATION_NOTES])
+    for (const list of [TRADE_KINDS, SELL_KINDS, SKIP_REASONS, SIM_FAILURE_REASONS, MISSING_REASONS, NOT_BOUGHT_REASONS, BY_MARKET_KEYS, MARKETS, VALIDATION_NOTES])
       expect(new Set(list).size).toBe(list.length);
     expect(BY_MARKET_KEYS).toEqual(['KOSPI', 'KOSDAQ', 'ETF']);
   });
 
   it('값 키 규칙: 정수 키·boolean 키·4자리 키', () => {
+    expect(valueRule).toBe(true);
     expect(VALUE_KEY_RULE.finQuarter).toBe('int');
     expect(VALUE_KEY_RULE.leaderRank).toBe('int');
     expect(VALUE_KEY_RULE.flowStreak).toBe('int');
