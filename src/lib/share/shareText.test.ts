@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
-import { groupSnapshot, strategySnapshot } from './snapshot';
+import { criteriaSnapshot, groupSnapshot, strategySnapshot } from './snapshot';
 import { cardLines, compareViewText, snapshotLines, symbolNames } from './shareText';
 import { compareSnapshot } from './compact';
 import { simResultFixture, validationFixture } from './testFixtures';
 import { fmtReturnPct, trendReturn } from '../ui/simulate/simText';
 import { trendPp } from '../ui/screen/screenText';
 import { newCriteria } from '../screen/defaults';
-import { criteriaSnapshot } from './snapshot';
 
 const group = groupSnapshot({
   id: 'g',
@@ -66,12 +65,27 @@ describe('새 종류의 요약', () => {
     expect(cardLines(cmp, names, '삼성전자 +3.2% · 10.29 14:32 기준')[1]).toBe('삼성전자 +3.2% · 10.29 14:32 기준');
   });
 
+  it('빈 그룹 카드는 종목 0개로 끝난다', () => {
+    expect(cardLines({ ...group, symbols: [] }, names)).toEqual(['종목 0개']);
+  });
+
   it('카드 두 줄: 시뮬레이션·검증(데모면 끝에 · 데모)', () => {
     const sim = simResultFixture();
     expect(cardLines(sim)).toEqual([`총수익률 ${trendReturn(4.1)} · 최대 낙폭 ${fmtReturnPct(-3.69)}`, '종목 3개 · 거래 2번 · 2024.01.02 ~ 2024.01.12']);
     expect(cardLines({ ...sim, run: { ...sim.run, demo: true } })[1]).toBe('종목 3개 · 거래 2번 · 2024.01.02 ~ 2024.01.12 · 데모');
     const val = validationFixture();
     expect(cardLines(val)).toEqual([`① 선정만 ${trendReturn(12.34)} · 지수 대비 ${trendPp(12.34 - 8.06)}`, '상위 10개 · 매월 · 2026.01 ~ 2026.02']);
+  });
+
+  it('첫 지수의 stats가 없으면 다음 지수로 수익률을 비교한다', () => {
+    const val = validationFixture();
+    const index = val.result.indices[0];
+    val.result.indices = [
+      { ...index, curve: null, reason: '받지 못했어요', stats: null },
+      { ...index, id: 'KOSDAQ' },
+    ];
+
+    expect(cardLines(val)[0]).toBe(`① 선정만 ${trendReturn(12.34)} · 지수 대비 ${trendPp(12.34 - 8.06)}`);
   });
 
   it('미리 보기 줄: 결과 종류는 제목·두 줄·시세 출처·초기 자금', () => {

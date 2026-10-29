@@ -8,7 +8,7 @@ import { groupSnapshot } from '../share/snapshot';
 import { testServer, SYNC_BASE, type TestServer } from '../../../sync-worker/test/server';
 import { ME, OTHER } from '../../../sync-worker/test/harness';
 import type { AuthClient } from './auth';
-import { createSyncController, describeFail, type SyncController } from './controller.svelte';
+import { createSyncController, describeFail, SHARE_TOO_LARGE_TEXT, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
 
 const CONFIG = { apiUrl: SYNC_BASE, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
@@ -138,6 +138,17 @@ describe('SyncController', () => {
     expect((await sync.shares())?.length).toBe(1);
     expect(await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 31)).toBeNull();
     expect(sync.error).toBeTruthy();
+  });
+
+  it('100 KiB를 넘는 공유 스냅샷은 null과 공유 용량 초과 문구를 반환한다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    await sync.setEnabled(true);
+    const snapshot = { ...groupSnapshot({ id: 'g', name: '공유', items: [] }), pad: 'a'.repeat(101 * 1024) };
+
+    expect(await sync.createShare(app.meta.activeProfileId, 'group', snapshot, 7)).toBeNull();
+    expect(sync.error).toBe(SHARE_TOO_LARGE_TEXT);
   });
 
   it('기기 목록·과거 버전·새 프로필로 복원', async () => {
@@ -280,7 +291,6 @@ describe('SyncController', () => {
     expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
   });
 });
-
 
 describe('describeFail', () => {
   it('too-large는 공유 요청이면 공유 문구, 프로필 동기화면 프로필 문구', () => {

@@ -24,6 +24,7 @@ const symbolList = (symbols: string[], names?: SymbolNames) =>
 
 const BENCH = { AUTO: '자동', KOSPI: 'KOSPI', KOSDAQ: 'KOSDAQ' } as const;
 const ORDER = { value: '값 순', mine: '내 순서' } as const;
+// 「매월 재선정」 문형에 맞춰 rebalanceLabel의 명사형(분기·반기) 대신 주기 표현을 쓴다.
 const REBAL = { monthly: '매월', quarterly: '매 분기', semiannual: '반기마다' } as const;
 
 export const metricLabel = (id: Settings['metric']): string => METRICS.find((m) => m.id === id)?.label ?? id;
@@ -42,6 +43,7 @@ export function cardLines(s: ShareSnapshot, names?: SymbolNames, line: string | 
   switch (s.kind) {
     case 'group': {
       const n = s.symbols.length;
+      if (n === 0) return ['종목 0개'];
       return [`종목 ${n}개: ${firstNames(s.symbols, names)}${n > 3 ? ` 외 ${n - 3}개` : ''}`];
     }
     case 'strategy': {
@@ -69,7 +71,7 @@ export function cardLines(s: ShareSnapshot, names?: SymbolNames, line: string | 
     }
     case 'validation': {
       const hold = s.result.hold.stats.totalPct;
-      const idx = s.result.indices[0]?.stats?.totalPct;
+      const idx = s.result.indices.find((i) => i.stats)?.stats?.totalPct;
       const demo = s.run.demo ? ' · 데모' : '';
       return [
         `① 선정만 ${trendReturn(hold)}${idx === undefined ? '' : ` · 지수 대비 ${trendPp(hold - idx)}`}`,
