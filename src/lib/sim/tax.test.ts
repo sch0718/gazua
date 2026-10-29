@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
+import type { MarketDataFile } from '../marketData/format';
+import { tradingAxis } from '../screen/precompute';
 import { simulateCore } from './simulate';
 import { newStrategy } from './defaults';
 import { bar, tradingDates } from './testBars';
@@ -29,6 +33,13 @@ describe('sellTaxPct', () => {
 });
 
 describe('settlementDate', () => {
+  it('데모 데이터 축에서는 실제 KRX 휴장일(연말·신정, 설 연휴, 대체공휴일)을 건너뛴다', () => {
+    const axis = tradingAxis(JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile);
+    expect(settlementDate('2025-12-30', axis)).toBe('2026-01-05'); // 12-31·01-01 휴장 → 01-02(1) · 01-05(2)
+    expect(settlementDate('2026-02-13', axis)).toBe('2026-02-20'); // 02-16~18 설 연휴 → 02-19(1) · 02-20(2)
+    expect(settlementDate('2026-09-23', axis)).toBe('2026-09-29'); // 09-24·25 추석 → 09-28(1) · 09-29(2)
+    expect(settlementDate('2026-10-01', axis)).toBe('2026-10-06'); // 10-05 개천절 대체 → 10-02(1) · 10-06(2)
+  });
   it('체결일 다음 2번째 거래일', () => {
     expect(settlementDate('2025-12-29', ['2025-12-26', '2025-12-29', '2025-12-30', '2026-01-02'])).toBe('2026-01-02');
   });

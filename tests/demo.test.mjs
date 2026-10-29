@@ -19,6 +19,7 @@ import {
   FLOW_INST_STREAK,
   FLOW_LATE_CODE,
   FLOW_NONE_CODE,
+  KRX_HOLIDAYS,
   demoFile,
 } from '../scripts/make-demo-market-data.mjs';
 
@@ -371,4 +372,45 @@ test('데모 v4: 늦게 시작하는 종목은 첫 분기가 기간 중간이고
   for (const stock of demoFile.stocks.filter((x) => x.fin && x.s !== FIN_LATE_CODE)) {
     assert.ok(finAt(stock, REBAL[0].p).known >= 12, stock.s);
   }
+});
+
+// ── 데모 시장 데이터: KRX 휴장일과 중분류 ─────────────────────────────
+test('데모: 봉 날짜는 평일에서 KRX 휴장일만 뺀 날이고, 모든 지수·종목(중간 공백 종목 빼고)이 같은 축이다', () => {
+  const ymd = (ms) => new Date(ms).toISOString().slice(0, 10).replaceAll('-', '');
+  const weekdays = [];
+  for (let ms = Date.UTC(2024, 9, 16); ms <= Date.UTC(2026, 9, 15); ms += 86_400_000) if (![0, 6].includes(new Date(ms).getUTCDay())) weekdays.push(ymd(ms));
+  assert.equal(new Set(KRX_HOLIDAYS).size, KRX_HOLIDAYS.length);
+  for (const h of KRX_HOLIDAYS) assert.ok(weekdays.includes(h), `${h}는 기간 안 평일이어야 해요`);
+  const open = weekdays.filter((d) => !KRX_HOLIDAYS.includes(d));
+  for (const x of demoFile.indices) assert.deepEqual(x.d, open, x.id);
+  for (const stock of demoFile.stocks) {
+    assert.ok(stock.d.every((d) => open.includes(d)), stock.s);
+    if (stock.s !== '107777') assert.equal(stock.d.length, open.length, stock.s);
+  }
+  // 연말·신정, 설·추석 연휴, 대체공휴일, 선거일, 제헌절이 들어 있다
+  for (const d of ['20251231', '20260101', '20260217', '20251007', '20260302', '20250603', '20260717']) assert.ok(KRX_HOLIDAYS.includes(d), d);
+});
+
+test('데모: 중분류(레벨 2) 코드는 목록에 있고 대분류마다 정해진 것만 붙으며, 반도체는 두 시장에 같은 이름으로 있다', () => {
+  const level = new Map(demoFile.sectors.map((x) => [x.code, x.level]));
+  const name = new Map(demoFile.sectors.map((x) => [x.code, x.name]));
+  const mids = new Map();
+  for (const stock of demoFile.stocks) {
+    const [top, mid, small] = stock.sec;
+    assert.equal(small, '', stock.s);
+    if (stock.t !== 'STOCK') {
+      assert.deepEqual(stock.sec, ['', '', ''], stock.s);
+      continue;
+    }
+    assert.equal(level.get(top), 1, stock.s);
+    if (mid === '') continue;
+    assert.equal(level.get(mid), 2, stock.s);
+    assert.equal(mid.slice(0, 1), top.slice(0, 1), `${stock.s} 중분류가 같은 시장 코드여야 해요`);
+    if (!mids.has(top)) mids.set(top, new Set());
+    mids.get(top).add(mid);
+  }
+  for (const [top, set] of mids) for (const mid of set) for (const [other, os] of mids) if (other !== top) assert.ok(!os.has(mid), `${mid}가 ${top}·${other} 둘에 붙음`);
+  const semis = demoFile.stocks.filter((x) => name.get(x.sec[1]) === '반도체');
+  assert.deepEqual([...new Set(semis.map((x) => x.m))].sort(), ['KOSDAQ', 'KOSPI']);
+  assert.ok(demoFile.stocks.some((x) => x.t === 'STOCK' && x.sec[1] === ''), '중분류가 없는 종목도 있다');
 });

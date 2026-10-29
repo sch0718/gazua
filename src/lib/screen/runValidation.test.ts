@@ -62,7 +62,8 @@ describe('runValidation', () => {
     ]);
     expect(r.benchmarks[0].curve).toHaveLength(r.axis.length);
     expect(r.byMarket.map((x) => x.key)).toEqual(['KOSPI', 'KOSDAQ', 'ETF']);
-    expect(r.notes).toEqual(['survivorship', 'snapshot', 'dividend']);
+    // 데모는 실제 KRX 휴장일을 빼서 첫 1년이 250거래일이 안 된다. 기본 기간(데이터 시작 + 1년)에서도 warmup이 붙는다
+    expect(r.notes).toEqual(['survivorship', 'snapshot', 'dividend', 'warmup']);
   });
 
   it('②는 기준의 자본·수수료로 돈다: 전략 100만 원·0%여도 첫 자산 1,000만 원, 첫 매수에 0.015% 수수료', () => {

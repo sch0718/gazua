@@ -793,7 +793,7 @@ describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
     expect(selectAt(D, precompute(mkFile(stocks(), N), c, null), c).passed).toBe(0);
   });
 
-  // 기대값은 4단계 전 코드(fb4f0f8)로 만들었다
+  // 기대값은 4단계 전 코드(fb4f0f8)로 만들었다. 데모에 휴장일·중분류를 넣은 뒤 같은 코드로 다시 만들었다
   it('회귀: 업종만 고른 기존 기준은 이 단계 전 결과와 같다(데모 데이터)', () => {
     const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile;
     const baseline = JSON.parse(readFileSync('tests/fixtures/select-sector-baseline.json', 'utf8')) as Record<string, unknown>;
@@ -819,6 +819,38 @@ describe('selectAt: 합집합 후보 범위(스펙 4.1)', () => {
       const pre = precompute(fixture, c, null);
       const got = dates.map((d) => pools.map((p) => selectAt(d, pre, c, p as never, [{ id: 'x', symbols: ['100000'] }])));
       expect(JSON.parse(JSON.stringify(got)), name).toEqual(baseline[name]);
+    }
+  });
+
+  it('데모 데이터의 재선정일은 휴장일을 건너뛴 그달 첫 거래일이다(2026-01-01·03-02·05-01 휴장)', () => {
+    const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile;
+    const axis = tradingAxis(fixture);
+    for (const d of ['2025-12-31', '2026-01-01', '2026-02-17', '2026-03-02', '2026-05-01', '2026-10-05']) expect(axis).not.toContain(d);
+    expect(rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly')).toEqual([
+      '2025-10-16', '2025-11-03', '2025-12-01', '2026-01-02', '2026-02-02', '2026-03-03', '2026-04-01',
+      '2026-05-04', '2026-06-01', '2026-07-01', '2026-08-03', '2026-09-01', '2026-10-01',
+    ]);
+  });
+
+  it('데모 데이터의 중분류 대장주: 같은 중분류(반도체는 KOSPI·KOSDAQ 합쳐서)마다 시가총액 3위까지, 중분류가 없는 종목은 빠진다', () => {
+    const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFile;
+    const name = new Map(fixture.sectors.filter((x) => x.level === 2).map((x) => [x.code, x.name]));
+    const mid = new Map(fixture.stocks.map((x) => [x.s, name.get(x.sec[1])]));
+    const c = offCriteria();
+    c.pool.excludeManaged = false;
+    c.rank.take = 30;
+    c.conditions.leader = { on: true, level: 2, maxRank: 3 };
+    const pre = precompute(fixture, c, null);
+    const axis = tradingAxis(fixture);
+    for (const d of rebalanceDates(axis, { from: '2025-10-16', to: '2026-10-15' }, 'monthly')) {
+      const r = selectAt(d, pre, c);
+      // 반도체 7(KOSPI 3 + KOSDAQ 4) → 3, 디스플레이 2, 은행 3, 증권·보험 2, 기초화학 3, 전자부품 3, 바이오의약 3. 중분류 없는 2종목은 빠진다
+      expect(r.passed, d).toBe(19);
+      const byMid = Map.groupBy(r.picked, (x) => mid.get(x.symbol));
+      expect(byMid.has(undefined), d).toBe(false);
+      for (const [m, xs] of byMid) expect(xs.map((x) => x.values.leaderRank).sort(), `${d} ${m}`).toEqual([1, 2, 3].slice(0, xs.length));
+      // 시장마다 따로 매기면 반도체가 6종목이다
+      expect(byMid.get('반도체'), d).toHaveLength(3);
     }
   });
 });
