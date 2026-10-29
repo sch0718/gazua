@@ -395,12 +395,17 @@ export function validationSnapshot(run: ValidationRun, opts: { hideCapital: bool
     const todayKeys = valueKeys.length;
     // 이력의 계산값은 full일 때만 키 표에 더한다. 위치가 늘 같게 full 키를 미리 한 번 만들어 둔다
     const fullHistory = result.rebalances.map((r, i) => r.picked.map((p, j) => pairs(p.values, `result.rebalances[${i}].picks[${j}]`)));
-    const segOf = (date: string) => result.hold.segments.find((s) => s.from === date);
-    const markOf = (date: string, symbol: string): { retPct: number | null; mark: SharedPick[2] } => {
-      const sp = segOf(date)?.picked.find((x) => x.symbol === symbol);
-      if (!sp) return { retPct: null, mark: 0 };
-      return { retPct: r2n(sp.retPct), mark: sp.notBought ? (sp.notBoughtReason ?? 'noBar') : sp.soldAtLastClose ? 1 : 0 };
-    };
+    type PickMark = { retPct: number | null; mark: SharedPick[2] };
+    const marks = new Map<string, Map<string, PickMark>>();
+    for (const segment of result.hold.segments) {
+      if (marks.has(segment.from)) continue; // find와 같이 첫 구간·종목을 쓴다
+      const bySymbol = new Map<string, PickMark>();
+      for (const p of segment.picked) {
+        if (!bySymbol.has(p.symbol)) bySymbol.set(p.symbol, { retPct: r2n(p.retPct), mark: p.notBought ? (p.notBoughtReason ?? 'noBar') : p.soldAtLastClose ? 1 : 0 });
+      }
+      marks.set(segment.from, bySymbol);
+    }
+    const markOf = (date: string, symbol: string): PickMark => marks.get(date)?.get(symbol) ?? { retPct: null, mark: 0 };
     const rebalancesFor = (h: History): SharedRebalance[] =>
       result.rebalances.map((r, i) => ({
         day: day(r.date),
