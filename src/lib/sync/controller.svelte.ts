@@ -430,10 +430,16 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           return;
         }
         error = null;
+        let flow: typeof import('./socialFlow');
+        try {
+          flow = await import('./socialFlow');
+        } catch {
+          error = '로그인 화면을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.';
+          return;
+        }
         try {
           const reauth = opts?.reauth || await needsSocialReauth();
-          const { startSocialSignIn } = await import('./socialFlow');
-          await startSocialSignIn(provider, {
+          await flow.startSocialSignIn(provider, {
             clientId: config.social![provider]!.clientId, apiUrl: config.apiUrl,
             label: label?.trim() ?? '', returnHash: returnHash ?? (globalThis.location?.hash || '#/settings'),
             storage: deps.socialStorage, navigate: deps.navigate, random: deps.random, origin: deps.origin, now,

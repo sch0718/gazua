@@ -652,6 +652,19 @@ describe('카카오·네이버 로그인', () => {
     expect(a.navigate).toHaveBeenCalledOnce();
   });
 
+  it('로그인 화면 코드를 불러오지 못하면 저장소 안내 대신 연결 확인 안내를 보여요', async () => {
+    const a = await socialSetup(testServer({ social: true }));
+    vi.doMock('./socialFlow', () => { throw new Error('Failed to fetch dynamically imported module'); });
+    try {
+      await a.sync.signInWith('kakao');
+    } finally {
+      vi.doUnmock('./socialFlow');
+    }
+    expect(a.sync.error).toContain('로그인 화면을 불러오지 못했어요. 인터넷 연결을');
+    expect(a.sync.error).not.toContain('저장소');
+    expect(a.navigate).not.toHaveBeenCalled();
+  });
+
   it('재인증 플래그를 읽지 못해도 안전하게 재인증으로 시작해요', async () => {
     const a = await socialSetup(testServer({ social: true }));
     const getMeta = a.store.getMeta.bind(a.store);

@@ -17,7 +17,7 @@ export function socialFailureText(o: Extract<SocialOutcome, { ok: false }>): { t
     'invalid-code': ['로그인 코드가 만료됐거나 이미 쓰였어요', '다시 로그인해 주세요.'],
     'invalid-token': [`${p} 로그인 응답을 확인하지 못했어요`, `${p} 앱에서 OpenID Connect가 켜져 있는지 확인해 주세요.`],
     'not-enabled': [`동기화 서버에 ${p} 로그인이 켜져 있지 않아요`, `Worker에 ${p} 클라이언트 ID와 시크릿을 넣어 주세요.`],
-    'bad-request': ['동기화 서버가 로그인 요청을 받지 않았어요', 'Worker의 SOCIAL_REDIRECT_URIS에 이 주소의 콜백이 있는지 확인해 주세요.'],
+    'bad-request': ['동기화 서버가 로그인 요청을 받지 않았어요', `Worker의 SOCIAL_REDIRECT_URIS에 이 주소의 콜백이 있는지, 또는 Worker에 ${p} 클라이언트 ID·시크릿이 들어 있는지 확인해 주세요.`],
     storage: ['이 브라우저에서는 로그인을 시작할 수 없어요', '저장소를 쓸 수 없어요(사생활 보호 모드 등). 다른 브라우저로 열어 주세요.'],
     server: ['서버 오류예요', '잠시 뒤 다시 시도해 주세요.'],
   };

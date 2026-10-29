@@ -172,6 +172,15 @@ describe('소셜 로그인 콜백 화면', () => {
     await waitFor(() => expect(screen.getAllByRole('alert').some((alert) => alert.textContent?.includes('저장소를 쓸 수 없어요'))).toBe(true));
   });
 
+  it('처음 실패에서는 sync.error가 있어도 알림이 하나만 보인다', async () => {
+    const sync = fakeSync({ ok: false, provider: 'kakao', reason: 'cancelled' });
+    Object.defineProperty(sync, 'error', { get: () => '이전 로그인 오류' });
+    render(SocialCallback, { sync, ret: RET, ondone: vi.fn() });
+    await screen.findByRole('heading', { name: '로그인을 취소했어요' });
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByText('이전 로그인 오류')).toBeNull();
+  });
+
   it('진행 중인 요청이 없으면 브라우저 안내를 보이고 돌아갈 수 있다', async () => {
     const ondone = vi.fn();
     render(SocialCallback, { sync: fakeSync({ ok: false, provider: null, reason: 'no-pending' }), ret: { ...RET, callback: null }, ondone });

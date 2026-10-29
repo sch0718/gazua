@@ -24,6 +24,8 @@
 
   let outcome = $state<SocialOutcome | null>(null);
   let copied = $state('');
+  // 다시 로그인이 남긴 오류만 보여요. 처음 실패는 제목·설명이 이미 알려요.
+  let retried = $state(false);
   let canEscape = $state(false);
   let accountCode = $state<HTMLElement | undefined>(undefined);
   const providerName = $derived(ret.callback ? PROVIDER_NAMES[ret.callback.provider] : '카카오·네이버');
@@ -52,6 +54,7 @@
 
   async function retryLogin() {
     if (!failure?.provider) return;
+    retried = true;
     await sync.signInWith(failure.provider, ret.label, ret.returnHash);
   }
 
@@ -85,7 +88,7 @@
         <button type="button" class="btn" onclick={copyAccount}>계정 값 복사</button>
         {#if copied}<p role="status">{copied}</p>{/if}
       {/if}
-      {#if sync.error}<p role="alert">{sync.error}</p>{/if}
+      {#if retried && sync.error}<p role="alert">{sync.error}</p>{/if}
       {#if failure.reason === 'not-allowed' && failure.provider && !canChooseAccount}
         <p>다른 계정으로 로그인하려면 {PROVIDER_NAMES[failure.provider]}에서 로그아웃한 뒤 다시 로그인해 주세요.</p>
       {/if}
@@ -93,7 +96,7 @@
         {#if failure.provider && sync.providers[failure.provider]}
           <button type="button" class="btn primary" disabled={sync.busy} onclick={retryLogin}>다시 로그인</button>
           {#if failure.reason === 'not-allowed' && canChooseAccount}
-            <button type="button" class="btn" disabled={sync.busy} onclick={() => sync.signInWith(failure.provider!, ret.label, ret.returnHash, { reauth: true })}>다른 계정으로 로그인</button>
+            <button type="button" class="btn" disabled={sync.busy} onclick={() => { retried = true; return sync.signInWith(failure.provider!, ret.label, ret.returnHash, { reauth: true }); }}>다른 계정으로 로그인</button>
           {/if}
         {/if}
         <button type="button" class="btn" onclick={() => ondone(ret.returnHash)}>돌아가기</button>
