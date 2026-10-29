@@ -1,4 +1,4 @@
-// 설정 화면·공유가 쓰는 동기화 상태. 로그인(Firebase) → 기기 세션(sync-worker) → 동기화 엔진을 묶는다.
+// 설정 화면·공유가 쓰는 동기화 상태. 공급자 로그인 → 기기 세션 → 동기화 엔진을 묶는다.
 // 로그인·세션이 없거나 실패해도 로컬 사용은 그대로다. 동기화 설정이 없는 빌드에서는 configured=false로 아무것도 하지 않는다.
 import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
@@ -9,6 +9,8 @@ import type { SyncConfig } from './config';
 import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
 import { appProfiles } from './local';
 import { openSyncStore, type SyncStore } from './store';
+import { PROVIDER_NAMES, socialFailureText, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
+import type { SocialProvider } from '@sch0718/firebase-session/client';
 
 /** 포커스로 다시 받는 최소 간격(할당량 절약). */
 export const FOCUS_PULL_INTERVAL = 5 * 60 * 1000;
@@ -23,12 +25,25 @@ export interface SyncControllerDeps {
   lock?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** 기기 이름 기본값 */
   deviceLabel?: () => string;
+  socialStorage?: Storage;
+  navigate?: (url: string) => void;
+  random?: (n: number) => Uint8Array;
+  origin?: string;
+}
+
+export interface SyncAccount {
+  provider: LoginProvider;
+  /** Google 이메일, 소셜은 공급자 계정(kakao:<sub>) */
+  id: string;
+  /** Google 이메일, 소셜은 확인 안 된 이메일이나 계정 ID */
+  display: string;
 }
 
 export interface SyncController {
   readonly configured: boolean;
+  readonly providers: { google: boolean; kakao: boolean; naver: boolean };
   /** 로그인·세션까지 된 계정. */
-  readonly account: { email: string } | null;
+  readonly account: SyncAccount | null;
   readonly status: SyncStatus;
   readonly busy: boolean;
   /** 사용자에게 보여 줄 마지막 오류. */
@@ -39,6 +54,8 @@ export interface SyncController {
   /** createApp의 onSyncableChange에 넘긴다. */
   onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
   signIn(label?: string): Promise<void>;
+  signInWith(provider: SocialProvider, label?: string): Promise<void>;
+  completeSocialSignIn(ret: SocialReturn): Promise<SocialOutcome>;
   signOut(): Promise<void>;
   preview(): Promise<{ upload: string[]; download: number } | null>;
   setEnabled(on: boolean): Promise<void>;
@@ -77,7 +94,8 @@ export const describeFail = (f: ApiFail): string =>
   f.kind === 'limit' && f.code === 'share-limit' ? ERRORS['share-limit'] : f.kind === 'invalid' && f.code === 'too-large' ? ERRORS['too-large'] : ERRORS[f.kind] ?? ERRORS.server;
 
 const SESSION_KEY = 'session';
-/** 이 기기의 동기화 상태가 속한 계정(Firebase uid). 다른 계정으로 로그인하면 상태를 버린다. */
+type SessionMeta = { id: string; email: string; provider?: SocialProvider; account?: string; display?: string };
+/** 이 기기의 동기화 상태가 속한 계정. 다른 계정으로 로그인하면 상태를 버린다. */
 const OWNER_KEY = 'owner';
 /** 리다이렉트 로그인을 시작했다. 있을 때만 시작 시 결과를 읽는다(그 밖에는 Firebase를 불러오지 않는다). */
 const REDIRECT_KEY = 'redirect-pending';
@@ -97,20 +115,23 @@ function defaultLabel(): string {
 export function createSyncController(deps: SyncControllerDeps): SyncController {
   const now = deps.now ?? Date.now;
   const config = deps.config;
-  let account = $state<{ email: string } | null>(null);
+  const providers = { google: !!config?.firebase, kakao: !!config?.social?.kakao, naver: !!config?.social?.naver };
+  let account = $state<SyncAccount | null>(null);
   let status = $state<SyncStatus>({ enabled: false, phase: 'off', pending: 0, conflicts: [], rejected: [], lastSyncAt: null, notices: [], volatile: false });
   let busy = $state(false);
   let error = $state<string | null>(null);
 
   let store: SyncStore | null = null;
   let engine: SyncEngine | null = null;
-  let session: { id: string; email: string } | null = null;
+  let session: SessionMeta | null = null;
+  let didAttach!: () => void;
+  const attached = new Promise<void>((resolve) => didAttach = resolve);
   let lastFocusPull = 0;
-  const auth: AuthClient | null = config ? (deps.auth ?? firebaseAuth(config.firebase)) : null;
+  const auth: AuthClient | null = deps.auth ?? (config?.firebase ? firebaseAuth(config.firebase) : null);
   const api: SyncApi | null = config
     ? createSyncApi(
         config.apiUrl,
-        { idToken: async (force) => (session && auth ? auth.idToken(force) : null), sessionId: async () => session?.id ?? null },
+        { idToken: async (force) => (session && !session.provider && auth ? auth.idToken(force) : null), sessionId: async () => session?.id ?? null },
         deps.fetchImpl,
       )
     : null;
@@ -129,7 +150,10 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   function onAuthFailure(code: string, usedSession?: string) {
     // 그 사이 로그아웃·다시 로그인해 세션이 바뀌었으면, 이전 세션으로 나간 요청의 실패는 새 로그인과 상관없다
     if (usedSession !== undefined && session?.id !== usedSession) return;
-    if (code === 'not-allowed') void forget(ERRORS['not-allowed']).then(() => auth?.signOut());
+    if (code === 'not-allowed') {
+      const provider = session?.provider ?? 'google';
+      void forget(`이 ${PROVIDER_NAMES[provider]} 계정은 허용 목록에 없어요.`).then(() => provider === 'google' ? auth?.signOut() : undefined);
+    }
     else void forget(code === 'session-revoked' ? '이 기기는 로그아웃됐어요(다른 기기에서 철회). 다시 로그인해 주세요.' : ERRORS.auth);
   }
 
@@ -149,7 +173,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }
     session = { id: r.data.sessionId, email: user.email ?? '' };
     await store!.setMeta(SESSION_KEY, session);
-    account = { email: session.email };
+    account = { provider: 'google', id: session.email, display: session.email };
     error = null;
     if (engine?.status().enabled) await engine.syncNow();
   }
@@ -177,6 +201,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
   const ctl: SyncController = {
     configured: config !== null,
+    providers,
     get account() {
       return account;
     },
@@ -192,57 +217,65 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     api,
 
     async attach(app) {
-      if (!config || !api || !auth) return;
-      store = await (deps.store ?? (() => openSyncStore()))();
-      engine = createSyncEngine({ local: appProfiles(app, deps.storage), store, api, now, lock: deps.lock ?? webLock, onAuthFailure });
-      cleanups.push(engine.subscribe((s) => (status = s)));
-      await engine.init();
-      session = (await store.getMeta<{ id: string; email: string }>(SESSION_KEY)) ?? null;
-      if (await store.getMeta<boolean>(REDIRECT_KEY)) {
-        await store.deleteMeta(REDIRECT_KEY);
-        try {
-          const back = await auth.redirectResult();
-          if (back) await startSession(back.user, back.idToken, (deps.deviceLabel ?? defaultLabel)());
-        } catch {
-          // 리다이렉트 결과가 없거나 읽지 못했다
+      try {
+        if (!config || !api) return;
+        store = await (deps.store ?? (() => openSyncStore()))();
+        engine = createSyncEngine({ local: appProfiles(app, deps.storage), store, api, now, lock: deps.lock ?? webLock, onAuthFailure });
+        cleanups.push(engine.subscribe((s) => (status = s)));
+        await engine.init();
+        session = (await store.getMeta<SessionMeta>(SESSION_KEY)) ?? null;
+        if (!session?.provider && auth && await store.getMeta<boolean>(REDIRECT_KEY)) {
+          await store.deleteMeta(REDIRECT_KEY);
+          try {
+            const back = await auth.redirectResult();
+            if (back) await startSession(back.user, back.idToken, (deps.deviceLabel ?? defaultLabel)());
+          } catch {
+            // 리다이렉트 결과가 없거나 읽지 못했다
+          }
         }
-      }
-      if (session) {
-        // 저장된 세션이 있을 때만 SDK를 불러 로그인 상태를 확인한다. 오프라인이라 SDK를 못 불러오면 세션은 그대로 두고 나중에 보낸다.
-        let user: Awaited<ReturnType<AuthClient['ready']>> | 'unavailable';
-        try {
-          user = await auth.ready();
-        } catch {
-          user = 'unavailable';
+        if (session?.provider) {
+          const id = session.account ?? '';
+          account = { provider: session.provider, id, display: session.display ?? id };
+          if (status.enabled) await engine.syncNow();
+        } else if (session && auth) {
+          // 저장된 세션이 있을 때만 SDK를 불러 로그인 상태를 확인한다. 오프라인이라 SDK를 못 불러오면 세션은 그대로 두고 나중에 보낸다.
+          let user: Awaited<ReturnType<AuthClient['ready']>> | 'unavailable';
+          try {
+            user = await auth.ready();
+          } catch {
+            user = 'unavailable';
+          }
+          const owner = await store.getMeta<string>(OWNER_KEY);
+          // SDK에 남은 로그인이 없거나 다른 계정이면 저장된 세션을 쓰지 않는다(다시 로그인하면 계정을 맞춘다)
+          if (user === null || (user !== 'unavailable' && owner !== undefined && user.uid !== owner)) await forget(null);
+          else {
+            account = { provider: 'google', id: session.email, display: session.email };
+            if (status.enabled && user !== 'unavailable') await engine.syncNow();
+          }
         }
-        const owner = await store.getMeta<string>(OWNER_KEY);
-        // SDK에 남은 로그인이 없거나 다른 계정이면 저장된 세션을 쓰지 않는다(다시 로그인하면 계정을 맞춘다)
-        if (user === null || (user !== 'unavailable' && owner !== undefined && user.uid !== owner)) await forget(null);
-        else {
-          account = { email: session.email };
-          if (status.enabled && user !== 'unavailable') await engine.syncNow();
+        if (typeof window !== 'undefined') {
+          const onFocus = () => {
+            if (!session || !status.enabled || document.visibilityState === 'hidden') return;
+            if (now() - lastFocusPull < FOCUS_PULL_INTERVAL) return;
+            lastFocusPull = now();
+            void engine?.syncNow();
+          };
+          const onOnline = () => {
+            if (session && status.enabled) void engine?.flush();
+          };
+          window.addEventListener('focus', onFocus);
+          document.addEventListener('visibilitychange', onFocus);
+          window.addEventListener('online', onOnline);
+          cleanups.push(() => {
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onFocus);
+            window.removeEventListener('online', onOnline);
+          });
         }
+        lastFocusPull = now();
+      } finally {
+        didAttach();
       }
-      if (typeof window !== 'undefined') {
-        const onFocus = () => {
-          if (!session || !status.enabled || document.visibilityState === 'hidden') return;
-          if (now() - lastFocusPull < FOCUS_PULL_INTERVAL) return;
-          lastFocusPull = now();
-          void engine?.syncNow();
-        };
-        const onOnline = () => {
-          if (session && status.enabled) void engine?.flush();
-        };
-        window.addEventListener('focus', onFocus);
-        document.addEventListener('visibilitychange', onFocus);
-        window.addEventListener('online', onOnline);
-        cleanups.push(() => {
-          window.removeEventListener('focus', onFocus);
-          document.removeEventListener('visibilitychange', onFocus);
-          window.removeEventListener('online', onOnline);
-        });
-      }
-      lastFocusPull = now();
     },
 
     onSyncableChange(e) {
@@ -253,7 +286,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
     signIn: (label) =>
       guarded(async () => {
-        if (!auth || !store) return;
+        if (!providers.google || !auth || !store) return;
         error = null;
         // 팝업이 막히면 SDK가 리다이렉트로 페이지를 떠난다. 돌아왔을 때 결과를 읽도록 먼저 적어 둔다.
         await store.setMeta(REDIRECT_KEY, true);
@@ -264,11 +297,70 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
       }, undefined),
 
+    signInWith: (provider, label) =>
+      guarded(async () => {
+        if (!config || !providers[provider]) {
+          const text = socialFailureText({ ok: false, provider, reason: 'not-configured' });
+          error = `${text.title} ${text.detail}`;
+          return;
+        }
+        error = null;
+        try {
+          const { startSocialSignIn } = await import('./socialFlow');
+          await startSocialSignIn(provider, {
+            clientId: config.social![provider]!.clientId, apiUrl: config.apiUrl,
+            label: label?.trim() ?? '', returnHash: globalThis.location?.hash || '#/settings',
+            storage: deps.socialStorage, navigate: deps.navigate, random: deps.random, origin: deps.origin, now,
+          });
+        } catch {
+          const text = socialFailureText({ ok: false, provider, reason: 'storage' });
+          error = `${text.title} ${text.detail}`;
+        }
+      }, undefined),
+
+    async completeSocialSignIn(ret) {
+      await attached;
+      const cb = ret.callback;
+      const provider = cb?.provider ?? null;
+      // 설정이 없으면 대기 요청보다 빌드 설정 안내를 먼저 한다.
+      if (!config || (provider && !providers[provider])) return { ok: false, provider, reason: 'not-configured' };
+      if (!cb) return { ok: false, provider, reason: 'no-pending' };
+      if (!cb.ok) return { ok: false, provider, reason: cb.reason === 'redirect-mismatch' || cb.reason === 'state-mismatch' ? 'mismatch' : cb.reason, ...(cb.error && { error: cb.error }) };
+      return guarded<SocialOutcome>(async () => {
+        const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)());
+        if (!r.ok) {
+          const reason = r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
+            : r.kind === 'auth' ? r.code === 'invalid-code' ? 'invalid-code' : 'invalid-token'
+            : r.kind === 'not-found' ? 'not-enabled' : r.kind === 'server' && r.status === 400 ? 'bad-request' : 'server';
+          return { ok: false, provider: cb.provider, reason, ...(r.kind === 'not-allowed' && r.account && { account: r.account }) };
+        }
+        if (session) {
+          try { await api!.endSession(); } catch { /* 이전 세션 정리는 최선으로 한다. */ }
+          if (!session.provider) {
+            try { await auth?.signOut(); } catch { /* 새 로그인은 이어 간다. */ }
+          }
+        }
+        const user = r.data.user;
+        const owner = await store!.getMeta<string>(OWNER_KEY);
+        if (owner !== user.sub) {
+          if (owner !== undefined) await engine?.reset();
+          await store!.setMeta(OWNER_KEY, user.sub);
+        }
+        session = { id: r.data.sessionId, email: '', provider: cb.provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
+        await store!.setMeta(SESSION_KEY, session);
+        account = { provider: cb.provider, id: user.sub, display: session.display! };
+        error = null;
+        if (engine?.status().enabled) await engine.syncNow();
+        return { ok: true, provider: cb.provider };
+      }, { ok: false, provider: cb.provider, reason: 'server' });
+    },
+
     signOut: () =>
       guarded(async () => {
+        const social = !!session?.provider;
         if (session && api) await api.endSession(); // 실패해도 이 기기에서는 로그아웃한다
         await forget(null);
-        await auth?.signOut();
+        if (!social) await auth?.signOut();
       }, undefined),
 
     preview: () =>

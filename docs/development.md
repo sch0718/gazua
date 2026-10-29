@@ -113,7 +113,7 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
    - 커스텀 도메인 없이 `https://<사용자>.github.io/gazua/`로 쓰려면 `base`를 `/gazua/`로 되돌려요. 도메인 지정과 `base`는 함께 바꿔야 해요. 하나만 바뀌면 화면 파일 경로가 어긋나 빈 화면이 떠요.
 4. 프록시의 `ALLOWED_ORIGINS`에 앱 출처(`https://gazua.<도메인>`)를 넣어요.
 5. 주소(출처)가 바뀌면 브라우저 저장소가 따로라 그룹·설정·키·시장 데이터가 따라오지 않아요. 옛 주소에서 설정 › 데이터 › 내보내기 한 파일을 새 주소에서 가져와요.
-6. (선택) 동기화·공유를 켜려면 [sync-worker/README.md](../sync-worker/README.md)의 순서대로 Firebase(Spark)·D1·Worker를 준비하고, 저장소 Actions **Variables**에 `VITE_SYNC_API_URL`, `VITE_FIREBASE_*`를 넣어요. 카카오톡으로 보내기는 `VITE_KAKAO_JS_KEY`도 넣어요(선택). 비어 있으면 동기화 없이 지금처럼 빌드돼요.
+6. (선택) 동기화·공유를 켜려면 [sync-worker/README.md](../sync-worker/README.md)의 순서대로 D1·Worker와 쓸 로그인 공급자를 준비하고, 저장소 Actions **Variables**에 `VITE_SYNC_API_URL`과 Google용 `VITE_FIREBASE_*` 또는 소셜용 `VITE_KAKAO_LOGIN_CLIENT_ID`(카카오 REST API 키)·`VITE_NAVER_LOGIN_CLIENT_ID`(네이버 Client ID)를 넣어요. 소셜 client id는 공개 값이고, 설정된 공급자만 단추가 보여요. Firebase 없이 소셜만 쓸 수도 있어요. 카카오톡으로 보내기는 `VITE_KAKAO_JS_KEY`도 넣어요(선택). 개발 전용 `VITE_SOCIAL_DEV_MOCK`는 Actions에 넣지 않아요. API 주소와 로그인 공급자 설정이 없으면 동기화 없이 빌드돼요.
 
 ## 설계·계획 문서
 
@@ -127,6 +127,7 @@ GitHub는 저장소에 60일 동안 활동이 없으면 예약(schedule) 워크�
 - 내 성과 구현 계획: [docs/superpowers/plans/2026-10-23-account-performance.md](superpowers/plans/2026-10-23-account-performance.md)
 - 서버·DB 도입 검토: [docs/proposals/2026-10-25-server-and-db.md](proposals/2026-10-25-server-and-db.md)
 - 동기화·공유 1단계 구현 계획: [docs/superpowers/plans/2026-10-25-sync-phase1.md](superpowers/plans/2026-10-25-sync-phase1.md)
+- 카카오·네이버 로그인 구현 계획: [docs/superpowers/plans/2026-10-29-kakao-naver-login.md](superpowers/plans/2026-10-29-kakao-naver-login.md)
 - 시뮬레이션 화면 리뷰와 처리 결과: [docs/design/2026-10-13-simulation-ui-review.md](design/2026-10-13-simulation-ui-review.md)
 - 실연결 점검 목록: [docs/live-check.md](live-check.md)
 - 프록시: [proxy/README.md](../proxy/README.md)

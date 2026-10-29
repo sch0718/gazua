@@ -6,6 +6,7 @@ import {
   type BaseFail,
   type Credentials,
   type DeviceSession,
+  type SessionClient,
 } from '@sch0718/firebase-session/client';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import type { ProfileDocV1 } from './dto';
@@ -74,6 +75,7 @@ export interface SharedRead {
 }
 
 export interface SyncApi {
+  createSocialSession: SessionClient<GazuaFail>['createSocialSession'];
   createSession(idToken: string, label: string): Promise<ApiResult<{ sessionId: string; expiresAt: number }>>;
   endSession(): Promise<ApiResult<unknown>>;
   listSessions(): Promise<ApiResult<{ sessions: DeviceSession[] }>>;
@@ -98,6 +100,7 @@ export function createSyncApi(
 ): SyncApi {
   const c = createSessionClient<GazuaFail>({
     baseUrl,
+    allowSessionOnly: true,
     credentials: creds,
     sessionHeader: SESSION_HEADER,
     fetch: fetchImpl,
@@ -107,6 +110,7 @@ export function createSyncApi(
   const enc = encodeURIComponent;
   return {
     createSession: c.createSession,
+    createSocialSession: c.createSocialSession,
     endSession: c.endSession,
     listSessions: c.listSessions,
     revokeSession: c.revokeSession,

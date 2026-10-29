@@ -26,6 +26,15 @@
   import { createSyncApi } from './lib/sync/api';
   import { readSyncConfig } from './lib/sync/config';
   import { createSyncController } from './lib/sync/controller.svelte';
+  import type { SocialReturn } from './lib/sync/social';
+
+  let { socialReturn = null }: { socialReturn?: SocialReturn | null } = $props();
+  let pendingSocial = $state(untrack(() => socialReturn));
+  function socialDone(hash: string) {
+    history.replaceState(history.state, '', import.meta.env.BASE_URL + hash);
+    pendingSocial = null;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
 
   const storage = createSafeStorage();
   // 동기화 설정(VITE_*)이 없는 빌드면 configured=false로 아무것도 하지 않는다.
@@ -97,7 +106,7 @@
 </script>
 
 <div class="shell">
-  {#each route.name === 'shared' ? [] : app.banners as b (b.id)}
+  {#each pendingSocial || route.name === 'shared' ? [] : app.banners as b (b.id)}
     <Banner
       message={b.text}
       actionLabel={b.action?.label}
@@ -106,7 +115,14 @@
     />
   {/each}
 
-  {#if route.name === 'shared'}
+  {#if pendingSocial}
+    {@const ret = pendingSocial}
+    {#await import('./lib/ui/settings/SocialCallback.svelte')}
+      <p role="status">로그인 결과를 확인하는 중…</p>
+    {:then module}
+      <module.default {sync} {ret} ondone={socialDone} />
+    {/await}
+  {:else if route.name === 'shared'}
     <SharedView
       capability={route.capability}
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
@@ -177,7 +193,7 @@
   </button>
 {/snippet}
 
-{#if route.name !== 'shared'}<HelpIntro {app} />{/if}
+{#if !pendingSocial && route.name !== 'shared'}<HelpIntro {app} />{/if}
 <ShareHost />
 <SnackbarHost />
 

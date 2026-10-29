@@ -1,0 +1,143 @@
+<script lang="ts">
+  // 공급자에서 돌아온 로그인 결과와 다시 할 일을 보여 준다.
+  import { onMount } from 'svelte';
+  import { showSnackbar } from '@sch0718/ui-svelte';
+  import type { SyncController } from '../../sync/controller.svelte';
+  import { PROVIDER_NAMES, socialFailureText, type SocialOutcome, type SocialReturn } from '../../sync/social';
+
+  let {
+    sync,
+    ret,
+    ondone,
+    copy = (text: string) => navigator.clipboard.writeText(text),
+  }: {
+    sync: SyncController;
+    ret: SocialReturn;
+    ondone: (hash: string) => void;
+    copy?: (text: string) => Promise<void>;
+  } = $props();
+
+  let outcome = $state<SocialOutcome | null>(null);
+  let copied = $state('');
+  let accountCode = $state<HTMLElement | undefined>(undefined);
+  const providerName = $derived(ret.callback ? PROVIDER_NAMES[ret.callback.provider] : '공급자');
+  const failure = $derived(outcome && !outcome.ok ? outcome : null);
+  const text = $derived(failure ? socialFailureText(failure) : null);
+
+  onMount(() => {
+    let alive = true;
+    void sync.completeSocialSignIn(ret).then((result) => {
+      if (!alive) return;
+      if (result.ok) {
+        showSnackbar(`${PROVIDER_NAMES[result.provider]} 계정으로 로그인했어요`);
+        ondone(ret.returnHash);
+      } else outcome = result;
+    });
+    return () => { alive = false; };
+  });
+
+  async function retryLogin() {
+    if (failure?.provider) await sync.signInWith(failure.provider, ret.label);
+  }
+
+  async function copyAccount() {
+    if (!failure?.account) return;
+    try {
+      await copy(failure.account);
+      copied = '복사했어요';
+    } catch {
+      if (accountCode) {
+        const range = document.createRange();
+        range.selectNodeContents(accountCode);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+      copied = '복사하지 못했어요. 값을 길게 눌러 복사해 주세요';
+    }
+  }
+</script>
+
+<main class="callback">
+  <div class="card">
+    {#if failure && text}
+      <div role="alert">
+        <h1>{text.title}</h1>
+        <p>{text.detail}</p>
+      </div>
+      {#if failure.reason === 'not-allowed' && failure.account}
+        <code bind:this={accountCode}>{failure.account}</code>
+        <button type="button" class="btn" onclick={copyAccount}>계정 값 복사</button>
+        {#if copied}<p role="status">{copied}</p>{/if}
+      {/if}
+      {#if sync.error}<p role="alert">{sync.error}</p>{/if}
+      <div class="actions">
+        {#if failure.provider && sync.providers[failure.provider]}
+          <button type="button" class="btn primary" disabled={sync.busy} onclick={retryLogin}>다시 로그인</button>
+        {/if}
+        <button type="button" class="btn" onclick={() => ondone(ret.returnHash)}>돌아가기</button>
+      </div>
+    {:else}
+      <p role="status">{providerName}로 로그인하는 중…</p>
+    {/if}
+  </div>
+</main>
+
+<style>
+  .callback {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    box-sizing: border-box;
+    background: var(--surface);
+    border-radius: var(--r-card);
+    padding: 24px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  h1 {
+    font-size: var(--fs-body);
+    font-weight: 700;
+  }
+  p {
+    font-size: var(--fs-sub);
+    color: var(--t2);
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+  code {
+    display: block;
+    padding: 12px;
+    background: var(--surface2);
+    border-radius: 10px;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .btn {
+    flex: 1;
+    min-height: var(--touch);
+    padding: 0 14px;
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--t1);
+    font-weight: 700;
+  }
+  .btn.primary {
+    background: var(--accent);
+    color: var(--on-accent, #fff);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+  }
+</style>
