@@ -1,13 +1,18 @@
 // 공유 스냅샷 만들기 중 열 형식·축약이 필요한 것(설계 2.3~2.5, 3절)과 받은 결과 펼치기(4.7). 검사는 snapshot.ts·checkResult.ts가 한다.
-import type { SimResult } from '../sim/types';
+import type { Basket } from '../screen/baskets';
+import type { CurvePoint, CurveStats, ValidationResult } from '../screen/runValidation';
+import type { Selection } from '../screen/select';
+import type { SelectionCriteria } from '../screen/types';
+import type { SimResult, Strategy } from '../sim/types';
 import type { Group, Settings } from '../state/schema';
 import { jsonBytes } from '../sync/forbidden';
 import type { DoneState } from '../ui/simulate/runController.svelte';
 import { AXIS_MAX, axisDate, dayOffset } from './checkResult';
-import { SELL_KINDS, SKIP_REASONS } from './resultEnums';
+import { SELL_KINDS, SKIP_REASONS, VALUE_KEY_RULE } from './resultEnums';
 import type { SymbolNames } from './shareText';
 import {
   checkShareSnapshot,
+  criteriaSnapshot,
   SHARE_MAX_BYTES,
   shareTitle,
   strategySnapshot,
@@ -15,10 +20,16 @@ import {
   type ShareAxis,
   type ShareBuild,
   type SharedPerSymbol,
+  type SharedPick,
+  type SharedRebalance,
+  type SharedStats,
+  type SharedValidation,
   type SharedTrade,
   type ShareReduction,
   type ShareSnapshot,
   type SimResultSnapshot,
+  type ValidationSnapshot,
+  type ValuePairs,
 } from './snapshot';
 
 /** 시세 값은 넣지 않는다. 받은 사람이 자기 연결이나 데모로 다시 받는다. 지표는 사용자가 고른 값(app.settings.metric)이다. */
@@ -315,4 +326,215 @@ export function expandSimResult(s: SimResultSnapshot, names?: SymbolNames): Done
 /** 종목별 자금 대비 %(받은 화면의 종목별 탭이 자금 숨김일 때 쓴다) */
 export function perSymbolPct(s: SimResultSnapshot): Record<string, number> {
   return Object.fromEntries(s.result.perSymbol.map(([sym, , pct]) => [s.result.symbols[sym], pct]));
+}
+
+// ── 검증 결과(설계 2.5, 3.4) ────────────────────────────
+
+export interface ValidationRun {
+  result: ValidationResult;
+  criteria: SelectionCriteria;
+  baskets: Basket[];
+  strategies: Strategy[];
+  /** 실행 때 시장 파일의 collectedAt(ISO 문자열) */
+  collectedAt: string;
+}
+
+/** 시장 파일에는 데모 표시가 없고 데모 파일은 배포하지 않으므로 검증은 늘 demo: false다(설계 2.2) */
+export const VALIDATION_SOURCE = '시장 데이터 파일';
+
+type History = SharedValidation['history'];
+
+export function validationSnapshot(run: ValidationRun, opts: { hideCapital: boolean; now?: number }): ShareBuild<ValidationSnapshot> {
+  const now = opts.now ?? Date.now();
+  try {
+    const { result } = run;
+    const rules = criteriaSnapshot(run.criteria, { baskets: run.baskets, strategies: run.strategies }, opts);
+    const capital = run.criteria.capital;
+    const dates = result.axis;
+    if (dates.length === 0) throw new BuildError('result.axis');
+    const n = dates.length;
+    const fetchedAt = Date.parse(run.collectedAt);
+    if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) throw new BuildError('run.fetchedAt');
+    const day = (d: string) => dayOffset(dates[0], d);
+    const curvePct = (pts: CurvePoint[], path: string) => {
+      if (pts.length !== n) throw new BuildError(path);
+      return pts.map((p, i) => r2((p.value / capital - 1) * 100, `${path}[${i}]`));
+    };
+    const stats = (s: CurveStats, path: string): SharedStats => ({
+      totalPct: r2(s.totalPct, `${path}.totalPct`),
+      cagrPct: r2(s.cagrPct, `${path}.cagrPct`),
+      mddPct: r2(s.mddPct, `${path}.mddPct`),
+      volPct: r2(s.volPct, `${path}.volPct`),
+    });
+
+    // 값 키: 나온 순서대로 위치를 준다. 목록 밖 이름은 만들기 실패
+    const valueKeys: string[] = [];
+    const keyAt = new Map<string, number>();
+    const pairs = (values: Selection['picked'][number]['values'], path: string): ValuePairs => {
+      const out: ValuePairs = [];
+      for (const [k, v] of Object.entries(values)) {
+        const rule = Object.hasOwn(VALUE_KEY_RULE, k) ? VALUE_KEY_RULE[k] : undefined;
+        if (!rule) throw new BuildError(path);
+        if (!keyAt.has(k)) {
+          keyAt.set(k, valueKeys.length);
+          valueKeys.push(k);
+        }
+        let x: number | boolean | null;
+        if (rule === 'bool') x = v;
+        else if (typeof v !== 'number' || !Number.isFinite(v)) x = null;
+        else if (rule === 'int') {
+          if (!Number.isInteger(v)) throw new BuildError(path);
+          x = v;
+        } else x = sig4(v);
+        out.push(keyAt.get(k)!, x);
+      }
+      return out;
+    };
+
+    const todayPicks = result.today.picked.map((p, j) => ({ symbol: p.symbol, values: pairs(p.values, `result.today.picks[${j}]`) }));
+    const todayKeys = valueKeys.length;
+    // 이력의 계산값은 full일 때만 키 표에 더한다. 위치가 늘 같게 full 키를 미리 한 번 만들어 둔다
+    const fullHistory = result.rebalances.map((r, i) => r.picked.map((p, j) => pairs(p.values, `result.rebalances[${i}].picks[${j}]`)));
+    const segOf = (date: string) => result.hold.segments.find((s) => s.from === date);
+    const markOf = (date: string, symbol: string): { retPct: number | null; mark: SharedPick[2] } => {
+      const sp = segOf(date)?.picked.find((x) => x.symbol === symbol);
+      if (!sp) return { retPct: null, mark: 0 };
+      return { retPct: r2n(sp.retPct), mark: sp.notBought ? (sp.notBoughtReason ?? 'noBar') : sp.soldAtLastClose ? 1 : 0 };
+    };
+    const rebalancesFor = (h: History): SharedRebalance[] =>
+      result.rebalances.map((r, i) => ({
+        day: day(r.date),
+        passed: r.passed,
+        picks:
+          h === 'codes'
+            ? r.picked.map((p) => p.symbol)
+            : r.picked.map((p, j): SharedPick => {
+                const m = markOf(r.date, p.symbol);
+                return [p.symbol, m.retPct, m.mark, h === 'full' ? fullHistory[i][j] : null];
+              }),
+      }));
+
+    const indices = result.indices.map((x, i) => ({
+      id: x.id,
+      curve: x.curve ? curvePct(x.curve, `result.indices[${i}].curve`) : null,
+      reason: x.curve ? null : (x.reason ?? '받지 못했어요'),
+      stats: x.curve && x.stats ? stats(x.stats, `result.indices[${i}].stats`) : null,
+    }));
+    const benchmarks = result.benchmarks.map((x, i) => ({
+      symbol: x.symbol,
+      name: x.name,
+      curve: x.curve ? curvePct(x.curve, `result.benchmarks[${i}].curve`) : null,
+      reason: x.curve ? null : (x.reason ?? '받지 못했어요'),
+      stats: x.curve && x.stats ? stats(x.stats, `result.benchmarks[${i}].stats`) : null,
+    }));
+    const hold = curvePct(result.hold.equity, 'result.hold.curve');
+    const trading = result.trading && {
+      curve: curvePct(result.trading.curve, 'result.trading.curve'),
+      stats: stats(result.trading.stats, 'result.trading.stats'),
+      trades: result.trading.trades,
+      skipCounts: SKIP_REASONS.filter((reason) => (result.trading!.skipCounts[reason] ?? 0) > 0).map((reason) => [reason, result.trading!.skipCounts[reason]!] as [(typeof SKIP_REASONS)[number], number]),
+    };
+    const curves = [hold, trading?.curve ?? null, ...indices.map((x) => x.curve), ...benchmarks.map((x) => x.curve)].filter((c): c is number[] => c !== null);
+    const keep = [...curves.flatMap((c) => extremes(c)), ...drawdownPoints(hold), ...result.rebalances.map((r) => dates.indexOf(r.date))];
+
+    const make = (m: number | null, h: History): ValidationSnapshot => {
+      const pos = m === null ? [...Array(n).keys()] : thinIndices(n, m, keep);
+      const cut = (c: number[] | null) => c && pick(c, pos);
+      return {
+        kind: 'validation',
+        v: 1,
+        title: rules.title,
+        criteria: rules.criteria,
+        baskets: rules.baskets,
+        capitalHidden: opts.hideCapital,
+        run: { from: dates[0], to: dates[n - 1], source: VALIDATION_SOURCE, demo: false, fetchedAt },
+        result: {
+          axis: toAxis(pick(dates, pos)),
+          sampled: pos.length === n ? null : { from: n },
+          hold: { curve: pick(hold, pos), stats: stats(result.hold.stats, 'result.hold.stats'), beat: result.hold.beat && { ...result.hold.beat } },
+          trading: trading && { ...trading, curve: pick(trading.curve, pos) },
+          indices: indices.map((x) => ({ ...x, curve: cut(x.curve) })),
+          benchmarks: benchmarks.map((x) => ({ ...x, curve: cut(x.curve) })),
+          byMarket: result.byMarket.map((x, i) => ({ key: x.key, inPool: x.inPool, stats: stats(x.stats, `result.byMarket[${i}].stats`), avgPicked: r2(x.avgPicked, `result.byMarket[${i}].avgPicked`) })),
+          history: h,
+          // 이력이 full이 아니면 오늘 선정이 쓰는 키만 남긴다(오늘 선정의 키가 먼저 번호를 받았다)
+          valueKeys: h === 'full' ? [...valueKeys] : valueKeys.slice(0, todayKeys),
+          rebalances: rebalancesFor(h),
+          today: { date: result.today.date, passed: result.today.passed, picks: todayPicks },
+          notes: [...result.notes],
+        },
+      };
+    };
+
+    // 줄이는 순서(설계 3.4): 그대로 → 계산값 빼기 → 원래 축에서 500 → 250 → 120점 → 코드만 → 거절
+    const first = n > AXIS_MAX ? AXIS_PRETHIN : null;
+    const anyPicks = result.rebalances.some((r) => r.picked.length > 0);
+    const steps: [m: number | null, h: History][] = [[first, 'full']];
+    if (anyPicks) steps.push([first, 'noValues']);
+    for (const m of THIN_STEPS) if (m < (first ?? n)) steps.push([m, anyPicks ? 'noValues' : 'full']);
+    if (anyPicks) steps.push([Math.min(THIN_STEPS[THIN_STEPS.length - 1], first ?? n), 'codes']);
+    let bytes = 0;
+    for (const [m, h] of steps) {
+      const s = make(m, h);
+      bytes = jsonBytes(s);
+      if (bytes > SHARE_MAX_BYTES) continue;
+      const reduced: ShareReduction[] = [];
+      if (h === 'noValues') reduced.push('no-values');
+      if (s.result.sampled) reduced.push('thinned');
+      if (h === 'codes') reduced.push('codes-only');
+      return finishBuild(s, reduced, now);
+    }
+    return { ok: false, code: 'too-large', bytes };
+  } catch (e) {
+    if (e instanceof BuildError) return { ok: false, code: 'invalid', path: e.path };
+    throw e;
+  }
+}
+
+/** 받은 검증 결과를 검증 화면(ValidationResult)이 받는 모양으로 되돌린다. 곡선 값 = capital × (1 + pct / 100) */
+export function expandValidation(s: ValidationSnapshot): ValidationResult {
+  const r = s.result;
+  const capital = s.criteria.capital;
+  const axis = fromAxis(r.axis);
+  const points = (c: number[]): CurvePoint[] => c.map((p, i) => ({ date: axis[i], value: capital * (1 + p / 100) }));
+  const values = (pairs: ValuePairs | null): Selection['picked'][number]['values'] => {
+    const out: Selection['picked'][number]['values'] = {};
+    if (pairs) for (let i = 0; i < pairs.length; i += 2) out[r.valueKeys[pairs[i] as number]] = pairs[i + 1];
+    return out;
+  };
+  const dateOf = (d: number) => axisDate(r.axis.start, d);
+  const codes = r.history === 'codes';
+  const rebalances: Selection[] = r.rebalances.map((b) => ({
+    date: dateOf(b.day),
+    passed: b.passed,
+    picked: codes ? (b.picks as string[]).map((symbol) => ({ symbol, values: {} })) : (b.picks as SharedPick[]).map(([symbol, , , v]) => ({ symbol, values: values(v) })),
+  }));
+  // 구간 끝은 담지 않았다: 다음 재선정일, 마지막 구간은 축의 마지막 날(holdSelection.ts와 같은 규칙, 설계 2.5)
+  const segments = r.rebalances.map((b, i) => ({
+    from: dateOf(b.day),
+    to: i + 1 < r.rebalances.length ? dateOf(r.rebalances[i + 1].day) : axis[axis.length - 1],
+    picked: codes
+      ? (b.picks as string[]).map((symbol) => ({ symbol, retPct: null, soldAtLastClose: false, notBought: false }))
+      : (b.picks as SharedPick[]).map(([symbol, retPct, mark]) =>
+          typeof mark === 'string'
+            ? { symbol, retPct, soldAtLastClose: false, notBought: true, notBoughtReason: mark }
+            : { symbol, retPct, soldAtLastClose: mark === 1, notBought: false },
+        ),
+  }));
+  return {
+    axis,
+    rebalances,
+    today: { date: r.today.date, passed: r.today.passed, picked: r.today.picks.map((p) => ({ symbol: p.symbol, values: values(p.values) })) },
+    hold: { equity: points(r.hold.curve), segments, stats: { ...r.hold.stats }, beat: r.hold.beat && { ...r.hold.beat } },
+    trading: r.trading && {
+      curve: points(r.trading.curve),
+      stats: { ...r.trading.stats },
+      trades: r.trading.trades,
+      skipCounts: Object.fromEntries(r.trading.skipCounts),
+    },
+    indices: r.indices.map((x) => ({ id: x.id, curve: x.curve && points(x.curve), ...(x.reason !== null && { reason: x.reason }), stats: x.stats && { ...x.stats } })),
+    benchmarks: r.benchmarks.map((x) => ({ symbol: x.symbol, name: x.name, curve: x.curve && points(x.curve), ...(x.reason !== null && { reason: x.reason }), stats: x.stats && { ...x.stats } })),
+    byMarket: r.byMarket.map((x) => ({ ...x, stats: { ...x.stats } })),
+    notes: [...r.notes],
+  };
 }

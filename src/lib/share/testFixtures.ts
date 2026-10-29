@@ -1,9 +1,12 @@
 // 테스트 전용: 손으로 만든 작은 결과 스냅샷(검사를 통과하는 모양). 앱·Worker·컴포넌트 테스트가 함께 쓴다.
 import { newBasket } from '../screen/baskets';
 import { newCriteria } from '../screen/defaults';
+import type { ValidationResult } from '../screen/runValidation';
 import { newStrategy } from '../sim/defaults';
 import type { DoneState } from '../ui/simulate/runController.svelte';
 import type { Trade } from '../sim/types';
+import { axisDate } from './checkResult';
+import type { ValidationRun } from './compact';
 import { SKIP_REASONS } from './resultEnums';
 import { criteriaSnapshot, strategySnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
 
@@ -204,4 +207,55 @@ export function bigDone(o: { days: number; trades: number; skips: number }): Don
       symbols: [...BIG_SYMBOLS],
     },
   };
+}
+
+const VALUE_NAMES = ['marketCap', 'tradingValue', 'return', 'ma', 'fromHigh', 'volatility', 'finPer', 'finPbr'];
+
+/**
+ * 크기 예산(설계 3.5)용 검증 실행: every 거래일마다 재선정, 상위 take, 조건 계산값 8개, 곡선 4개(①·②·KOSPI·KODEX 200).
+ * baskets를 주면 300종목 묶음을 그 수만큼 기준에 넣는다.
+ */
+export function bigValidationRun(o: { days: number; every: number; take: number; baskets?: number }): ValidationRun {
+  const criteria = newCriteria(NOW, null, '큰 기준');
+  criteria.rank.take = o.take;
+  const baskets = Array.from({ length: o.baskets ?? 0 }, (_, b) =>
+    newBasket(NOW, `큰 묶음 ${b + 1}`, Array.from({ length: 300 }, (_, i) => String(100000 + b * 1000 + i))),
+  );
+  criteria.pool.baskets = baskets.map((b) => b.id);
+  const capital = criteria.capital;
+  const axis = tradingDays('2016-01-04', o.days);
+  const curve = (a: number, f: number) => axis.map((date, i) => ({ date, value: capital * (1 + a * Math.sin(i / f) + i / o.days) }));
+  const stats = { totalPct: 12.3456, cagrPct: 3.4567, mddPct: -23.4567, volPct: 18.888 };
+  const at = Array.from({ length: Math.ceil(o.days / o.every) }, (_, k) => k * o.every);
+  const picked = (k: number) =>
+    Array.from({ length: o.take }, (_, j) => ({
+      symbol: String(200000 + j),
+      values: Object.fromEntries(VALUE_NAMES.map((name, v) => [name, (123456789.123 + k * 1000 + j) * (v + 1)])),
+    }));
+  const rebalances = at.map((i, k) => ({ date: axis[i], passed: o.take * 3 + 100, picked: picked(k) }));
+  const result: ValidationResult = {
+    axis,
+    rebalances,
+    today: { date: axisDate(axis[axis.length - 1], 1), passed: o.take * 3, picked: picked(at.length) },
+    hold: {
+      equity: curve(0.2, 40),
+      segments: rebalances.map((r, k) => ({
+        from: r.date,
+        to: k + 1 < rebalances.length ? rebalances[k + 1].date : axis[axis.length - 1],
+        picked: r.picked.map((p, j) => ({ symbol: p.symbol, retPct: -12.3456 - j, soldAtLastClose: false, notBought: false })),
+      })),
+      stats,
+      beat: { beat: 10, total: rebalances.length },
+    },
+    trading: { curve: curve(0.25, 31), stats, trades: 120, skipCounts: { '현금 부족': 3, '거래 없음': 2 } },
+    indices: [{ id: 'KOSPI', curve: curve(0.1, 61), stats }],
+    benchmarks: [{ symbol: '069500', name: 'KODEX 200', curve: curve(0.12, 47), stats }],
+    byMarket: [
+      { key: 'KOSPI', inPool: true, stats, avgPicked: o.take / 2 },
+      { key: 'KOSDAQ', inPool: true, stats, avgPicked: o.take / 3 },
+      { key: 'ETF', inPool: false, stats, avgPicked: 0 },
+    ],
+    notes: ['survivorship', 'snapshot', 'dividend'],
+  };
+  return { result, criteria, baskets, strategies: [], collectedAt: '2026-10-16T18:00:00+09:00' };
 }
