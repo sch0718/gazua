@@ -62,6 +62,13 @@ describe('깊이 상한', () => {
     expect(findForbidden(deep)).toBe(Array(33).fill('a').join('.'));
   });
 
+  it('빈 키로 40단계 중첩해도 깊이 상한에서 truthy 표시로 거절한다', () => {
+    let deep: Record<string, unknown> = { token: 1 };
+    for (let i = 0; i < 40; i++) deep = { '': deep };
+
+    expect(findForbidden(deep)).toBeTruthy();
+  });
+
   it(`깊이 ${JSON_DEPTH_MAX}까지는 괜찮고 넘으면 exceedsDepth`, () => {
     expect(JSON_DEPTH_MAX).toBe(32);
     expect(exceedsDepth(nest(32))).toBe(false);

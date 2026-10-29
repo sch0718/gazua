@@ -60,10 +60,10 @@ export function exceedsDepth(v: unknown, max = JSON_DEPTH_MAX): boolean {
   return false;
 }
 
-/** 금지 키가 처음 나온 경로(`a.b[2].c`). 대소문자는 가리지 않는다. 깊이 상한을 넘으면 그 경로를 돌려줘 거절한다. 둘 다 없으면 null. */
+/** 금지 키가 처음 나온 경로(`a.b[2].c`). 대소문자는 가리지 않는다. 깊이 상한을 넘으면 그 경로(빈 경로는 '.')를 돌려줘 거절한다. 둘 다 없으면 null. */
 export function findForbidden(v: unknown, path = '', depth = 0): string | null {
   if (Array.isArray(v)) {
-    if (depth > JSON_DEPTH_MAX) return path;
+    if (depth > JSON_DEPTH_MAX) return path || '.';
     for (let i = 0; i < v.length; i++) {
       const hit = findForbidden(v[i], `${path}[${i}]`, depth + 1);
       if (hit) return hit;
@@ -71,7 +71,7 @@ export function findForbidden(v: unknown, path = '', depth = 0): string | null {
     return null;
   }
   if (typeof v !== 'object' || v === null) return null;
-  if (depth > JSON_DEPTH_MAX) return path;
+  if (depth > JSON_DEPTH_MAX) return path || '.';
   for (const [k, child] of Object.entries(v)) {
     const p = path ? `${path}.${k}` : k;
     if (FORBIDDEN.has(k.toLowerCase())) return p;
