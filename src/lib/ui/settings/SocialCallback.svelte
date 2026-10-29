@@ -34,7 +34,13 @@
   onMount(() => {
     let alive = true;
     const timer = setTimeout(() => { canEscape = true; }, escapeAfter);
-    void sync.completeSocialSignIn(ret).then((result) => {
+    void sync.completeSocialSignIn(ret, {
+      onLate: (late) => {
+        if (!alive) return;
+        if (late.ok) ondone(ret.returnHash);
+        else outcome = late;
+      },
+    }).then((result) => {
       if (!alive) return;
       if (result.ok) {
         showSnackbar(`${PROVIDER_NAMES[result.provider]} 계정으로 로그인했어요`);

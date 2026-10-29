@@ -78,6 +78,7 @@ export interface SyncApi {
   createSocialSession: SessionClient<GazuaFail>['createSocialSession'];
   createSession(idToken: string, label: string): Promise<ApiResult<{ sessionId: string; expiresAt: number }>>;
   endSession(): Promise<ApiResult<unknown>>;
+  endSessionById(id: string): Promise<ApiResult<unknown>>;
   listSessions(): Promise<ApiResult<{ sessions: DeviceSession[] }>>;
   revokeSession(id: string | 'others'): Promise<ApiResult<{ revoked: number }>>;
   listProfiles(): Promise<ApiResult<{ profiles: IndexRow[] }>>;
@@ -112,6 +113,7 @@ export function createSyncApi(
     createSession: c.createSession,
     createSocialSession: c.createSocialSession,
     endSession: c.endSession,
+    endSessionById: (id) => send('DELETE', '/v1/session', { auth: 'none', headers: { [SESSION_HEADER]: id } }),
     listSessions: c.listSessions,
     revokeSession: c.revokeSession,
     listProfiles: () => send('GET', '/v1/profiles'),

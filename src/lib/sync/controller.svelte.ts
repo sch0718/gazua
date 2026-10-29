@@ -64,7 +64,7 @@ export interface SyncController {
   onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
   signIn(label?: string): Promise<void>;
   signInWith(provider: SocialProvider, label?: string, returnHash?: string, opts?: { reauth?: boolean }): Promise<void>;
-  completeSocialSignIn(ret: SocialReturn): Promise<SocialOutcome>;
+  completeSocialSignIn(ret: SocialReturn, opts?: { onLate?: (outcome: SocialOutcome) => void }): Promise<SocialOutcome>;
   abandonSocialSignIn(): void;
   signOut(): Promise<void>;
   preview(): Promise<{ upload: string[]; download: number } | null>;
@@ -137,6 +137,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   let engine: SyncEngine | null = null;
   let session: SessionMeta | null = null;
   let socialReauth = false;
+  // 사용자 동작이 시작할 때 올려요. 기다림을 끝낸 소셜 응답이 새 선택을 덮어쓰지 않게 해요.
+  let authGeneration = 0;
   let socialAttempt: { escape: () => void } | null = null;
   const notify = deps.notify ?? showSnackbar;
   let didAttach!: () => void;
@@ -169,12 +171,18 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }
   }
 
-  async function clearSocialReauth() {
-    socialReauth = false;
+  async function clearSocialReauth(isCurrent = () => true) {
     await store?.deleteMeta(SOCIAL_REAUTH_KEY);
+    if (!isCurrent()) {
+      // 삭제를 기다리는 사이 로그아웃이 세운 재인증 플래그는 되돌려요.
+      if (socialReauth) await store?.setMeta(SOCIAL_REAUTH_KEY, true);
+      return;
+    }
+    socialReauth = false;
   }
 
   async function forget(message: string | null) {
+    // 세션 철회 응답 등에서도 쓰므로 사용자 동작의 세대는 여기서 올리지 않아요.
     const mine = session?.id;
     session = null;
     account = null;
@@ -196,6 +204,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
   /** 방금 받은 ID 토큰으로 기기 세션을 만든다. */
   async function startSession(user: AuthUser, idToken: string, label: string) {
+    ++authGeneration;
     const r = await api!.createSession(idToken, label);
     if (!r.ok) {
       if (r.kind === 'not-allowed') await auth!.signOut();
@@ -223,28 +232,61 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     return { ok: false, provider, reason, ...(r.kind === 'not-allowed' && r.account && { account: r.account }) };
   }
 
-  async function acceptSocialSession(data: Extract<Awaited<ReturnType<SyncApi['createSocialSession']>>, { ok: true }>['data'], provider: SocialProvider) {
-    if (session) {
+  async function discardLateSession(id: string) {
+    // 이 응답이 저장한 세션만 정리해요. 그 사이 새로 로그인한 다른 세션은 지켜요.
+    if (session?.id === id) {
+      session = null;
+      account = null;
+    }
+    try {
+      const stored = await store?.getMeta<SessionMeta>(SESSION_KEY);
+      if (stored?.id === id) await store?.deleteMeta(SESSION_KEY);
+    } catch { /* 로컬 정리도 가능한 만큼 해요. */ }
+    try {
+      await api!.endSessionById(id);
+    } catch { /* 철회하지 못한 고아 세션은 서버에서 만료로 정리돼요. */ }
+  }
+
+  async function acceptSocialSession(
+    data: Extract<Awaited<ReturnType<SyncApi['createSocialSession']>>, { ok: true }>['data'],
+    provider: SocialProvider,
+    attempt: { generation: number; escaped: boolean },
+  ) {
+    // accept도 새 로그인이에요. 이후에는 자신이 올린 세대를 기준으로 확인해요.
+    attempt.generation = ++authGeneration;
+    const isCurrent = () => !attempt.escaped || attempt.generation === authGeneration;
+    const previous = session;
+    if (previous) {
       try { await api!.endSession(); } catch { /* 이전 세션 정리는 가능한 만큼 해요. */ }
-      if (!session.provider) {
+      if (!isCurrent()) return;
+      if (!previous.provider) {
         try { await auth?.signOut(); } catch { /* 새 로그인은 이어 가요. */ }
+        if (!isCurrent()) return;
       }
     }
     const user = data.user;
     const owner = await store!.getMeta<string>(OWNER_KEY);
+    if (!isCurrent()) return;
     if (owner !== user.sub) {
-      if (owner !== undefined) await engine?.reset();
+      if (owner !== undefined) {
+        await engine?.reset();
+        if (!isCurrent()) return;
+      }
       await store!.setMeta(OWNER_KEY, user.sub);
+      if (!isCurrent()) return;
     }
-    session = { id: data.sessionId, email: '', provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
-    await store!.setMeta(SESSION_KEY, session);
-    account = { provider, id: user.sub, display: session.display! };
-    await clearSocialReauth();
+    const next: SessionMeta = { id: data.sessionId, email: '', provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
+    await store!.setMeta(SESSION_KEY, next);
+    if (!isCurrent()) return;
+    session = next;
+    account = { provider, id: user.sub, display: next.display! };
+    await clearSocialReauth(isCurrent);
+    if (!isCurrent()) return;
     error = null;
     if (engine?.status().enabled) await engine.syncNow();
   }
 
-  async function notifySocialOutcome(outcome: SocialOutcome) {
+  async function notifySocialOutcome(outcome: SocialOutcome, isCurrent = () => true) {
     if (outcome.ok) {
       notify(`${PROVIDER_NAMES[outcome.provider]} 계정으로 로그인했어요`);
       return;
@@ -254,6 +296,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       const { socialFailureText } = await import('./socialText');
       message = socialFailureText(outcome).title;
     } catch { /* 안내 청크를 못 받아도 일반 오류를 알려요. */ }
+    if (!isCurrent()) return;
     error = message;
     notify(message);
   }
@@ -364,8 +407,9 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       else if (session) engine.profileChanged(e.profileId);
     },
 
-    signIn: (label) =>
-      guarded(async () => {
+    signIn: (label) => {
+      ++authGeneration;
+      return guarded(async () => {
         if (!providers.google || !auth || !store) return;
         error = null;
         // 팝업이 막히면 SDK가 리다이렉트로 페이지를 떠난다. 돌아왔을 때 결과를 읽도록 먼저 적어 둔다.
@@ -375,10 +419,12 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         await store.deleteMeta(REDIRECT_KEY);
         if (r === null) return;
         await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
-      }, undefined),
+      }, undefined);
+    },
 
-    signInWith: (provider, label, returnHash, opts) =>
-      guarded(async () => {
+    signInWith: (provider, label, returnHash, opts) => {
+      ++authGeneration;
+      return guarded(async () => {
         if (!config || !providers[provider]) {
           error = `이 빌드에는 ${PROVIDER_NAMES[provider]} 로그인이 설정되지 않았어요.`;
           return;
@@ -396,25 +442,27 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         } catch {
           error = '이 브라우저에서는 로그인을 시작할 수 없어요. 저장소를 쓸 수 없어요(사생활 보호 모드 등). 다른 브라우저로 열어 주세요.';
         }
-      }, undefined),
+      }, undefined);
+    },
 
-    async completeSocialSignIn(ret) {
+    async completeSocialSignIn(ret, opts) {
+      const generation = ++authGeneration;
       const cb = ret.callback;
       const provider = cb?.provider ?? null;
       busy = true;
-      let escaped = false;
       let escape!: () => void;
       const fallback: SocialOutcome = { ok: false, provider, reason: 'timeout' };
       const escapeResult = new Promise<SocialOutcome>((resolve) => {
         escape = () => {
-          if (escaped) return;
-          escaped = true;
+          if (attempt.escaped) return;
+          attempt.escaped = true;
           clearTimeout(timer);
           busy = false;
           resolve(fallback);
         };
       });
-      const attempt = { escape };
+      const attempt = { escape, generation, escaped: false };
+      const isCurrent = () => !attempt.escaped || attempt.generation === authGeneration;
       socialAttempt = attempt;
       const timer = setTimeout(escape, deps.socialTimeout ?? SOCIAL_SESSION_TIMEOUT);
       const request = (async (): Promise<SocialOutcome> => {
@@ -426,14 +474,21 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           if (!cb.ok) return { ok: false, provider, reason: cb.reason === 'redirect-mismatch' || cb.reason === 'state-mismatch' ? 'mismatch' : cb.reason, ...(cb.error && { error: cb.error }) };
           const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)());
           if (!r.ok) return socialSessionFailure(r, cb.provider);
-          await acceptSocialSession(r.data, cb.provider);
+          try {
+            if (isCurrent()) await acceptSocialSession(r.data, cb.provider, attempt);
+          } finally {
+            if (!isCurrent()) await discardLateSession(r.data.sessionId);
+          }
           return { ok: true, provider: cb.provider };
         } catch {
-          if (!escaped) error = ERRORS.server;
+          if (!attempt.escaped) error = ERRORS.server;
           return { ok: false, provider, reason: 'server' };
         }
       })().then(async (outcome) => {
-        if (escaped) await notifySocialOutcome(outcome);
+        if (attempt.escaped && isCurrent()) {
+          await notifySocialOutcome(outcome, isCurrent);
+          if (isCurrent()) opts?.onLate?.(outcome);
+        }
         return outcome;
       });
       try {
@@ -442,7 +497,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         clearTimeout(timer);
         if (socialAttempt === attempt) socialAttempt = null;
         // 기다림을 끝낸 시도는 다른 작업의 busy를 바꾸지 않아요.
-        if (!escaped) busy = false;
+        if (!attempt.escaped) busy = false;
       }
     },
 
@@ -450,15 +505,17 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       socialAttempt?.escape();
     },
 
-    signOut: () =>
-      guarded(async () => {
+    signOut: () => {
+      ++authGeneration;
+      return guarded(async () => {
         socialReauth = true;
         const social = !!session?.provider;
         if (session && api) await api.endSession(); // 실패해도 이 기기에서는 로그아웃한다
         await forget(null);
         await store?.setMeta(SOCIAL_REAUTH_KEY, true);
         if (!social) await auth?.signOut();
-      }, undefined),
+      }, undefined);
+    },
 
     preview: () =>
       guarded(async () => {

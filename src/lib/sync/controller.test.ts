@@ -15,6 +15,7 @@ import { takeSocialCallback } from './socialFlow';
 import type { AuthClient } from './auth';
 import { createSyncController, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
+import { SESSION_HEADER } from './api';
 
 const CONFIG = { apiUrl: SYNC_BASE, social: null, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
 
@@ -322,11 +323,15 @@ describe('카카오·네이버 로그인', () => {
   function heldFetch(s: TestServer) {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let sessionId: string | undefined;
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).endsWith('/session/social')) await gate;
-      return s.fetch(input, init);
+      const social = String(input).endsWith('/session/social');
+      if (social) await gate;
+      const response = await s.fetch(input, init);
+      if (social && response.ok) sessionId = (await response.clone().json()).sessionId;
+      return response;
     }) as typeof fetch;
-    return { fetchImpl, release };
+    return { fetchImpl, release, get sessionId() { return sessionId; } };
   }
 
   it('응답이 없으면 제한 시간 뒤 timeout으로 끝나고 busy를 풀어요', async () => {
@@ -360,16 +365,210 @@ describe('카카오·네이버 로그인', () => {
     const held = heldFetch(s);
     const notify = vi.fn();
     const a = await socialSetup(s, { ...held, notify, socialTimeout: 100 });
-    const pending = a.sync.completeSocialSignIn(await a.callback());
+    const onLate = vi.fn();
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
     await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
     if (escape === 'abandon') a.sync.abandonSocialSignIn();
     expect(await pending).toMatchObject({ reason: 'timeout' });
     held.release();
     await vi.waitFor(() => expect(notify).toHaveBeenCalledExactlyOnceWith('카카오 계정으로 로그인했어요'));
+    expect(onLate).toHaveBeenCalledExactlyOnceWith({ ok: true, provider: 'kakao' });
     expect(a.sync.account?.id).toBe('kakao:kakao-me');
     const again = await socialSetup(s, { store: a.store });
     expect(again.sync.account).toEqual(a.sync.account);
     expect((await again.sync.sessions())?.[0]).toMatchObject({ current: true });
+  });
+
+  async function expectLateRevoked(s: TestServer, held: ReturnType<typeof heldFetch>) {
+    await vi.waitFor(() => expect(s.h.env.DB.raw.prepare("SELECT revoked_at IS NOT NULL AS r FROM sessions WHERE identity = 'kakao:kakao-me'").all()).toEqual([{ r: 1 }]));
+    const deletes = vi.mocked(held.fetchImpl).mock.calls.filter(([url, init]) => String(url).endsWith('/v1/session') && init?.method === 'DELETE');
+    expect(deletes.some(([, init]) => {
+      const headers = new Headers(init?.headers);
+      return headers.get(SESSION_HEADER) === held.sessionId && !headers.has('Authorization');
+    })).toBe(true);
+  }
+
+  it('기다림을 끝내고 로그아웃하면 늦은 성공을 철회하고 재인증을 유지해요', async () => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    const a = await socialSetup(s, { ...held, notify });
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    await a.sync.signOut();
+    held.release();
+    await expectLateRevoked(s, held);
+    expect(a.sync.account).toBeNull();
+    expect(await a.store.getMeta('session')).toBeUndefined();
+    expect(await a.store.getMeta('social-reauth')).toBe(true);
+    expect(a.sync.error).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
+  it('기다림을 끝내고 Google로 로그인하면 늦은 성공이 Google 세션을 건드리지 않아요', async () => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const auth = fakeAuth(s);
+    const signOut = vi.spyOn(auth, 'signOut');
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    const a = await socialSetup(s, { ...held, auth, notify });
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    await a.sync.signIn();
+    const googleSession = await a.store.getMeta('session');
+    held.release();
+    await expectLateRevoked(s, held);
+    expect(a.sync.account).toEqual({ provider: 'google', id: ME, display: ME });
+    expect(await a.store.getMeta('session')).toEqual(googleSession);
+    expect(await a.store.getMeta('owner')).toBe('uid-me');
+    expect(await a.sync.remoteProfiles()).toEqual([]);
+    expect((await a.sync.sessions())?.some((session) => session.current)).toBe(true);
+    expect(signOut).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+    expect(a.sync.error).toBeNull();
+  });
+
+  it('늦은 accept가 이전 세션 철회를 기다릴 때 Google로 다시 로그인해도 새 세션을 지켜요', async () => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const auth = fakeAuth(s);
+    const signOut = vi.spyOn(auth, 'signOut');
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const entering = new Promise<void>((resolve) => { entered = resolve; });
+    let hold = false;
+    const a = await socialSetup(s, { auth, notify, fetchImpl: async (input, init) => {
+      const response = await held.fetchImpl(input, init);
+      if (hold && init?.method === 'DELETE') {
+        hold = false;
+        entered();
+        await gate;
+      }
+      return response;
+    } });
+    await a.sync.signIn();
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    hold = true;
+    held.release();
+    await entering;
+    await a.sync.signIn();
+    const fresh = await a.store.getMeta('session');
+    release();
+    await expectLateRevoked(s, held);
+    expect(a.sync.account).toEqual({ provider: 'google', id: ME, display: ME });
+    expect(await a.store.getMeta('session')).toEqual(fresh);
+    expect(await a.store.getMeta('owner')).toBe('uid-me');
+    expect(await a.sync.remoteProfiles()).toEqual([]);
+    expect(signOut).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+    expect(a.sync.error).toBeNull();
+  });
+
+  it.each(['failure', 'exception'])('늦은 세션을 철회하지 못해도 새 로그아웃 상태를 지켜요: %s', async (failure) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    const a = await socialSetup(s, { ...held, notify });
+    const revoke = vi.spyOn(a.sync.api!, 'endSessionById');
+    if (failure === 'exception') revoke.mockRejectedValueOnce(new Error('철회 실패'));
+    else revoke.mockResolvedValueOnce({ ok: false, kind: 'server', status: 500 });
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    await a.sync.signOut();
+    held.release();
+    await vi.waitFor(() => expect(revoke).toHaveBeenCalledExactlyOnceWith(held.sessionId));
+    expect(a.sync.account).toBeNull();
+    expect(await a.store.getMeta('social-reauth')).toBe(true);
+    expect(a.sync.error).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+  });
+
+  it.each(['stranger', 'server', 'exception'])('Google 팝업을 닫아도 오래된 실패는 오류와 알림을 남기지 않아요: %s', async (failure) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const auth = { ...fakeAuth(s), signIn: vi.fn(async () => null) };
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    let finished!: () => void;
+    const completed = new Promise<void>((resolve) => { finished = resolve; });
+    const a = await socialSetup(s, { auth, notify, fetchImpl: async (input, init) => {
+      if (!String(input).endsWith('/session/social')) return held.fetchImpl(input, init);
+      const response = await held.fetchImpl(input, init);
+      finished();
+      if (failure === 'exception') {
+        Object.defineProperty(response, 'status', { get() { throw new Error('응답 처리 실패'); } });
+      }
+      return failure === 'server' ? new Response('{}', { status: 500 }) : response;
+    } });
+    const pending = a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    await a.sync.signIn();
+    const error = a.sync.error;
+    held.release();
+    await completed;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(a.sync.error).toBe(error);
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner-read', 'owner-write', 'session-write', 'reauth-delete'] as const)('늦은 accept 중 로그아웃하면 세션과 재인증을 지켜요: %s', async (step) => {
+    const s = testServer({ social: true });
+    const held = heldFetch(s);
+    const notify = vi.fn();
+    const onLate = vi.fn();
+    const a = await socialSetup(s, { ...held, notify });
+    const pending = a.sync.completeSocialSignIn(await a.callback(), { onLate });
+    a.sync.abandonSocialSignIn();
+    await pending;
+    let entered!: () => void;
+    const entering = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let blocked = false;
+    async function hold(key: string, operation: string) {
+      if (blocked || step !== key + '-' + operation) return;
+      blocked = true;
+      entered();
+      await gate;
+    }
+    const getMeta = a.store.getMeta.bind(a.store);
+    const setMeta = a.store.setMeta.bind(a.store);
+    const deleteMeta = a.store.deleteMeta.bind(a.store);
+    vi.spyOn(a.store, 'getMeta').mockImplementation(async (key) => { await hold(key, 'read'); return getMeta(key); });
+    vi.spyOn(a.store, 'setMeta').mockImplementation(async (key, value) => { await hold(key, 'write'); return setMeta(key, value); });
+    vi.spyOn(a.store, 'deleteMeta').mockImplementation(async (key) => { await hold(key === 'social-reauth' ? 'reauth' : key, 'delete'); return deleteMeta(key); });
+    held.release();
+    await entering;
+    await a.sync.signOut();
+    release();
+    await expectLateRevoked(s, held);
+    expect(a.sync.account).toBeNull();
+    expect(await a.store.getMeta('session')).toBeUndefined();
+    expect(await a.store.getMeta('social-reauth')).toBe(true);
+    expect(a.sync.error).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    expect(onLate).not.toHaveBeenCalled();
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
   });
 
   it.each(['timeout', 'abandon'] as const)('기다림을 끝낸 뒤 403이면 오류와 알림을 남겨요: %s', async (escape) => {
@@ -377,7 +576,8 @@ describe('카카오·네이버 로그인', () => {
     const held = heldFetch(s);
     const notify = vi.fn();
     const a = await socialSetup(s, { ...held, notify, socialTimeout: 100 });
-    const pending = a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'));
+    const onLate = vi.fn();
+    const pending = a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'), { onLate });
     await vi.waitFor(() => expect(a.sync.busy).toBe(true), { interval: 1 });
     if (escape === 'abandon') a.sync.abandonSocialSignIn();
     expect(await pending).toMatchObject({ reason: 'timeout' });
@@ -385,6 +585,7 @@ describe('카카오·네이버 로그인', () => {
     await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
     expect(a.sync.error).toContain('이 카카오 계정은 아직 허용 목록에 없어요');
     expect(notify).toHaveBeenCalledWith(a.sync.error);
+    expect(onLate).toHaveBeenCalledExactlyOnceWith({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:stranger' });
     expect(a.sync.account).toBeNull();
   });
 

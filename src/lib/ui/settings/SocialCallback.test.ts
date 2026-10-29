@@ -28,7 +28,7 @@ describe('소셜 로그인 콜백 화면', () => {
     render(SocialCallback, { sync, ret: RET, ondone });
     expect(screen.getByRole('status').textContent).toContain('카카오로 로그인하는 중…');
     await waitFor(() => expect(ondone).toHaveBeenCalledWith('#/settings'));
-    expect(sync.completeSocialSignIn).toHaveBeenCalledWith(RET);
+    expect(sync.completeSocialSignIn).toHaveBeenCalledWith(RET, { onLate: expect.any(Function) });
     expect(currentSnackbar()?.message).toBe('카카오 계정으로 로그인했어요');
   });
 
@@ -73,6 +73,33 @@ describe('소셜 로그인 콜백 화면', () => {
     await screen.findByRole('heading', { name: '동기화 서버의 응답이 늦어요' });
     expect(screen.getByRole('alert').textContent).toContain('결과가 오면 알려 드려요. 지금 다시 로그인할 수도 있어요.');
     expect(screen.getByRole('button', { name: '다시 로그인' })).toBeTruthy();
+  });
+
+  it.each([true, false])('타임아웃 화면에 늦은 결과를 반영하고 화면이 사라지면 무시해요: %s', async (ok) => {
+    const sync = fakeSync({ ok: false, provider: 'kakao', reason: 'timeout' });
+    let onLate: ((outcome: SocialOutcome) => void) | undefined;
+    sync.completeSocialSignIn = vi.fn<SyncController['completeSocialSignIn']>(async (_ret, opts) => {
+      onLate = opts?.onLate;
+      return { ok: false, provider: 'kakao', reason: 'timeout' };
+    });
+    const ondone = vi.fn();
+    const view = render(SocialCallback, { sync, ret: RET, ondone });
+    await screen.findByRole('heading', { name: '동기화 서버의 응답이 늦어요' });
+    expect(onLate).toBeTypeOf('function');
+    onLate!(ok ? { ok: true, provider: 'kakao' } : { ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:stranger' });
+    await tick();
+    if (ok) expect(ondone).toHaveBeenCalledExactlyOnceWith(RET.returnHash);
+    else {
+      expect(ondone).not.toHaveBeenCalled();
+      expect(screen.getByRole('heading').textContent).toBe('이 카카오 계정은 아직 허용 목록에 없어요');
+      expect(screen.getByText('kakao:stranger')).toBeTruthy();
+    }
+    expect(currentSnackbar()).toBeNull();
+    view.unmount();
+    ondone.mockClear();
+    onLate!({ ok: true, provider: 'kakao' });
+    expect(ondone).not.toHaveBeenCalled();
+    expect(currentSnackbar()).toBeNull();
   });
 
   it('허용 목록 밖 계정 값을 보여 주고 복사한다', async () => {
