@@ -34,8 +34,8 @@ importers:
         specifier: 1.63.0
         version: 1.63.0
       '@sch0718/firebase-session':
-        specifier: 0.1.0
-        version: 0.1.0(firebase@12.19.0)
+        specifier: 0.2.0
+        version: 0.2.0(firebase@12.19.0)
       '@sch0718/license-notices':
         specifier: 0.1.0
         version: 0.1.0
@@ -109,8 +109,8 @@ importers:
   sync-worker:
     dependencies:
       '@sch0718/firebase-session':
-        specifier: 0.1.0
-        version: 0.1.0(firebase@12.19.0)
+        specifier: 0.2.0
+        version: 0.2.0(firebase@12.19.0)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
@@ -1742,13 +1742,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@sch0718/firebase-session@0.1.0':
-    resolution: {integrity: sha512-e4uHcE4DJI+hMQUrDCVd4e7vRFY2hA8dHR+zsCKQ7Qa814OGrdZtFCGtVBAK/RftYrbzsJLp6JMV8OnryGoS4w==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.1.0/d2a3bce151ea00efff0d354578bfc0e51013fc44}
+  '@sch0718/firebase-session@0.2.0':
+    resolution: {integrity: sha512-ToQPbCFdtFmUusfqpYySwOCze3FAtIsBE+Wqseoq71YB8tb+dukxazv3ps5WZJnaJCcrjmixgE/xXj+ye3KMWA==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.2.0/6958b2f4413642088b21bea2f01881399edaf6ed}
     peerDependencies:
       firebase: ^12.0.0
-    peerDependenciesMeta:
-      firebase:
-        optional: true
 
   '@sch0718/kakao-share@0.1.1':
     resolution: {integrity: sha512-kdct0RCf/R2opgkGYnePJEIDGR7t5gH7xdaLJh8or9skqPrEyJXb/j8KZCQkxhjLqjkaSVqpWRMqPYFNtPCqNw==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.1/b004e9d981adb6d5f1227e1120fc0b2b05988f93}
@@ -4915,11 +4912,10 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
-  '@sch0718/firebase-session@0.1.0(firebase@12.19.0)':
+  '@sch0718/firebase-session@0.2.0(firebase@12.19.0)':
     dependencies:
-      jose: 6.2.13
-    optionalDependencies:
       firebase: 12.19.0
+      jose: 6.2.13
 
   '@sch0718/kakao-share@0.1.1': {}
 
