@@ -10,7 +10,7 @@ import { ME, OTHER } from '../../../sync-worker/test/harness';
 import { transferableAbortController } from 'node:util';
 import type { SocialProvider } from '@sch0718/firebase-session/client';
 import type { SyncConfig } from './config';
-import type { SocialReturn } from './social';
+import { SOCIAL_RETURN_KEY, type SocialReturn } from './social';
 import { takeSocialCallback } from './socialFlow';
 import type { AuthClient } from './auth';
 import { createSyncController, type SyncController } from './controller.svelte';
@@ -318,6 +318,15 @@ describe('카카오·네이버 로그인', () => {
     }
     return { sync, app, store, auth, received, callback, navigate };
   }
+
+  it.each([undefined, '#/watchlist'])('로그인 복귀 화면은 전달한 값을 우선하고 없으면 현재 화면을 쓴다: %s', async (returnHash) => {
+    const socialStorage = memoryBacking();
+    const a = await socialSetup(testServer({ social: true }), { socialStorage });
+    vi.stubGlobal('location', { hash: '#/groups' });
+    await a.sync.signInWith('kakao', '내 폰', returnHash);
+    expect(JSON.parse(socialStorage.getItem(SOCIAL_RETURN_KEY)!)).toMatchObject({ hash: returnHash ?? '#/groups', label: '내 폰' });
+    expect(a.navigate).toHaveBeenCalledOnce();
+  });
 
   it('카카오 로그인·동기화·복원·기기 목록·로그아웃은 Firebase 없이 세션만 쓴다', async () => {
     const s = testServer({ social: true });

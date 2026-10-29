@@ -9,7 +9,7 @@ import type { SyncConfig } from './config';
 import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
 import { appProfiles } from './local';
 import { openSyncStore, type SyncStore } from './store';
-import { PROVIDER_NAMES, socialFailureText, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
+import { PROVIDER_NAMES, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
 import type { SocialProvider } from '@sch0718/firebase-session/client';
 
 /** 포커스로 다시 받는 최소 간격(할당량 절약). */
@@ -54,7 +54,7 @@ export interface SyncController {
   /** createApp의 onSyncableChange에 넘긴다. */
   onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
   signIn(label?: string): Promise<void>;
-  signInWith(provider: SocialProvider, label?: string): Promise<void>;
+  signInWith(provider: SocialProvider, label?: string, returnHash?: string): Promise<void>;
   completeSocialSignIn(ret: SocialReturn): Promise<SocialOutcome>;
   signOut(): Promise<void>;
   preview(): Promise<{ upload: string[]; download: number } | null>;
@@ -297,11 +297,10 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
       }, undefined),
 
-    signInWith: (provider, label) =>
+    signInWith: (provider, label, returnHash) =>
       guarded(async () => {
         if (!config || !providers[provider]) {
-          const text = socialFailureText({ ok: false, provider, reason: 'not-configured' });
-          error = `${text.title} ${text.detail}`;
+          error = `이 빌드에는 ${PROVIDER_NAMES[provider]} 로그인이 설정되지 않았어요.`;
           return;
         }
         error = null;
@@ -309,12 +308,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           const { startSocialSignIn } = await import('./socialFlow');
           await startSocialSignIn(provider, {
             clientId: config.social![provider]!.clientId, apiUrl: config.apiUrl,
-            label: label?.trim() ?? '', returnHash: globalThis.location?.hash || '#/settings',
+            label: label?.trim() ?? '', returnHash: returnHash ?? (globalThis.location?.hash || '#/settings'),
             storage: deps.socialStorage, navigate: deps.navigate, random: deps.random, origin: deps.origin, now,
           });
         } catch {
-          const text = socialFailureText({ ok: false, provider, reason: 'storage' });
-          error = `${text.title} ${text.detail}`;
+          error = '이 브라우저에서는 로그인을 시작할 수 없어요. 저장소를 쓸 수 없어요(사생활 보호 모드 등). 다른 브라우저로 열어 주세요.';
         }
       }, undefined),
 

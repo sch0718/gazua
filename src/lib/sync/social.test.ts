@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { callbackPath, isInAppBrowser, PROVIDER_NAMES, socialFailureText, SOCIAL_RETURN_TTL, type SocialOutcome } from './social';
+import { callbackPath, isInAppBrowser, PROVIDER_NAMES, SOCIAL_RETURN_TTL, type SocialOutcome } from './social';
+import { socialFailureText } from './socialText';
 
 describe('소셜 로그인 안내', () => {
   it('배포 경로 아래에 콜백 주소를 만든다', () => {
@@ -37,8 +38,12 @@ describe('소셜 로그인 안내', () => {
   });
   it('공급자 이름과 공급자 오류 코드를 표시한다', () => {
     expect(socialFailureText({ ok: false, provider: 'naver', reason: 'provider-error', error: 'invalid_request' }).detail).toContain('(invalid_request)');
-    expect(socialFailureText({ ok: false, provider: null, reason: 'not-configured' }).title).toContain('공급자');
     const o: SocialOutcome = { ok: true, provider: 'naver' };
     expect(o.ok).toBe(true);
+  });
+  it.each(['provider-error', 'not-configured', 'not-allowed', 'limit', 'invalid-token', 'not-enabled'] as const)('공급자를 모르면 카카오·네이버로 안내한다: %s', (reason) => {
+    const text = socialFailureText({ ok: false, provider: null, reason });
+    expect(text.title).toContain('카카오·네이버');
+    expect(text.title + text.detail).not.toContain('공급자');
   });
 });

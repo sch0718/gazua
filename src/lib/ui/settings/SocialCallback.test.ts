@@ -52,12 +52,18 @@ describe('소셜 로그인 콜백 화면', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('잠시 뒤 다시 시도해 주세요.');
   });
 
-  it('취소 뒤 다시 로그인하면 저장된 기기 이름을 넘긴다', async () => {
+  it('취소 뒤 다시 로그인하면 저장된 기기 이름과 원래 화면을 넘긴다', async () => {
     const sync = fakeSync({ ok: false, provider: 'kakao', reason: 'cancelled' });
-    render(SocialCallback, { sync, ret: RET, ondone: vi.fn() });
+    render(SocialCallback, { sync, ret: { ...RET, returnHash: '#/watchlist' }, ondone: vi.fn() });
     await screen.findByRole('heading', { name: '로그인을 취소했어요' });
     await fireEvent.click(screen.getByRole('button', { name: '다시 로그인' }));
-    expect(sync.signInWith).toHaveBeenCalledWith('kakao', '내 폰');
+    expect(sync.signInWith).toHaveBeenCalledWith('kakao', '내 폰', '#/watchlist');
+  });
+
+  it('공급자를 모르면 처리 중 상태와 설정 안내에 카카오·네이버를 표시한다', async () => {
+    render(SocialCallback, { sync: fakeSync({ ok: false, provider: null, reason: 'not-configured' }), ret: { ...RET, callback: null }, ondone: vi.fn() });
+    expect(screen.getByRole('status').textContent).toBe('카카오·네이버로 로그인하는 중…');
+    await screen.findByRole('heading', { name: '이 빌드에는 카카오·네이버 로그인이 설정되지 않았어요' });
   });
 
   it('다시 로그인할 때 저장소를 쓸 수 없으면 새 오류를 보여 준다', async () => {

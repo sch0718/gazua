@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readSocialConfig } from '@sch0718/firebase-session/client';
 import { readSyncConfig } from './config';
 
 const GOOGLE = {
@@ -10,6 +11,18 @@ const GOOGLE = {
 };
 
 describe('동기화 설정', () => {
+  it.each([
+    {},
+    { VITE_KAKAO_LOGIN_CLIENT_ID: ' ', VITE_NAVER_LOGIN_CLIENT_ID: '\t\n' },
+    { VITE_KAKAO_LOGIN_CLIENT_ID: ' kakao ' },
+    { VITE_NAVER_LOGIN_CLIENT_ID: ' naver ' },
+    { VITE_KAKAO_LOGIN_CLIENT_ID: '\tkakao\n', VITE_NAVER_LOGIN_CLIENT_ID: ' naver ' },
+    { VITE_KAKAO_LOGIN_CLIENT_ID: true, VITE_NAVER_LOGIN_CLIENT_ID: false },
+    { VITE_KAKAO_LOGIN_CLIENT_ID: undefined, VITE_NAVER_LOGIN_CLIENT_ID: ' naver ' },
+  ])('소셜 설정을 패키지와 같은 규칙으로 읽는다: %j', (env) => {
+    expect(readSyncConfig({ ...GOOGLE, ...env })?.social).toEqual(readSocialConfig(env));
+  });
+
   it('Google 설정에 소셜 설정을 함께 읽는다', () => {
     expect(readSyncConfig({ ...GOOGLE, VITE_KAKAO_LOGIN_CLIENT_ID: ' kakao ' })).toMatchObject({
       apiUrl: 'https://sync.example.test', firebase: { apiKey: 'key' }, social: { kakao: { clientId: 'kakao' } },

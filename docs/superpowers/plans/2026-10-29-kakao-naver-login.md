@@ -77,3 +77,10 @@
 ## 사용자가 할 일
 
 `sync-worker/README.md` 「카카오·네이버 로그인(선택)」에 순서대로 적어요(카카오 디벨로퍼스 → 네이버 개발자센터 → 원격 D1 마이그레이션 → Worker 비밀값 → 배포 → 앱 빌드 변수 → 첫 로그인 403의 account를 `ALLOWED_ACCOUNTS`에 → 실기기 확인([live-check ㉙](../../live-check.md))).
+
+## 구현하며 바뀐 것 (2026-10-29)
+
+- **첫 로딩 크기.** 패키지 `/client` 색인이 소셜 실행 코드(`social.js`: PKCE·`beginSocialSignIn`·`readSocialCallback`)를 다시 내보내서, 지연 로드한 `socialFlow`만 쓰는데도 첫 청크에 들어갔어요. `vite.config.ts`의 `manualChunks`로 `social` 청크에 따로 두고, 설정 읽기(`readSocialConfig`)는 `config.ts`에 같은 규칙으로 직접 구현했어요(패키지 함수와 같은지 시험). 실패 안내 문구는 콜백 화면만 쓰는 `socialText.ts`로 옮겼어요. 첫 청크는 803.45 kB(gzip 278.00) → 810.62 kB(gzip 280.50)예요. 늘어난 7 kB는 컨트롤러·설정 패널·진입점의 소셜 분기예요.
+- **가짜 인가 화면의 CSP.** Chromium은 폼 제출 뒤 리다이렉트 대상에도 `form-action`을 적용해서 `'self'`만 두면 승인 뒤 앱으로 돌아가지 못했어요. 검사한 콜백 출처를 `form-action`에 더했어요(인앱 브라우저에서 확인).
+- **0002 누락 진단.** 패키지가 던지는 `@sch0718/firebase-session:` 안내 오류는 내부 오류 로그에 문구까지 남겨요(그 밖의 오류는 지금처럼 이름만).
+- **다시 로그인.** 콜백 화면의 「다시 로그인」은 처음 저장한 돌아갈 화면을 그대로 넘겨요(콜백 주소에는 원래 해시가 없어서).

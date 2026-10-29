@@ -3,7 +3,8 @@
   import { onMount } from 'svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import type { SyncController } from '../../sync/controller.svelte';
-  import { PROVIDER_NAMES, socialFailureText, type SocialOutcome, type SocialReturn } from '../../sync/social';
+  import { PROVIDER_NAMES, type SocialOutcome, type SocialReturn } from '../../sync/social';
+  import { socialFailureText } from '../../sync/socialText';
 
   let {
     sync,
@@ -20,7 +21,7 @@
   let outcome = $state<SocialOutcome | null>(null);
   let copied = $state('');
   let accountCode = $state<HTMLElement | undefined>(undefined);
-  const providerName = $derived(ret.callback ? PROVIDER_NAMES[ret.callback.provider] : '공급자');
+  const providerName = $derived(ret.callback ? PROVIDER_NAMES[ret.callback.provider] : '카카오·네이버');
   const failure = $derived(outcome && !outcome.ok ? outcome : null);
   const text = $derived(failure ? socialFailureText(failure) : null);
 
@@ -37,7 +38,7 @@
   });
 
   async function retryLogin() {
-    if (failure?.provider) await sync.signInWith(failure.provider, ret.label);
+    if (failure?.provider) await sync.signInWith(failure.provider, ret.label, ret.returnHash);
   }
 
   async function copyAccount() {
