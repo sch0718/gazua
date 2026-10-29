@@ -1,5 +1,5 @@
 // 시장 데이터 파일(수집 스크립트 산출물)을 브라우저 IndexedDB에 하나만 보관한다. 기기 단위 데이터다(스펙 4).
-import { openDB, type DBSchema } from 'idb';
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { hasFlowFormat, hasMacroFormat, isV4, validateMarketData, type MarketDataFile } from './format';
 
 export type MarketSector = MarketDataFile['sectors'][number];
@@ -30,6 +30,8 @@ export interface MarketDataInfo {
   hasFin?: boolean;
   /** 재무가 있는 종목 수. 없던 시절의 요약은 0으로 읽는다. */
   finStocks?: number;
+  /** 가져올 때마다 새로 정하는 표. 테마별 종목 키가 이 요약과 같은 가져오기에서 쓰였는지 가린다. */
+  importId?: string;
 }
 
 export type ImportResult =
@@ -49,6 +51,8 @@ export interface MarketDataStore {
   sectors(): Promise<MarketSector[]>;
   /** 테마 요약만(없으면 빈 배열). v1 파일은 테마가 없다. */
   themes(): Promise<MarketThemeSummary[]>;
+  /** 테마 하나의 종목만. 본문을 읽지 않는다(없는 테마·v1이면 빈 배열). */
+  themeSymbols(code: string): Promise<string[]>;
   importFile(file: Blob, deps?: ImportDeps): Promise<ImportResult>;
   clear(): Promise<void>;
 }
@@ -66,6 +70,13 @@ const INFO_KEY = 'current-info';
 const SECTORS_KEY = 'current-sectors';
 // 테마 선택 화면용 요약(code, name, 종목 수). 같은 방식으로 가져올 때 함께 쓴다.
 const THEMES_KEY = 'current-themes';
+// 테마별 종목(묶음을 테마에서 가져올 때). 같은 방식으로 가져올 때 함께 쓴다.
+// 이 키를 모르는 이전 앱이 새 파일을 가져오면 남은 값이 낡으므로, 요약의 importId와 같을 때만 쓴다.
+const THEME_SYMBOLS_KEY = 'current-theme-symbols';
+interface ThemeSymbols {
+  importId?: string;
+  symbols: Record<string, string[]>;
+}
 const NEED_FACTOR = 1.2;
 
 // 풀리는 바이트를 흘려보내며 센다. 본문을 다시 인코딩하면 실제 규모에서 수백 MB를 한 번 더 잡는다
@@ -98,6 +109,11 @@ function utf8Length(s: string): number {
 
 const summarizeThemes = (t: { code: string; name: string; symbols: string[] }[]): MarketThemeSummary[] =>
   t.map((x) => ({ code: x.code, name: x.name, count: x.symbols.length }));
+
+const themeSymbolsOf = (t: { code: string; symbols: string[] }[]): Record<string, string[]> =>
+  Object.fromEntries(t.map((x) => [x.code, x.symbols]));
+
+const newImportId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 const defaultEstimate = async () => (await navigator.storage?.estimate?.()) ?? {};
 
@@ -141,14 +157,58 @@ export function openMarketData(): MarketDataStore {
     }
   }
 
+  // 테마 요약·테마별 종목 키가 생기기 전에 가져온 데이터: 본문을 한 번 읽어 두 키를 채워 둔다(v1이면 빈 목록).
+  // 한 readwrite 트랜잭션에서 읽고 써서, 그 사이에 가져오기가 끼어들어 다른 파일의 요약이 남는 일이 없다.
+  // 요약에 importId가 없으면 여기서 정해 함께 쓴다. 이전 앱이 다시 가져오면 요약에서 빠져 낡은 값을 가린다
+  async function fillThemes(d: IDBPDatabase<Schema>): Promise<{ summary: MarketThemeSummary[]; symbols: ThemeSymbols['symbols'] } | null> {
+    const tx = d.transaction(STORE, 'readwrite');
+    tx.done.catch(() => {});
+    const [body, got] = (await Promise.all([tx.store.get(KEY), tx.store.get(INFO_KEY)])) as [MarketDataFile | undefined, MarketDataInfo | undefined];
+    if (!body || !got) return null;
+    const list = hasMacroFormat(body) ? body.themes : [];
+    const summary = summarizeThemes(list);
+    const symbols = themeSymbolsOf(list);
+    const importId = got.importId ?? newImportId();
+    try {
+      const pending: Promise<unknown>[] = [tx.done];
+      const puts: [unknown, string][] = [[summary, THEMES_KEY], [{ importId, symbols } satisfies ThemeSymbols, THEME_SYMBOLS_KEY]];
+      if (!got.importId) puts.push([{ ...got, importId }, INFO_KEY]);
+      for (const [v, k] of puts) {
+        const req = tx.store.put(v, k);
+        req.catch(() => {});
+        pending.push(req);
+      }
+      await Promise.all(pending);
+    } catch {
+      // 채워 두지 못해도(용량 등) 이번에 읽은 값은 돌려준다. 다음에 다시 채운다
+      try {
+        tx.abort();
+      } catch {
+        // 이미 끝난 트랜잭션
+      }
+    }
+    return { summary, symbols };
+  }
+
   async function themes(): Promise<MarketThemeSummary[]> {
     const d = await db();
     try {
       const own = (await d.get(STORE, THEMES_KEY)) as MarketThemeSummary[] | undefined;
       if (own) return own;
-      // 테마 요약이 생기기 전에 가져온 데이터: 본문에서 만든다(v1이면 빈 배열)
-      const body = (await d.get(STORE, KEY)) as MarketDataFile | undefined;
-      return body && hasMacroFormat(body) ? summarizeThemes(body.themes) : [];
+      return (await fillThemes(d))?.summary ?? [];
+    } finally {
+      d.close();
+    }
+  }
+
+  async function themeSymbols(code: string): Promise<string[]> {
+    const d = await db();
+    try {
+      const tx = d.transaction(STORE, 'readonly');
+      const [got, own] = (await Promise.all([tx.store.get(INFO_KEY), tx.store.get(THEME_SYMBOLS_KEY), tx.done])) as [MarketDataInfo | undefined, ThemeSymbols | undefined, void];
+      if (!got) return [];
+      const symbols = own && own.importId === got.importId ? own.symbols : (await fillThemes(d))?.symbols;
+      return symbols && Object.hasOwn(symbols, code) ? symbols[code] : [];
     } finally {
       d.close();
     }
@@ -196,6 +256,7 @@ export function openMarketData(): MarketDataStore {
       flowStocks,
       hasFin: finStocks > 0,
       finStocks,
+      importId: newImportId(),
       hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();
@@ -205,7 +266,7 @@ export function openMarketData(): MarketDataStore {
       // 만든 즉시 처리기를 달아, 뒤의 put이 동기로 던져 취소될 때 앞 요청의 거부가 떠돌지 않게 한다
       const pending: Promise<unknown>[] = [tx.done];
       tx.done.catch(() => {});
-      for (const [v, k] of [[data, KEY], [next, INFO_KEY], [data.sectors, SECTORS_KEY], [v2 ? summarizeThemes(data.themes) : [], THEMES_KEY]] as const) {
+      for (const [v, k] of [[data, KEY], [next, INFO_KEY], [data.sectors, SECTORS_KEY], [v2 ? summarizeThemes(data.themes) : [], THEMES_KEY], [{ importId: next.importId, symbols: themeSymbolsOf(v2 ? data.themes : []) } satisfies ThemeSymbols, THEME_SYMBOLS_KEY]] as const) {
         const req = tx.store.put(v, k);
         req.catch(() => {});
         pending.push(req);
@@ -242,5 +303,5 @@ export function openMarketData(): MarketDataStore {
     }
   }
 
-  return { info, load, sectors, themes, importFile, clear };
+  return { info, load, sectors, themes, themeSymbols, importFile, clear };
 }

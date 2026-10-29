@@ -77,6 +77,7 @@ interface MarketDataFileV2 extends Omit<MarketDataFileV1, 'version'> {
   - 테마만: ` · 테마 포함 · 환율·유가는 다시 수집하면 쓸 수 있어요`
   - 둘 다 없음(v1이거나 비어 있는 v2): ` · 다시 수집하면 환율·유가·테마도 쓸 수 있어요`
 - 저장소(`store.ts`)에는 작은 보조 키 `current-themes`를 둔다. 테마 목록(code, name, 종목 수)만 담아 화면이 전체 파일을 읽지 않게 한다. 1단계 `current-sectors`와 같은 방식이고, 같은 트랜잭션에서 쓴다.
+- (2026-10-29 추가) 테마별 종목은 `current-theme-symbols`(`{ importId, symbols: { 코드: 종목[] } }`)에 따로 둬서, 묶음을 테마에서 가져올 때도 본문을 읽지 않는다(`store.themeSymbols(code)`). 가져올 때마다 정하는 `importId`를 `current-info`에도 넣고 둘이 같을 때만 쓴다. 이 키를 모르는 이전 앱이 새 파일을 가져오면 `current-info`에 `importId`가 빠져 낡은 값을 쓰지 않는다. 두 보조 키가 없는 이전 데이터는 처음 읽을 때 본문을 한 번 읽어 한 readwrite 트랜잭션에서 채워 둔다(DB 버전은 1 그대로).
 
 ### 2.3 미래 정보 차단: 공개 시점 규칙
 FRED 값은 관측 날짜와 **실제 공개 시점**이 다르다. 두 계열 모두 일별 관측값을 주 단위로 묶어 공개한다(확인 2026-10-16).

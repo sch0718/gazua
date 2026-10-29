@@ -4,7 +4,6 @@
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { hasMacroFormat } from '../lib/marketData/format';
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
   import type { Basket } from '../lib/screen/baskets';
@@ -43,7 +42,7 @@
     app: App;
     barEnd: Snippet<[boolean]>;
     /** 가져온 시장 데이터(선정 기준 탭). 테스트는 가짜를 넣는다 */
-    marketData?: Pick<MarketDataStore, 'info' | 'sectors'> & Partial<Pick<MarketDataStore, 'themes' | 'load'>>;
+    marketData?: Pick<MarketDataStore, 'info' | 'sectors'> & Partial<Pick<MarketDataStore, 'themes' | 'themeSymbols'>>;
     /** 검증 Worker 만들기. 테스트는 가짜를 넣는다 */
     makeWorker?: () => WorkerLike;
     /** 종목 이름표(오늘 기준 선별·선정 이력). 테스트는 가짜를 넣는다 */
@@ -146,11 +145,8 @@
   let sectors = $state.raw<MarketSector[]>([]);
   // undefined = 아직 읽는 중
   let themes = $state.raw<MarketThemeSummary[] | undefined>(undefined);
-  // 테마의 종목은 본문에만 있다. 묶음으로 가져올 때만 파일을 읽는다
-  async function loadThemeSymbols(code: string): Promise<string[]> {
-    const body = await marketData.load?.();
-    return body && hasMacroFormat(body) ? (body.themes.find((t) => t.code === code)?.symbols ?? []) : [];
-  }
+  // 테마의 종목은 묶음으로 가져올 때만 읽는다(본문은 읽지 않는다)
+  const loadThemeSymbols = (code: string): Promise<string[]> => marketData.themeSymbols?.(code) ?? Promise.resolve([]);
   onMount(() => {
     marketData.info().then(
       (i) => {

@@ -367,6 +367,118 @@ describe('market data store', () => {
     expect(await store.themes()).toEqual(expected);
   });
 
+  // 본문('current') 키를 몇 번 읽었는지 센다
+  const countBodyReads = () => {
+    const spy = vi.spyOn(IDBObjectStore.prototype, 'get');
+    return () => spy.mock.calls.filter((c) => c[0] === 'current').length;
+  };
+  // 키가 생기기 전에 가져온 데이터처럼 요약 키와 importId를 지운다
+  async function asOldData(keys: string[]) {
+    const db = await openDB('gazua-market-data', 1);
+    for (const k of keys) await db.delete('files', k);
+    const old = await db.get('files', 'current-info');
+    delete old.importId;
+    await db.put('files', old, 'current-info');
+    db.close();
+  }
+
+  it('themes() on old data without current-themes reads the body once and keeps the summary for later calls and new store objects', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const expected = await store.themes();
+    await asOldData(['current-themes', 'current-theme-symbols']);
+    const reads = countBodyReads();
+    expect(await store.themes()).toEqual(expected);
+    expect(reads()).toBe(1);
+    expect(await store.themes()).toEqual(expected);
+    expect(await openMarketData().themes()).toEqual(expected);
+    expect(reads()).toBe(1);
+  });
+
+  it('themes() on old v1 data keeps an empty summary so the body is not read again', async () => {
+    const store = openMarketData();
+    const text = await asV1();
+    await store.importFile(new Blob(['x']), { decompress: async () => text, estimate: roomy });
+    await asOldData(['current-themes', 'current-theme-symbols']);
+    const reads = countBodyReads();
+    expect(await store.themes()).toEqual([]);
+    expect(await store.themes()).toEqual([]);
+    expect(await store.themeSymbols('T01')).toEqual([]);
+    expect(reads()).toBe(1);
+  });
+
+  it('themes() still returns the summary read from the body when keeping it fails', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const expected = await store.themes();
+    await asOldData(['current-themes']);
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    expect(await store.themes()).toEqual(expected);
+    vi.restoreAllMocks();
+    const db = await openDB('gazua-market-data', 1);
+    expect(await db.get('files', 'current-themes')).toBeUndefined();
+    db.close();
+  });
+
+  it('themeSymbols() returns one theme\'s symbols without reading the file body', async () => {
+    const store = openMarketData();
+    expect(await store.themeSymbols('x')).toEqual([]);
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const body = (await store.load())!;
+    if (body.version === 1) throw new Error('fixture is not v2 or later');
+    const reads = countBodyReads();
+    for (const t of body.themes) expect(await store.themeSymbols(t.code)).toEqual(t.symbols);
+    expect(await store.themeSymbols('없는 테마')).toEqual([]);
+    expect(await store.themeSymbols('__proto__')).toEqual([]);
+    expect(await store.themeSymbols('toString')).toEqual([]);
+    expect(reads()).toBe(0);
+  });
+
+  it('themeSymbols() on old data without the theme-symbols key reads the body once, then keeps it with a new importId', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    const body = (await store.load())!;
+    if (body.version === 1) throw new Error('fixture is not v2 or later');
+    const t = body.themes[0];
+    await asOldData(['current-theme-symbols']);
+    const reads = countBodyReads();
+    expect(await store.themeSymbols(t.code)).toEqual(t.symbols);
+    expect(await store.themeSymbols(t.code)).toEqual(t.symbols);
+    expect(await openMarketData().themeSymbols(t.code)).toEqual(t.symbols);
+    expect(reads()).toBe(1);
+    expect((await store.info())?.importId).toEqual(expect.any(String));
+  });
+
+  it('themeSymbols() ignores a leftover key when an app without it imported another file', async () => {
+    const store = openMarketData();
+    await store.importFile(file(), { decompress, estimate: roomy });
+    // 이전 앱의 가져오기: 본문·요약·테마 요약은 바뀌고 테마별 종목 키는 그대로 남는다(요약에 importId가 없다)
+    const j = JSON.parse(await decompress(file()));
+    const code = j.themes[0].code;
+    j.themes[0].symbols = j.themes[0].symbols.slice(0, 1);
+    const db = await openDB('gazua-market-data', 1);
+    const info = await db.get('files', 'current-info');
+    delete info.importId;
+    await db.put('files', j, 'current');
+    await db.put('files', info, 'current-info');
+    db.close();
+    expect(await store.themeSymbols(code)).toEqual(j.themes[0].symbols);
+  });
+
+  it('every import gets a new importId, and clear() makes themeSymbols() empty', async () => {
+    const store = openMarketData();
+    const a = await store.importFile(file(), { decompress, estimate: roomy });
+    const b = await store.importFile(file(), { decompress, estimate: roomy });
+    if (!a.ok || !b.ok) throw new Error('import failed');
+    expect(a.info.importId).toEqual(expect.any(String));
+    expect(b.info.importId).not.toBe(a.info.importId);
+    const code = (await store.themes())[0].code;
+    await store.clear();
+    expect(await store.themeSymbols(code)).toEqual([]);
+  });
+
   it('failing the fourth put (themes) rolls back all four keys', async () => {
     const store = openMarketData();
     await store.importFile(file(), { decompress, estimate: roomy });
@@ -390,6 +502,7 @@ describe('market data store', () => {
     expect(await store.load()).toEqual(dataA);
     expect(await store.sectors()).toEqual(sectorsA);
     expect(await store.themes()).toEqual(themesA);
+    expect(await store.themeSymbols(j.themes[0].code)).toEqual(dataA!.version === 1 ? [] : dataA!.themes.find((t) => t.code === j.themes[0].code)!.symbols);
   });
 
   it('clear() makes themes() return an empty list', async () => {
