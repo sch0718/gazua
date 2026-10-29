@@ -8,7 +8,7 @@ import { groupSnapshot } from '../share/snapshot';
 import { testServer, SYNC_BASE, type TestServer } from '../../../sync-worker/test/server';
 import { ME, OTHER } from '../../../sync-worker/test/harness';
 import type { AuthClient } from './auth';
-import { createSyncController, type SyncController } from './controller.svelte';
+import { createSyncController, describeFail, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
 
 const CONFIG = { apiUrl: SYNC_BASE, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
@@ -281,3 +281,12 @@ describe('SyncController', () => {
   });
 });
 
+
+describe('describeFail', () => {
+  it('too-large는 공유 요청이면 공유 문구, 프로필 동기화면 프로필 문구', () => {
+    const f = { ok: false, kind: 'invalid', code: 'too-large' } as const;
+    expect(describeFail(f, 'share')).toBe('공유 내용이 너무 커요(100 KB). 기간이나 종목을 줄여 주세요');
+    expect(describeFail(f)).toBe('프로필이 너무 커요(256 KiB). 전략·그룹을 줄여 주세요.');
+    expect(describeFail({ ok: false, kind: 'invalid', code: 'unsupported' }, 'share')).toBe('서버가 이 데이터를 받지 않았어요.');
+  });
+});

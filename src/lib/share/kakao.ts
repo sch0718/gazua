@@ -3,7 +3,7 @@
 import type { KakaoCard, KakaoShareConfig } from '@sch0718/kakao-share';
 import type { ShareSnapshot } from './snapshot';
 import { snapshotLines, type SymbolNames } from './shareText';
-import { SHARE_KIND_LABEL as KIND } from './kinds';
+import { kindLabel } from './kinds';
 
 type Env = Record<string, string | boolean | undefined>;
 
@@ -16,7 +16,7 @@ export function readKakaoConfig(env: Env = import.meta.env): KakaoShareConfig | 
 export function kakaoCard(snapshot: ShareSnapshot, url: string, names?: SymbolNames): KakaoCard {
   const lines = snapshotLines(snapshot, names).filter((l) => !l.startsWith('제목: '));
   return {
-    title: `${KIND[snapshot.kind]} 공유: ${snapshot.title}`,
+    title: `${kindLabel(snapshot.kind)} 공유: ${snapshot.title}`,
     description: lines.slice(0, 2).join('\n'),
     // 카카오가 서버에서 받아 가는 이미지라 공유 링크와 같은 출처의 절대 주소를 쓴다.
     imageUrl: new URL('icon-512.png', url).href,

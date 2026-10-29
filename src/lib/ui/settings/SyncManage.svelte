@@ -4,7 +4,7 @@
   import type { App } from '../../state/app.svelte';
   import type { DeviceSession, IndexRow, ShareRow } from '../../sync/api';
   import type { SyncController } from '../../sync/controller.svelte';
-  import { SHARE_KIND_LABEL as KIND } from '../../share/kinds';
+  import { kindLabel } from '../../share/kinds';
   import { showSnackbar } from '@sch0718/ui-svelte';
 
   let { app, sync, confirmFn = (m: string) => window.confirm(m) }: { app: App; sync: SyncController; confirmFn?: (m: string) => boolean } = $props();
@@ -137,7 +137,7 @@
       <ul>
         {#each shares as s (s.id)}
           <li>
-            <span><b>{s.title}</b> <small>{KIND[s.kind]}</small><br /><small>{shareState(s)}</small></span>
+            <span><b>{s.title}</b> <small>{kindLabel(s.kind)}</small><br /><small>{shareState(s)}</small></span>
             {#if !s.revokedAt && s.expiresAt > nowMs()}<button type="button" class="btn" aria-label="{s.title} 공유 철회" onclick={() => revokeShare(s)}>철회</button>{/if}
           </li>
         {/each}

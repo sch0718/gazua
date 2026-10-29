@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { compareSnapshot } from '../../src/lib/share/compact';
+import { simResultFixture, validationFixture } from '../../src/lib/share/testFixtures';
 import { groupSnapshot, strategySnapshot } from '../../src/lib/share/snapshot';
 import { FORBIDDEN_KEYS } from '../../src/lib/sync/forbidden';
 import { DAY } from './env';
@@ -140,5 +142,43 @@ describe('공유 API', () => {
     const r = await create({ kind: 'strategy', snapshot: snap });
     expect(r.status).toBe(200);
     expect((await (await read(r.body.capability as string)).json()).snapshot).toEqual(snap);
+  });
+
+  it('새 세 종류를 만들고(200) 읽으면 그대로 돌려준다', async () => {
+    const { me, read } = await setup();
+    const compare = compareSnapshot(
+      { id: 'g0', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] },
+      { period: { unit: 'M', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' },
+    );
+    for (const snapshot of [compare, simResultFixture(), simResultFixture({ capitalHidden: true }), validationFixture()]) {
+      const r = await j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: snapshot.kind, snapshot }));
+      expect(r.status, snapshot.kind).toBe(200);
+      const got = await read(r.body.capability as string);
+      expect(got.status).toBe(200);
+      expect(await got.json()).toMatchObject({ kind: snapshot.kind, title: snapshot.title, snapshot });
+    }
+  });
+
+  it('요청 kind와 스냅샷 kind가 다르면 422 invalid, 모르는 kind는 422 unsupported', async () => {
+    const { me } = await setup();
+    const post = async (body: Record<string, unknown>) => j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', ...body }));
+    expect(await post({ kind: 'compare', snapshot: simResultFixture() })).toEqual({ status: 422, body: { error: 'invalid', path: 'kind' } });
+    expect(await post({ kind: 'future', snapshot: { kind: 'future', v: 1, title: '새 종류' } })).toEqual({ status: 422, body: { error: 'unsupported', path: 'kind' } });
+  });
+
+  it('100 KiB 넘는 스냅샷은 422 too-large, 본문이 110 KiB를 넘으면 그 전에 413 too-large', async () => {
+    const { me } = await setup();
+    const post = async (pad: number) =>
+      j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'simResult', snapshot: { ...simResultFixture(), pad: 'a'.repeat(pad) } }));
+    expect(await post(101 * 1024)).toMatchObject({ status: 422, body: { error: 'too-large' } });
+    expect(await post(120 * 1024)).toMatchObject({ status: 413, body: { error: 'too-large' } });
+  });
+
+  it('깊이 1,000의 중첩 스냅샷은 500이 아니라 422', async () => {
+    const { me } = await setup();
+    let deep: Record<string, unknown> = {};
+    for (let i = 0; i < 1000; i++) deep = { a: deep };
+    const r = await j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: { ...group(), deep } }));
+    expect(r).toEqual({ status: 422, body: { error: 'invalid' } });
   });
 });

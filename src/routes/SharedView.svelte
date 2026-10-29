@@ -3,7 +3,7 @@
   import type { ApiResult, SharedRead } from '../lib/sync/api';
   import type { UniverseItem } from '../lib/data/universe';
   import { snapshotLines, symbolNames, type SymbolNames } from '../lib/share/shareText';
-  import { SHARE_KIND_LABEL as KIND } from '../lib/share/kinds';
+  import { kindLabel } from '../lib/share/kinds';
   import { sharedUniverse } from '../sheets/universeSource';
 
   let {
@@ -83,7 +83,7 @@
     <p role="status">불러오는 중…</p>
   {:else if view.state === 'ok'}
     <h1>{view.data.title}</h1>
-    <p class="meta">{KIND[view.data.kind]} · {fmtDate(view.data.expiresAt)}까지 볼 수 있어요</p>
+    <p class="meta">{kindLabel(view.data.kind)} · {fmtDate(view.data.expiresAt)}까지 볼 수 있어요</p>
     <ul class="lines">
       {#each snapshotLines(view.data.snapshot, names) as line, i (i)}<li>{line}</li>{/each}
     </ul>

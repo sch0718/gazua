@@ -5,7 +5,7 @@
   import type { SyncController } from '../sync/controller.svelte';
   import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
   import type { ShareRequest } from './shareStore.svelte';
-  import { SHARE_KIND_LABEL as KIND } from './kinds';
+  import { kindLabel } from './kinds';
   import type { UniverseItem } from '../data/universe';
   import { sharedUniverse } from '../../sheets/universeSource';
   import { snapshotLines, symbolNames, type SymbolNames } from './shareText';
@@ -127,7 +127,7 @@
   const fmtDate = (t: number) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 </script>
 
-<Sheet open={request !== null} title={request ? `${KIND[request.kind]} 공유` : '공유'} onclose={close}>
+<Sheet open={request !== null} title={request ? `${kindLabel(request.kind)} 공유` : '공유'} onclose={close}>
   {#if request && snapshot}
     <div class="share">
       {#if link}
