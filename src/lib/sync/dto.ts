@@ -37,7 +37,7 @@ type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 const TOP_KEYS = ['v', 'name', 'settings', 'watchlists', 'strategies', 'criteria', 'baskets'];
 
-const SETTING_OK: Record<(typeof SYNCED_SETTINGS)[number], (v: unknown) => boolean> = {
+export const SETTING_OK: Record<(typeof SYNCED_SETTINGS)[number], (v: unknown) => boolean> = {
   period: (v) =>
     isRecord(v) &&
     Object.keys(v).length === 2 &&

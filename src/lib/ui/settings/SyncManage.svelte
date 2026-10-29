@@ -14,7 +14,7 @@
   let shares = $state<ShareRow[] | null>(null);
 
   const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준' } as const;
+  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준', compare: '비교 화면', simResult: '시뮬레이션 결과', validation: '선정 기준 검증' } as const;
   const nowMs = () => Date.now();
 
   const loadDevices = async () => (devices = await sync.sessions());

@@ -11,7 +11,7 @@ export function readKakaoConfig(env: Env = import.meta.env): KakaoShareConfig | 
   return key ? { appKey: key } : null;
 }
 
-const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준' } as const;
+const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준', compare: '비교 화면' } as const;
 
 /** 카드 설명은 두 줄까지 보인다. 제목 줄을 빼고 앞의 두 줄을 쓴다. */
 export function kakaoCard(snapshot: ShareSnapshot, url: string, names?: SymbolNames): KakaoCard {

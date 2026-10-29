@@ -58,7 +58,7 @@
     };
   });
 
-  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준' } as const;
+  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준', compare: '비교 화면', simResult: '시뮬레이션 결과', validation: '선정 기준 검증' } as const;
   const MESSAGE = {
     gone: '만료됐거나 철회된 공유예요.',
     missing: '링크가 맞지 않아요. 받은 주소를 다시 확인해 주세요.',

@@ -44,5 +44,7 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
         `초기 자금: ${s.capitalHidden ? '비공개' : won(c.capital)}`,
       ];
     }
+    case 'compare':
+      return [`제목: ${s.title}`, `종목 ${s.symbols.length}개: ${symbolList(s.symbols, names)}`];
   }
 }
