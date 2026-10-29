@@ -89,17 +89,19 @@ export function extremes(values: readonly (number | null)[]): number[] {
   return hi < 0 ? [] : [hi, lo];
 }
 
-/** 최대 낙폭의 [직전 고점 위치, 바닥 위치] */
+/** 초기 자금 대비 % 곡선에서 비율 최대 낙폭의 [고점 위치, 바닥 위치]. 초기 고점은 0%, 위치는 0. */
 export function drawdownPoints(values: readonly number[]): number[] {
   let peak = 0;
+  let peakAt = 0;
   let best: [number, number] = [0, 0];
   let worst = 0;
   values.forEach((v, i) => {
-    if (v > values[peak]) peak = i;
-    const dd = v - values[peak];
+    if (v > peak) peakAt = i;
+    peak = Math.max(peak, v);
+    const dd = (1 + v / 100) / (1 + peak / 100) - 1;
     if (dd < worst) {
       worst = dd;
-      best = [peak, i];
+      best = [peakAt, i];
     }
   });
   return best;

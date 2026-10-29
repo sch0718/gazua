@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { jsonBytes } from '../sync/forbidden';
 import { resultHeadline, skipCounts } from '../ui/simulate/simText';
 import { doneState } from '../ui/simulate/resultFixture';
-import { compareSnapshot, drawdownPoints, expandSimResult, extremes, perSymbolPct, simResultSnapshot, thinIndices } from './compact';
+import { compareSnapshot, drawdownPoints, expandSimResult, extremes, fromAxis, perSymbolPct, simResultSnapshot, thinIndices } from './compact';
 import { checkShareSnapshot, SHARE_MAX_BYTES } from './snapshot';
 import { bigDone, NOW } from './testFixtures';
 
@@ -32,6 +32,14 @@ describe('thinIndices', () => {
     expect(extremes([null, null])).toEqual([]);
     expect(drawdownPoints([0, 10, 4, 12, 11, 2, 8])).toEqual([3, 5]);
     expect(drawdownPoints([1, 2, 3])).toEqual([0, 0]);
+  });
+
+  it('최대 낙폭은 %p 차이가 아니라 고점 대비 비율로 비교한다', () => {
+    expect(drawdownPoints([-20, 20, -10, 300, 250, 400])).toEqual([1, 2]);
+  });
+
+  it('첫 점이 손실이면 곡선에 없는 초기 자금(0%)을 고점으로 시작한다', () => {
+    expect(drawdownPoints([-50, -40, -60])).toEqual([0, 2]);
   });
 });
 
@@ -94,9 +102,95 @@ describe('simResultSnapshot', () => {
   it('축이 3,700점을 넘으면 크기와 상관없이 먼저 솎는다', () => {
     const b = simResultSnapshot(bigDone({ days: 4000, trades: 10, skips: 0 }), { hideCapital: false, now: NOW });
     if (!b.ok) throw new Error(JSON.stringify(b));
-    expect(b.reduced).toContain('thinned');
+    expect(b.reduced).toEqual(['thinned']);
     expect(b.snapshot.result.sampled).toEqual({ from: 4000 });
     expect(b.snapshot.result.axis.offsets.length).toBeLessThanOrEqual(3000 + 10);
+  });
+
+  it('솎은 축에도 원 equity의 비율 MDD 고점·바닥 날짜가 남는다', () => {
+    const done = bigDone({ days: 3000, trades: 600, skips: 0 });
+    const initial = done.meta.strategy.capital.initial;
+    done.result.equity.forEach((e, i) => {
+      const pct = i < 1001 ? -20 : i === 1001 ? 20 : i < 1997 ? -10 : i === 1997 ? 300 : i < 2999 ? 250 : 400;
+      e.strategy = initial * (1 + pct / 100);
+    });
+
+    // summary.ts와 같이 원 자금에서 고점을 먼저 갱신한 뒤 비율 낙폭을 잰다.
+    let peak = initial;
+    let peakAt = 0;
+    let mdd = 0;
+    let points = [0, 0];
+    done.result.equity.forEach((e, i) => {
+      if (e.strategy > peak) peakAt = i;
+      peak = Math.max(peak, e.strategy);
+      const dd = (e.strategy / peak - 1) * 100;
+      if (dd < mdd) {
+        mdd = dd;
+        points = [peakAt, i];
+      }
+    });
+    expect(points).toEqual([1001, 1002]);
+    expect(mdd).toBeCloseTo(-25);
+
+    const b = simResultSnapshot(done, { hideCapital: false, now: NOW });
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    expect(b.reduced).toEqual(['thinned']);
+    const dates = fromAxis(b.snapshot.result.axis);
+    for (const i of points) expect(dates).toContain(done.result.equity[i].date);
+  });
+
+  it('250점 단계가 크기를 넘으면 원래 축에서 120점으로 솎는다', () => {
+    // jsonBytes 실측으로 거래 수 고정: 500점 111,085 / 250점 104,293 / 120점 100,708 bytes(상한 102,400).
+    const done = bigDone({ days: 3000, trades: 1940, skips: 0 });
+    const b = simResultSnapshot(done, { hideCapital: false, now: NOW });
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    const r = b.snapshot.result;
+    expect(b.reduced).toEqual(['thinned']);
+    expect(r.sampled).toEqual({ from: 3000 });
+    expect(r.axis.offsets.length).toBeLessThanOrEqual(120 + 10);
+    expect(r.trades).toHaveLength(1940);
+    expect(jsonBytes(b.snapshot)).toBeLessThanOrEqual(SHARE_MAX_BYTES);
+    const dates = fromAxis(r.axis);
+    for (const i of thinIndices(3000, 120, [])) expect(dates).toContain(done.result.equity[i].date);
+
+    // 거래 없는 전체 축을 받아 같은 거래를 더한 250점 후보도 실제 JSON 크기로 확인한다.
+    const full = simResultSnapshot({ ...done, result: { ...done.result, trades: [] } }, { hideCapital: false, now: NOW });
+    if (!full.ok) throw new Error(JSON.stringify(full));
+    expect(full.snapshot.result.sampled).toBeNull();
+    const s = full.snapshot;
+    const curves = s.result.curves;
+    const keep = [...Object.values(curves).flatMap((c) => c ? extremes(c) : []), ...drawdownPoints(curves.strategy)];
+    const pos = thinIndices(3000, 250, keep);
+    const at = <T>(xs: T[]) => pos.map((i) => xs[i]);
+    s.result.axis.offsets = at(s.result.axis.offsets);
+    s.result.sampled = { from: 3000 };
+    s.result.curves = { strategy: at(curves.strategy), hold: at(curves.hold), index: curves.index && at(curves.index), benchmark: curves.benchmark && at(curves.benchmark) };
+    s.result.trades = r.trades;
+    expect(jsonBytes(s)).toBeGreaterThan(SHARE_MAX_BYTES);
+  });
+
+  it('4,000점 사전 솎기 뒤에도 크기가 넘으면 원래 축에서 500점으로 솎는다', () => {
+    // jsonBytes 실측: 사전 3,000점 113,492 / 500점 45,208 bytes(상한 102,400).
+    const done = bigDone({ days: 4000, trades: 600, skips: 0 });
+    const b = simResultSnapshot(done, { hideCapital: false, now: NOW });
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    expect(b.reduced).toEqual(['thinned']);
+    const r = b.snapshot.result;
+    expect(r.sampled).toEqual({ from: 4000 });
+    expect(r.axis.offsets.length).toBeLessThanOrEqual(500 + 10);
+    expect(r.trades).toHaveLength(600);
+    expect(jsonBytes(b.snapshot)).toBeLessThanOrEqual(SHARE_MAX_BYTES);
+    const dates = fromAxis(r.axis);
+    for (const i of thinIndices(4000, 500, [])) expect(dates).toContain(done.result.equity[i].date);
+  });
+
+  it('건너뜀이 0건이면 솎기 단계에서도 skipped.rows는 빈 배열이다', () => {
+    const b = simResultSnapshot(bigDone({ days: 3000, trades: 600, skips: 0 }), { hideCapital: false, now: NOW });
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    expect(b.reduced).toEqual(['thinned']);
+    expect(b.snapshot.result.sampled).toEqual({ from: 3000 });
+    expect(b.snapshot.result.skipped.rows).toEqual([]);
+    expect(b.snapshot.result.skipped.counts).toEqual([]);
   });
 
   it('거래 3,000건은 줄여도 넘으므로 거절한다(거래는 빼지 않는다)', () => {
