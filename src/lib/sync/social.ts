@@ -8,6 +8,11 @@ export const SOCIAL_RETURN_TTL = 10 * 60 * 1000;
 export const callbackPath = (base = import.meta.env.BASE_URL): string => `${base}auth/callback/`;
 export const isInAppBrowser = (ua: string): boolean => /KAKAOTALK/i.test(ua) || /NAVER\(inapp/i.test(ua);
 
+export function restoreReferrerPolicy(doc: Document = document): void {
+  // HTML 명세상 메타를 지워도 정책은 남으므로 content를 바꿔 갱신한다.
+  doc.querySelector('meta[name="referrer"]')?.setAttribute('content', 'strict-origin-when-cross-origin');
+}
+
 export type SocialReturn = { callback: SocialCallback | null; hadParams: boolean; returnHash: string; label: string };
 export type SocialOutcome =
   | { ok: true; provider: SocialProvider }

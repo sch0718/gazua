@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { callbackPath, isInAppBrowser, PROVIDER_NAMES, SOCIAL_RETURN_TTL, type SocialOutcome } from './social';
+import { callbackPath, isInAppBrowser, restoreReferrerPolicy, PROVIDER_NAMES, SOCIAL_RETURN_TTL, type SocialOutcome } from './social';
 import { socialFailureText } from './socialText';
 
 describe('소셜 로그인 안내', () => {
@@ -45,5 +46,21 @@ describe('소셜 로그인 안내', () => {
     const text = socialFailureText({ ok: false, provider: null, reason });
     expect(text.title).toContain('카카오·네이버');
     expect(text.title + text.detail).not.toContain('공급자');
+  });
+});
+
+
+describe('콜백 뒤 리퍼러 정책', () => {
+  it('메타를 남긴 채 앱의 기본 정책으로 바꾼다', () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.head.innerHTML = '<meta name="referrer" content="no-referrer">';
+    restoreReferrerPolicy(doc);
+    expect(doc.querySelector('meta[name="referrer"]')?.getAttribute('content')).toBe('strict-origin-when-cross-origin');
+  });
+  it('메타가 없으면 아무것도 더하지 않는다', () => {
+    const doc = document.implementation.createHTMLDocument();
+    const before = doc.head.innerHTML;
+    restoreReferrerPolicy(doc);
+    expect(doc.head.innerHTML).toBe(before);
   });
 });

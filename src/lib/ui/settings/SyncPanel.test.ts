@@ -178,7 +178,7 @@ describe('로그인 공급자', () => {
   it('카카오로 로그인할 때 입력한 기기 이름을 넘긴다', async () => {
     const sync = fakeSync({ providers: { google: false, kakao: true, naver: false } });
     render(SyncPanel, { app: app(), sync });
-    expect(screen.getByText(/카카오 중 쓸 수 있는 계정으로 로그인하면/)).toBeTruthy();
+    expect(screen.getByText(/본인 카카오 계정으로 로그인하면/)).toBeTruthy();
     expect(screen.queryByText(/Google/)).toBeNull();
     await fireEvent.input(screen.getByLabelText('이 기기 이름(선택)'), { target: { value: '내 폰' } });
     await fireEvent.click(screen.getByRole('button', { name: '카카오로 로그인' }));
@@ -211,5 +211,33 @@ describe('로그인 공급자', () => {
     expect(screen.getByText('me@example.test')).toBeTruthy();
     expect(screen.getByText('카카오 계정으로 로그인됨')).toBeTruthy();
     expect(screen.getByText('kakao:123')).toBeTruthy();
+  });
+});
+
+
+describe('로그인 공급자 안내', () => {
+  it.each([
+    [{ google: true, kakao: false, naver: false }, '본인 Google 계정으로 로그인하면'],
+    [{ google: false, kakao: true, naver: false }, '본인 카카오 계정으로 로그인하면'],
+    [{ google: true, kakao: true, naver: false }, 'Google·카카오 중 쓸 수 있는 계정으로 로그인하면'],
+  ])('켜진 공급자 수에 맞춰 안내한다: %s', (providers, text) => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ providers }) });
+    expect(screen.getByText(/기기끼리 맞춰요/).textContent).toContain(text);
+  });
+});
+
+
+describe('공용 기기 로그아웃 안내', () => {
+  it.each(['kakao', 'naver', 'google'] as const)('소셜 계정 로그아웃 뒤에만 공급자 로그아웃을 안내한다: %s', async (provider) => {
+    const sync = fakeSync({ account: { provider, id: '내 계정', display: '내 계정' } });
+    const a = app();
+    const { rerender } = render(SyncPanel, { app: a, sync });
+    const text = '공용 기기라면 카카오·네이버에서도 로그아웃하세요.';
+    expect(screen.queryByText(text)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '로그아웃' }));
+    expect(sync.signOut).toHaveBeenCalledOnce();
+    await rerender({ app: a, sync: { ...sync, account: null } });
+    if (provider === 'google') expect(screen.queryByText(text)).toBeNull();
+    else expect((await screen.findByRole('status')).textContent).toBe(text);
   });
 });

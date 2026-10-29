@@ -14,4 +14,5 @@ test('소셜 콜백 주소를 지우고 설정 화면으로 돌아간다', async
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   await expect(page).toHaveURL(/\/#\/settings$/);
   expect(page.url()).not.toContain('code=');
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'strict-origin-when-cross-origin');
 });

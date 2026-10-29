@@ -32,6 +32,28 @@ describe('소셜 로그인 왕복', () => {
     expect(navigate.mock.lastCall![0]).toMatch(/^https:\/\/nid.naver.com\/oauth2\/authorize\?/);
   });
 
+  it.each([
+    ['kakao', true, 'login'],
+    ['kakao', undefined, null],
+    ['naver', true, null],
+  ] as const)('재인증은 카카오에서만 요청한다: %s %s', async (provider, reauth, prompt) => {
+    const navigate = vi.fn();
+    await startSocialSignIn(provider, { clientId: 'key', apiUrl: 'https://sync.test', label: '', returnHash: '#/settings', storage: memoryBacking(), navigate, random, origin: ORIGIN, reauth });
+    expect(new URL(navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe(prompt);
+  });
+
+  it.each(['KAKAOTALK', 'kakaotalk', undefined])('카카오톡 인앱에서는 재인증 prompt를 보내지 않는다: %s', async (app) => {
+    const userAgent = `Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ${app ?? 'KAKAOTALK'} 10.4.0`;
+    vi.stubGlobal('navigator', { userAgent: app === undefined ? userAgent : 'Mozilla/5.0 Safari/605.1.15' });
+    const navigate = vi.fn();
+    await startSocialSignIn('kakao', {
+      clientId: 'key', apiUrl: 'https://sync.test', label: '', returnHash: '#/settings',
+      storage: memoryBacking(), navigate, random, origin: ORIGIN, reauth: true,
+      ...(app !== undefined && { userAgent }),
+    });
+    expect(new URL(navigate.mock.lastCall![0]).searchParams.has('prompt')).toBe(false);
+  });
+
   it('돌아갈 화면과 이름을 저장하고 PKCE 로그인을 시작한다', async () => {
     const storage = memoryBacking();
     const navigate = vi.fn();

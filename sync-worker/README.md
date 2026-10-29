@@ -112,7 +112,7 @@ corepack pnpm --filter sync-worker exec wrangler d1 create gazua-sync
 ```bash
 corepack pnpm --filter sync-worker migrate:remote
 corepack pnpm --filter sync-worker exec wrangler secret put ALLOWED_EMAILS
-corepack pnpm --filter sync-worker deploy
+corepack pnpm --filter sync-worker run deploy
 ```
 
 4. **Cron 수를 확인해요.** Workers Free는 계정 전체에 Cron 트리거가 5개까지예요. 같은 계정의 증권사 프록시·랜드마크 Worker가 쓰는 수를 대시보드(Workers & Pages › 각 Worker › Settings › Triggers)에서 합쳐 보고, 넘으면 `wrangler.toml`의 `[triggers]`를 지운 뒤 정리를 다른 방법으로 돌려요.
@@ -146,9 +146,9 @@ GitHub 저장소 Settings › Secrets and variables › Actions › **Variables*
 
 ### 카카오·네이버 로그인(선택)
 
-Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서대로 준비해요. 시크릿과 허용 계정은 저장소·명령 인수·파일에 적지 않고 프롬프트에만 입력해요.
+Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서대로 준비해요. 운영 시크릿과 허용 계정은 저장소·명령 인수·파일에 적지 않고 프롬프트에만 입력해요.
 
-1. [Kakao Developers](https://developers.kakao.com/)에서 카카오톡 공유에 쓰는 앱을 그대로 열어요(없으면 만들어요). 카카오 로그인 사용 설정을 **ON**, OpenID Connect도 **ON**으로 켜요. **[앱] › [플랫폼 키] › [REST API 키]**의 Redirect URI에 `https://gazua.sch0718.dev/auth/callback/`를 등록해요. **끝 슬래시까지 정확히 같아야 해요.** REST API 키와 카카오 로그인 › 보안의 클라이언트 시크릿을 확인해요(시크릿은 기본 ON). 동의항목은 필수가 아니면 건드리지 않아도 돼요. 이메일 수집이나 비즈 앱 전환은 필요 없어요. 로컬 실계정 시험은 운영 앱에 localhost를 더하지 말고 별도 개발용 앱을 만드는 것을 권해요. 그 앱에 `http://localhost:<포트>/auth/callback/`를 등록하고 개발용 Worker의 허용 목록도 맞춰요. 공유는 JavaScript 키, 로그인은 REST API 키와 시크릿을 써요.
+1. [Kakao Developers](https://developers.kakao.com/)에서 카카오톡 공유에 쓰는 앱을 그대로 열어요(없으면 만들어요). 카카오 로그인 사용 설정을 **ON**, OpenID Connect도 **ON**으로 켜요. **[앱] › [플랫폼 키] › [REST API 키]**의 Redirect URI에 `https://gazua.sch0718.dev/auth/callback/`를 등록해요. **끝 슬래시까지 정확히 같아야 해요.** REST API 키와 카카오 로그인 › 보안의 클라이언트 시크릿을 확인해요. 새 앱은 클라이언트 시크릿이 기본으로 켜져 있지만, 기존(공유용으로 만든) 앱은 꺼져 있을 수 있어요. 꺼져 있으면 켜고 코드를 발급받아요. Worker는 ID·시크릿이 둘 다 있어야 켜지며, `KAKAO_CLIENT_SECRET`이 없으면 카카오 로그인을 켜지 않아요. 동의항목은 필수가 아니면 건드리지 않아도 돼요. 이메일 수집이나 비즈 앱 전환은 필요 없어요. 로컬 실계정 시험은 운영 앱에 localhost를 더하지 말고 별도 개발용 앱을 만드는 것을 권해요. 그 앱에 `http://localhost:<포트>/auth/callback/`를 등록해요. 로컬 `wrangler dev`를 쓰면 `sync-worker/.dev.vars`(저장소 제외)에 `ALLOWED_ORIGINS=http://localhost:<포트>`, `SOCIAL_REDIRECT_URIS=http://localhost:<포트>/auth/callback/`과 개발용 앱의 키·시크릿·`ALLOWED_ACCOUNTS`를 넣어요(`.dev.vars.example` 참고). 포트는 앱 개발 서버에 맞추고, 콜백 주소는 끝 슬래시까지 등록한 값과 같아야 해요. 앱 `.env.local`의 `VITE_SYNC_API_URL`은 그 Worker 주소로, `VITE_KAKAO_LOGIN_CLIENT_ID`·`VITE_NAVER_LOGIN_CLIENT_ID`는 개발용 앱 값으로 둬요. 운영 `wrangler.toml`에는 localhost를 넣지 않아요. 공유는 JavaScript 키, 로그인은 REST API 키와 시크릿을 써요.
 2. [네이버 개발자센터](https://developers.naver.com/apps/)에서 애플리케이션을 등록하고 사용 API로 **네이버 로그인**을 골라요. PC 웹·모바일 웹의 서비스 URL 출처는 `https://gazua.sch0718.dev`, Callback URL은 `https://gazua.sch0718.dev/auth/callback/`로 등록해요(끝 슬래시 포함). Client ID와 Client Secret을 확인해요. 「개발 중」 상태에서는 멤버관리에 로그인할 네이버 아이디를 테스터로 등록해요. 등록한 본인 아이디는 바로 돼요. **OIDC의 `/oauth2/*` 경로 사용에 별도 앱 설정이 필요한지는 실앱 확인이 남아 있어요.** 기존 네이버 로그인 설정만으로 된다고 단정하지 않아요([실연결 점검 ㉙](../docs/live-check.md)).
 3. **Worker 배포·비밀값 입력보다 먼저** 원격 D1에 `0002_social_sessions`를 적용해요. 이미 `0001_init`이 적용된 운영 DB에서는 아직 적용되지 않은 `0002`만 적용돼요. 마이그레이션 명령은 미적용 파일을 순서대로 적용해요.
 
@@ -164,12 +164,14 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
    corepack pnpm --filter sync-worker exec wrangler secret put NAVER_CLIENT_ID
    corepack pnpm --filter sync-worker exec wrangler secret put NAVER_CLIENT_SECRET
    corepack pnpm --filter sync-worker exec wrangler secret put ALLOWED_ACCOUNTS
-   corepack pnpm --filter sync-worker deploy
+   corepack pnpm --filter sync-worker run deploy
    ```
 
 5. GitHub 저장소 Settings › Secrets and variables › Actions › **Variables**에 `VITE_SYNC_API_URL`과 `VITE_KAKAO_LOGIN_CLIENT_ID`(REST API 키)·`VITE_NAVER_LOGIN_CLIENT_ID`(Client ID)를 넣어요. client id는 공개 값이고 **시크릿은 앱에 넣지 않아요.** 값이 있는 공급자만 단추가 보여요. 개발 전용 `VITE_SOCIAL_DEV_MOCK`는 넣지 않아요. Actions에서 **Deploy to GitHub Pages › Run workflow**로 앱을 다시 배포해요.
 6. 앱의 설정 › 동기화·공유에서 카카오·네이버 로그인을 해요. 첫 로그인에서 403 허용 목록 안내가 나오면 「아직 허용 목록에 없어요」 화면의 「계정 값 복사」 단추로 `kakao:…`·`naver:…` 값을 복사해요. `corepack pnpm --filter sync-worker exec wrangler secret put ALLOWED_ACCOUNTS`를 다시 실행해 콤마로 구분해 입력해요(지어낸 예: `kakao:123,naver:AbC`). **대소문자를 그대로 보존해요.** 비밀값 갱신 뒤 별도 재배포 없이 다시 로그인하면 돼요. 이메일은 허용 목록에 넣지 않아요. 공급자 계정 사이에 데이터는 이어지지 않아요.
 7. [실연결 점검 ㉙](../docs/live-check.md)에서 공급자 API와 실제 기기 동작을 확인해요. 가짜 공급자 시험만으로 실앱 확인을 대신하지 않아요.
+
+로그아웃 뒤 처음 카카오 로그인은 [카카오계정 로그인 화면](https://developers.kakao.com/docs/ko/kakaologin/rest-api#request-code)을 다시 띄워요(`prompt=login`, 카카오톡 인앱 브라우저에서는 공식 문서상 지원하지 않아 보내지 않아요). 네이버는 재인증 화면을 강제로 띄우지 못해 이전 계정으로 바로 로그인될 수 있어요. 공용 기기라면 카카오·네이버에서도 로그아웃하세요.
 
 `/v1/session/social`에는 아직 요청 횟수 제한이 없어요. 필요하면 Cloudflare Rate Limiting을 더할 수 있어요.
 

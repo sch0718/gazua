@@ -5,10 +5,11 @@ import { callbackPath, SOCIAL_RETURN_KEY, SOCIAL_RETURN_TTL, type SocialReturn }
 const validHash = (hash: unknown): hash is string => typeof hash === 'string' && /^#\/[A-Za-z0-9/_%.-]*$/.test(hash) && !hash.startsWith('#/s/');
 
 export async function startSocialSignIn(provider: SocialProvider, o: {
-  clientId: string; apiUrl: string; label: string; returnHash: string; storage?: Storage;
+  clientId: string; apiUrl: string; label: string; returnHash: string; storage?: Storage; reauth?: boolean; userAgent?: string;
   navigate?: (url: string) => void; now?: () => number; random?: (n: number) => Uint8Array; origin?: string; base?: string;
 }): Promise<void> {
   const storage = o.storage ?? localStorage;
+  const userAgent = o.userAgent ?? globalThis.navigator?.userAgent ?? '';
   storage.setItem(SOCIAL_RETURN_KEY, JSON.stringify({ hash: validHash(o.returnHash) ? o.returnHash : '#/settings', label: o.label, createdAt: (o.now ?? Date.now)() }));
   let navigate = o.navigate;
   if (import.meta.env.DEV && import.meta.env.VITE_SOCIAL_DEV_MOCK === 'true') {
@@ -17,7 +18,7 @@ export async function startSocialSignIn(provider: SocialProvider, o: {
       navigate = (url) => location.assign(devAuthorizeUrl(url, o.apiUrl));
     }
   }
-  await beginSocialSignIn(provider, { clientId: o.clientId, redirectUri: (o.origin ?? location.origin) + callbackPath(o.base), storage, navigate, now: o.now, random: o.random });
+  await beginSocialSignIn(provider, { clientId: o.clientId, redirectUri: (o.origin ?? location.origin) + callbackPath(o.base), storage, navigate, now: o.now, random: o.random, ...(provider === 'kakao' && o.reauth && !/KAKAOTALK/i.test(userAgent) && { prompt: 'login' }) });
 }
 
 export function takeSocialCallback(o: {

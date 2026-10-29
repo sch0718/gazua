@@ -54,7 +54,7 @@ export interface SyncController {
   /** createApp의 onSyncableChange에 넘긴다. */
   onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
   signIn(label?: string): Promise<void>;
-  signInWith(provider: SocialProvider, label?: string, returnHash?: string): Promise<void>;
+  signInWith(provider: SocialProvider, label?: string, returnHash?: string, opts?: { reauth?: boolean }): Promise<void>;
   completeSocialSignIn(ret: SocialReturn): Promise<SocialOutcome>;
   signOut(): Promise<void>;
   preview(): Promise<{ upload: string[]; download: number } | null>;
@@ -99,6 +99,8 @@ type SessionMeta = { id: string; email: string; provider?: SocialProvider; accou
 const OWNER_KEY = 'owner';
 /** 리다이렉트 로그인을 시작했다. 있을 때만 시작 시 결과를 읽는다(그 밖에는 Firebase를 불러오지 않는다). */
 const REDIRECT_KEY = 'redirect-pending';
+// 로그아웃 뒤 재인증 요청은 로그인 성공까지 남긴다.
+const SOCIAL_REAUTH_KEY = 'social-reauth';
 
 function webLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks = (globalThis.navigator as Navigator | undefined)?.locks;
@@ -124,6 +126,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   let store: SyncStore | null = null;
   let engine: SyncEngine | null = null;
   let session: SessionMeta | null = null;
+  let socialReauth = false;
   let didAttach!: () => void;
   const attached = new Promise<void>((resolve) => didAttach = resolve);
   let lastFocusPull = 0;
@@ -136,6 +139,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       )
     : null;
   const cleanups: (() => void)[] = [];
+
+  async function clearSocialReauth() {
+    socialReauth = false;
+    await store?.deleteMeta(SOCIAL_REAUTH_KEY);
+  }
 
   async function forget(message: string | null) {
     const mine = session?.id;
@@ -174,6 +182,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     session = { id: r.data.sessionId, email: user.email ?? '' };
     await store!.setMeta(SESSION_KEY, session);
     account = { provider: 'google', id: session.email, display: session.email };
+    await clearSocialReauth();
     error = null;
     if (engine?.status().enabled) await engine.syncNow();
   }
@@ -297,7 +306,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         await startSession(r.user, r.idToken, label?.trim() || (deps.deviceLabel ?? defaultLabel)());
       }, undefined),
 
-    signInWith: (provider, label, returnHash) =>
+    signInWith: (provider, label, returnHash, opts) =>
       guarded(async () => {
         if (!config || !providers[provider]) {
           error = `이 빌드에는 ${PROVIDER_NAMES[provider]} 로그인이 설정되지 않았어요.`;
@@ -310,6 +319,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
             clientId: config.social![provider]!.clientId, apiUrl: config.apiUrl,
             label: label?.trim() ?? '', returnHash: returnHash ?? (globalThis.location?.hash || '#/settings'),
             storage: deps.socialStorage, navigate: deps.navigate, random: deps.random, origin: deps.origin, now,
+            reauth: opts?.reauth || socialReauth || (await store?.getMeta<boolean>(SOCIAL_REAUTH_KEY)) === true,
           });
         } catch {
           error = '이 브라우저에서는 로그인을 시작할 수 없어요. 저장소를 쓸 수 없어요(사생활 보호 모드 등). 다른 브라우저로 열어 주세요.';
@@ -347,6 +357,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         session = { id: r.data.sessionId, email: '', provider: cb.provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
         await store!.setMeta(SESSION_KEY, session);
         account = { provider: cb.provider, id: user.sub, display: session.display! };
+        await clearSocialReauth();
         error = null;
         if (engine?.status().enabled) await engine.syncNow();
         return { ok: true, provider: cb.provider };
@@ -355,9 +366,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
     signOut: () =>
       guarded(async () => {
+        socialReauth = true;
         const social = !!session?.provider;
         if (session && api) await api.endSession(); // 실패해도 이 기기에서는 로그아웃한다
         await forget(null);
+        await store?.setMeta(SOCIAL_REAUTH_KEY, true);
         if (!social) await auth?.signOut();
       }, undefined),
 

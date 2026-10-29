@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import { SvelteMap } from 'svelte/reactivity';
+import { tick } from 'svelte';
 import type { SyncController } from '../../sync/controller.svelte';
 import type { SocialOutcome, SocialReturn } from '../../sync/social';
 import SocialCallback from './SocialCallback.svelte';
@@ -17,7 +18,7 @@ function fakeSync(outcome: SocialOutcome) {
   } as unknown as SyncController;
 }
 
-afterEach(() => dismissSnackbar());
+afterEach(() => { dismissSnackbar(); vi.useRealTimers(); });
 
 describe('소셜 로그인 콜백 화면', () => {
   it('처리 중 공급자를 알리고 성공하면 원래 화면으로 돌아간다', async () => {
@@ -30,6 +31,41 @@ describe('소셜 로그인 콜백 화면', () => {
     expect(currentSnackbar()?.message).toBe('카카오 계정으로 로그인했어요');
   });
 
+  it('처리가 오래 걸리면 돌아갈 수 있다', async () => {
+    vi.useFakeTimers();
+    const sync = fakeSync({ ok: true, provider: 'kakao' });
+    sync.completeSocialSignIn = vi.fn(() => new Promise<SocialOutcome>(() => {}));
+    const ondone = vi.fn();
+    const view = render(SocialCallback, { sync, ret: RET, ondone, escapeAfter: 100 });
+    try {
+      expect(screen.queryByRole('button', { name: '돌아가기' })).toBeNull();
+      await vi.advanceTimersByTimeAsync(99);
+      expect(screen.queryByRole('button', { name: '돌아가기' })).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      await tick();
+      expect(screen.getByText('시간이 걸리고 있어요. 돌아가서 다시 시도할 수 있어요.')).toBeTruthy();
+      await fireEvent.click(screen.getByRole('button', { name: '돌아가기' }));
+      expect(ondone).toHaveBeenCalledWith('#/settings');
+    } finally { view.unmount(); }
+  });
+
+  it('돌아간 뒤 늦은 결과는 무시하고 타이머를 남기지 않는다', async () => {
+    vi.useFakeTimers();
+    const sync = fakeSync({ ok: true, provider: 'kakao' });
+    let resolve!: (result: SocialOutcome) => void;
+    sync.completeSocialSignIn = vi.fn(() => new Promise<SocialOutcome>((done) => { resolve = done; }));
+    const ondone = vi.fn();
+    const before = vi.getTimerCount();
+    const view = render(SocialCallback, { sync, ret: RET, ondone });
+    expect(vi.getTimerCount()).toBe(before + 1);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(before);
+    resolve({ ok: true, provider: 'kakao' });
+    await tick();
+    expect(ondone).not.toHaveBeenCalled();
+    expect(currentSnackbar()).toBeNull();
+  });
+
   it('허용 목록 밖 계정 값을 보여 주고 복사한다', async () => {
     const copy = vi.fn(async () => {});
     render(SocialCallback, { sync: fakeSync({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:123' }), ret: RET, ondone: vi.fn(), copy });
@@ -38,6 +74,13 @@ describe('소셜 로그인 콜백 화면', () => {
     await fireEvent.click(screen.getByRole('button', { name: '계정 값 복사' }));
     expect(copy).toHaveBeenCalledWith('kakao:123');
     await screen.findByText('복사했어요');
+  });
+
+  it('허용 목록 밖에서는 다른 계정으로 재인증을 요청한다', async () => {
+    const sync = fakeSync({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:123' });
+    render(SocialCallback, { sync, ret: RET, ondone: vi.fn() });
+    await fireEvent.click(await screen.findByRole('button', { name: '다른 계정으로 로그인' }));
+    expect(sync.signInWith).toHaveBeenCalledWith('kakao', '내 폰', '#/settings', { reauth: true });
   });
 
   it('복사하지 못하면 계정 값을 선택하고 직접 복사하도록 알린다', async () => {

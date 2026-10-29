@@ -10,10 +10,12 @@
 
   let { app, sync, userAgent = navigator.userAgent }: { app: App; sync: SyncController; userAgent?: string } = $props();
 
-  const providerNames = $derived((['google', 'kakao', 'naver'] as LoginProvider[]).filter((p) => sync.providers[p]).map((p) => PROVIDER_NAMES[p]).join('·'));
+  const enabledProviders = $derived((['google', 'kakao', 'naver'] as LoginProvider[]).filter((p) => sync.providers[p]));
+  const providerNames = $derived(enabledProviders.map((p) => PROVIDER_NAMES[p]).join('·'));
 
   const uid = Math.random().toString(36).slice(2, 8);
   let label = $state('');
+  let showLogoutHint = $state(false);
   let confirm = $state<{ upload: string[]; download: number } | null>(null);
 
   const status = $derived(sync.status);
@@ -41,6 +43,11 @@
     confirm = null;
     await sync.setEnabled(true);
   }
+  async function signOut() {
+    const social = sync.account?.provider === 'kakao' || sync.account?.provider === 'naver';
+    await sync.signOut();
+    showLogoutHint = social;
+  }
   const resolve = (c: Conflict, choice: Resolution) => sync.resolve(c.profileId, choice);
 </script>
 
@@ -57,7 +64,7 @@
       <div class="text">
         <b>여러 기기에서 같은 프로필 쓰기</b>
         <p>
-          {#if providerNames}{providerNames} 중 쓸 수 있는 계정으로 로그인하면 그룹·전략·선정 기준·묶음·분석 설정(기간·지표·벤치마크·색·정렬)을 기기끼리 맞춰요.{/if}
+          {#if providerNames}{enabledProviders.length === 1 ? `본인 ${providerNames} 계정으로` : `${providerNames} 중 쓸 수 있는 계정으로`} 로그인하면 그룹·전략·선정 기준·묶음·분석 설정(기간·지표·벤치마크·색·정렬)을 기기끼리 맞춰요.{/if}
           키·계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요. 올린 데이터는 암호화하지 않은 채 서버(Cloudflare)에 저장돼요.
         </p>
       </div>
@@ -77,6 +84,9 @@
       {#if !providerNames}
         <p class="warn">이 빌드에는 로그인 방법이 설정되지 않았어요</p>
       {/if}
+      {#if showLogoutHint}
+        <p class="warn" role="status">공용 기기라면 카카오·네이버에서도 로그아웃하세요.</p>
+      {/if}
       {#if sync.providers.google && isInAppBrowser(userAgent)}
         <p class="warn">카카오톡·네이버 앱 안의 브라우저에서는 Google 로그인이 막혀요. {sync.providers.kakao ? '카카오로 로그인을 쓰거나 ' : ''}오른쪽 위 메뉴에서 다른 브라우저로 열어 주세요.</p>
       {/if}
@@ -90,7 +100,7 @@
           <small class="muted">{sync.account.id}</small>
         {/if}
       </div>
-      <button type="button" class="btn" disabled={sync.busy} onclick={() => sync.signOut()}>로그아웃</button>
+      <button type="button" class="btn" disabled={sync.busy} onclick={signOut}>로그아웃</button>
     </div>
     <div class="row">
       <div class="text">

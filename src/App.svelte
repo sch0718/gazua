@@ -26,11 +26,12 @@
   import { createSyncApi } from './lib/sync/api';
   import { readSyncConfig } from './lib/sync/config';
   import { createSyncController } from './lib/sync/controller.svelte';
-  import type { SocialReturn } from './lib/sync/social';
+  import { restoreReferrerPolicy, type SocialReturn } from './lib/sync/social';
 
   let { socialReturn = null }: { socialReturn?: SocialReturn | null } = $props();
   let pendingSocial = $state(untrack(() => socialReturn));
   function socialDone(hash: string) {
+    restoreReferrerPolicy();
     history.replaceState(history.state, '', import.meta.env.BASE_URL + hash);
     pendingSocial = null;
     window.dispatchEvent(new HashChangeEvent('hashchange'));

@@ -328,6 +328,81 @@ describe('카카오·네이버 로그인', () => {
     expect(a.navigate).toHaveBeenCalledOnce();
   });
 
+  it('로그아웃한 적 없으면 카카오 재인증을 요청하지 않는다', async () => {
+    const a = await socialSetup(testServer({ social: true }));
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.has('prompt')).toBe(false);
+  });
+
+  it('로그아웃 뒤에는 취소해도 카카오 재인증을 계속 요청하고 성공하면 지운다', async () => {
+    const a = await socialSetup(testServer({ social: true }));
+    await a.sync.completeSocialSignIn(await a.callback());
+    await a.sync.signOut();
+    const cancelled = await a.callback('kakao', 'kakao-me', 'error=access_denied');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+    expect(await a.sync.completeSocialSignIn(cancelled)).toMatchObject({ reason: 'cancelled' });
+    const ret = await a.callback();
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+    expect(await a.sync.completeSocialSignIn(ret)).toMatchObject({ ok: true });
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.has('prompt')).toBe(false);
+  });
+
+  it('로그아웃하지 않아도 명시한 재인증을 요청한다', async () => {
+    const a = await socialSetup(testServer({ social: true }));
+    await a.sync.signInWith('kakao', '내 폰', '#/settings', { reauth: true });
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
+  it('같은 저장소로 컨트롤러를 다시 만들어도 재인증 요청이 남는다', async () => {
+    const s = testServer({ social: true });
+    const a = await socialSetup(s);
+    await a.sync.completeSocialSignIn(await a.callback());
+    await a.sync.signOut();
+    const b = await socialSetup(s, { store: a.store });
+    await b.sync.signInWith('kakao');
+    expect(new URL(b.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
+  it.each([false, true])('Google 로그아웃이 실패해도 카카오 재인증을 요청한다 (컨트롤러 재생성: %s)', async (recreate) => {
+    const s = testServer({ social: true });
+    const auth = fakeAuth(s);
+    const a = await socialSetup(s, { auth });
+    await a.sync.signIn();
+    expect(a.sync.account?.provider).toBe('google');
+    auth.signOut = vi.fn(async () => { throw new Error('Google 로그아웃 실패'); });
+    await a.sync.signOut();
+    expect(auth.signOut).toHaveBeenCalledOnce();
+    expect(a.sync.account).toBeNull();
+    const next = recreate ? await socialSetup(s, { store: a.store }) : a;
+    await next.sync.signInWith('kakao');
+    expect(new URL(next.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
+  it('Google 로그인이 성공해도 로그아웃 뒤 재인증 요청을 지운다', async () => {
+    const s = testServer({ social: true });
+    const a = await socialSetup(s, { auth: fakeAuth(s) });
+    await a.sync.signOut();
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+    await a.sync.signIn();
+    expect(a.sync.account?.provider).toBe('google');
+    await a.sync.signInWith('kakao');
+    expect(new URL(a.navigate.mock.lastCall![0]).searchParams.has('prompt')).toBe(false);
+    const b = await socialSetup(s, { store: a.store, auth: a.auth });
+    await b.sync.signInWith('kakao');
+    expect(new URL(b.navigate.mock.lastCall![0]).searchParams.has('prompt')).toBe(false);
+  });
+
+  it('동기화 저장소가 없어도 메모리로 로그아웃 뒤 재인증을 기억한다', async () => {
+    const navigate = vi.fn();
+    const sync = createSyncController({ config: { ...socialConfig, firebase: null }, storage: createSafeStorage(memoryBacking()), socialStorage: memoryBacking(), navigate, origin: 'https://app.example.test' });
+    cleanups.push(() => sync.destroy());
+    await sync.signOut();
+    await sync.signInWith('kakao');
+    expect(new URL(navigate.mock.lastCall![0]).searchParams.get('prompt')).toBe('login');
+  });
+
   it('카카오 로그인·동기화·복원·기기 목록·로그아웃은 Firebase 없이 세션만 쓴다', async () => {
     const s = testServer({ social: true });
     const a = await socialSetup(s);

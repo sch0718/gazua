@@ -11,15 +11,18 @@
     ret,
     ondone,
     copy = (text: string) => navigator.clipboard.writeText(text),
+    escapeAfter = 10_000,
   }: {
     sync: SyncController;
     ret: SocialReturn;
     ondone: (hash: string) => void;
     copy?: (text: string) => Promise<void>;
+    escapeAfter?: number;
   } = $props();
 
   let outcome = $state<SocialOutcome | null>(null);
   let copied = $state('');
+  let canEscape = $state(false);
   let accountCode = $state<HTMLElement | undefined>(undefined);
   const providerName = $derived(ret.callback ? PROVIDER_NAMES[ret.callback.provider] : '카카오·네이버');
   const failure = $derived(outcome && !outcome.ok ? outcome : null);
@@ -27,6 +30,7 @@
 
   onMount(() => {
     let alive = true;
+    const timer = setTimeout(() => { canEscape = true; }, escapeAfter);
     void sync.completeSocialSignIn(ret).then((result) => {
       if (!alive) return;
       if (result.ok) {
@@ -34,11 +38,13 @@
         ondone(ret.returnHash);
       } else outcome = result;
     });
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(timer); };
   });
 
   async function retryLogin() {
-    if (failure?.provider) await sync.signInWith(failure.provider, ret.label, ret.returnHash);
+    if (!failure?.provider) return;
+    if (failure.reason === 'not-allowed') await sync.signInWith(failure.provider, ret.label, ret.returnHash, { reauth: true });
+    else await sync.signInWith(failure.provider, ret.label, ret.returnHash);
   }
 
   async function copyAccount() {
@@ -74,12 +80,16 @@
       {#if sync.error}<p role="alert">{sync.error}</p>{/if}
       <div class="actions">
         {#if failure.provider && sync.providers[failure.provider]}
-          <button type="button" class="btn primary" disabled={sync.busy} onclick={retryLogin}>다시 로그인</button>
+          <button type="button" class="btn primary" disabled={sync.busy} onclick={retryLogin}>{failure.reason === 'not-allowed' ? '다른 계정으로 로그인' : '다시 로그인'}</button>
         {/if}
         <button type="button" class="btn" onclick={() => ondone(ret.returnHash)}>돌아가기</button>
       </div>
     {:else}
       <p role="status">{providerName}로 로그인하는 중…</p>
+      {#if canEscape}
+        <p>시간이 걸리고 있어요. 돌아가서 다시 시도할 수 있어요.</p>
+        <button type="button" class="btn" onclick={() => ondone(ret.returnHash)}>돌아가기</button>
+      {/if}
     {/if}
   </div>
 </main>
