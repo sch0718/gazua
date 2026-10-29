@@ -27,7 +27,8 @@ describe('개발용 가짜 소셜 진입점', () => {
     const { params } = await authorization('kakao', '\"><script>위험</script>&\'');
     const r = await entry.fetch(new Request(`${BASE}/__dev/social/kakao/authorize?${params}`), env());
     expect(r.status).toBe(200);
-    expect(r.headers.get('Content-Security-Policy')).toBe("default-src 'none'; style-src 'unsafe-inline'; form-action 'self'");
+    // 승인 뒤 콜백으로 가는 리다이렉트도 form-action 검사를 받는다(Chromium에서 확인). 검사한 콜백 출처만 허용한다.
+    expect(r.headers.get('Content-Security-Policy')).toBe("default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://app.example.test");
     expect(r.headers.get('Referrer-Policy')).toBe('no-referrer');
     expect(r.headers.get('Cache-Control')).toBe('no-store');
     const html = await r.text();

@@ -22,6 +22,8 @@ const headers = {
   'Referrer-Policy': 'no-referrer',
   'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
 };
+// 브라우저는 폼 제출 뒤 리다이렉트 대상에도 form-action을 적용한다. 검사한 콜백 출처만 더한다.
+const pageHeaders = (redirectUri: string) => ({ ...headers, 'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${new URL(redirectUri).origin}` });
 const badRequest = () => new Response('클라이언트 ID나 콜백 주소를 확인해 주세요.', { status: 400, headers: { ...headers, 'Content-Type': 'text/plain; charset=utf-8' } });
 
 function validate(provider: SocialProvider, params: URLSearchParams, env: SyncEnv) {
@@ -42,7 +44,7 @@ function authorizePage(provider: SocialProvider, params: URLSearchParams) {
   const title = `가짜 ${provider === 'kakao' ? '카카오' : '네이버'} 로그인(개발용)`;
   const hidden = [...params].filter(([key]) => key !== 'sub' && key !== 'action').map(([key, value]) => `<input type="hidden" name="${escape(key)}" value="${escape(value)}">`).join('');
   const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)}</title><style>body{font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:1rem;line-height:1.7}input,button{font:inherit;padding:.5rem}label{display:block}button{margin:.8rem .4rem 0 0}</style></head><body><h1>${escape(title)}</h1><p>실제 계정으로 로그인하지 않는 개발용 가짜 화면이에요. 운영에 배포하면 안 돼요.</p><form method="get" action="/__dev/social/${escape(provider)}/approve">${hidden}<label>테스트 계정 ID <input type="text" name="sub" value="dev-user" required></label><p>특수 값: error-503(공급자 장애), error-code(코드 오류), no-id-token(토큰 없음). ALLOWED_ACCOUNTS에 없는 ID는 403 화면을 보여 줘요.</p><button type="submit" name="action" value="login">로그인</button><button type="submit" name="action" value="cancel" formnovalidate>취소</button></form></body></html>`;
-  return new Response(html, { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' } });
+  return new Response(html, { headers: { ...pageHeaders(params.get('redirect_uri')!), 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 export default {
