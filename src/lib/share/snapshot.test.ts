@@ -170,6 +170,27 @@ describe('검사 모드·종목 코드·제목 길이', () => {
     if (r.ok && r.snapshot.kind === 'strategy') expect(r.snapshot.strategy.costs).toEqual(s.strategy.costs);
   });
 
+  it('선정 기준도 read 모드는 빠진 비용을 기본값으로 채우고, create는 거절한다', () => {
+    const { criteria, basket, strategy } = allIds();
+    const s = criteriaSnapshot(criteria, { baskets: [basket], strategies: [strategy] }, { hideCapital: false, now: NOW });
+    const old = structuredClone(s) as unknown as { criteria: Record<string, unknown> };
+    delete old.criteria.costs;
+    const r = checkShareSnapshot(old, 'criteria', NOW, 'read');
+    expect(r.ok).toBe(true);
+    if (r.ok && r.snapshot.kind === 'criteria') expect(r.snapshot.criteria.costs).toEqual(newCriteria(NOW, null).costs);
+    expect(checkShareSnapshot(old, 'criteria', NOW, 'create')).toMatchObject({ ok: false, code: 'invalid', path: 'criteria.costs' });
+  });
+
+  it('묶음 이름의 이모지 30개는 read에서 받고, UTF-16 길이를 넘는 create는 거절한다', () => {
+    const { criteria, basket, strategy } = allIds();
+    const s = criteriaSnapshot(criteria, { baskets: [basket], strategies: [strategy] }, { hideCapital: false, now: NOW });
+    s.baskets[0].name = '😀'.repeat(30);
+    expect(s.baskets[0].name.length).toBeGreaterThan(30);
+    expect([...s.baskets[0].name]).toHaveLength(30);
+    expect(checkShareSnapshot(s, 'criteria', NOW, 'read')).toEqual({ ok: true, snapshot: s });
+    expect(checkShareSnapshot(s, 'criteria', NOW, 'create')).toMatchObject({ ok: false, code: 'invalid', path: 'baskets[0]' });
+  });
+
   it('모르는 키는 두 모드 모두 unknown-field, 모르는 kind는 unsupported', () => {
     const s = st();
     const extra = { ...s, strategy: { ...s.strategy, surprise: 1 } };
@@ -218,6 +239,20 @@ describe('비교 화면 스냅샷', () => {
     expect(s).toEqual({ kind: 'compare', v: 1, title: '반도체', symbols: ['005930', 'Q500023'], view: { period: { unit: 'M', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' } });
     expect(JSON.stringify(s)).not.toContain(group.id);
     expect(checkShareSnapshot(s, 'compare', NOW)).toEqual({ ok: true, snapshot: s });
+  });
+
+  it.each(['view', 'symbols'] as const)('%s가 빠지면 invalid', (key) => {
+    const s = compareSnapshot(group, { ...settings, period: { ...settings.period } });
+    const missing: Partial<typeof s> = structuredClone(s);
+    delete missing[key];
+    expect(checkShareSnapshot(missing, 'compare', NOW)).toMatchObject({ ok: false, code: 'invalid', path: key });
+  });
+
+  it.each(['period', 'metric', 'benchmark', 'boardOrder'] as const)('view.%s가 빠지면 invalid', (key) => {
+    const s = compareSnapshot(group, { ...settings, period: { ...settings.period } });
+    const view: Partial<typeof s.view> = { ...s.view };
+    delete view[key];
+    expect(checkShareSnapshot({ ...s, view }, 'compare', NOW)).toMatchObject({ ok: false, code: 'invalid', path: `view.${key}` });
   });
 
   it('종목은 1~10개, 보기 값은 동기화 DTO 규칙으로 검사한다', () => {

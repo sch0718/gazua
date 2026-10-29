@@ -5,6 +5,7 @@
   import type { SyncController } from '../sync/controller.svelte';
   import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
   import type { ShareRequest } from './shareStore.svelte';
+  import { SHARE_KIND_LABEL as KIND } from './kinds';
   import type { UniverseItem } from '../data/universe';
   import { sharedUniverse } from '../../sheets/universeSource';
   import { snapshotLines, symbolNames, type SymbolNames } from './shareText';
@@ -52,7 +53,6 @@
   let link = $state<{ url: string; expiresAt: number; snapshot: ShareSnapshot } | null>(null);
   let failed = $state<string | null>(null);
 
-  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준', compare: '비교 화면', simResult: '시뮬레이션 결과', validation: '선정 기준 검증' } as const;
   const snapshot = $derived<ShareSnapshot | null>(request ? request.build(hideCapital) : null);
   const ttlValid = $derived(Number.isInteger(ttl) && ttl >= 1 && ttl <= SHARE_TTL_MAX_DAYS);
 

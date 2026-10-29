@@ -4,6 +4,7 @@
   import type { App } from '../../state/app.svelte';
   import type { DeviceSession, IndexRow, ShareRow } from '../../sync/api';
   import type { SyncController } from '../../sync/controller.svelte';
+  import { SHARE_KIND_LABEL as KIND } from '../../share/kinds';
   import { showSnackbar } from '@sch0718/ui-svelte';
 
   let { app, sync, confirmFn = (m: string) => window.confirm(m) }: { app: App; sync: SyncController; confirmFn?: (m: string) => boolean } = $props();
@@ -14,7 +15,6 @@
   let shares = $state<ShareRow[] | null>(null);
 
   const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const KIND = { group: '그룹', strategy: '전략', criteria: '선정 기준', compare: '비교 화면', simResult: '시뮬레이션 결과', validation: '선정 기준 검증' } as const;
   const nowMs = () => Date.now();
 
   const loadDevices = async () => (devices = await sync.sessions());
