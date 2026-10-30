@@ -1,4 +1,35 @@
 // @vitest-environment jsdom
+import { beforeEach, afterEach } from 'vitest';
+import { fireEvent, within } from '@testing-library/svelte';
+import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { compareSnapshot } from '../lib/share/compact';
+import { clearImport, IMPORT_KEY } from '../lib/share/pendingImport';
+import type { ShareSnapshot } from '../lib/share/snapshot';
+import { expectNoAxeViolations } from '../lib/share/testAxe';
+import { NOW, simResultFixture, validationFixture } from '../lib/share/testFixtures';
+
+vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  resetLwcStub();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearImport();
+});
+
+const dataOf = (snapshot: unknown, kind = (snapshot as { kind: string }).kind): SharedRead =>
+  ({ kind, title: (snapshot as { title: string }).title, snapshot, createdAt: NOW, expiresAt: NOW + 7 * 864e5 }) as SharedRead;
+const readOf = (snapshot: unknown, kind?: string) => vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: dataOf(snapshot, kind) }));
+const names = vi.fn(async () => [
+  { s: '005930', n: '삼성전자', m: 'KOSPI', t: 'STOCK' as const },
+  { s: '000660', n: 'SK하이닉스', m: 'KOSPI', t: 'STOCK' as const },
+]);
+const cmp = compareSnapshot(
+  { id: 'g', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] },
+  { period: { unit: 'M', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' },
+);
+
 import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { ApiResult, SharedRead } from '../lib/sync/api';
@@ -69,3 +100,94 @@ describe('SharedView', () => {
   });
 });
 
+
+describe('SharedView 새 종류', () => {
+  const show = (snapshot: unknown, o: Record<string, unknown> = {}) =>
+    render(SharedView, { capability: CAP, read: readOf(snapshot), onexit: vi.fn(), universe: names, ...o });
+
+  it('비교 화면: 요약 줄과 가져오면 볼 수 있다는 안내, 규칙 원문은 없다', async () => {
+    show(cmp);
+    expect(await screen.findByText('보기: 기간 1개월 · 지표 등락률 · 벤치마크 자동 · 정렬 값 순')).toBeTruthy();
+    expect(screen.getByText('가져오면 내 연결이나 데모로 같은 화면을 볼 수 있어요')).toBeTruthy();
+    expect(screen.getByText(/비교 화면 · .*까지 볼 수 있어요/)).toBeTruthy();
+    expect(screen.queryByText('규칙 전체 보기')).toBeNull();
+  });
+
+  it('시뮬레이션 결과: 머리줄·요약 카드·거래 줄(종목 이름)·규칙 원문(결과 없음)', async () => {
+    show(simResultFixture());
+    expect(await screen.findByText(/^2024\.01\.02 ~ 2024\.01\.12 · KRX 일봉 · \d{4}\.\d{2}\.\d{2} \d{2}:\d{2} 받음$/)).toBeTruthy();
+    expect(screen.getByRole('list', { name: '요약' }).textContent).toContain('총수익률');
+    await waitFor(() => expect(screen.getAllByText('삼성전자').length).toBeGreaterThan(0));
+    const rules = screen.getByText('규칙 전체 보기').closest('details')!;
+    expect(rules.textContent).toContain('"strategy"');
+    expect(rules.textContent).not.toContain('"axis"');
+    expect(rules.textContent).not.toContain('"result"');
+    expect(lwcCharts.length).toBeGreaterThan(0);
+  });
+
+  it('자금 숨김: 배지와 가격만 보이는 거래 줄, 종목별은 자금 대비 %', async () => {
+    show(simResultFixture({ capitalHidden: true }));
+    expect(await screen.findByText('초기 자금 비공개')).toBeTruthy();
+    expect(screen.getByText('70,000원')).toBeTruthy();
+    expect(screen.queryByText(/14주/)).toBeNull();
+  });
+
+  it('건너뜀 목록이 없는 결과는 개수로 탭 이름을 단다', async () => {
+    const s = simResultFixture();
+    s.result.skipped.rows = null;
+    show(s);
+    expect(await screen.findByRole('radio', { name: '건너뛴 신호 3' })).toBeTruthy();
+  });
+
+  it('솎은 곡선은 안내를 적는다', async () => {
+    const s = simResultFixture();
+    s.result.sampled = { from: 900 };
+    show(s);
+    expect(await screen.findByText('곡선은 900점 중 5점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
+  });
+
+  it('검증 결과: 카드·오늘 선별·선정 이력', async () => {
+    show(validationFixture());
+    expect(await screen.findByRole('heading', { name: '오늘 기준 선별' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy();
+    expect(screen.getAllByText('① 선정만').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+  });
+
+  it('모르는 종류와 읽을 수 없는 공유를 나눠 안내한다', async () => {
+    render(SharedView, { capability: CAP, read: readOf({ kind: 'future', v: 1, title: '새 종류' }), onexit: () => {}, universe: names });
+    expect((await screen.findByRole('alert')).textContent).toBe('이 공유는 새 버전 앱에서 볼 수 있어요. 앱을 새로 고쳐 주세요.');
+    const broken = simResultFixture();
+    broken.result.trades[0][1] = 9;
+    render(SharedView, { capability: CAP, read: readOf(broken), onexit: () => {}, universe: names });
+    await waitFor(() => expect(screen.getAllByRole('alert').map((a) => a.textContent)).toContain('이 공유를 읽을 수 없어요. 보낸 사람에게 다시 만들어 달라고 해 주세요.'));
+  });
+
+  it('카카오톡 인앱이면 안내와 기본 브라우저 단추, iOS면 홈 화면 안내를 덧붙인다', async () => {
+    show(cmp, { ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) KAKAOTALK 10.8.0' });
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toContain('카카오톡 안에서 열었어요. 여기서 가져오면 이 카카오톡 브라우저에만 저장돼요.');
+    expect(note.textContent).toContain('홈 화면에 추가한 가즈아는 Safari와 저장소가 따로라');
+    expect(within(note).getByRole('button', { name: '기본 브라우저로 열기' })).toBeTruthy();
+  });
+
+  it('내 앱에 가져오기: 대기 값을 넣고 onexit을 부른다(결과는 규칙만)', async () => {
+    const onexit = vi.fn();
+    show(simResultFixture(), { onexit });
+    await fireEvent.click(await screen.findByRole('button', { name: '내 앱에 가져오기' }));
+    expect(onexit).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse(sessionStorage.getItem(IMPORT_KEY)!);
+    expect(stored).toMatchObject({ from: 'simResult', snapshot: { kind: 'strategy', title: '눌림목' } });
+    expect(screen.getByText(/결과는 저장하지 않고 규칙만 가져와요/)).toBeTruthy();
+  });
+
+  it.each<[string, ShareSnapshot]>([
+    ['compare', cmp],
+    ['simResult', simResultFixture()],
+    ['validation', validationFixture()],
+  ])('%s: axe 위반이 없다', async (_k, snapshot) => {
+    const { container } = show(snapshot);
+    await screen.findByRole('button', { name: '내 앱에 가져오기' });
+    await expectNoAxeViolations(container);
+  });
+});

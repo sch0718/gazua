@@ -120,3 +120,7 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
     }
   }
 }
+
+/** 솎은 곡선 안내(설계 3.3) */
+export const sampledText = (sampled: { from: number }, kept: number): string =>
+  `곡선은 ${sampled.from}점 중 ${kept}점으로 줄였어요 · 수치는 전체 기간 기준이에요`;

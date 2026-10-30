@@ -112,6 +112,8 @@
       capability={route.capability}
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
       onexit={() => app.leaveShared()}
+      colorConvention={app.settings.colorConvention}
+      theme={app.settings.theme}
     />
   {:else if route.name === 'profiles'}
     <ProfilePicker {app} />
