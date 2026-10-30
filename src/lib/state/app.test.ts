@@ -1503,3 +1503,52 @@ describe('order cache (내 성과)', () => {
     expect(await a.stored.get('p1|toss|3')).toBeUndefined();
   });
 });
+
+describe('leaveShared', () => {
+  const SHARED = `#/s/${'a'.repeat(43)}`;
+
+  it('프로필이 여럿이면 프로필 선택으로 가고 공유 해시를 지운다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    location.hash = SHARED;
+    const app = make(backing);
+    expect(app.route.name).toBe('shared');
+    app.leaveShared();
+    expect(app.route.name).toBe('profiles');
+    expect(location.hash.startsWith('#/s/')).toBe(false);
+  });
+
+  it('잠금이면 잠금 해제로', async () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test', keyLock: true });
+    seed(backing, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    location.hash = SHARED;
+    const app = make(backing);
+    app.leaveShared();
+    expect(app.route.name).toBe('unlock');
+    expect(location.hash.startsWith('#/s/')).toBe(false);
+  });
+
+  it('첫 실행(onboarded false)이면 온보딩으로', () => {
+    const backing = memoryBacking();
+    location.hash = SHARED;
+    const app = make(backing);
+    app.leaveShared();
+    expect(app.route.name).toBe('onboarding');
+    expect(location.hash).toBe('#/onboarding');
+  });
+
+  it('관문·온보딩이 없으면 비교 화면으로', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    location.hash = SHARED;
+    const app = make(backing);
+    app.leaveShared();
+    expect(app.route).toEqual({ name: 'compare', groupId: 'g1' });
+    expect(location.hash).toBe('#/compare/g1');
+  });
+});

@@ -110,7 +110,7 @@
     <SharedView
       capability={route.capability}
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
-      onexit={() => app.navigate({ name: 'compare' })}
+      onexit={() => app.leaveShared()}
     />
   {:else if route.name === 'profiles'}
     <ProfilePicker {app} />

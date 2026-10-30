@@ -130,6 +130,11 @@ export interface App {
   removeSyncedProfile(id: string): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
   clearSecrets(): void;
+  /**
+   * 공유 읽기 화면(#/s/…)에서 앱으로 나간다. 공유 해시를 지우고 enter()와 같은 판단을 한다:
+   * 관문(프로필 선택·잠금 해제)이 있으면 관문, 없고 첫 실행이면 온보딩, 아니면 비교 화면(설계 1.5-11).
+   */
+  leaveShared(): void;
   navigate(r: Route): void;
   destroy(): void;
 }
@@ -442,6 +447,12 @@ export function createApp(deps: AppDeps): App {
     route = next;
     const hash = hashFor(next);
     if (hash && loc && loc.hash !== hash) loc.hash = hash;
+  }
+
+  function leaveShared() {
+    // 관문이 있으면 navigate가 관문 화면으로 두고 공유 해시를 지운다(관문을 마친 뒤 enter()가 온보딩까지 본다)
+    if (gate()) return navigate({ name: 'compare' });
+    navigate(settings.onboarded ? { name: 'compare' } : { name: 'onboarding' });
   }
 
   /** 시작·프로필 전환·잠금 해제 뒤 들어갈 화면. */
@@ -928,6 +939,7 @@ export function createApp(deps: AppDeps): App {
     },
 
     navigate,
+    leaveShared,
 
     destroy() {
       win?.removeEventListener('hashchange', onHashChange);
