@@ -22,8 +22,14 @@
     macro,
     flow,
     fin,
+    colorConvention,
+    sampledNote,
   }: {
-    app: App;
+    app: App | null;
+    /** 색 관례. 없으면 app 설정(받은 공유 화면은 보는 사람 설정을 넘긴다) */
+    colorConvention?: 'kr' | 'global';
+    /** 곡선을 솎은 공유의 안내 */
+    sampledNote?: string;
     result: ValidationResult;
     names: Record<string, string>;
     criteriaName: string;
@@ -37,6 +43,8 @@
     /** 이 실행의 재무 정렬 지표·흑자 조건(실행할 때의 기준). 선정 이력의 재무 값에 쓴다 */
     fin: FinRunSnap;
   } = $props();
+
+  const conv = $derived(colorConvention ?? app?.settings.colorConvention ?? 'kr');
 
   interface Card {
     id: string;
@@ -117,7 +125,7 @@
     <h3 id="eq-h">자산 곡선</h3>
     {#key result}
       <!-- ETF 선 색(--etf-1)은 색 관례에 따라 달라서, 관례가 바뀌어도 색을 다시 읽게 함께 넘긴다 -->
-      <EquityChart initial={capital} {curves} {rebalanceDates} theme="{theme ?? ''}:{app.settings.colorConvention}" />
+      <EquityChart initial={capital} {curves} {rebalanceDates} theme="{theme ?? ''}:{conv}" {sampledNote} />
     {/key}
     <p class="cap">세로 눈금은 재선정일이에요</p>
   </section>

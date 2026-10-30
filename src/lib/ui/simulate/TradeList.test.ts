@@ -102,3 +102,17 @@ describe('TradeList', () => {
     expect(onTrade).toHaveBeenCalledWith(trades[1]);
   });
 });
+
+describe('TradeList 읽기 전용', () => {
+  it('onTrade가 없으면 줄이 버튼이 아니고 안내에서 「행을 눌러」를 뺀다', () => {
+    const { container } = render(TradeList, { trades: doneState().result.trades, names: {} });
+    expect(within(container).queryAllByRole('button')).toHaveLength(0);
+    expect(container.textContent).toContain('매도 줄 %는 평균 단가 대비예요(수수료·세금 제외)');
+    expect(container.textContent).not.toContain('행을 눌러');
+  });
+  it('hideQty면 수량 없이 가격만', () => {
+    const { container } = render(TradeList, { trades: doneState().result.trades, names: {}, hideQty: true });
+    expect(container.textContent).toContain('132,400원');
+    expect(container.textContent).not.toContain('12주');
+  });
+});

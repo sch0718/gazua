@@ -294,3 +294,47 @@ describe('ResultView', () => {
     expect(onEdit).toHaveBeenCalledWith();
   });
 });
+
+describe('ResultView 읽기 전용(받은 공유)', () => {
+  const view = (o: Record<string, unknown> = {}, state: DoneState = doneState()) => render(ResultView, { state, colorConvention: 'kr', readonly: true, ...o });
+
+  it('규칙 고치기·거래 차트 시트가 없고 거래 줄은 버튼이 아니다', async () => {
+    view({}, (() => {
+      const s = doneState();
+      noTrades(s, s.result.skipped);
+      return s;
+    })());
+    expect(screen.queryByRole('button', { name: '규칙 고치기' })).toBeNull();
+    const s2 = render(ResultView, { state: doneState(), colorConvention: 'kr', readonly: true });
+    expect(within(s2.container).queryAllByRole('button', { name: /SK하이닉스/ })).toHaveLength(0);
+    expect(within(s2.container).getAllByRole('listitem').length).toBeGreaterThan(0);
+  });
+
+  it('금액 숨김: 매수 줄은 가격만, 종목별은 자금 대비 %', async () => {
+    view({ hideAmounts: true, pnlPct: { '005930': 1.41, '000660': -0.88 } });
+    expect(screen.getByText('70,000원')).toBeTruthy();
+    expect(screen.queryByText(/14주/)).toBeNull();
+    await fireEvent.click(tab('종목별'));
+    expect(screen.getByText('자금 대비 +1.41%')).toBeTruthy();
+    expect(screen.getByText('자금 대비 −0.88%')).toBeTruthy();
+  });
+
+  it('건너뜀 목록 없이 개수만 받으면 탭 이름·본문·거래 0건 문구가 개수를 쓴다', async () => {
+    const s = doneState();
+    s.result.skipped = [];
+    view({ skippedCounts: [['현금 부족', 1], ['1주가 1회 금액보다 비쌈', 2]] }, s);
+    await fireEvent.click(tab('건너뛴 신호 3'));
+    expect(screen.getByText('목록은 크기 때문에 빼고 보냈어요')).toBeTruthy();
+    expect(screen.getByText('2번')).toBeTruthy();
+    const z = doneState();
+    noTrades(z, []);
+    z.result.summary.skippedSignals = 3;
+    render(ResultView, { state: z, colorConvention: 'kr', readonly: true, skippedCounts: [['현금 부족', 3]] });
+    expect(screen.getByText('매수 신호가 3번 났지만 한 번도 사지 못했어요')).toBeTruthy();
+  });
+
+  it('솎은 곡선 안내를 차트 아래에 적는다', () => {
+    view({ sampledNote: '곡선은 735점 중 120점으로 줄였어요 · 수치는 전체 기간 기준이에요' });
+    expect(screen.getByText('곡선은 735점 중 120점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
+  });
+});

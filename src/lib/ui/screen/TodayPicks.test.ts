@@ -110,3 +110,11 @@ describe('TodayPicks', () => {
     expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
   });
 });
+
+describe('TodayPicks 읽기 전용', () => {
+  it('app이 null이면 목록만 보인다', () => {
+    render(TodayPicks, { app: null, selection, names: {}, criteriaName: '반등 기준' });
+    expect(screen.getAllByRole('listitem')).toHaveLength(10);
+    expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+  });
+});

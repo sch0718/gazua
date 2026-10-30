@@ -10,13 +10,19 @@
     axisFrom,
     failed,
     colorConvention,
+    pnlPct,
   }: {
     perSymbol: SimResult['perSymbol'];
     /** 실제 데이터 축의 시작일(meta.from). 축 전체가 늦은 것은 머리줄이 알린다 */
     axisFrom: string;
     failed: SimFailure[];
     colorConvention: 'kr' | 'global';
+    /** 종목별 자금 대비 % */
+    pnlPct?: Record<string, number>;
   } = $props();
+
+  /** 자금 대비 %: `+3.21%`, `−0.88%`(소수 둘째 자리, 진짜 빼기 기호) */
+  const pctText = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}%`;
 </script>
 
 <ul class="rows" aria-label="종목별">
@@ -24,7 +30,12 @@
     <li>
       <div class="line">
         <span class="name">{p.name}</span>
-        <span class="num {trendClass(p.pnl, colorConvention)}">{trendWon(p.pnl)}</span>
+        {#if pnlPct}
+          {@const v = pnlPct[p.symbol] ?? 0}
+          <span class="num {trendClass(v, colorConvention)}">자금 대비 {pctText(v)}</span>
+        {:else}
+          <span class="num {trendClass(p.pnl, colorConvention)}">{trendWon(p.pnl)}</span>
+        {/if}
       </div>
       <div class="sub">
         <span>거래 {p.roundTrips}번</span>

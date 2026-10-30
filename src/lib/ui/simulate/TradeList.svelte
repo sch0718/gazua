@@ -5,7 +5,19 @@
   import { fmtWon } from '../format';
   import { returnClass, shortDate, trendReturn } from './simText';
 
-  let { trades, names, onTrade }: { trades: Trade[]; names: Record<string, string>; onTrade: (t: Trade) => void } = $props();
+  let {
+    trades,
+    names,
+    onTrade,
+    hideQty = false,
+  }: {
+    trades: Trade[];
+    names: Record<string, string>;
+    /** 없으면(받은 공유) 줄을 누를 수 없고 버튼이 아닌 목록 항목으로 그린다 */
+    onTrade?: (t: Trade) => void;
+    /** 자금 숨김 공유: 수량 없이 가격만 */
+    hideQty?: boolean;
+  } = $props();
 
   const isBuy = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
   // 엔진의 `1단계 익절 80%`는 판 비율이라 `1단계 익절(80% 매도)`로 보인다
@@ -16,7 +28,7 @@
   const rows = $derived(
     trades.map((t) => {
       const value = isBuy(t)
-        ? { text: `${t.qty}주 · ${fmtWon(t.price)}원`, cls: '' }
+        ? { text: hideQty ? `${fmtWon(t.price)}원` : `${t.qty}주 · ${fmtWon(t.price)}원`, cls: '' }
         : t.pnlPct === undefined
           ? null
           : { text: trendReturn(t.pnlPct), cls: returnClass(t.pnlPct) };
@@ -40,7 +52,7 @@
 </script>
 
 {#if hasSell}
-  <p class="note">매도 줄 %는 평균 단가 대비예요(수수료·세금 제외). 포지션 결과는 행을 눌러 확인해 주세요</p>
+  <p class="note">매도 줄 %는 평균 단가 대비예요(수수료·세금 제외){onTrade ? '. 포지션 결과는 행을 눌러 확인해 주세요' : ''}</p>
 {/if}
 <div class="rows" role="group" aria-label="거래 내역">
   {#each years as y, yi (yi)}
@@ -48,12 +60,20 @@
     <ul aria-labelledby="tl-{uid}-y{yi}">
       {#each y.rows as r, i (i)}
         <li>
-          <button type="button" aria-label={r.label} onclick={() => onTrade(r.t)}>
-            <span class="nm">{r.name}</span>
-            {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
-            <span class="sub num">{r.sub}</span>
-            <span class="chev" aria-hidden="true">›</span>
-          </button>
+          {#if onTrade}
+            <button type="button" aria-label={r.label} onclick={() => onTrade(r.t)}>
+              <span class="nm">{r.name}</span>
+              {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
+              <span class="sub num">{r.sub}</span>
+              <span class="chev" aria-hidden="true">›</span>
+            </button>
+          {:else}
+            <div class="item">
+              <span class="nm">{r.name}</span>
+              {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
+              <span class="sub num">{r.sub}</span>
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -84,7 +104,8 @@
   h2:first-child {
     padding-top: 4px;
   }
-  button {
+  button,
+  .item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:

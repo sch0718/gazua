@@ -348,3 +348,12 @@ describe('ValidationResult', () => {
     });
   });
 });
+
+describe('ValidationResult 읽기 전용(app 없음)', () => {
+  it('app 없이 그리고, 오늘 선별에 그룹 만들기 단추가 없다. 색 관례는 prop으로 받는다', () => {
+    render(ValidationResult, { app: null, colorConvention: 'global', result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN, sampledNote: '곡선은 4점 중 3점으로 줄였어요 · 수치는 전체 기간 기준이에요' });
+    expect(screen.getByRole('heading', { name: '오늘 기준 선별' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+    expect(screen.getByText('곡선은 4점 중 3점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
+  });
+});
