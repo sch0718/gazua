@@ -6,6 +6,7 @@
   import type { UniverseItem } from '../data/universe';
   import type { App } from '../state/app.svelte';
   import type { RouteName } from '../state/routes';
+  import type { Settings } from '../state/schema';
   import { sharedUniverse } from '../../sheets/universeSource';
   import { applyImport, planImport, type ImportApplied, type ImportPlan, type ImportState } from './importPlan';
   import { isKakaoInApp } from './inApp';
@@ -100,17 +101,36 @@
   }
 
   function write(applied: ImportApplied, before: ImportState) {
-    // 묶음 → 기준 순서. 기준 쓰기가 실패하면 방금 더한 묶음을 되돌린다(설계 4.8)
-    if (applied.baskets) app.setBaskets(applied.baskets);
+    // 묶음 → 기준 → 전략 → 관심종목 → 설정 순서. 실패한 단계까지 포함해 역순으로 모두 되돌린다(설계 4.8)
+    const { baskets, criteria, strategies, watchlists, settings } = applied;
+    const steps: { write: () => void; undo: () => void }[] = [];
+    if (baskets) steps.push({ write: () => app.setBaskets(baskets), undo: () => app.setBaskets(before.baskets) });
+    if (criteria) steps.push({ write: () => app.setCriteria(criteria), undo: () => app.setCriteria(before.criteria) });
+    if (strategies) steps.push({ write: () => app.setStrategies(strategies), undo: () => app.setStrategies(before.strategies) });
+    if (watchlists) steps.push({ write: () => app.setWatchlists(watchlists), undo: () => app.setWatchlists(before.watchlists) });
+    if (settings) {
+      const previous: Partial<Settings> = Object.fromEntries(
+        (Object.keys(settings) as (keyof Settings)[]).map((key) => [key, app.settings[key]]),
+      );
+      steps.push({ write: () => app.updateSettings(settings), undo: () => app.updateSettings(previous) });
+    }
+    const undos: (() => void)[] = [];
     try {
-      if (applied.criteria) app.setCriteria(applied.criteria);
+      for (const step of steps) {
+        // 대입·저장 뒤 부수 작업에서 던져도 되돌리도록 먼저 등록하며, 대입 전 실패는 같은 값을 다시 써도 무해하다.
+        undos.push(step.undo);
+        step.write();
+      }
     } catch (e) {
-      if (applied.baskets) app.setBaskets(before.baskets);
+      for (const undo of undos.reverse()) {
+        try {
+          undo();
+        } catch {
+          // 되돌리기 실패는 무시하고 나머지도 되돌린 뒤 원래 오류를 알린다.
+        }
+      }
       throw e;
     }
-    if (applied.strategies) app.setStrategies(applied.strategies);
-    if (applied.watchlists) app.setWatchlists(applied.watchlists);
-    if (applied.settings) app.updateSettings(applied.settings);
   }
 
   function save() {

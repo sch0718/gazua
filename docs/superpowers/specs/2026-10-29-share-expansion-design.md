@@ -694,7 +694,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 - 그룹 이름은 지금 한도가 없지만 같은 30 규칙을 쓴다(공유 제목이 이미 30 이내다).
 - 새 ID는 기존 생성 함수(`withNewGroup`, `newBasket`, `crypto.randomUUID`)로 만든다. 받은 `shared`·`b0` ID는 남기지 않는다. `updatedAt`은 `now`다.
 - 받은 전략·기준·묶음은 저장 전에 `sanitizeStrategies`·`sanitizeCriteria`·`sanitizeBaskets`를 한 번 더 지난다. 검사를 통과한 스냅샷이라 바뀌는 것이 없어야 하고, 바뀌면 저장하지 않고 `가져올 수 없는 공유예요`를 보인다.
-- 쓰기 순서는 묶음 → 기준이다. 기준 쓰기가 실패하면(한도 오류 등) 방금 더한 묶음을 되돌린다.
+- 쓰기 순서는 묶음 → 기준 → 전략 → 관심종목 → 설정이다. 어느 쓰기가 실패해도 앞서 쓴 것을 모두 쓰기 전 값으로 되돌린다(되돌리기 실패는 무시하고 원래 오류를 알린다).
 
 ### 4.9 화면별 바뀌는 곳
 - `Compare.svelte`: 공유 단추, `openShare({ kind: 'compare', build: () => ok(compareSnapshot(group, app.settings)), capture })`. `capture`는 ChartPanel의 `screenshot()` + 리더보드 위 5행 + 기준 시각으로 카드를 합성한다.
@@ -866,7 +866,7 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max?: numbe
 | 이미 가져온 대기 값(탭 복제) | 스낵바 `이미 가져왔어요`, 확인 창 없음 |
 | 대기 값이 오래됐거나 망가짐 | 조용히 버린다(확인 창을 열지 않는다) |
 | 한도로 막힘 | 확인 창에 이유, 저장 꺼짐 |
-| 저장 중 오류 | 스낵바 `가져오지 못했어요`, 이미 쓴 묶음은 되돌림(4.8) |
+| 저장 중 오류 | 스낵바 `가져오지 못했어요`, 앞서 쓴 것을 모두 되돌림(4.8) |
 
 ## 8. 접근성
 - 새 단추(`공유`, `결과 공유`, `내 앱에 가져오기`, `저장`)는 `--touch` 높이 이상이고 글자 단추다. 아이콘만 쓰면 `aria-label`을 단다.

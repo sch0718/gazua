@@ -12,6 +12,7 @@ import type { App } from '../state/app.svelte';
 import type { RouteName } from '../state/routes';
 import { compareSnapshot } from './compact';
 import ImportHost from './ImportHost.svelte';
+import * as importPlan from './importPlan';
 import { clearImport, markImported, peekImport, stashImport } from './pendingImport';
 import { criteriaSnapshot, groupSnapshot, strategySnapshot } from './snapshot';
 import { expectNoAxeViolations } from './testAxe';
@@ -270,6 +271,136 @@ describe('ImportHost', () => {
     expect(setBaskets.mock.calls[0][0]).toHaveLength(before.length + 1);
     expect(app.baskets).toEqual(before);
     expect(app.criteria).toEqual([]);
+    expect(peekImport(NOW)).not.toBeNull();
+  });
+
+  it('설정 저장이 실패하면 관심종목을 되돌리고 창과 대기 값을 남겨 중복 없이 다시 저장한다', async () => {
+    stashImport(compareSnapshot({ id: 'x', name: '반도체', items: itemsOf(['005930']) }, { period: { unit: 'M', n: 6 }, metric: 'rsi', benchmark: 'KOSDAQ', boardOrder: 'mine' }), NOW);
+    const app = setup();
+    const before = structuredClone({ watchlists: app.watchlists, settings: app.settings });
+    const pending = peekImport(NOW);
+    const setWatchlists = vi.spyOn(app, 'setWatchlists');
+    const updateSettings = vi.spyOn(app, 'updateSettings').mockImplementationOnce(() => { throw new Error('설정 쓰기 실패'); });
+    const setBaskets = vi.spyOn(app, 'setBaskets');
+    const setCriteria = vi.spyOn(app, 'setCriteria');
+    const setStrategies = vi.spyOn(app, 'setStrategies');
+
+    await fireEvent.click(await screen.findByRole('button', { name: '저장' }));
+    expect(currentSnackbar()?.message).toBe('가져오지 못했어요');
+    expect(app.watchlists).toEqual(before.watchlists);
+    expect(app.settings).toEqual(before.settings);
+    expect(setWatchlists).toHaveBeenCalledTimes(2);
+    expect(updateSettings).toHaveBeenCalledTimes(2);
+    expect(setBaskets).not.toHaveBeenCalled();
+    expect(setCriteria).not.toHaveBeenCalled();
+    expect(setStrategies).not.toHaveBeenCalled();
+    expect(peekImport(NOW)).toEqual(pending);
+    expect(screen.getByText(TITLE)).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(app.watchlists.groups.map((group) => group.name)).toEqual(['기존', '반도체']);
+    expect(app.settings.period).toEqual({ unit: 'M', n: 6 });
+    expect(currentSnackbar()?.message).toBe('가져왔어요');
+    expect(peekImport(NOW)).toBeNull();
+  });
+
+  it.each([
+    ['묶음', 'setBaskets'],
+    ['기준', 'setCriteria'],
+    ['전략', 'setStrategies'],
+    ['관심종목', 'setWatchlists'],
+    ['설정', 'updateSettings'],
+  ] as const)('%s 저장이 실패하면 실패한 단계까지 포함해 역순으로 모두 되돌린다', async (_, failed) => {
+    stashImport(validationFixture(), NOW);
+    const app = setup();
+    app.setBaskets([newBasket(NOW, '기존 묶음', ['005930'])]);
+    app.setCriteria([newCriteria(NOW, null, '기존 기준')]);
+    app.setStrategies([newStrategy(NOW, null, '기존 전략')]);
+    const before = structuredClone({ baskets: app.baskets, criteria: app.criteria, strategies: app.strategies, watchlists: app.watchlists, settings: app.settings });
+    const applied = importPlan.applyImport(peekImport(NOW)!, { ...before, universe: null }, { now: NOW, applyView: true });
+    // 현재 공유 종류별로 나뉜 쓰기를 합쳐 모든 단계의 원복 순서를 확인한다.
+    vi.spyOn(importPlan, 'applyImport').mockReturnValueOnce({
+      ...applied,
+      strategies: [...before.strategies, newStrategy(NOW, null, '새 전략')],
+      watchlists: { groups: [...before.watchlists.groups, { id: 'new', name: '새 그룹', items: [] }] },
+      settings: { period: { unit: 'M', n: 6 } },
+    });
+    const calls: string[] = [];
+    const methods = ['setBaskets', 'setCriteria', 'setStrategies', 'setWatchlists', 'updateSettings'] as const;
+    for (const method of methods) {
+      const write = app[method] as (value: never) => void;
+      vi.spyOn(app, method).mockImplementation((value) => {
+        calls.push(method);
+        if (method === failed) throw new Error('쓰기 실패');
+        write(value as never);
+      });
+    }
+
+    await fireEvent.click(await screen.findByRole('button', { name: '저장' }));
+    const index = methods.indexOf(failed);
+    expect(calls).toEqual([...methods.slice(0, index + 1), ...methods.slice(0, index + 1).reverse()]);
+    expect({ baskets: app.baskets, criteria: app.criteria, strategies: app.strategies, watchlists: app.watchlists, settings: app.settings }).toEqual(before);
+    expect(currentSnackbar()?.message).toBe('가져오지 못했어요');
+    expect(peekImport(NOW)).not.toBeNull();
+    expect(screen.getByText(TITLE)).toBeTruthy();
+  });
+
+  it.each([
+    ['설정', 'updateSettings'],
+    ['관심종목', 'setWatchlists'],
+  ] as const)('%s 대입 뒤 저장이 실패해도 실패한 단계까지 모두 되돌리고 창과 대기 값을 남긴다', async (_, failed) => {
+    stashImport(validationFixture(), NOW);
+    const app = setup();
+    app.setBaskets([newBasket(NOW, '기존 묶음', ['005930'])]);
+    app.setCriteria([newCriteria(NOW, null, '기존 기준')]);
+    app.setStrategies([newStrategy(NOW, null, '기존 전략')]);
+    const before = structuredClone({ baskets: app.baskets, criteria: app.criteria, strategies: app.strategies, watchlists: app.watchlists, settings: app.settings });
+    const pending = peekImport(NOW);
+    const applied = importPlan.applyImport(pending!, { ...before, universe: null }, { now: NOW, applyView: true });
+    vi.spyOn(importPlan, 'applyImport').mockReturnValueOnce({
+      ...applied,
+      strategies: [...before.strategies, newStrategy(NOW, null, '새 전략')],
+      watchlists: { groups: [...before.watchlists.groups, { id: 'new', name: '새 그룹', items: [] }] },
+      settings: { period: { unit: 'M', n: 6 } },
+    });
+    if (failed === 'updateSettings') {
+      const orig = app.updateSettings.bind(app);
+      vi.spyOn(app, 'updateSettings').mockImplementationOnce((p) => {
+        orig(p);
+        throw new Error('설정 대입 뒤 쓰기 실패');
+      });
+    } else {
+      const orig = app.setWatchlists.bind(app);
+      vi.spyOn(app, 'setWatchlists').mockImplementationOnce((w) => {
+        orig(w);
+        throw new Error('관심종목 대입 뒤 쓰기 실패');
+      });
+    }
+
+    await fireEvent.click(await screen.findByRole('button', { name: '저장' }));
+    expect({ baskets: app.baskets, criteria: app.criteria, strategies: app.strategies, watchlists: app.watchlists, settings: app.settings }).toEqual(before);
+    expect(currentSnackbar()?.message).toBe('가져오지 못했어요');
+    expect(peekImport(NOW)).toEqual(pending);
+    expect(screen.getByText(TITLE)).toBeTruthy();
+  });
+
+  it('되돌리는 쓰기가 실패해도 나머지를 되돌리고 가져오기 오류를 알린다', async () => {
+    stashImport(validationFixture(), NOW);
+    const app = setup();
+    app.setBaskets([newBasket(NOW, '기존 묶음', ['005930'])]);
+    const before = structuredClone(app.baskets);
+    const applied = importPlan.applyImport(peekImport(NOW)!, { baskets: app.baskets, criteria: app.criteria, strategies: app.strategies, watchlists: app.watchlists, universe: null }, { now: NOW, applyView: true });
+    vi.spyOn(importPlan, 'applyImport').mockReturnValueOnce({ ...applied, strategies: [newStrategy(NOW, null, '새 전략')] });
+    const setBaskets = vi.spyOn(app, 'setBaskets');
+    const setCriteria = app.setCriteria;
+    vi.spyOn(app, 'setCriteria').mockImplementationOnce(setCriteria).mockImplementationOnce(() => { throw new Error('기준 되돌리기 실패'); });
+    vi.spyOn(app, 'setStrategies').mockImplementationOnce(() => { throw new Error('전략 쓰기 실패'); });
+
+    await fireEvent.click(await screen.findByRole('button', { name: '저장' }));
+    expect(setBaskets).toHaveBeenCalledTimes(2);
+    expect(app.baskets).toEqual(before);
+    expect(app.criteria).toEqual(applied.criteria);
+    expect(currentSnackbar()?.message).toBe('가져오지 못했어요');
     expect(peekImport(NOW)).not.toBeNull();
   });
 
