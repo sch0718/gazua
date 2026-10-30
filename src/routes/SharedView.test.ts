@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
-import { beforeEach, afterEach } from 'vitest';
-import { fireEvent, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../lib/chart/lwcStub';
+import { newCriteria } from '../lib/screen/defaults';
 import { compareSnapshot } from '../lib/share/compact';
 import { clearImport, IMPORT_KEY } from '../lib/share/pendingImport';
-import type { ShareSnapshot } from '../lib/share/snapshot';
+import { criteriaSnapshot, type ShareSnapshot } from '../lib/share/snapshot';
 import { expectNoAxeViolations } from '../lib/share/testAxe';
 import { NOW, simResultFixture, validationFixture } from '../lib/share/testFixtures';
+import type { ApiResult, SharedRead } from '../lib/sync/api';
+import SharedView from './SharedView.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 beforeEach(() => {
@@ -29,13 +32,6 @@ const cmp = compareSnapshot(
   { id: 'g', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] },
   { period: { unit: 'M', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' },
 );
-
-import { render, screen, waitFor } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
-import type { ApiResult, SharedRead } from '../lib/sync/api';
-import { newCriteria } from '../lib/screen/defaults';
-import { criteriaSnapshot } from '../lib/share/snapshot';
-import SharedView from './SharedView.svelte';
 
 const CAP = 'k'.repeat(43);
 const DATA: SharedRead = { kind: 'group', title: '반도체', snapshot: { kind: 'group', v: 1, title: '반도체', symbols: ['005930'] }, createdAt: 1, expiresAt: Date.UTC(2026, 10, 1) };
@@ -100,7 +96,6 @@ describe('SharedView', () => {
   });
 });
 
-
 describe('SharedView 새 종류', () => {
   const show = (snapshot: unknown, o: Record<string, unknown> = {}) =>
     render(SharedView, { capability: CAP, read: readOf(snapshot), onexit: vi.fn(), universe: names, ...o });
@@ -115,7 +110,9 @@ describe('SharedView 새 종류', () => {
 
   it('시뮬레이션 결과: 머리줄·요약 카드·거래 줄(종목 이름)·규칙 원문(결과 없음)', async () => {
     show(simResultFixture());
-    expect(await screen.findByText(/^2024\.01\.02 ~ 2024\.01\.12 · KRX 일봉 · \d{4}\.\d{2}\.\d{2} \d{2}:\d{2} 받음$/)).toBeTruthy();
+    expect(await screen.findByText(/^2024\.01\.02 ~ 2024\.01\.12(?: \(요청 \d{4}\.\d{2}\.\d{2}부터\))? · KRX 일봉 · \d{2}\/\d{2} \d{2}:\d{2} 받음$/)).toBeTruthy();
+    expect(screen.getAllByText(/받음/)).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 2, name: '시뮬레이션 결과' })).toBeTruthy();
     expect(screen.getByRole('list', { name: '요약' }).textContent).toContain('총수익률');
     await waitFor(() => expect(screen.getAllByText('삼성전자').length).toBeGreaterThan(0));
     const rules = screen.getByText('규칙 전체 보기').closest('details')!;
@@ -130,6 +127,36 @@ describe('SharedView 새 종류', () => {
     expect(await screen.findByText('초기 자금 비공개')).toBeTruthy();
     expect(screen.getByText('70,000원')).toBeTruthy();
     expect(screen.queryByText(/14주/)).toBeNull();
+    await fireEvent.click(screen.getByRole('radio', { name: '종목별' }));
+    const symbols = screen.getByRole('list', { name: '종목별' });
+    expect(within(symbols).getByText('자금 대비 +1.41%')).toBeTruthy();
+    expect(within(symbols).getByText('자금 대비 −0.88%')).toBeTruthy();
+    expect(symbols.textContent).not.toContain('원');
+  });
+
+  it('시뮬레이션 데모 실행은 ResultView 배지만 하나 보인다', async () => {
+    const s = simResultFixture();
+    s.run.demo = true;
+    const { container } = show(s);
+    expect(await screen.findAllByText('데모 데이터')).toHaveLength(1);
+    expect(screen.getAllByText(/받음/)).toHaveLength(1);
+    expect(container.querySelector('.badges')).toBeNull();
+  });
+
+  it.each([
+    ['simResult', simResultFixture()],
+    ['validation', validationFixture()],
+  ])('%s: 배지가 없으면 배지 문단을 그리지 않는다', async (_kind, snapshot) => {
+    const { container } = show(snapshot);
+    await screen.findByRole('button', { name: '내 앱에 가져오기' });
+    expect(container.querySelector('.badges')).toBeNull();
+  });
+
+  it('건너뜀 목록이 있는 결과에는 목록을 뺐다는 안내가 없다', async () => {
+    show(simResultFixture());
+    await fireEvent.click(await screen.findByRole('radio', { name: '건너뛴 신호 3' }));
+    expect(screen.getByRole('list', { name: '건너뛴 신호' })).toBeTruthy();
+    expect(screen.queryByText('목록은 크기 때문에 빼고 보냈어요')).toBeNull();
   });
 
   it('건너뜀 목록이 없는 결과는 개수로 탭 이름을 단다', async () => {
@@ -149,9 +176,21 @@ describe('SharedView 새 종류', () => {
   it('검증 결과: 카드·오늘 선별·선정 이력', async () => {
     show(validationFixture());
     expect(await screen.findByRole('heading', { name: '오늘 기준 선별' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: '검증 결과' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy();
     expect(screen.getAllByText('① 선정만').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+  });
+
+  it('검증 결과의 실행 정보·데모·자금 숨김 배지는 SharedView에 남긴다', async () => {
+    const s = validationFixture({ capitalHidden: true });
+    s.run.demo = true;
+    const { container } = show(s);
+    expect(await screen.findByText(/^2026\.01\.05 ~ 2026\.02\.03 · 시장 데이터 파일 · \d{4}\.\d{2}\.\d{2} \d{2}:\d{2} 받음$/)).toBeTruthy();
+    expect(screen.getAllByText(/받음/)).toHaveLength(1);
+    const badges = within(container.querySelector('.badges')!);
+    expect(badges.getAllByText('데모 데이터')).toHaveLength(1);
+    expect(badges.getByText('초기 자금 비공개')).toBeTruthy();
   });
 
   it('모르는 종류와 읽을 수 없는 공유를 나눠 안내한다', async () => {
@@ -171,14 +210,63 @@ describe('SharedView 새 종류', () => {
     expect(within(note).getByRole('button', { name: '기본 브라우저로 열기' })).toBeTruthy();
   });
 
+  it('Android 카카오톡은 인앱 안내만 보이고 홈 화면 앱 안내는 없다', async () => {
+    show(cmp, { ua: 'Mozilla/5.0 (Linux; Android 14) KAKAOTALK 10.8.0' });
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toContain('카카오톡 안에서 열었어요.');
+    expect(screen.queryByText(/홈 화면에 추가한 가즈아/)).toBeNull();
+  });
+
+  it('일반 브라우저에는 인앱 안내가 없다', async () => {
+    show(cmp, { ua: 'Mozilla/5.0 (Linux; Android 14) Chrome/130.0.0.0 Mobile Safari/537.36' });
+    await screen.findByRole('button', { name: '내 앱에 가져오기' });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
   it('내 앱에 가져오기: 대기 값을 넣고 onexit을 부른다(결과는 규칙만)', async () => {
     const onexit = vi.fn();
-    show(simResultFixture(), { onexit });
+    show(simResultFixture(), { onexit, now: () => NOW });
     await fireEvent.click(await screen.findByRole('button', { name: '내 앱에 가져오기' }));
     expect(onexit).toHaveBeenCalledTimes(1);
     const stored = JSON.parse(sessionStorage.getItem(IMPORT_KEY)!);
-    expect(stored).toMatchObject({ from: 'simResult', snapshot: { kind: 'strategy', title: '눌림목' } });
+    expect(stored).toMatchObject({ at: NOW, from: 'simResult', snapshot: { kind: 'strategy', title: '눌림목' } });
     expect(screen.getByText(/결과는 저장하지 않고 규칙만 가져와요/)).toBeTruthy();
+  });
+
+  it('가져오기에서 예외가 나도 앱으로 이동한다', async () => {
+    const error = new Error('가져오기 실패');
+    const onexit = vi.fn();
+    const onimport = vi.fn(() => { throw error; });
+    const errors: unknown[] = [];
+    const handleError = (event: ErrorEvent) => {
+      errors.push(event.error);
+      event.preventDefault();
+    };
+    window.addEventListener('error', handleError);
+    try {
+      show(cmp, { onimport, onexit });
+      await fireEvent.click(await screen.findByRole('button', { name: '내 앱에 가져오기' }));
+      expect(onimport).toHaveBeenCalledWith(cmp);
+      expect(errors).toEqual([error]);
+      expect(onexit).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('error', handleError);
+    }
+  });
+
+  it('읽을 수 없는 오류 안내에도 axe 위반이 없다', async () => {
+    const broken = simResultFixture();
+    broken.result.trades[0][1] = 9;
+    const { container } = show(broken);
+    expect((await screen.findByRole('alert')).textContent).toBe('이 공유를 읽을 수 없어요. 보낸 사람에게 다시 만들어 달라고 해 주세요.');
+    await expectNoAxeViolations(container);
+  });
+
+  it('카카오톡 인앱 안내에도 axe 위반이 없다', async () => {
+    const { container } = show(cmp, { ua: 'Mozilla/5.0 (Linux; Android 14) KAKAOTALK 10.8.0' });
+    await screen.findByRole('button', { name: '내 앱에 가져오기' });
+    expect(screen.getByRole('note')).toBeTruthy();
+    await expectNoAxeViolations(container);
   });
 
   it.each<[string, ShareSnapshot]>([

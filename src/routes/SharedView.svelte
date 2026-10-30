@@ -1,3 +1,4 @@
+<!-- 공유 내용을 읽기 전용으로 보여 주고, 「내 앱에 가져오기」를 누르면 stashImport로 대기 값을 둔 뒤 앱으로 이동한다. -->
 <script lang="ts">
   import { Badge } from '@sch0718/ui-svelte';
   import type { ApiResult, SharedRead } from '../lib/sync/api';
@@ -19,13 +20,14 @@
     read,
     onexit,
     universe = sharedUniverse,
-    onimport = (s: ShareSnapshot) => void stashImport(s, Date.now()),
+    onimport = (s: ShareSnapshot) => void stashImport(s, now()),
     colorConvention = 'kr',
     theme,
     ua = globalThis.navigator?.userAgent ?? '',
     now = Date.now,
   }: {
     capability: string | undefined;
+    /** 공유 내용을 읽는다. 「내 앱에 가져오기」를 누르면 stashImport로 대기 값을 둔 뒤 앱으로 이동한다. */
     read: ((cap: string) => Promise<ApiResult<SharedRead>>) | null;
     onexit: () => void;
     universe?: () => Promise<UniverseItem[]>;
@@ -111,8 +113,11 @@
       : null;
   const inApp = $derived(isKakaoInApp(ua));
   function importIt(s: ShareSnapshot) {
-    onimport(s);
-    onexit();
+    try {
+      onimport(s);
+    } finally {
+      onexit();
+    }
   }
   const fmtDate = (t: number) => new Date(t).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
 </script>
@@ -137,11 +142,14 @@
     <h1>{view.data.title}</h1>
     <p class="meta">{kindLabel(s.kind)} · {fmtDate(view.data.expiresAt)}까지 볼 수 있어요</p>
     {#if s.kind === 'simResult' || s.kind === 'validation'}
-      <p class="run">{runLine(s)}</p>
-      <p class="badges">
-        {#if s.run.demo}<Badge>데모 데이터</Badge>{/if}
-        {#if s.capitalHidden}<Badge>초기 자금 비공개</Badge>{/if}
-      </p>
+      {#if s.kind === 'validation'}<p class="run">{runLine(s)}</p>{/if}
+      {#if (s.kind === 'validation' && s.run.demo) || s.capitalHidden}
+        <p class="badges">
+          {#if s.kind === 'validation' && s.run.demo}<Badge>데모 데이터</Badge>{/if}
+          {#if s.capitalHidden}<Badge>초기 자금 비공개</Badge>{/if}
+        </p>
+      {/if}
+      <h2 class="sr-only">{kindLabel(s.kind)}</h2>
     {/if}
     {#if s.kind === 'simResult'}
       <SharedSimResult snapshot={s} {names} {colorConvention} {theme} />
