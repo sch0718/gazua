@@ -1,4 +1,7 @@
-<!-- 공유 내용을 읽기 전용으로 보여 주고, 「내 앱에 가져오기」를 누르면 stashImport로 대기 값을 둔 뒤 앱으로 이동한다. -->
+<!--
+  로그인·프로필 없이 공유 내용을 읽기 전용으로 본다.
+  받은 스냅샷은 저장소·캐시에 남기지 않는다. 「내 앱에 가져오기」를 누를 때만 탭 저장소(sessionStorage)에 대기 값을 둔다.
+-->
 <script lang="ts">
   import { Badge } from '@sch0718/ui-svelte';
   import type { ApiResult, SharedRead } from '../lib/sync/api';
@@ -27,11 +30,11 @@
     now = Date.now,
   }: {
     capability: string | undefined;
-    /** 공유 내용을 읽는다. 「내 앱에 가져오기」를 누르면 stashImport로 대기 값을 둔 뒤 앱으로 이동한다. */
+    /** 동기화 설정이 없는 빌드면 null */
     read: ((cap: string) => Promise<ApiResult<SharedRead>>) | null;
     onexit: () => void;
     universe?: () => Promise<UniverseItem[]>;
-    /** 가져올 내용을 탭 저장소에 둔다(설계 4.8). 부른 뒤 onexit으로 앱에 들어간다 */
+    /** 「내 앱에 가져오기」를 누르면 stashImport로 대기 값을 두고 onexit으로 앱에 들어가 확인 창에서 저장한다(설계 4.8). */
     onimport?: (s: ShareSnapshot) => void;
     /** 보는 사람의 색 관례·테마(app.settings) */
     colorConvention?: 'kr' | 'global';
