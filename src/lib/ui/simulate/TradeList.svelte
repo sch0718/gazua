@@ -68,7 +68,7 @@
               <span class="chev" aria-hidden="true">›</span>
             </button>
           {:else}
-            <div class="item">
+            <div class="item" role="group" aria-label={r.label}>
               <span class="nm">{r.name}</span>
               {#if r.value}<span class="val num {r.value.cls}">{r.value.text}</span>{/if}
               <span class="sub num">{r.sub}</span>

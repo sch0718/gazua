@@ -43,8 +43,8 @@
     sheet = false;
   }
   const goCompare = () => {
-    if (!app) return;
-    return done && app.navigate({ name: 'compare', groupId: done.groupId });
+    if (!app || !done) return;
+    app.navigate({ name: 'compare', groupId: done.groupId });
   };
 </script>
 

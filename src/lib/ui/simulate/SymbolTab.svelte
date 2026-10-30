@@ -3,7 +3,7 @@
   import type { SimFailure } from '../../sim/loadSimData';
   import type { SimResult } from '../../sim/types';
   import { trendClass } from '../format';
-  import { dotDate, startsLate, trendWon } from './simText';
+  import { dotDate, MINUS, startsLate, trendWon } from './simText';
 
   let {
     perSymbol,
@@ -22,7 +22,7 @@
   } = $props();
 
   /** 자금 대비 %: `+3.21%`, `−0.88%`(소수 둘째 자리, 진짜 빼기 기호) */
-  const pctText = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}%`;
+  const pctText = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(2)}%`;
 </script>
 
 <ul class="rows" aria-label="종목별">
@@ -31,8 +31,12 @@
       <div class="line">
         <span class="name">{p.name}</span>
         {#if pnlPct}
-          {@const v = pnlPct[p.symbol] ?? 0}
-          <span class="num {trendClass(v, colorConvention)}">자금 대비 {pctText(v)}</span>
+          {@const v = pnlPct[p.symbol]}
+          {#if v === undefined}
+            <span class="num">—</span>
+          {:else}
+            <span class="num {trendClass(v, colorConvention)}">자금 대비 {pctText(v)}</span>
+          {/if}
         {:else}
           <span class="num {trendClass(p.pnl, colorConvention)}">{trendWon(p.pnl)}</span>
         {/if}

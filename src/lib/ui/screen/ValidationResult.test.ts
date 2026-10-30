@@ -357,3 +357,25 @@ describe('ValidationResult 읽기 전용(app 없음)', () => {
     expect(screen.getByText('곡선은 4점 중 3점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
   });
 });
+
+describe('ValidationResult 색 관례 prop', () => {
+  it('app 설정이 kr이어도 global prop이 차트 색 갱신에 우선한다', async () => {
+    const app = makeTestApp({ groups: [], now: NOW });
+    apps.push(app);
+    app.updateSettings({ colorConvention: 'kr' });
+    const props = { app, result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN };
+    const { rerender } = render(ValidationResult, { ...props, colorConvention: 'kr' });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(3));
+    const etf = lwcCharts[0].series[2];
+    expect(etf.options.color).toBe('#008300');
+    // 등락 클래스는 관례와 무관하다. jsdom에서 글로벌 토큰을 넣고 prop만 바꿔 색 갱신을 확인한다.
+    document.documentElement.style.setProperty('--etf-1', '#2a78d6');
+    try {
+      await rerender({ ...props, colorConvention: 'global' });
+      expect(app.settings.colorConvention).toBe('kr');
+      await vi.waitFor(() => expect(etf.options.color).toBe('#2a78d6'));
+    } finally {
+      document.documentElement.style.removeProperty('--etf-1');
+    }
+  });
+});

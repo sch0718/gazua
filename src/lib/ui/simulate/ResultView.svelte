@@ -137,8 +137,10 @@
         <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>
       {/if}
     </div>
-    {#if skipN > 0}
-      <SkipList skipped={result.skipped} names={meta.names} counts={skippedCounts} />
+    {#if skippedCounts}
+      <p>목록은 크기 때문에 빼고 보냈어요</p>
+    {:else if skipN > 0}
+      <SkipList skipped={result.skipped} names={meta.names} />
     {/if}
   {:else}
     <ul class="cards" aria-label="요약">
@@ -188,7 +190,7 @@
       {#if tab === 'trades'}
         <TradeList trades={result.trades} names={meta.names} onTrade={readonly ? undefined : pick} hideQty={hideAmounts} />
       {:else if tab === 'symbols'}
-        <SymbolTab perSymbol={result.perSymbol} axisFrom={meta.from} failed={meta.failed} {colorConvention} pnlPct={hideAmounts ? pnlPct : undefined} />
+        <SymbolTab perSymbol={result.perSymbol} axisFrom={meta.from} failed={meta.failed} {colorConvention} pnlPct={hideAmounts ? (pnlPct ?? {}) : undefined} />
       {:else}
         <SkipList skipped={result.skipped} names={meta.names} counts={skippedCounts} />
       {/if}

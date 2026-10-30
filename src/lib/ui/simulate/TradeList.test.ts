@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import TradeList from './TradeList.svelte';
 import { doneState } from './resultFixture';
+import { expectNoAxeViolations } from '../../share/testAxe';
 
 const names = { '005930': '삼성전자', '000660': 'SK하이닉스' };
 
@@ -104,6 +105,17 @@ describe('TradeList', () => {
 });
 
 describe('TradeList 읽기 전용', () => {
+  it.each([false, true])('hideQty=%s: 버튼과 같은 접근 이름을 가지며 axe 위반이 없다', async (hideQty) => {
+    const trades = doneState().result.trades;
+    const editable = render(TradeList, { trades, names, onTrade: vi.fn(), hideQty });
+    const labels = screen.getAllByRole('button').map((row) => row.getAttribute('aria-label')!);
+    editable.unmount();
+    const { container } = render(TradeList, { trades, names, hideQty });
+    const group = screen.getByRole('group', { name: '거래 내역' });
+    for (const label of labels) expect(within(group).getByRole('group', { name: label })).toBeTruthy();
+    await expectNoAxeViolations(container);
+  });
+
   it('onTrade가 없으면 줄이 버튼이 아니고 안내에서 「행을 눌러」를 뺀다', () => {
     const { container } = render(TradeList, { trades: doneState().result.trades, names: {} });
     expect(within(container).queryAllByRole('button')).toHaveLength(0);

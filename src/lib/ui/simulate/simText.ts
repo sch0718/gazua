@@ -7,7 +7,7 @@ import type { Watchlists } from '../../state/schema';
 import { fmtWon } from '../format';
 
 const dots = (d: string) => d.replaceAll('-', '.');
-const MINUS = '−';
+export const MINUS = '−';
 
 /**
  * 수익률 표시. 소수 첫째 자리, 음수는 진짜 빼기 기호(U+2212).
@@ -176,11 +176,6 @@ export function skipCounts(skipped: Skip[]): { reason: Skip['reason']; n: number
   const count = new Map<Skip['reason'], number>();
   for (const k of skipped) count.set(k.reason, (count.get(k.reason) ?? 0) + 1);
   return [...count].map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n);
-}
-
-/** 건너뛴 이유 중 가장 많은 것(같으면 먼저 나온 것). */
-export function dominantSkipReason(skipped: Skip[]): Skip['reason'] | null {
-  return skipCounts(skipped)[0]?.reason ?? null;
 }
 
 export const LIMITATIONS = [

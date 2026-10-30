@@ -299,15 +299,22 @@ describe('ResultView 읽기 전용(받은 공유)', () => {
   const view = (o: Record<string, unknown> = {}, state: DoneState = doneState()) => render(ResultView, { state, colorConvention: 'kr', readonly: true, ...o });
 
   it('규칙 고치기·거래 차트 시트가 없고 거래 줄은 버튼이 아니다', async () => {
-    view({}, (() => {
+    const empty = view({}, (() => {
       const s = doneState();
       noTrades(s, s.result.skipped);
       return s;
     })());
     expect(screen.queryByRole('button', { name: '규칙 고치기' })).toBeNull();
-    const s2 = render(ResultView, { state: doneState(), colorConvention: 'kr', readonly: true });
-    expect(within(s2.container).queryAllByRole('button', { name: /SK하이닉스/ })).toHaveLength(0);
-    expect(within(s2.container).getAllByRole('listitem').length).toBeGreaterThan(0);
+    empty.unmount();
+    const state = doneState();
+    view({}, state);
+    const trades = screen.getByRole('group', { name: '거래 내역' });
+    expect(within(trades).queryAllByRole('button')).toHaveLength(0);
+    const rows = within(trades).getAllByRole('listitem');
+    expect(rows).toHaveLength(state.result.trades.length);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await fireEvent.click(rows[0].querySelector('.item')!);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('금액 숨김: 매수 줄은 가격만, 종목별은 자금 대비 %', async () => {
@@ -317,6 +324,40 @@ describe('ResultView 읽기 전용(받은 공유)', () => {
     await fireEvent.click(tab('종목별'));
     expect(screen.getByText('자금 대비 +1.41%')).toBeTruthy();
     expect(screen.getByText('자금 대비 −0.88%')).toBeTruthy();
+  });
+
+  it.each([undefined, {}, { '005930': 1.41 }])('금액 숨김: pnlPct %j에 없는 종목은 —로 보인다', async (pnlPct) => {
+    view({ hideAmounts: true, pnlPct });
+    await fireEvent.click(tab('종목별'));
+    const rows = within(screen.getByRole('list', { name: '종목별' })).getAllByRole('listitem');
+    expect(within(rows[1]).getByText('—')).toBeTruthy();
+    expect(rows[1].textContent).not.toContain('0.00%');
+    expect(rows[1].textContent).not.toContain('원');
+    expect(rows[1].querySelector('.num')?.className).not.toMatch(/\b(up|down)\b/);
+  });
+
+  it('거래 0건·개수만 받은 공유는 사유 목록 하나와 생략 안내 한 줄만 보인다', () => {
+    const state = doneState((s) => {
+      noTrades(s, []);
+      s.result.summary.skippedSignals = 3;
+    });
+    const { container } = view({ skippedCounts: [['현금 부족', 1], ['1주가 1회 금액보다 비쌈', 2]] }, state);
+    const lists = screen.getAllByRole('list', { name: '건너뛴 이유' });
+    expect(lists).toHaveLength(1);
+    expect(lists[0].classList.contains('why-list')).toBe(true);
+    expect(within(lists[0]).getAllByRole('listitem').map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      '1주가 회당 금액보다 비싸요 2번', '현금이 모자랐어요 1번',
+    ]);
+    const notes = screen.getAllByText('목록은 크기 때문에 빼고 보냈어요');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].tagName).toBe('P');
+    expect(container.querySelector('ul.rows')).toBeNull();
+  });
+
+  it('거래·건너뜀 모두 0건이어도 목록 없이 개수만 받았으면 생략 안내가 보인다', () => {
+    view({ skippedCounts: [] }, doneState((s) => noTrades(s)));
+    expect(screen.getByText('목록은 크기 때문에 빼고 보냈어요').tagName).toBe('P');
+    expect(screen.queryByRole('list', { name: '건너뛴 이유' })).toBeNull();
   });
 
   it('건너뜀 목록 없이 개수만 받으면 탭 이름·본문·거래 0건 문구가 개수를 쓴다', async () => {

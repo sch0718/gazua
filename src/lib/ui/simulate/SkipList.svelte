@@ -4,14 +4,17 @@
   import { dotDate, skipReasonLabel } from './simText';
 
   let { skipped, names, counts }: { skipped: Skip[]; names: Record<string, string>; counts?: [Skip['reason'], number][] } = $props();
+  const positiveCounts = $derived(counts?.filter(([, n]) => n > 0) ?? []);
 </script>
 
 {#if counts}
-  <ul class="rows" aria-label="건너뛴 이유">
-    {#each counts as [reason, n] (reason)}
-      <li><span class="why">{skipReasonLabel(reason)}</span> <span class="num">{n}번</span></li>
-    {/each}
-  </ul>
+  {#if positiveCounts.length > 0}
+    <ul class="rows" aria-label="건너뛴 이유">
+      {#each positiveCounts as [reason, n] (reason)}
+        <li><span class="reason">{skipReasonLabel(reason)}</span> <span class="num count">{n}번</span></li>
+      {/each}
+    </ul>
+  {/if}
   <p class="none">목록은 크기 때문에 빼고 보냈어요</p>
 {:else if skipped.length === 0}
   <p class="none">건너뛴 신호가 없어요</p>
@@ -54,6 +57,12 @@
   }
   .why {
     margin-left: auto;
+  }
+  .count {
+    margin-left: auto;
+  }
+  .why,
+  .reason {
     color: var(--t2);
   }
 </style>
