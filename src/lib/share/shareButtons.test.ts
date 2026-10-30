@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function signedIn(on: boolean) {
-  setShareController({ account: on ? { email: 'me@example.test' } : null } as SyncController);
+  setShareController({ providers: { google: true, kakao: false, naver: false }, signInWith: vi.fn(), completeSocialSignIn: vi.fn(), account: on ? { provider: 'google', id: 'me@example.test', display: 'me@example.test' } : null } as unknown as SyncController);
 }
 
 function app() {

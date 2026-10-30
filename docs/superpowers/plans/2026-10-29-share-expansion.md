@@ -6491,7 +6491,7 @@ git commit -m "feat(share): 카카오톡 카드에 화면 캡처를 올리고 �
 - Modify: `package.json` (`"build:share-images"`)
 - Modify: `pwa.config.ts` (`globIgnores`에 `'share/**'`), Test: `pwa.config.test.ts`
 - Create: `tests/e2e/share.spec.ts`
-- Modify: `docs/live-check.md` (㉙ 항목)
+- Modify: `docs/live-check.md` (㉚ 항목)
 
 **Interfaces:**
 - Consumes: `loadTheme`·`FONT`(`scripts/motion/kit.mjs`), `public/icon.svg`, `playwright-core`의 `chromium`, Task 7 대기 값 키 `gazua:v1:share-import`와 `PendingImport` 모양, Task 8 확인 창 문구, `openApp`·`enterDemo`·`loadExampleGroup`·`leaderboardRows`·`FIXED_NOW`(`tests/e2e/helpers.ts`)
@@ -6733,7 +6733,7 @@ Expected: `public/share/group.png: … bytes`부터 `validation.png`까지 여�
 `docs/live-check.md` 끝(㉘ 다음)에 더해요.
 
 ```markdown
-## ㉙ 공유 확장: 카카오 캡처 업로드·카드·인앱 브라우저·크기
+## ㉚ 공유 확장: 카카오 캡처 업로드·카드·인앱 브라우저·크기
 
 - **무엇을**: 공유 확장(docs/superpowers/specs/2026-10-29-share-expansion-design.md 10절)을 실제 환경에서.
   - 운영 도메인에서 `Kakao.Share.uploadImage`가 성공하는지(등록 도메인·앱 키 권한), 돌려준 주소의 호스트와 크기 값.
@@ -6791,7 +6791,7 @@ git add scripts/build-share-images.mjs public/share package.json pwa.config.ts p
 git commit -m "feat(share): 카카오 카드 고정 이미지와 가져오기 e2e, 실연결 점검 항목을 더함" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-PR을 열 때(이 계획 범위 밖, 사용자가 정해요) 본문에 번들 크기 전후, 배포 순서(Worker 먼저), 실연결 점검 ㉙, KIS 약관 결정(사용자 결정 5)을 적어요.
+PR을 열 때(이 계획 범위 밖, 사용자가 정해요) 본문에 번들 크기 전후, 배포 순서(Worker 먼저), 실연결 점검 ㉚, KIS 약관 결정(사용자 결정 5)을 적어요.
 
 ---
 

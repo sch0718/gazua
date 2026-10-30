@@ -4,6 +4,13 @@ import { pwaOptions } from './pwa.config';
 describe('pwaOptions', () => {
   const wb = pwaOptions.workbox!;
 
+  it('소셜 콜백은 앱 셸로 대신 답하거나 미리 담지 않는다', () => {
+    const deny = wb.navigateFallbackDenylist ?? [];
+    expect(deny.some((re) => re.test('/auth/callback/?code=a'))).toBe(true);
+    expect(deny.some((re) => re.test('/'))).toBe(false);
+    expect(wb.globIgnores).toContain('auth/**');
+  });
+
   it('registers from a same-origin script (CSP script-src self) and updates automatically', () => {
     expect(pwaOptions.registerType).toBe('autoUpdate');
     expect(pwaOptions.injectRegister).toBe('script');

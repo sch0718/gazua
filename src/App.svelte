@@ -27,6 +27,24 @@
   import { createSyncApi } from './lib/sync/api';
   import { readSyncConfig } from './lib/sync/config';
   import { createSyncController } from './lib/sync/controller.svelte';
+  import { restoreReferrerPolicy, type SocialReturn } from './lib/sync/social';
+
+  let {
+    socialReturn = null,
+    loadSocialCallback = () => import('./lib/ui/settings/SocialCallback.svelte'),
+  }: {
+    socialReturn?: SocialReturn | null;
+    loadSocialCallback?: () => Promise<typeof import('./lib/ui/settings/SocialCallback.svelte')>;
+  } = $props();
+  let pendingSocial = $state(untrack(() => socialReturn));
+  // 대기 중인 로그인이 바뀔 때만 화면 청크를 요청해요.
+  const socialCallback = $derived(pendingSocial ? untrack(() => loadSocialCallback()) : null);
+  function socialDone(hash: string) {
+    restoreReferrerPolicy();
+    history.replaceState(history.state, '', import.meta.env.BASE_URL + hash);
+    pendingSocial = null;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
 
   const storage = createSafeStorage();
   // 동기화 설정(VITE_*)이 없는 빌드면 configured=false로 아무것도 하지 않는다.
@@ -98,7 +116,7 @@
 </script>
 
 <div class="shell">
-  {#each route.name === 'shared' ? [] : app.banners as b (b.id)}
+  {#each pendingSocial || route.name === 'shared' ? [] : app.banners as b (b.id)}
     <Banner
       message={b.text}
       actionLabel={b.action?.label}
@@ -107,7 +125,24 @@
     />
   {/each}
 
-  {#if route.name === 'shared'}
+  {#if pendingSocial}
+    {@const ret = pendingSocial}
+    {#await socialCallback!}
+      <p role="status">로그인 결과를 확인하는 중…</p>
+    {:then module}
+      <module.default {sync} {ret} ondone={socialDone} />
+    {:catch}
+      <main class="social-fallback">
+        <div class="social-card">
+          <div role="alert">
+            <h1>로그인 화면을 불러오지 못했어요</h1>
+            <p>인터넷 연결을 확인하고 돌아가서 다시 시도해 주세요.</p>
+          </div>
+          <button type="button" onclick={() => socialDone(ret.returnHash)}>돌아가기</button>
+        </div>
+      </main>
+    {/await}
+  {:else if route.name === 'shared'}
     <SharedView
       capability={route.capability}
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
@@ -180,12 +215,45 @@
   </button>
 {/snippet}
 
-{#if route.name !== 'shared'}<HelpIntro {app} />{/if}
+{#if !pendingSocial && route.name !== 'shared'}<HelpIntro {app} />{/if}
 <ShareHost />
 <ImportHost {app} />
 <SnackbarHost />
 
 <style>
+  .social-fallback {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+  }
+  .social-card {
+    width: 100%;
+    max-width: 440px;
+    box-sizing: border-box;
+    background: var(--surface);
+    border-radius: var(--r-card);
+    padding: 24px 20px;
+  }
+  .social-card h1 {
+    font-size: var(--fs-body);
+    font-weight: 700;
+  }
+  .social-card p {
+    font-size: var(--fs-sub);
+    color: var(--t2);
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+  .social-card button {
+    min-height: var(--touch);
+    margin-top: 16px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--t1);
+    font-weight: 700;
+  }
   .shell {
     display: flex;
     flex-direction: column;

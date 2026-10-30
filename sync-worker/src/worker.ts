@@ -1,14 +1,16 @@
-import { googleCerts } from '@sch0718/firebase-session/worker';
+import { googleCerts, socialKeys } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from './env';
 import { handle } from './handler';
 import { purge } from './purge';
 
 // isolate마다 하나. 공개 인증서를 max-age 동안 재사용한다.
 const certs = googleCerts();
+const social = socialKeys();
 
 const deps = (): SyncDeps => ({
   now: Date.now,
   certs,
+  socialKeys: social,
   random: (n) => crypto.getRandomValues(new Uint8Array(n)),
   uuid: () => crypto.randomUUID(),
   log: (line) => console.log(line),

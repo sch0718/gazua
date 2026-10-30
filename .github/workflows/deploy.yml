@@ -35,7 +35,7 @@ jobs:
         env:
           GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # prebuild 단계가 종목 유니버스(public/universe.json)를 내려받는다.
-      # 동기화·공유 설정은 저장소 Actions Variables에서 온다. 비어 있으면 기능이 꺼진 채로 빌드된다(sync-worker/README.md).
+      # 동기화·공유 설정은 저장소 Actions Variables에서 온다. API 주소와 로그인 공급자 설정이 없으면 기능이 꺼진 채로 빌드된다(sync-worker/README.md).
       - run: pnpm build
         env:
           VITE_SYNC_API_URL: ${{ vars.VITE_SYNC_API_URL }}
@@ -43,6 +43,9 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          # 소셜 로그인(선택). 공개 client id이며 값이 있는 공급자만 로그인 단추가 보인다.
+          VITE_KAKAO_LOGIN_CLIENT_ID: ${{ vars.VITE_KAKAO_LOGIN_CLIENT_ID }}
+          VITE_NAVER_LOGIN_CLIENT_ID: ${{ vars.VITE_NAVER_LOGIN_CLIENT_ID }}
           # 카카오톡 공유(선택). 앱 번들에 들어가는 공개 키라 Variables에 둔다. 비면 링크 복사만 보인다.
           VITE_KAKAO_JS_KEY: ${{ vars.VITE_KAKAO_JS_KEY }}
       - uses: actions/upload-pages-artifact@v3

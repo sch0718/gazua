@@ -1,16 +1,21 @@
 <script lang="ts">
-  // 설정 › 동기화(제안서 7절 1단계): Google 로그인, 동기화 켜기·상태, 충돌 사본 고르기. 기기·삭제한 프로필·과거 버전·내 공유는 SyncManage.
+  // 설정 › 동기화(제안서 7절 1단계): Google·카카오·네이버 로그인, 동기화 켜기·상태, 충돌 사본 고르기. 기기·삭제한 프로필·과거 버전·내 공유는 SyncManage.
   import type { App } from '../../state/app.svelte';
   import type { SyncController } from '../../sync/controller.svelte';
   import type { ProfileDocV1 } from '../../sync/dto';
   import type { Resolution } from '../../sync/engine';
   import type { Conflict } from '../../sync/store';
+  import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
   import SyncManage from './SyncManage.svelte';
 
-  let { app, sync }: { app: App; sync: SyncController } = $props();
+  let { app, sync, userAgent = navigator.userAgent }: { app: App; sync: SyncController; userAgent?: string } = $props();
+
+  const enabledProviders = $derived((['google', 'kakao', 'naver'] as LoginProvider[]).filter((p) => sync.providers[p]));
+  const providerNames = $derived(enabledProviders.map((p) => PROVIDER_NAMES[p]).join('·'));
 
   const uid = Math.random().toString(36).slice(2, 8);
   let label = $state('');
+  let showLogoutHint = $state(false);
   let confirm = $state<{ upload: string[]; download: number } | null>(null);
 
   const status = $derived(sync.status);
@@ -38,6 +43,11 @@
     confirm = null;
     await sync.setEnabled(true);
   }
+  async function signOut() {
+    const social = sync.account?.provider === 'kakao' || sync.account?.provider === 'naver';
+    await sync.signOut();
+    showLogoutHint = social;
+  }
   const resolve = (c: Conflict, choice: Resolution) => sync.resolve(c.profileId, choice);
 </script>
 
@@ -46,7 +56,7 @@
     <div class="row">
       <div class="text">
         <b>이 빌드에는 동기화가 설정되지 않았어요</b>
-        <p>sync-worker를 배포하고 Firebase 설정을 넣은 빌드에서 쓸 수 있어요. 지금처럼 이 브라우저에만 저장돼요.</p>
+        <p>sync-worker를 배포하고 로그인 설정을 넣은 빌드에서 쓸 수 있어요. 지금처럼 이 브라우저에만 저장돼요.</p>
       </div>
     </div>
   {:else if !sync.account}
@@ -54,7 +64,7 @@
       <div class="text">
         <b>여러 기기에서 같은 프로필 쓰기</b>
         <p>
-          본인 Google 계정으로 로그인하면 그룹·전략·선정 기준·묶음·분석 설정(기간·지표·벤치마크·색·정렬)을 기기끼리 맞춰요.
+          {#if providerNames}{enabledProviders.length === 1 ? `본인 ${providerNames} 계정으로` : `${providerNames} 중 쓸 수 있는 계정으로`} 로그인하면 그룹·전략·선정 기준·묶음·분석 설정(기간·지표·벤치마크·색·정렬)을 기기끼리 맞춰요.{/if}
           키·계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요. 올린 데이터는 암호화하지 않은 채 서버(Cloudflare)에 저장돼요.
         </p>
       </div>
@@ -62,15 +72,35 @@
         이 기기 이름(선택)
         <input id="sync-label-{uid}" maxlength="40" bind:value={label} placeholder="예: 회사 노트북" />
       </label>
-      <button type="button" class="btn primary" disabled={sync.busy} onclick={() => sync.signIn(label)}>Google로 로그인</button>
+      {#if sync.providers.google}
+        <button type="button" class="btn primary" disabled={sync.busy} onclick={() => sync.signIn(label)}>Google로 로그인</button>
+      {/if}
+      {#if sync.providers.kakao}
+        <button type="button" class="btn kakao" disabled={sync.busy} onclick={() => sync.signInWith('kakao', label)}>카카오로 로그인</button>
+      {/if}
+      {#if sync.providers.naver}
+        <button type="button" class="btn naver" disabled={sync.busy} onclick={() => sync.signInWith('naver', label)}>네이버로 로그인</button>
+      {/if}
+      {#if !providerNames}
+        <p class="warn">이 빌드에는 로그인 방법이 설정되지 않았어요</p>
+      {/if}
+      {#if showLogoutHint}
+        <p class="warn" role="status">공용 기기라면 카카오·네이버에서도 로그아웃하세요.</p>
+      {/if}
+      {#if sync.providers.google && isInAppBrowser(userAgent)}
+        <p class="warn">카카오톡·네이버 앱 안의 브라우저에서는 Google 로그인이 막혀요. {sync.providers.kakao ? '카카오로 로그인을 쓰거나 ' : ''}오른쪽 위 메뉴에서 다른 브라우저로 열어 주세요.</p>
+      {/if}
     </div>
   {:else}
     <div class="row">
       <div class="text">
-        <b>{sync.account.email}</b>
-        <p>로그인됨</p>
+        <b>{sync.account.display}</b>
+        <p>{PROVIDER_NAMES[sync.account.provider]} 계정으로 로그인됨</p>
+        {#if sync.account.provider !== 'google' && sync.account.display !== sync.account.id}
+          <small class="muted">{sync.account.id}</small>
+        {/if}
       </div>
-      <button type="button" class="btn" disabled={sync.busy} onclick={() => sync.signOut()}>로그아웃</button>
+      <button type="button" class="btn" disabled={sync.busy} onclick={signOut}>로그아웃</button>
     </div>
     <div class="row">
       <div class="text">
@@ -213,6 +243,19 @@
   .btn.primary {
     background: var(--accent);
     color: var(--on-accent, #fff);
+  }
+  .btn.kakao {
+    background: #FEE500;
+    color: rgba(0,0,0,0.85);
+  }
+  .btn.naver {
+    background: #03C75A;
+    color: #fff;
+  }
+  .muted {
+    color: var(--t3);
+    font-size: var(--fs-sub);
+    overflow-wrap: anywhere;
   }
   .btn:disabled {
     opacity: 0.5;

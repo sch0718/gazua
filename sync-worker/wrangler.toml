@@ -5,6 +5,9 @@ compatibility_date = "2025-01-01"
 [vars]
 # 콤마로 구분한 허용 출처(정확히 일치).
 ALLOWED_ORIGINS = "https://gazua.sch0718.dev"
+# 콤마로 구분한 콜백 주소가 정확히 일치해야 한다. 로컬은 별도 개발용 공급자 앱과 Worker를 쓴다.
+SOCIAL_REDIRECT_URIS = "https://gazua.sch0718.dev/auth/callback/"
+# wrangler secret put으로 넣는다: ALLOWED_ACCOUNTS, KAKAO_CLIENT_ID, KAKAO_CLIENT_SECRET, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
 # Firebase 프로젝트 ID(aud·iss 검증). 비밀은 아니지만 계정마다 달라 비워 둔다. 배포 전에 채운다.
 FIREBASE_PROJECT_ID = ""
 # 허용 이메일은 vars가 아니라 시크릿으로 넣는다: pnpm wrangler secret put ALLOWED_EMAILS (콤마 구분)

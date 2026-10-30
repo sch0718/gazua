@@ -20,8 +20,8 @@ export const pwaOptions = createPwaOptions({
   // 도움말 그림(help/img, 약 400KB)은 도움말을 열 때 받아 담는다(아래 gazua-help).
   // 카카오 카드 고정 이미지(share/*.png)는 카카오 서버만 받아 가므로 미리 저장하지 않는다(공유 확장 설계 4.6).
   // Firebase Auth 청크와 같은 도메인의 로그인 도우미는 로그인할 때만 받는다(AUTH_GLOB_IGNORES).
-  globIgnores: ['help/**', 'share/**', ...AUTH_GLOB_IGNORES],
-  navigateFallbackDenylist: AUTH_NAVIGATE_DENYLIST,
+  globIgnores: ['help/**', 'share/**', 'auth/**', ...AUTH_GLOB_IGNORES],
+  navigateFallbackDenylist: [...AUTH_NAVIGATE_DENYLIST, /^\/auth\/callback\//],
   runtimeCaching: [
     {
       // 종목 유니버스는 배포 스케줄(평일 새벽)마다 바뀐다. 캐시를 먼저 보이고 뒤에서 새로 받는다.

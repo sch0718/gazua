@@ -13,6 +13,7 @@ export default {
     return handle(req, env, {
       now: Date.now,
       certs: { key: async (kid) => (kid === 'smoke' ? key : null) },
+      socialKeys: { kakao: { key: async () => null }, naver: { key: async () => null } },
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
       uuid: () => crypto.randomUUID(),
       log: (l) => console.log(l),
