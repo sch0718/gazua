@@ -66,6 +66,19 @@ describe('가져오기 대기 값', () => {
     expect(peekImport(NOW, store)!.snapshot).toEqual({ kind: 'criteria', v: 1, title: val.title, criteria: val.criteria, baskets: val.baskets, capitalHidden: true });
   });
 
+  it.each([
+    ['미래 시각', { at: NOW + 1 }],
+    ['숫자가 아닌 시각', { at: String(NOW) }],
+    ['빈 id', { id: '' }],
+    ['64자를 넘는 id', { id: 'x'.repeat(65) }],
+    ['규칙으로 바꾸지 않은 결과', { from: 'simResult', snapshot: simResultFixture() }],
+  ])('fail-closed: %s이면 지우고 null', (_, invalid) => {
+    const store = memoryBacking();
+    store.setItem(IMPORT_KEY, JSON.stringify({ id: 'x', from: 'group', snapshot: g, at: NOW, ...invalid }));
+    expect(peekImport(NOW, store)).toBeNull();
+    expect(store.getItem(IMPORT_KEY)).toBeNull();
+  });
+
   it('저장소가 던지면 메모리로 같은 탭 안에서 이어 간다', () => {
     const store = throwing();
     expect(stashImport(g, NOW, store)).toBe(false);

@@ -39,6 +39,8 @@ export interface ImportPlan {
   view: CompareSnapshot['view'] | null;
 }
 export interface ImportApplied {
+  /** 실제 저장한 이름. 기준은 기준 이름 다음에 새 묶음 이름들을 순서대로 둔다 */
+  names?: string[];
   watchlists?: Watchlists;
   strategies?: Strategy[];
   criteria?: SelectionCriteria[];
@@ -64,6 +66,20 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max = IMPOR
     const name = cutUtf16(b, max - suffix.length).trimEnd() + suffix;
     if (!taken.has(name)) return name;
   }
+}
+
+/** 이름의 마지막 글자 발음에 맞춰 「이름」로/으로를 붙인다 */
+export function withRo(name: string): string {
+  const last = name.at(-1) ?? '';
+  const code = last.charCodeAt(0);
+  let particle = '로';
+  if (code >= 0xac00 && code <= 0xd7a3) {
+    const jong = (code - 0xac00) % 28;
+    if (jong !== 0 && jong !== 8) particle = '으로'; // 받침 없음·ㄹ은 로
+  } else if (last === '0' || last === '3' || last === '6') {
+    particle = '으로';
+  }
+  return `「${name}」${particle}`;
 }
 
 const namesOf = (list: readonly { name: string }[]) => new Set(list.map((x) => x.name.trim()));
@@ -93,7 +109,8 @@ export function planImport(p: ImportInput, cur: ImportState): ImportPlan {
   let blocked: string | null = null;
   let view: ImportPlan['view'] = null;
   const renamed = (base: string, name: string) => {
-    if (name !== base) notes.push(`같은 이름이 있어 「${name}」로 저장해요`);
+    const normalized = cutUtf16(base.trim(), IMPORT_NAME_MAX).trim() || '공유';
+    if (name !== normalized) notes.push(`같은 이름이 있어 ${withRo(name)} 저장해요`);
   };
   switch (s.kind) {
     case 'group':
@@ -140,7 +157,11 @@ export function planImport(p: ImportInput, cur: ImportState): ImportPlan {
   return { lines, notes, blocked, view };
 }
 
-/** planImport가 막지 않은 경우에만 부른다. 막힌 계획이면 던진다. 늘 새로 만들고 기존 것을 덮어쓰지 않는다 */
+/**
+ * planImport가 막지 않은 경우에만 부른다. 막힌 계획이면 던진다. 늘 새로 만들고 기존 것을 덮어쓰지 않는다.
+ * 확인 창이 떠 있는 동안 다른 탭이 같은 이름을 더할 수 있어 저장 시점 cur로 이름을 다시 계산한다.
+ * 실제 저장한 이름은 ImportApplied.names로 돌려준다.
+ */
 export function applyImport(p: ImportInput, cur: ImportState, opts: { now: number; applyView: boolean }): ImportApplied {
   const plan = planImport(p, cur);
   if (plan.blocked) throw new Error(plan.blocked);
@@ -151,11 +172,11 @@ export function applyImport(p: ImportInput, cur: ImportState, opts: { now: numbe
       const { symbols } = groupSymbols(s.symbols, cur.universe);
       const { watchlists, groupId } = withNewGroup(cur.watchlists, uniqueName(s.title, namesOf(cur.watchlists.groups)), symbols, opts.now);
       const settings = s.kind === 'compare' && opts.applyView ? { ...s.view, period: { ...s.view.period } } : undefined;
-      return { watchlists, ...(settings && { settings }), route: { name: 'compare', groupId } };
+      return { watchlists, names: [watchlists.groups.find((g) => g.id === groupId)!.name], ...(settings && { settings }), route: { name: 'compare', groupId } };
     }
     case 'strategy': {
       const strategy: Strategy = { ...structuredClone(s.strategy), id: crypto.randomUUID(), name: uniqueName(s.title, namesOf(cur.strategies)), updatedAt: opts.now };
-      return { strategies: [...cur.strategies, strategy], route: { name: 'simulate', strategyId: strategy.id } };
+      return { strategies: [...cur.strategies, strategy], names: [strategy.name], route: { name: 'simulate', strategyId: strategy.id } };
     }
     case 'criteria': {
       const bn = basketNames(s, cur);
@@ -173,7 +194,7 @@ export function applyImport(p: ImportInput, cur: ImportState, opts: { now: numbe
         updatedAt: opts.now,
         pool: { ...c.pool, baskets: c.pool.baskets.map((id) => ids.get(id)!) },
       };
-      return { baskets: [...cur.baskets, ...baskets], criteria: [...cur.criteria, criteria], route: { name: 'simulate', tab: 'criteria', criteriaId: criteria.id } };
+      return { baskets: [...cur.baskets, ...baskets], criteria: [...cur.criteria, criteria], names: [criteria.name, ...baskets.map((b) => b.name)], route: { name: 'simulate', tab: 'criteria', criteriaId: criteria.id } };
     }
   }
 }

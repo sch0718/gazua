@@ -5,7 +5,7 @@ import { newCriteria } from '../screen/defaults';
 import { newStrategy } from '../sim/defaults';
 import { STRATEGY_CAP_MESSAGE } from '../sim/strategyStore';
 import { sanitizeStrategies } from '../sim/validate';
-import { applyImport, planImport, uniqueName, type ImportInput, type ImportState } from './importPlan';
+import { applyImport, planImport, uniqueName, withRo, type ImportInput, type ImportState } from './importPlan';
 import type { ImportSnapshot } from './pendingImport';
 import { criteriaSnapshot, strategySnapshot, type CompareSnapshot, type GroupSnapshot } from './snapshot';
 import { NOW } from './testFixtures';
@@ -41,6 +41,18 @@ describe('uniqueName', () => {
   });
 });
 
+describe('withRo', () => {
+  it.each([
+    ['주가', '로'], ['서울', '로'], ['종목', '으로'], ['값', '으로'],
+    ['전략 0', '으로'], ['전략 1', '로'], ['전략 2', '로'], ['전략 3', '으로'],
+    ['전략 4', '로'], ['전략 5', '로'], ['전략 6', '으로'], ['전략 7', '로'],
+    ['전략 8', '로'], ['전략 9', '로'], ['전략 10', '으로'], ['전략 100', '으로'],
+    ['ETF', '로'], ['😀', '로'], ['공유!', '로'], ['', '로'],
+  ])('%j의 마지막 글자에 맞춰 %s를 붙인다', (name, particle) => {
+    expect(withRo(name)).toBe(`「${name}」${particle}`);
+  });
+});
+
 describe('planImport / applyImport', () => {
   it('그룹: 50종목이면 앞에서 10개 + 안내, 종목 목록에 없는 코드는 빼고 개수를 알린다', () => {
     const symbols = codes(50);
@@ -68,6 +80,32 @@ describe('planImport / applyImport', () => {
     expect(p.notes).toContain('같은 이름이 있어 「반도체 2」로 저장해요');
   });
 
+  it.each(['group', 'compare', 'strategy', 'criteria', 'basket'] as const)('%s: 긴 이모지 이름을 자르기만 하면 충돌 안내를 하지 않는다', (kind) => {
+    const title = '😀'.repeat(31);
+    const criteria = newCriteria(NOW, null, title);
+    const basket = newBasket(NOW, title, ['005930']);
+    criteria.pool.baskets = [basket.id];
+    const snapshots = {
+      group: group(['005930'], title),
+      compare: { ...group(['005930'], title), kind: 'compare' as const, view: { period: { unit: 'M' as const, n: 3 }, metric: 'rsi' as const, benchmark: 'KOSDAQ' as const, boardOrder: 'mine' as const } },
+      strategy: strategySnapshot(newStrategy(NOW, null, title), { groups: [] }, { hideCapital: false, now: NOW }),
+      criteria: criteriaSnapshot(newCriteria(NOW, null, title), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW }),
+      basket: criteriaSnapshot(criteria, { baskets: [basket], strategies: [] }, { hideCapital: false, now: NOW }),
+    };
+    const snapshot = snapshots[kind];
+    // 스냅샷 생성 함수가 미리 자른 이름도 복원해 각 renamed 경로를 검증한다.
+    snapshot.title = kind === 'basket' ? '기준' : title;
+    if (snapshot.kind === 'criteria') snapshot.baskets.forEach((b) => { b.name = title; });
+    const p = planImport(input(snapshot), state());
+    expect(p.blocked).toBeNull();
+    expect(p.lines[0]).toContain(`「${kind === 'basket' ? '기준' : '😀'.repeat(15)}」`);
+    expect(p.notes).toEqual([]);
+  });
+
+  it.each(['  반도체  ', '   '])('그룹: 이름 %j를 정리하기만 하면 충돌 안내를 하지 않는다', (title) => {
+    expect(planImport(input(group(['005930'], title)), state()).notes).toEqual([]);
+  });
+
   it('비교 화면: 보기 설정은 체크했을 때만, 바뀌는 키는 네 개뿐', () => {
     const cmp: CompareSnapshot = { kind: 'compare', v: 1, title: '반도체', symbols: ['005930'], view: { period: { unit: 'M', n: 3 }, metric: 'rsi', benchmark: 'KOSDAQ', boardOrder: 'mine' } };
     expect(planImport(input(cmp), state()).view).toEqual(cmp.view);
@@ -75,6 +113,26 @@ describe('planImport / applyImport', () => {
     expect(on.settings).toEqual({ period: { unit: 'M', n: 3 }, metric: 'rsi', benchmark: 'KOSDAQ', boardOrder: 'mine' });
     expect(Object.keys(on.settings!).sort()).toEqual(['benchmark', 'boardOrder', 'metric', 'period']);
     expect(applyImport(input(cmp), state(), { now: NOW, applyView: false }).settings).toBeUndefined();
+  });
+
+  it.each(['group', 'compare', 'strategy', 'criteria'] as const)('%s: 확인 뒤 다른 탭에서 같은 이름을 만들면 저장 시 다시 정하고 실제 이름을 돌려준다', (kind) => {
+    const snapshots = {
+      group: group(['005930']),
+      compare: { ...group(['005930']), kind: 'compare' as const, view: { period: { unit: 'M' as const, n: 3 }, metric: 'rsi' as const, benchmark: 'KOSDAQ' as const, boardOrder: 'mine' as const } },
+      strategy: strategySnapshot(newStrategy(NOW, null, '반도체'), { groups: [] }, { hideCapital: false, now: NOW }),
+      criteria: criteriaSnapshot(newCriteria(NOW, null, '반도체'), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW }),
+    };
+    const p = input(snapshots[kind]);
+    expect(planImport(p, state()).lines[0]).toContain('「반도체」');
+    const cur = state({
+      watchlists: { groups: [{ id: 'g1', name: '반도체', items: [] }] },
+      strategies: [newStrategy(NOW, null, '반도체')],
+      criteria: [newCriteria(NOW, null, '반도체')],
+    });
+    const a = applyImport(p, cur, { now: NOW, applyView: false });
+    const saved = a.watchlists?.groups.at(-1) ?? a.strategies?.at(-1) ?? a.criteria?.at(-1);
+    expect(saved?.name).toBe('반도체 2');
+    expect(a).toMatchObject({ names: [saved!.name] });
   });
 
   it('전략: 20개면 막고, 새 ID·updatedAt, 자금 숨김 안내, 결과에서 왔으면 결과 안내', () => {
@@ -110,14 +168,18 @@ describe('planImport / applyImport', () => {
     expect(p.lines).toEqual(['선정 기준 「대형」 · 묶음 2개']);
     expect(p.notes).toEqual([
       '같은 이름이 있어 「반도체 2」로 저장해요',
-      '같은 이름이 있어 「반도체 3」로 저장해요',
+      '같은 이름이 있어 「반도체 3」으로 저장해요',
       '② 매매 규칙은 함께 오지 않아요. 저장한 뒤 매매 규칙을 골라 주세요',
       '결과는 저장하지 않아요. 저장한 뒤 실행하면 내 데이터로 다시 계산해요',
     ]);
     const a = applyImport(input(snap, 'validation'), cur, { now: NOW, applyView: true });
     const added = a.baskets!.slice(1);
     expect(added.map((b) => b.name)).toEqual(['반도체 2', '반도체 3']);
+    expect(added.every((b) => b.id !== 'b0' && b.id !== 'b1')).toBe(true);
+    expect(a.criteria![0].id).not.toBe('shared');
+    expect(a.criteria![0].trading.strategyId).toBeNull();
     expect(a.criteria![0].pool.baskets).toEqual(added.map((b) => b.id));
+    expect(a).toMatchObject({ names: ['대형', ...added.map((b) => b.name)] });
     expect(a.route).toEqual({ name: 'simulate', tab: 'criteria', criteriaId: a.criteria![0].id });
   });
 
