@@ -251,8 +251,8 @@
   - 받은 사람이 PWA 옛 버전일 때 새 종류 링크가 어떻게 보이는지, 새 버전 배포 뒤 `unsupported` 문구가 나오는지.
   - 카카오톡 인앱 브라우저(Android·iOS)에서 `kakaotalk://web/openExternal?url=`이 기본 브라우저를 여는지. iOS 홈 화면 PWA와 Safari가 저장소를 따로 쓰는지.
   - Workers Free 실행당 CPU 10 ms 안에서 100 KiB 결과 스냅샷 검사가 끝나는지(로컬 `wrangler dev`에서 설계 3.5의 두 고정 데이터와 100 KiB 경계 스냅샷으로 재요).
-  - iPadOS 13 이후의 카카오톡 인앱은 UA가 `Macintosh`라 `isIos`가 false가 될 수 있다. 실기기에서 확인한다(`src/lib/share/inApp.ts`).
-  - SharedView의 SkipList 개수 줄 배치(이유는 왼쪽, 개수는 오른쪽)를 실제 받은 화면에서 눈으로 확인한다. e2e 빌드에는 동기화 설정이 없어 SharedView를 그릴 수 없어 여기로 옮겼다.
+  - iPadOS 13 이후의 카카오톡 인앱은 UA가 `Macintosh`라 `isIos`가 false가 될 수 있어요. 실기기에서 확인해요(`src/lib/share/inApp.ts`).
+  - SharedView의 SkipList 개수 줄 배치(이유는 왼쪽, 개수는 오른쪽)를 실제 받은 화면에서 눈으로 확인해요. e2e 빌드에는 동기화 설정이 없어 SharedView를 그릴 수 없어 여기로 옮겼어요.
 - **어떻게**: Worker를 먼저 배포하고 앱을 배포해요(옛 Worker는 새 종류를 거절해요). 비교·시뮬레이션 결과·검증 결과를 각각 공유해 카카오톡 PC·Android·iOS로 받아 봐요.
-- **바꿀 곳**: 업로드·카드는 `src/lib/share/kakao.ts`·`ShareDialog.svelte`, 인앱 안내는 `src/lib/share/inApp.ts`·`src/routes/SharedView.svelte`(스킴이 안 되면 단추를 빼고 `오른쪽 위 ⋮ › 다른 브라우저로 열기`를 글로 안내), 크기는 `src/lib/share/compact.ts`, CPU가 넘으면 `src/lib/share/checkResult.ts`의 동일성 비교를 줄여요.
+- **바꿀 곳**: 업로드·카드는 `src/lib/share/kakao.ts`·`ShareDialog.svelte`, 인앱 안내는 `src/lib/share/inApp.ts`·`src/routes/SharedView.svelte`(스킴이 안 되면 단추를 빼고 `오른쪽 위 ⋮ › 다른 브라우저로 열기`를 글로 안내), 개수 줄 배치는 `src/lib/ui/simulate/SkipList.svelte`, 크기는 `src/lib/share/compact.ts`, CPU가 넘으면 `src/lib/share/checkResult.ts`의 동일성 비교를 줄여요.
 - 결과:

@@ -1,6 +1,7 @@
 // 카카오 카드 고정 이미지(공유 확장 설계 4.6): 종류별 800×400 PNG를 public/share/에 만든다.
 // 라이트 토큰 배경, 왼쪽에 로고, 오른쪽에 종류 이름과 단순 도형. 숫자는 넣지 않는다.
 // 새 의존성 없이 이미 개발 의존성인 playwright-core의 Chromium으로 찍는다. 손으로 돌리고(prebuild에 넣지 않는다) 결과 PNG를 커밋한다.
+// 다른 기기나 Chromium 버전에서 다시 돌리면 시스템 글꼴 차이 때문에 PNG가 바뀔 수 있다.
 //   corepack pnpm build:share-images
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -19,15 +20,19 @@ const logo = icon
   .replace(/<\/svg>\s*$/, '')
   .trim();
 
-// src/lib/share/kinds.ts의 SHARE_KIND_LABEL과 같은 이름(tests/share-images.test.mjs가 종류 목록을 맞춘다)
+// .mjs에서 .ts를 import할 수 없어 tests/share-images.test.mjs처럼 소스 리터럴을 정규식으로 읽는다.
+const kindsSource = await readFile(new URL('src/lib/share/kinds.ts', root), 'utf8');
+const labelsLiteral = kindsSource.match(/SHARE_KIND_LABEL[^=]*= (\{[^}]+\})/)[1];
+const labels = Object.fromEntries([...labelsLiteral.matchAll(/(\w+): '([^']+)'/g)].map(([, kind, label]) => [kind, label]));
+// 문구는 SHARE_KIND_LABEL을 쓰고, 기존 순서와 도형 매핑은 유지한다.
 const KINDS = [
-  ['group', '그룹', 'bars'],
-  ['strategy', '전략', 'checks'],
-  ['criteria', '선정 기준', 'checks'],
-  ['compare', '비교 화면', 'lines'],
-  ['simResult', '시뮬레이션 결과', 'lines'],
-  ['validation', '검증 결과', 'bars'],
-];
+  ['group', 'bars'],
+  ['strategy', 'checks'],
+  ['criteria', 'checks'],
+  ['compare', 'lines'],
+  ['simResult', 'lines'],
+  ['validation', 'bars'],
+].map(([kind, shape]) => [kind, labels[kind], shape]);
 
 const SHAPES = {
   lines: [
