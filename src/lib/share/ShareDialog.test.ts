@@ -9,6 +9,7 @@ import { built, groupSnapshot, strategySnapshot } from './snapshot';
 import { simResultSnapshot } from './compact';
 import { bigDone, NOW as FIX_NOW, simResultFixture } from './testFixtures';
 import type { ShareRequest } from './shareStore.svelte';
+import { snapshotLines } from './shareText';
 
 afterEach(() => {
   dismissSnackbar();
@@ -25,7 +26,7 @@ const groupReq: ShareRequest = {
 };
 
 type Made = { url: string; expiresAt: number } | null;
-function sync(createShare = vi.fn(async (): Promise<Made> => ({ url: 'https://app.example.test/#/s/' + 'x'.repeat(43), expiresAt: NOW + 7 * 864e5 }))) {
+function sync(createShare = vi.fn<SyncController['createShare']>(async (): Promise<Made> => ({ url: 'https://app.example.test/#/s/' + 'x'.repeat(43), expiresAt: NOW + 7 * 864e5 }))) {
   return { busy: false, error: null, clearError: vi.fn(), createShare } as unknown as SyncController & { createShare: typeof createShare };
 }
 
@@ -67,6 +68,30 @@ describe('ShareDialog', () => {
     expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('비공개');
     await fireEvent.click(screen.getByLabelText('가상 초기 자금 빼기'));
     expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('123,456,789원');
+  });
+
+  it.each(['strategy', 'simResult'] as const)('%s 링크를 만드는 동안 자금 체크와 만료 입력을 끈다', async (kind) => {
+    const req: ShareRequest = {
+      kind, name: '눌림목', profileId: 'p1',
+      build: (h) => built(kind === 'strategy'
+        ? strategySnapshot(newStrategy(NOW, null, '눌림목'), { groups: [] }, { hideCapital: h, now: NOW })
+        : simResultFixture({ capitalHidden: h })),
+    };
+    const s = sync();
+    const view = render(ShareDialog, { request: req, sync: s, onclose: () => {} });
+    const capital = screen.getByRole('checkbox') as HTMLInputElement;
+    const ttl = screen.getByLabelText('만료(일)') as HTMLInputElement;
+    expect(capital.disabled).toBe(false);
+    expect(ttl.disabled).toBe(false);
+
+    await view.rerender({ sync: { ...s, busy: true } });
+    expect(capital.disabled).toBe(true);
+    expect(ttl.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '만드는 중…' }) as HTMLButtonElement).disabled).toBe(true);
+
+    await view.rerender({ sync: s });
+    expect(capital.disabled).toBe(false);
+    expect(ttl.disabled).toBe(false);
   });
 
   it('실패하면 이유를 알린다', async () => {
@@ -182,6 +207,75 @@ describe('ShareDialog 결과 종류', () => {
     expect(raw.querySelector('pre')!.textContent).toContain('"axis":{"start":"2024-01-02"');
     const rules = screen.getByText('보낼 원문 보기').closest('details')!;
     expect(rules.querySelector('pre')!.textContent).toContain('\n  "strategy": {');
+    raw.open = false;
+    await fireEvent(raw, new Event('toggle'));
+    expect(raw.querySelector('pre')).toBeNull();
+  });
+
+  it('같은 요청이 invalid가 되었다가 다시 ok가 되면 결과 원문을 닫아 둔다', async () => {
+    const req = simReq((h) => h ? built(simResultFixture()) : { ok: false, code: 'invalid' });
+    render(ShareDialog, { request: req, sync: sync(), onclose: () => {} });
+    const raw = screen.getByText(/^결과 원문\(약 \d+ KB\)$/).closest('details')!;
+    raw.open = true;
+    await fireEvent(raw, new Event('toggle'));
+    expect(raw.querySelector('pre')).not.toBeNull();
+
+    const capital = screen.getByRole('checkbox');
+    await fireEvent.click(capital);
+    expect(screen.getByRole('alert').textContent).toBe('이 결과는 공유 형식으로 바꾸지 못했어요');
+    expect(screen.queryByText(/^결과 원문\(약 \d+ KB\)$/)).toBeNull();
+    await fireEvent.click(capital);
+    const restored = screen.getByText(/^결과 원문\(약 \d+ KB\)$/).closest('details')!;
+    expect(restored.open).toBe(false);
+    expect(restored.querySelector('pre')).toBeNull();
+  });
+
+  it('다른 결과 요청을 열면 펼침 상태와 원문을 함께 닫는다', async () => {
+    const view = render(ShareDialog, { request: simReq(() => built(simResultFixture())), sync: sync(), onclose: () => {} });
+    const raw = screen.getByText(/^결과 원문\(약 \d+ KB\)$/).closest('details')!;
+    raw.open = true;
+    await fireEvent(raw, new Event('toggle'));
+    expect(raw.querySelector('pre')).not.toBeNull();
+
+    await view.rerender({ request: simReq(() => built(simResultFixture())) });
+    const restored = screen.getByText(/^결과 원문\(약 \d+ KB\)$/).closest('details')!;
+    expect(restored.open).toBe(false);
+    expect(restored.querySelector('pre')).toBeNull();
+  });
+
+  it('결과 자금 체크를 풀면 다시 만들고 미리 본 스냅샷 그대로 링크를 만든다', async () => {
+    const build = vi.fn<ShareRequest['build']>((h) => built(simResultFixture({ capitalHidden: h })));
+    const s = sync();
+    render(ShareDialog, { request: simReq(build), sync: s, onclose: () => {} });
+    expect(build).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('초기 자금: 비공개');
+    const calls = build.mock.calls.length;
+
+    await fireEvent.click(screen.getByRole('checkbox'));
+    expect(build.mock.calls.length).toBeGreaterThan(calls);
+    expect(build).toHaveBeenLastCalledWith(false);
+    const result = build.mock.results.at(-1)!.value;
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('결과 스냅샷 만들기 실패');
+    if (result.snapshot.kind !== 'simResult') throw new Error('시뮬레이션 결과가 아님');
+    expect(result.snapshot.capitalHidden).toBe(false);
+    const preview = screen.getByRole('list', { name: '보낼 내용' });
+    expect(Array.from(preview.children, (li) => li.textContent)).toEqual(snapshotLines(result.snapshot));
+    expect(preview.textContent).not.toContain('비공개');
+
+    await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
+    expect(s.createShare).toHaveBeenCalledWith('p1', 'simResult', result.snapshot, 7);
+    expect(s.createShare.mock.calls[0]![2]).toBe(result.snapshot);
+  });
+
+  it('build가 던지면 invalid 문구를 보이고 서버에 보내지 않는다', async () => {
+    const s = sync();
+    render(ShareDialog, { request: simReq(() => { throw new Error('변환 실패'); }), sync: s, onclose: () => {} });
+    expect(screen.getByRole('alert').textContent).toBe('이 결과는 공유 형식으로 바꾸지 못했어요');
+    const button = screen.getByRole('button', { name: '링크 만들기' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await fireEvent.click(button);
+    expect(s.createShare).not.toHaveBeenCalled();
   });
 
   it('줄인 단계를 한 줄씩 알린다', () => {
@@ -201,11 +295,14 @@ describe('ShareDialog 결과 종류', () => {
     expect(s.createShare).not.toHaveBeenCalled();
   });
 
-  it('형식으로 바꾸지 못하면 그 문구를 보이고 경로는 원문 보기 안에만 둔다', () => {
-    render(ShareDialog, { request: simReq(() => ({ ok: false, code: 'invalid', path: 'result.trades[3]' })), sync: sync(), onclose: () => {} });
+  it('형식으로 바꾸지 못하면 그 문구를 보이고 경로는 원문 보기 안에만 둔다', async () => {
+    const s = sync();
+    render(ShareDialog, { request: simReq(() => ({ ok: false, code: 'invalid', path: 'result.trades[3]' })), sync: s, onclose: () => {} });
     expect(screen.getByRole('alert').textContent).toBe('이 결과는 공유 형식으로 바꾸지 못했어요');
     expect((screen.getByRole('button', { name: '링크 만들기' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('보낼 원문 보기').closest('details')!.textContent).toContain('result.trades[3]');
+    await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
+    expect(s.createShare).not.toHaveBeenCalled();
   });
 
   it('비교 화면에는 자금 빼기 체크가 없다', () => {

@@ -67,7 +67,14 @@
   let link = $state<{ url: string; expiresAt: number; snapshot: ShareSnapshot } | null>(null);
   let failed = $state<string | null>(null);
 
-  const build = $derived<ShareBuild | null>(request ? request.build(hideCapital) : null);
+  const build = $derived.by<ShareBuild | null>(() => {
+    if (!request) return null;
+    try {
+      return request.build(hideCapital);
+    } catch {
+      return { ok: false, code: 'invalid' };
+    }
+  });
   const snapshot = $derived<ShareSnapshot | null>(build?.ok ? build.snapshot : null);
   const isResult = $derived(request?.kind === 'simResult' || request?.kind === 'validation');
   const hasCapital = $derived(request !== null && ['strategy', 'criteria', 'simResult', 'validation'].includes(request.kind));
@@ -81,6 +88,9 @@
   });
   const sizeKb = $derived(snapshot && isResult ? Math.max(1, Math.round(jsonBytes(snapshot) / 1024)) : 0);
   let rawOpen = $state(false);
+  $effect(() => {
+    if (snapshot === null) rawOpen = false;
+  });
   const ttlValid = $derived(Number.isInteger(ttl) && ttl >= 1 && ttl <= SHARE_TTL_MAX_DAYS);
 
   // 닫거나 다른 공유를 열면 늘린다. 그 전에 보낸 요청의 응답은 버린다(다른 대상에 이전 링크가 보이지 않게).
@@ -193,21 +203,21 @@
             <pre>{JSON.stringify(rulesPart, null, 2)}</pre>
           </details>
           {#if isResult}
-            <details ontoggle={(e) => (rawOpen = e.currentTarget.open)}>
+            <details open={rawOpen} ontoggle={(e) => (rawOpen = e.currentTarget.open)}>
               <summary>결과 원문(약 {sizeKb} KB)</summary>
-              {#if rawOpen && (snapshot.kind === 'simResult' || snapshot.kind === 'validation')}<pre class="compact">{JSON.stringify(snapshot.result)}</pre>{/if}
+              {#if rawOpen && (snapshot.kind === 'simResult' || snapshot.kind === 'validation')}<pre>{JSON.stringify(snapshot.result)}</pre>{/if}
             </details>
           {/if}
         {/if}
         {#if hasCapital}
           <label class="check">
-            <input type="checkbox" bind:checked={hideCapital} />
+            <input type="checkbox" bind:checked={hideCapital} disabled={sync.busy} />
             {isResult ? '가상 초기 자금과 금액·수량 빼기' : '가상 초기 자금 빼기'}
           </label>
         {/if}
         <label class="ttl" for="share-ttl-{uid}">
           만료(일)
-          <input id="share-ttl-{uid}" type="number" min="1" max={SHARE_TTL_MAX_DAYS} step="1" bind:value={ttl} aria-invalid={ttlValid ? undefined : 'true'} />
+          <input id="share-ttl-{uid}" type="number" min="1" max={SHARE_TTL_MAX_DAYS} step="1" bind:value={ttl} disabled={sync.busy} aria-invalid={ttlValid ? undefined : 'true'} />
         </label>
         {#if !ttlValid}<p class="err" role="alert">1~{SHARE_TTL_MAX_DAYS}일 사이로 정해 주세요</p>{/if}
         {#if failed}<p class="err" role="alert">{failed}</p>{/if}
@@ -244,10 +254,6 @@
   }
   .reduced {
     color: var(--t2);
-  }
-  .compact {
-    white-space: pre-wrap;
-    word-break: break-all;
   }
   details summary {
     cursor: pointer;
