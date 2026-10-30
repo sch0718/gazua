@@ -22,6 +22,7 @@
   import Unlock from './routes/Unlock.svelte';
   import SharedView from './routes/SharedView.svelte';
   import ShareHost from './lib/share/ShareHost.svelte';
+  import ImportHost from './lib/share/ImportHost.svelte';
   import { setShareController } from './lib/share/shareStore.svelte';
   import { createSyncApi } from './lib/sync/api';
   import { readSyncConfig } from './lib/sync/config';
@@ -179,6 +180,7 @@
 
 {#if route.name !== 'shared'}<HelpIntro {app} />{/if}
 <ShareHost />
+<ImportHost {app} />
 <SnackbarHost />
 
 <style>
