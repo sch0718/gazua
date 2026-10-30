@@ -38,6 +38,8 @@ describe('pwaOptions', () => {
 
   it('keeps help pictures out of the precache and caches them when first viewed', () => {
     expect(wb.globIgnores).toContain('help/**');
+    // 카카오 카드 고정 이미지는 카카오 서버만 받아 가므로 미리 저장하지 않는다(공유 확장 설계 4.6).
+    expect(wb.globIgnores).toContain('share/**');
     const rule = (wb.runtimeCaching ?? []).find((r) => (r.options as { cacheName?: string } | undefined)?.cacheName === 'gazua-help');
     const match = rule!.urlPattern as (ctx: { url: URL; sameOrigin: boolean }) => boolean;
     expect(match({ url: new URL('https://gazua.sch0718.dev/help/img/compare-dark.svg'), sameOrigin: true })).toBe(true);

@@ -57,6 +57,7 @@
     theme,
     curves,
     rebalanceDates,
+    sampledNote,
   }: {
     equity?: Row[];
     initial: number;
@@ -67,6 +68,8 @@
     curves?: CurveLine[];
     /** 재선정일: 세로 눈금으로 표시한다 */
     rebalanceDates?: string[];
+    /** 곡선을 솎은 공유의 안내 */
+    sampledNote?: string;
   } = $props();
 
   const pct = (v: number) => (v / initial - 1) * 100;
@@ -184,6 +187,10 @@
       c.remove();
     };
   });
+  /** 카드 이미지용: 위 레이어는 넣고 십자선은 뺀다 */
+  export function screenshot(): HTMLCanvasElement | null {
+    return chart ? chart.takeScreenshot(true, false) : null;
+  }
 </script>
 
 <div class="equity">
@@ -212,9 +219,15 @@
       </div>
     {/if}
   </div>
+  {#if sampledNote}<p class="sampled">{sampledNote}</p>{/if}
 </div>
 
 <style>
+  .sampled {
+    margin: 4px 0 0;
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
   .legend {
     display: flex;
     flex-wrap: wrap;

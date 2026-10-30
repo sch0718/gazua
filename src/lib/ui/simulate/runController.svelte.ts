@@ -24,6 +24,8 @@ export interface DoneMeta {
   names: Record<string, string>;
   /** 실행한 작업본(비교 기준 이름·하락 조건 표시용) */
   strategy: Strategy;
+  /** 실행에 쓴 종목(요청 순서). perSymbol에 있는 종목과 failed의 종목을 합치면 이것이다(공유 스냅샷이 쓴다, 설계 1.5-2) */
+  symbols: string[];
 }
 
 /** 진행 부가 줄에 쓸 이번 실행의 범위: 전략 종목 수와 비교 종목 유무 */
@@ -139,6 +141,7 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
       indexFailed: outcome.indexFailed,
       benchmarkFailed: outcome.benchmarkFailed,
       strategy,
+      symbols: [...symbols],
     };
     if (failed.length === 0) return finish(id, input, meta);
     // 실패한 종목은 로더가 이미 뺐다.

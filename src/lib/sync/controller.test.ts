@@ -13,7 +13,7 @@ import type { SyncConfig } from './config';
 import { SOCIAL_RETURN_KEY, type SocialReturn } from './social';
 import { takeSocialCallback } from './socialFlow';
 import type { AuthClient } from './auth';
-import { createSyncController, type SyncController } from './controller.svelte';
+import { createSyncController, describeFail, SHARE_TOO_LARGE_TEXT, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
 import { SESSION_HEADER } from './api';
 
@@ -144,6 +144,17 @@ describe('SyncController', () => {
     expect((await sync.shares())?.length).toBe(1);
     expect(await sync.createShare(app.meta.activeProfileId, 'group', groupSnapshot(app.watchlists.groups[0]), 31)).toBeNull();
     expect(sync.error).toBeTruthy();
+  });
+
+  it('100 KiB를 넘는 공유 스냅샷은 null과 공유 용량 초과 문구를 반환한다', async () => {
+    const s = testServer();
+    const { sync, app } = await setup(s);
+    await sync.signIn();
+    await sync.setEnabled(true);
+    const snapshot = { ...groupSnapshot({ id: 'g', name: '공유', items: [] }), pad: 'a'.repeat(101 * 1024) };
+
+    expect(await sync.createShare(app.meta.activeProfileId, 'group', snapshot, 7)).toBeNull();
+    expect(sync.error).toBe(SHARE_TOO_LARGE_TEXT);
   });
 
   it('기기 목록·과거 버전·새 프로필로 복원', async () => {
@@ -284,6 +295,15 @@ describe('SyncController', () => {
     await again;
     expect(sync.account).toEqual({ provider: 'google', id: ME, display: ME });
     expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
+  });
+});
+
+describe('describeFail', () => {
+  it('too-large는 공유 요청이면 공유 문구, 프로필 동기화면 프로필 문구', () => {
+    const f = { ok: false, kind: 'invalid', code: 'too-large' } as const;
+    expect(describeFail(f, 'share')).toBe('공유 내용이 너무 커요(100 KB). 기간이나 종목을 줄여 주세요');
+    expect(describeFail(f)).toBe('프로필이 너무 커요(256 KiB). 전략·그룹을 줄여 주세요.');
+    expect(describeFail({ ok: false, kind: 'invalid', code: 'unsupported' }, 'share')).toBe('서버가 이 데이터를 받지 않았어요.');
   });
 });
 

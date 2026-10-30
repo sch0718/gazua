@@ -45,6 +45,7 @@ describe('공유 버튼', () => {
     expect(onclose).toHaveBeenCalled();
     const req = currentShare()!;
     expect(req).toMatchObject({ kind: 'group', profileId: a.meta.activeProfileId });
+    expect(req.build(true).ok).toBe(true);
     expect(JSON.stringify(req.build(true))).not.toContain('g-secret-id');
   });
 
@@ -58,6 +59,7 @@ describe('공유 버튼', () => {
     await fireEvent.click(screen.getByRole('button', { name: '공유' }));
     const req = currentShare()!;
     expect(req.kind).toBe('criteria');
+    expect(req.build(true).ok).toBe(true);
     expect(JSON.stringify(req.build(true))).not.toContain('c-secret-id');
   });
 });

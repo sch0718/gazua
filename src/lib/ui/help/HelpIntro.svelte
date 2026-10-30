@@ -5,6 +5,7 @@
   import { HELP_PAGES, type HelpPageId } from '../../help/content';
   import { helpIdForRoute, introIdFor } from '../../help/routing';
   import { helpSeen, type HelpSeenStore } from '../../help/seen';
+  import { IMPORT_CLEARED_EVENT, peekImport } from '../../share/pendingImport';
   import type { App } from '../../state/app.svelte';
   import { Sheet } from '@sch0718/ui-svelte';
   import HelpFigure from './HelpFigure.svelte';
@@ -18,7 +19,7 @@
 
   /** 이 안내 말고 열린 대화상자가 있나. */
   function otherDialogOpen(): boolean {
-    return [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].some((d) => !host?.contains(d));
+    return peekImport(Date.now()) !== null || [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].some((d) => !host?.contains(d));
   }
 
   $effect(() => {
@@ -40,9 +41,13 @@
     // 다른 시트가 닫히면 다시 본다.
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true });
+    // 저장 뒤 이동·창 닫기가 끝난 다음, DOM 변화가 없는 경로도 다시 본다.
+    const importCleared = () => queueMicrotask(check);
+    window.addEventListener(IMPORT_CLEARED_EVENT, importCleared);
     return () => {
       live = false;
       observer.disconnect();
+      window.removeEventListener(IMPORT_CLEARED_EVENT, importCleared);
     };
   });
 

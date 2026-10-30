@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import TradeList from './TradeList.svelte';
 import { doneState } from './resultFixture';
+import { expectNoAxeViolations } from '../../share/testAxe';
 
 const names = { '005930': '삼성전자', '000660': 'SK하이닉스' };
 
@@ -100,5 +101,35 @@ describe('TradeList', () => {
     const { trades, onTrade } = setup();
     await fireEvent.click(screen.getByRole('button', { name: /^SK하이닉스 · .* · 04\.02/ }));
     expect(onTrade).toHaveBeenCalledWith(trades[1]);
+  });
+});
+
+describe('TradeList 읽기 전용', () => {
+  it.each([false, true])('hideQty=%s: 목록 본문에 구분자가 있고 axe 위반이 없다', async (hideQty) => {
+    const trades = doneState().result.trades;
+    const editable = render(TradeList, { trades, names, onTrade: vi.fn(), hideQty });
+    const labels = screen.getAllByRole('button').map((row) => row.getAttribute('aria-label')!);
+    editable.unmount();
+    const { container } = render(TradeList, { trades, names, hideQty });
+    const group = screen.getByRole('group', { name: '거래 내역' });
+    const rows = within(group).getAllByRole('listitem');
+    expect(rows.map(text)).toEqual(labels);
+    for (const row of rows) {
+      expect(row.querySelector('.item')?.hasAttribute('role')).toBe(false);
+      expect(row.querySelector('.item')?.hasAttribute('aria-label')).toBe(false);
+    }
+    await expectNoAxeViolations(container);
+  });
+
+  it('onTrade가 없으면 줄이 버튼이 아니고 안내에서 「행을 눌러」를 뺀다', () => {
+    const { container } = render(TradeList, { trades: doneState().result.trades, names: {} });
+    expect(within(container).queryAllByRole('button')).toHaveLength(0);
+    expect(container.textContent).toContain('매도 줄 %는 평균 단가 대비예요(수수료·세금 제외)');
+    expect(container.textContent).not.toContain('행을 눌러');
+  });
+  it('hideQty면 수량 없이 가격만', () => {
+    const { container } = render(TradeList, { trades: doneState().result.trades, names: {}, hideQty: true });
+    expect(container.textContent).toContain('132,400원');
+    expect(container.textContent).not.toContain('12주');
   });
 });

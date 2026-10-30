@@ -57,6 +57,9 @@ importers:
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
+      axe-core:
+        specifier: 4.13.0
+        version: 4.13.0
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5

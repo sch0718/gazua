@@ -1,18 +1,20 @@
 <script lang="ts">
   // 결과 보기(스펙 7.4): 머리줄 · 요약 카드 · 자산 곡선 · 비교 기준 · 탭 · 한계 안내.
   // 탭 본문은 TradeList·SymbolTab·SkipList로 나눴다.
-  import type { Trade } from '../../sim/types';
+  import type { Skip, Trade } from '../../sim/types';
   import type { Issue } from '../../sim/validate';
   import { Badge } from '@sch0718/ui-svelte';
   import { Segmented } from '@sch0718/ui-svelte';
   import EquityChart, { EQUITY_LINES, type EquityKey } from './EquityChart.svelte';
   import LineSwatch from './LineSwatch.svelte';
   import type { DoneState } from './runController.svelte';
-  import { dominantSkipReason, fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, returnClass, skipCounts, skipReasonLabel, trendReturn } from './simText';
+  import { fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, returnClass, skipCounts, skipReasonLabel, trendReturn } from './simText';
   import SkipList from './SkipList.svelte';
   import SymbolTab from './SymbolTab.svelte';
   import TradeChartSheet from './TradeChartSheet.svelte';
   import TradeList from './TradeList.svelte';
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  import { cardAlt, composeCard, readCardColors, simResultCardText } from '../../share/cardImage';
 
   // 'state' 이름은 $state 룬과 겹쳐서 done으로 받는다.
   let {
@@ -21,6 +23,12 @@
     theme,
     stale = false,
     onEdit,
+    onShare,
+    readonly = false,
+    hideAmounts = false,
+    skippedCounts,
+    pnlPct,
+    sampledNote,
   }: {
     state: DoneState;
     colorConvention: 'kr' | 'global';
@@ -28,8 +36,20 @@
     theme?: string;
     /** 규칙이 바뀌어 지난 실행의 결과다: `이전 결과` 표시와 왼쪽 강조선(흐리게 하지 않는다) */
     stale?: boolean;
-    /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
-    onEdit: (section?: Issue['section']) => void;
+    /** 편집으로 돌아간다. 읽기 전용(받은 공유)이면 없다 */
+    onEdit?: (section?: Issue['section']) => void;
+    /** 결과 공유(로그인했을 때만 넘긴다) */
+    onShare?: () => void;
+    /** 받은 공유: 규칙 고치기·거래 차트 시트를 숨기고 거래 줄을 누를 수 없게 */
+    readonly?: boolean;
+    /** 자금 숨김 공유: 거래 수량을 숨기고 종목별은 자금 대비 %로 */
+    hideAmounts?: boolean;
+    /** 건너뛴 신호 목록 없이 받은 이유별 개수(공유에서 skipped.rows가 null일 때) */
+    skippedCounts?: [Skip['reason'], number][];
+    /** 종목별 자금 대비 %(hideAmounts일 때) */
+    pnlPct?: Record<string, number>;
+    /** 곡선을 솎은 공유의 안내(차트 아래) */
+    sampledNote?: string;
   } = $props();
 
   const result = $derived(done.result);
@@ -85,37 +105,60 @@
   const lineOf = (k: EquityKey) => EQUITY_LINES.find((l) => l.key === k)!;
 
   const noTrades = $derived(result.trades.length === 0);
+  // 건너뜀 수·이유: 목록이 없으면(개수만 받은 공유) summary와 받은 개수로 센다
+  const skipN = $derived(skippedCounts ? sum.skippedSignals : result.skipped.length);
+  const skipList = $derived(
+    skippedCounts ? skippedCounts.filter(([, n]) => n > 0).map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n) : skipCounts(result.skipped),
+  );
   // 가장 많은 이유가 현금·금액이면 기간·자금을 고치라고 안내하고 그 구역을 연다
   const cashIssue = $derived.by(() => {
-    const top = dominantSkipReason(result.skipped);
+    const top = skipList[0]?.reason ?? null;
     return top === '현금 부족' || top === '1주가 1회 금액보다 비쌈';
   });
+  let equityChart = $state<ReturnType<typeof EquityChart>>();
+  let root = $state<HTMLElement>();
+  /** 지금 보이는 수익 곡선으로 카드를 만든다. 거래 0건이라 곡선이 없으면 null(설계 4.1) */
+  export function capture(): CardCapture | null {
+    if (result.trades.length === 0 || !root) return null;
+    const chart = equityChart?.screenshot();
+    if (!chart) return null;
+    const cs = getComputedStyle(document.documentElement);
+    const swatches = Object.fromEntries(EQUITY_LINES.map((l) => [l.key, cs.getPropertyValue(l.color[0]).trim() || l.color[1]]));
+    const text = simResultCardText(done, swatches);
+    return { canvas: composeCard(chart, text, readCardColors(root)), alt: cardAlt(text, '시뮬레이션 결과'), line: null };
+  }
 </script>
 
-<section class="result" class:stale aria-label="시뮬레이션 결과">
+<section bind:this={root} class="result" class:stale aria-label="시뮬레이션 결과">
   <p class="head">
     {#if stale}<Badge tone="nxt">이전 결과</Badge>{/if}
     <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt, meta.strategy.period.from)}</span>
     {#if meta.demo}<Badge>데모 데이터</Badge>{/if}
+    {#if onShare}<button type="button" class="share" onclick={onShare}>결과 공유</button>{/if}
   </p>
 
   {#if noTrades}
     <div class="empty">
-      {#if result.skipped.length === 0}
+      {#if skipN === 0}
         <p class="big">기간 동안 매수 신호가 한 번도 나지 않았어요</p>
         {#if result.nearMiss}<p>{nearMissText(result.nearMiss, meta.strategy)}</p>{/if}
       {:else}
-        <p class="big">매수 신호가 {result.skipped.length}번 났지만 한 번도 사지 못했어요</p>
+        <p class="big">매수 신호가 {skipN}번 났지만 한 번도 사지 못했어요</p>
         <ul class="why-list" aria-label="건너뛴 이유">
-          {#each skipCounts(result.skipped) as c (c.reason)}
+          {#each skipList as c (c.reason)}
             <li>{skipReasonLabel(c.reason)} <span class="num">{c.n}번</span></li>
           {/each}
         </ul>
-        {#if cashIssue}<p>기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요</p>{/if}
+        {#if !readonly && cashIssue}<p>기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요</p>{/if}
       {/if}
-      <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>
+      {#if !readonly && onEdit}
+        <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>
+      {/if}
+      {#if skippedCounts}
+        <p>{skipN > 0 ? '목록은 크기 때문에 빼고 보냈어요' : '건너뛴 신호가 없어요'}</p>
+      {/if}
     </div>
-    {#if result.skipped.length > 0}
+    {#if !skippedCounts && skipN > 0}
       <SkipList skipped={result.skipped} names={meta.names} />
     {/if}
   {:else}
@@ -130,11 +173,12 @@
     </ul>
 
     {#key result}
-      <EquityChart
+      <EquityChart bind:this={equityChart}
         equity={result.equity}
         initial={meta.strategy.capital.initial}
         labels={{ benchmark: benchName, index: meta.strategy.benchmarks.index }}
         {theme}
+        {sampledNote}
       />
     {/key}
 
@@ -158,29 +202,31 @@
       options={[
         { value: 'trades', label: '거래 내역' },
         { value: 'symbols', label: '종목별' },
-        { value: 'skipped', label: `건너뛴 신호 ${result.skipped.length}` },
+        { value: 'skipped', label: `건너뛴 신호 ${skipN}` },
       ]}
     />
     <div class="tab">
       {#if tab === 'trades'}
-        <TradeList trades={result.trades} names={meta.names} onTrade={pick} />
+        <TradeList trades={result.trades} names={meta.names} onTrade={readonly ? undefined : pick} hideQty={hideAmounts} />
       {:else if tab === 'symbols'}
-        <SymbolTab perSymbol={result.perSymbol} axisFrom={meta.from} failed={meta.failed} {colorConvention} />
+        <SymbolTab perSymbol={result.perSymbol} axisFrom={meta.from} failed={meta.failed} {colorConvention} pnlPct={hideAmounts ? (pnlPct ?? {}) : undefined} />
       {:else}
-        <SkipList skipped={result.skipped} names={meta.names} />
+        <SkipList skipped={result.skipped} names={meta.names} counts={skippedCounts} />
       {/if}
     </div>
   {/if}
 
-  <TradeChartSheet
-    open={picked !== null}
-    trade={picked}
-    trades={result.trades}
-    candles={picked ? (meta.candles[picked.symbol] ?? []) : []}
-    name={picked ? (meta.names[picked.symbol] ?? picked.symbol) : ''}
-    level={breakout.on ? breakout.level : null}
-    onclose={() => (picked = null)}
-  />
+  {#if !readonly}
+    <TradeChartSheet
+      open={picked !== null}
+      trade={picked}
+      trades={result.trades}
+      candles={picked ? (meta.candles[picked.symbol] ?? []) : []}
+      name={picked ? (meta.names[picked.symbol] ?? picked.symbol) : ''}
+      level={breakout.on ? breakout.level : null}
+      onclose={() => (picked = null)}
+    />
+  {/if}
 
   <ul class="limits" aria-label="결과 해석 한계">
     {#each LIMITATIONS as line (line)}
@@ -201,14 +247,25 @@
   .result.stale {
     border-left: 3px solid var(--accent);
   }
-  .head :global(.badge:first-child) {
-    margin-left: 0;
-    margin-right: 6px;
+  .share {
+    margin-left: auto;
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+    font-weight: 700;
   }
   .head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
     margin: 0;
     font-size: var(--fs-sub);
     color: var(--t2);
+  }
+  .head :global(.badge) {
+    margin: 0;
   }
   .cards {
     list-style: none;

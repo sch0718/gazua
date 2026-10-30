@@ -348,3 +348,71 @@ describe('ValidationResult', () => {
     });
   });
 });
+
+describe('ValidationResult 읽기 전용(app 없음)', () => {
+  it('app 없이 그리고, 오늘 선별에 그룹 만들기 단추가 없다. 색 관례는 prop으로 받는다', () => {
+    render(ValidationResult, { app: null, colorConvention: 'global', result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN, sampledNote: '곡선은 4점 중 3점으로 줄였어요 · 수치는 전체 기간 기준이에요' });
+    expect(screen.getByRole('heading', { name: '오늘 기준 선별' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+    expect(screen.getByText('곡선은 4점 중 3점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
+  });
+});
+
+describe('ValidationResult 색 관례 prop', () => {
+  it('app 설정이 kr이어도 global prop이 차트 색 갱신에 우선한다', async () => {
+    const app = makeTestApp({ groups: [], now: NOW });
+    apps.push(app);
+    app.updateSettings({ colorConvention: 'kr' });
+    const props = { app, result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN };
+    const { rerender } = render(ValidationResult, { ...props, colorConvention: 'kr' });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(3));
+    const etf = lwcCharts[0].series[2];
+    expect(etf.options.color).toBe('#008300');
+    // 등락 클래스는 관례와 무관하다. jsdom에서 글로벌 토큰을 넣고 prop만 바꿔 색 갱신을 확인한다.
+    document.documentElement.style.setProperty('--etf-1', '#2a78d6');
+    try {
+      await rerender({ ...props, colorConvention: 'global' });
+      expect(app.settings.colorConvention).toBe('kr');
+      await vi.waitFor(() => expect(etf.options.color).toBe('#2a78d6'));
+    } finally {
+      document.documentElement.style.removeProperty('--etf-1');
+    }
+  });
+});
+
+describe('ValidationResult capture', () => {
+  it('자산 곡선을 찍어 카드를 만든다', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
+    apps.push(app);
+    const r = render(ValidationResult, { app, result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN });
+    const card = r.component.capture();
+    expect(card?.alt.startsWith('반등 기준 검증 결과 캡처: 2026.01.05 ~ 2026.02.03')).toBe(true);
+    expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
+  });
+
+  it('capture는 ①·②·첫 지수의 CurveLine 색을 풀어서 그린다', () => {
+    const swatches: string[] = [];
+    const ctx = { fillStyle: '', scale() {}, fillText() {}, drawImage() {},
+      fillRect(_x: number, _y: number, w: number, h: number) { if (w === 10 && h === 10) swatches.push(this.fillStyle); },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    document.documentElement.style.setProperty('--accent', '#123456');
+    document.documentElement.style.setProperty('--line-bench', '#234567');
+    try {
+      const result = validationResult();
+      result.trading = { curve: result.hold.equity, stats: result.hold.stats, trades: 5, skipCounts: {} };
+      const r = render(ValidationResult, { app: null, result, names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN });
+      r.component.capture();
+      expect(swatches).toEqual(lwcCharts.at(-1)!.series.slice(0, 3).map((s) => s.options.color));
+      expect(swatches.slice(0, 2)).toEqual(['#123456', '#234567']);
+    } finally {
+      document.documentElement.style.removeProperty('--accent');
+      document.documentElement.style.removeProperty('--line-bench');
+      vi.restoreAllMocks();
+    }
+  });
+
+});

@@ -123,3 +123,12 @@ describe('EquityChart', () => {
     });
   });
 });
+
+describe('EquityChart screenshot', () => {
+  it('위 레이어는 넣고 십자선은 빼고 찍는다', () => {
+    const { component } = render(EquityChart, { equity: doneState().result.equity, initial: 10_000_000 });
+    const shot = component.screenshot();
+    expect(shot).not.toBeNull();
+    expect(lwcCharts[0].screenshots).toEqual([[true, false]]);
+  });
+});

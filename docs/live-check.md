@@ -257,3 +257,19 @@
   - 공급자 JWKS 응답의 `Cache-Control`과 키 캐시 갱신을 확인하고, Cloudflare Metrics에서 소셜 로그인 직후·반복 요청의 Worker CPU 시간이 한도 안인지 봐요.
 - **바꿀 곳**: 앱은 `src/lib/sync/`의 소셜 로그인·콜백·`controller.svelte.ts`, 서버는 `sync-worker/src/`, 공급자 교환·검증은 `@sch0718/firebase-session`과 각 공급자 개발자 앱 설정. 네이버 OIDC 경로·설정이 다르면 패키지와 배포 안내를 함께 고쳐요.
 - 결과:
+
+## ㉚ 공유 확장: 카카오 캡처 업로드·카드·인앱 브라우저·크기
+
+- **무엇을**: 공유 확장(docs/superpowers/specs/2026-10-29-share-expansion-design.md 10절)을 실제 환경에서.
+  - 운영 도메인에서 `Kakao.Share.uploadImage`가 성공하는지(등록 도메인·앱 키 권한), 돌려준 주소의 호스트와 크기 값.
+  - 업로드한 800×400(실제 1600×800) JPEG와 고정 PNG가 카카오톡 카드(PC·모바일)에서 잘리지 않는지.
+  - `deleteImage` 뒤 그 주소가 더는 열리지 않는지, 이미 보낸 메시지의 이미지는 남는지. 카카오 업로드 이미지의 보관 기간(카카오 문서).
+  - 3년 일봉 실제 KIS 결과·실제 시장 파일 검증 결과의 스냅샷 크기(설계 3.5 예산과 비교).
+  - 받은 사람이 PWA 옛 버전일 때 새 종류 링크가 어떻게 보이는지, 새 버전 배포 뒤 `unsupported` 문구가 나오는지.
+  - 카카오톡 인앱 브라우저(Android·iOS)에서 `kakaotalk://web/openExternal?url=`이 기본 브라우저를 여는지. iOS 홈 화면 PWA와 Safari가 저장소를 따로 쓰는지.
+  - Workers Free 실행당 CPU 10 ms 안에서 100 KiB 결과 스냅샷 검사가 끝나는지(로컬 `wrangler dev`에서 설계 3.5의 두 고정 데이터와 100 KiB 경계 스냅샷으로 재요).
+  - iPadOS 13 이후의 카카오톡 인앱은 UA가 `Macintosh`라 `isIos`가 false가 될 수 있어요. 실기기에서 확인해요(`src/lib/share/inApp.ts`).
+  - SharedView의 SkipList 개수 줄 배치(이유는 왼쪽, 개수는 오른쪽)를 실제 받은 화면에서 눈으로 확인해요. e2e 빌드에는 동기화 설정이 없어 SharedView를 그릴 수 없어 여기로 옮겼어요.
+- **어떻게**: Worker를 먼저 배포하고 앱을 배포해요(옛 Worker는 새 종류를 거절해요). 비교·시뮬레이션 결과·검증 결과를 각각 공유해 카카오톡 PC·Android·iOS로 받아 봐요.
+- **바꿀 곳**: 업로드·카드는 `src/lib/share/kakao.ts`·`ShareDialog.svelte`, 인앱 안내는 `src/lib/share/inApp.ts`·`src/routes/SharedView.svelte`(스킴이 안 되면 단추를 빼고 `오른쪽 위 ⋮ › 다른 브라우저로 열기`를 글로 안내), 개수 줄 배치는 `src/lib/ui/simulate/SkipList.svelte`, 크기는 `src/lib/share/compact.ts`, CPU가 넘으면 `src/lib/share/checkResult.ts`의 동일성 비교를 줄여요.
+- 결과:

@@ -30,6 +30,8 @@
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
   import { rulesChanged } from '../lib/ui/simulate/strategyActions.svelte';
+  import { canShare, openShare } from '../lib/share/shareStore.svelte';
+  import { simResultSnapshot, validationSnapshot } from '../lib/share/compact';
 
   let {
     app,
@@ -139,7 +141,7 @@
     if (!criteriaTab) untrack(() => vctl.cancel());
   });
   // 결과 화면은 실행할 때의 이름·자본을 쓴다(실행 뒤 기준이 바뀌어도 결과와 맞게)
-  let runSnap = $state.raw<{ name: string; capital: number; macro: { used: boolean; lookback: Partial<Record<MacroSeriesKey, number>> }; flow: FlowRunSnap; fin: FinRunSnap } | null>(null);
+  let runSnap = $state.raw<{ name: string; capital: number; macro: { used: boolean; lookback: Partial<Record<MacroSeriesKey, number>> }; flow: FlowRunSnap; fin: FinRunSnap; criteria: SelectionCriteria; baskets: Basket[]; strategies: Strategy[]; collectedAt: string } | null>(null);
   // undefined = 아직 읽는 중
   let info = $state.raw<MarketDataInfo | null | undefined>(undefined);
   let sectors = $state.raw<MarketSector[]>([]);
@@ -213,15 +215,22 @@
   function runCriteria(c: SelectionCriteria) {
     runId = c.id;
     const fx = c.conditions.macro;
+    const snapC = $state.snapshot(c) as SelectionCriteria;
+    const snapB = $state.snapshot(app.baskets) as Basket[];
+    const snapS = $state.snapshot(app.strategies) as Strategy[];
     runSnap = {
       name: c.name,
       capital: c.capital,
       macro: { used: usesMacro(c), lookback: { usdkrw: fx.usdkrw.trend.lookback, wti: fx.wti.trend.lookback } },
       flow: flowRunSnap(c),
       fin: finRunSnap(c),
+      criteria: snapC,
+      baskets: snapB,
+      strategies: snapS,
+      collectedAt: info?.collectedAt ?? '',
     };
     staleDismissed = false; // 닫아도 다음 실행에 다시 뜬다
-    vctl.run({ criteria: c, strategies: $state.snapshot(app.strategies) as Strategy[], baskets: $state.snapshot(app.baskets) as Basket[] });
+    vctl.run({ criteria: snapC, strategies: snapS, baskets: snapB });
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: c.id, view: 'result' });
     // 누른 실행 버튼이 사라지므로 결과 자리로 포커스
     void tick().then(() => resultHead?.focus());
@@ -243,6 +252,31 @@
     app.clearRouteNotice();
     void tick().then(() => showSnackbar(notice));
   });
+  let validationView = $state<ReturnType<typeof ValidationResult>>();
+
+  function shareSim() {
+    const st = ctl.state;
+    if (st.kind !== 'done') return;
+    openShare({
+      kind: 'simResult',
+      name: st.meta.strategy.name,
+      profileId: app.meta.activeProfileId,
+      build: (hideCapital) => simResultSnapshot(st, { hideCapital, now: Date.now() }),
+      capture: () => panel?.capture() ?? null,
+    });
+  }
+  function shareValidation() {
+    const snap = runSnap;
+    const result = vctl.result;
+    if (vctl.state !== 'done' || !snap || !result) return;
+    openShare({
+      kind: 'validation',
+      name: snap.name,
+      profileId: app.meta.activeProfileId,
+      build: (hideCapital) => validationSnapshot({ result, criteria: snap.criteria, baskets: snap.baskets, strategies: snap.strategies, collectedAt: snap.collectedAt }, { hideCapital, now: Date.now() }),
+      capture: () => validationView?.capture() ?? null,
+    });
+  }
 </script>
 
 <Layout>
@@ -253,17 +287,17 @@
   {#snippet bar()}
     {#if crit}
       <button type="button" class="back" aria-label={resultView ? '기준 편집으로' : '선정 기준 목록으로'} onclick={() => (resultView ? cancelCriteria() : app.navigate({ name: 'simulate', tab: 'criteria' }))}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
     {:else if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
       <!-- `규칙`↔`결과`는 같은 버튼(이름·동작만 바뀐다): 눌러도 포커스가 남는다 -->
       {#if !wide && (showResult || ctl.state.kind !== 'idle')}
         <button type="button" class="rules" onclick={() => (showResult ? edit() : showRun())}>{showResult ? '규칙' : '결과'}</button>
       {/if}
     {:else}
       <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
     {/if}
     {@render barEnd(compact)}
   {/snippet}
@@ -275,8 +309,11 @@
           <div class="result">
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
-              <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              <ValidationResult {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} fin={runSnap?.fin ?? finRunSnap(crit)} />
+              <div class="result-actions">
+                <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
+                {#if canShare()}<button type="button" class="share" onclick={shareValidation}>결과 공유</button>{/if}
+              </div>
+              <ValidationResult bind:this={validationView} {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} fin={runSnap?.fin ?? finRunSnap(crit)} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}
@@ -318,6 +355,7 @@
                   colorConvention={app.settings.colorConvention}
                   theme={app.settings.theme}
                   {stale}
+                  onShare={canShare() ? shareSim : undefined}
                   onEdit={fixRules}
                   onRetry={retry}
                   onCancel={cancel}
@@ -347,6 +385,13 @@
 </Layout>
 
 <style>
+  .share {
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+    font-weight: 700;
+  }
   .back {
     width: 44px;
     height: 44px;
@@ -405,6 +450,14 @@
   .result h2 {
     margin: 0;
     font-size: 18px;
+  }
+  .result-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .result-actions button {
+    flex: none;
   }
   .cancel {
     min-height: var(--touch);

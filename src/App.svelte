@@ -22,6 +22,7 @@
   import Unlock from './routes/Unlock.svelte';
   import SharedView from './routes/SharedView.svelte';
   import ShareHost from './lib/share/ShareHost.svelte';
+  import ImportHost from './lib/share/ImportHost.svelte';
   import { setShareController } from './lib/share/shareStore.svelte';
   import { createSyncApi } from './lib/sync/api';
   import { readSyncConfig } from './lib/sync/config';
@@ -145,7 +146,9 @@
     <SharedView
       capability={route.capability}
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
-      onexit={() => app.navigate({ name: 'compare' })}
+      onexit={() => app.leaveShared()}
+      colorConvention={app.settings.colorConvention}
+      theme={app.settings.theme}
     />
   {:else if route.name === 'profiles'}
     <ProfilePicker {app} />
@@ -214,6 +217,7 @@
 
 {#if !pendingSocial && route.name !== 'shared'}<HelpIntro {app} />{/if}
 <ShareHost />
+<ImportHost {app} />
 <SnackbarHost />
 
 <style>

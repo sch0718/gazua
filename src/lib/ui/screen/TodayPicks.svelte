@@ -14,7 +14,7 @@
     names,
     criteriaName,
   }: {
-    app: App;
+    app: App | null;
     selection: Selection;
     names: Record<string, string>;
     criteriaName: string;
@@ -32,15 +32,20 @@
     sheet = true;
   }
   function create() {
+    if (!app) return;
     // 이름을 비우면 기준 이름을 쓴다
     done = picksToNewGroup(app, newName.trim() || criteriaName, symbols);
     sheet = false;
   }
   function addTo(id: string) {
+    if (!app) return;
     done = picksToGroup(app, id, symbols);
     sheet = false;
   }
-  const goCompare = () => done && app.navigate({ name: 'compare', groupId: done.groupId });
+  const goCompare = () => {
+    if (!app || !done) return;
+    app.navigate({ name: 'compare', groupId: done.groupId });
+  };
 </script>
 
 <section class="today" aria-labelledby="today-h">
@@ -54,46 +59,50 @@
         <li><span class="rank num">{i + 1}</span><span class="nm">{nameOf(p.symbol)}</span><small>{p.symbol}</small></li>
       {/each}
     </ol>
-    <button type="button" class="btn" onclick={openSheet}>관심 그룹으로 만들기</button>
-    {#if done}
-      <div class="done" role="status">
-        <p>'{done.groupName}'에 {done.added}개를 넣었어요{done.already > 0 ? `(이미 있던 ${done.already}개는 건너뛰었어요)` : ''}</p>
-        {#if done.cut > 0}<p>{done.already === 0 ? cutText(done.room) : `빈자리가 모자라 ${done.cut}개는 넣지 못했어요`}</p>{/if}
-        <button type="button" class="link" onclick={goCompare}>비교 화면에서 보기</button>
-      </div>
+    {#if app}
+      <button type="button" class="btn" onclick={openSheet}>관심 그룹으로 만들기</button>
+      {#if done}
+        <div class="done" role="status">
+          <p>'{done.groupName}'에 {done.added}개를 넣었어요{done.already > 0 ? `(이미 있던 ${done.already}개는 건너뛰었어요)` : ''}</p>
+          {#if done.cut > 0}<p>{done.already === 0 ? cutText(done.room) : `빈자리가 모자라 ${done.cut}개는 넣지 못했어요`}</p>{/if}
+          <button type="button" class="link" onclick={goCompare}>비교 화면에서 보기</button>
+        </div>
+      {/if}
     {/if}
   {/if}
 </section>
 
-<Sheet open={sheet} title="관심 그룹으로 만들기" onclose={() => (sheet = false)}>
-  <div class="sheet">
-    <form
-      onsubmit={(e) => {
-        e.preventDefault();
-        create();
-      }}
-    >
-      <label>
-        새 그룹 이름
-        <input bind:value={newName} maxlength={NAME_MAX} data-autofocus />
-      </label>
-      <button type="submit" class="btn">새 그룹으로 만들기</button>
-      {#if symbols.length > MAX_ITEMS}<p class="hint">관심 그룹은 {MAX_ITEMS}종목까지라 위에서부터 {MAX_ITEMS}개만 넣어요</p>{/if}
-    </form>
-    <h3 class="sub-h">기존 그룹에 더하기</h3>
-    <ul>
-      {#each app.watchlists.groups as g (g.id)}
-        {@const free = freeSlots(app, g.id)}
-        <li>
-          <button type="button" class="row" disabled={free === 0} onclick={() => addTo(g.id)}>
-            <span>{g.name}</span>
-            <small>{free === 0 ? '가득 찼어요' : `빈자리 ${free}`}</small>
-          </button>
-        </li>
-      {/each}
-    </ul>
-  </div>
-</Sheet>
+{#if app}
+  <Sheet open={sheet} title="관심 그룹으로 만들기" onclose={() => (sheet = false)}>
+    <div class="sheet">
+      <form
+        onsubmit={(e) => {
+          e.preventDefault();
+          create();
+        }}
+      >
+        <label>
+          새 그룹 이름
+          <input bind:value={newName} maxlength={NAME_MAX} data-autofocus />
+        </label>
+        <button type="submit" class="btn">새 그룹으로 만들기</button>
+        {#if symbols.length > MAX_ITEMS}<p class="hint">관심 그룹은 {MAX_ITEMS}종목까지라 위에서부터 {MAX_ITEMS}개만 넣어요</p>{/if}
+      </form>
+      <h3 class="sub-h">기존 그룹에 더하기</h3>
+      <ul>
+        {#each app.watchlists.groups as g (g.id)}
+          {@const free = freeSlots(app, g.id)}
+          <li>
+            <button type="button" class="row" disabled={free === 0} onclick={() => addTo(g.id)}>
+              <span>{g.name}</span>
+              <small>{free === 0 ? '가득 찼어요' : `빈자리 ${free}`}</small>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  </Sheet>
+{/if}
 
 <style>
   h3 {

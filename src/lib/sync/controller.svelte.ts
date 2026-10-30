@@ -100,8 +100,17 @@ const ERRORS: Record<string, string> = {
   'sync-off': '공유하려면 먼저 설정 › 동기화·공유에서 동기화를 켜 주세요.',
 };
 
-export const describeFail = (f: ApiFail): string =>
-  f.kind === 'limit' && f.code === 'share-limit' ? ERRORS['share-limit'] : f.kind === 'invalid' && f.code === 'too-large' ? ERRORS['too-large'] : ERRORS[f.kind] ?? ERRORS.server;
+export const SHARE_TOO_LARGE_TEXT = '공유 내용이 너무 커요(100 KB). 기간이나 종목을 줄여 주세요';
+
+/** ctx: 공유 요청이면 'share'. 422·413 too-large를 공유 한도(100 KB) 문구로 보인다(설계 7절) */
+export const describeFail = (f: ApiFail, ctx: 'profile' | 'share' = 'profile'): string =>
+  f.kind === 'limit' && f.code === 'share-limit'
+    ? ERRORS['share-limit']
+    : f.kind === 'invalid' && f.code === 'too-large'
+      ? ctx === 'share'
+        ? SHARE_TOO_LARGE_TEXT
+        : ERRORS['too-large']
+      : (ERRORS[f.kind] ?? ERRORS.server);
 
 const SESSION_KEY = 'session';
 type SessionMeta = { id: string; email: string; provider?: SocialProvider; account?: string; display?: string };
@@ -313,12 +322,12 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }
   }
 
-  const ok = <T>(r: { ok: true; data: T } | ApiFail): T | null => {
+  const ok = <T>(r: { ok: true; data: T } | ApiFail, ctx: 'profile' | 'share' = 'profile'): T | null => {
     if (r.ok) return r.data;
     // 관리 요청(기기·공유·과거 버전 등)이 세션 문제로 실패해도 엔진과 같은 정리로 로그인 필요 상태로 돌린다
     if (r.kind === 'auth') onAuthFailure(r.code, r.session);
     else if (r.kind === 'not-allowed') onAuthFailure('not-allowed');
-    else error = describeFail(r);
+    else error = describeFail(r, ctx);
     return null;
   };
 
@@ -564,7 +573,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           return null;
         }
         await engine.flush();
-        const r = ok(await api.createShare({ sourceProfileId: profileId, kind, snapshot, ttlDays }));
+        const r = ok(await api.createShare({ sourceProfileId: profileId, kind, snapshot, ttlDays }), 'share');
         if (!r) return null;
         return { url: `${location.origin}${location.pathname}#/s/${r.capability}`, expiresAt: r.expiresAt };
       }, null),

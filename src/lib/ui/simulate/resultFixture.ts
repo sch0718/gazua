@@ -65,6 +65,7 @@ export function doneState(patch: (s: DoneState) => void = () => {}): DoneState {
       candles: { '005930': [], '000660': [] },
       names: { '005930': '삼성전자', '000660': 'SK하이닉스', '069500': 'KODEX 200' },
       strategy,
+      symbols: ['005930', '000660', '035720'],
     },
   };
   patch(s);

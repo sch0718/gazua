@@ -2,6 +2,8 @@
 import { KAKAO_SDK_URL } from '@sch0718/kakao-share';
 import type { Plugin } from 'vite';
 
+// 카드 캡처 업로드(Kakao.Share.uploadImage)는 SDK가 https://kapi.kakao.com으로 보낸다. 지금은 connect-src 'self' https: 안이다.
+// 나중에 connect-src를 좁히면 https://kapi.kakao.com을 넣어야 한다(공유 확장 설계 4.4).
 /** 카카오톡 공유 SDK를 받는 출처(SRI로 확인한다). 공유 화면은 sharer.kakao.com으로 이동하므로 다른 지시어는 그대로다. */
 export const KAKAO_SCRIPT_SOURCES = [new URL(KAKAO_SDK_URL).origin];
 

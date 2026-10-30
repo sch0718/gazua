@@ -293,4 +293,175 @@ describe('ResultView', () => {
     await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
     expect(onEdit).toHaveBeenCalledWith();
   });
+
+  it.each([false, true])('전부 건너뜀: 자금 편집 안내는 일반 화면에만 보인다(readonly=%s)', (readonly) => {
+    const state = doneState((s) => noTrades(s, [{ date: '2024-07-02', symbol: '000660', reason: '현금 부족' }]));
+    render(ResultView, { state, colorConvention: 'kr', readonly });
+    expect(screen.getByText('매수 신호가 1번 났지만 한 번도 사지 못했어요')).toBeTruthy();
+    const hint = screen.queryByText('기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요');
+    if (readonly) expect(hint).toBeNull();
+    else expect(hint).toBeTruthy();
+  });
+});
+
+describe('ResultView 읽기 전용(받은 공유)', () => {
+  const view = (o: Record<string, unknown> = {}, state: DoneState = doneState()) => render(ResultView, { state, colorConvention: 'kr', readonly: true, ...o });
+
+  it('규칙 고치기·거래 차트 시트가 없고 거래 줄은 버튼이 아니다', async () => {
+    const empty = view({}, (() => {
+      const s = doneState();
+      noTrades(s, s.result.skipped);
+      return s;
+    })());
+    expect(screen.queryByRole('button', { name: '규칙 고치기' })).toBeNull();
+    empty.unmount();
+    const state = doneState();
+    view({}, state);
+    const trades = screen.getByRole('group', { name: '거래 내역' });
+    expect(within(trades).queryAllByRole('button')).toHaveLength(0);
+    const rows = within(trades).getAllByRole('listitem');
+    expect(rows).toHaveLength(state.result.trades.length);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await fireEvent.click(rows[0].querySelector('.item')!);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('금액 숨김: 매수 줄은 가격만, 종목별은 자금 대비 %', async () => {
+    view({ hideAmounts: true, pnlPct: { '005930': 1.41, '000660': -0.88 } });
+    expect(screen.getByText('70,000원')).toBeTruthy();
+    expect(screen.queryByText(/14주/)).toBeNull();
+    await fireEvent.click(tab('종목별'));
+    expect(screen.getByText('자금 대비 +1.41%')).toBeTruthy();
+    expect(screen.getByText('자금 대비 −0.88%')).toBeTruthy();
+  });
+
+  it.each([undefined, {}, { '005930': 1.41 }])('금액 숨김: pnlPct %j에 없는 종목은 —로 보인다', async (pnlPct) => {
+    view({ hideAmounts: true, pnlPct });
+    await fireEvent.click(tab('종목별'));
+    const rows = within(screen.getByRole('list', { name: '종목별' })).getAllByRole('listitem');
+    expect(within(rows[1]).getByText('—')).toBeTruthy();
+    expect(rows[1].textContent).not.toContain('0.00%');
+    expect(rows[1].textContent).not.toContain('원');
+    expect(rows[1].querySelector('.num')?.className).not.toMatch(/\b(up|down)\b/);
+  });
+
+  it('거래 0건·개수만 받은 공유는 사유 목록 하나와 생략 안내 한 줄만 보인다', () => {
+    const state = doneState((s) => {
+      noTrades(s, []);
+      s.result.summary.skippedSignals = 3;
+    });
+    const { container } = view({ skippedCounts: [['현금 부족', 1], ['1주가 1회 금액보다 비쌈', 2]] }, state);
+    const lists = screen.getAllByRole('list', { name: '건너뛴 이유' });
+    expect(lists).toHaveLength(1);
+    expect(lists[0].classList.contains('why-list')).toBe(true);
+    expect(within(lists[0]).getAllByRole('listitem').map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      '1주가 회당 금액보다 비싸요 2번', '현금이 모자랐어요 1번',
+    ]);
+    const notes = screen.getAllByText('목록은 크기 때문에 빼고 보냈어요');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].tagName).toBe('P');
+    expect(notes[0].closest('.empty')).not.toBeNull();
+    expect(container.querySelector('ul.rows')).toBeNull();
+  });
+
+  it.each([{ skippedCounts: [] }, { skippedCounts: [['현금 부족', 0]] }])('거래·건너뜀 모두 0건이고 개수가 $skippedCounts면 빈 상태 문구가 보인다', ({ skippedCounts }) => {
+    view({ skippedCounts }, doneState((s) => noTrades(s)));
+    expect(screen.getByText('건너뛴 신호가 없어요').tagName).toBe('P');
+    expect(screen.queryByText('목록은 크기 때문에 빼고 보냈어요')).toBeNull();
+    expect(screen.queryByRole('list', { name: '건너뛴 이유' })).toBeNull();
+  });
+
+  it('거래 0건 공유의 사유 목록은 양수 개수만 쓴다', () => {
+    const state = doneState((s) => {
+      noTrades(s);
+      s.result.summary.skippedSignals = 2;
+    });
+    view({ skippedCounts: [['현금 부족', 0], ['거래 없음', 2], ['1주가 1회 금액보다 비쌈', -1]] }, state);
+    const rows = within(screen.getByRole('list', { name: '건너뛴 이유' })).getAllByRole('listitem');
+    expect(rows.map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['그날 거래가 없었어요 2번']);
+    expect(screen.queryByText(/기간·자금에서/)).toBeNull();
+  });
+
+  it('0건인 현금 사유는 자금 안내와 규칙 고치기 대상에 쓰지 않는다', async () => {
+    const onEdit = vi.fn();
+    view({ skippedCounts: [['현금 부족', 0]], readonly: false, onEdit }, doneState((s) => noTrades(s)));
+    expect(screen.queryByText(/기간·자금에서/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
+    expect(onEdit).toHaveBeenCalledWith();
+  });
+
+  it('거래가 있고 건너뜀 개수가 모두 0이면 탭에 빈 상태 문구가 보인다', async () => {
+    const state = doneState((s) => {
+      s.result.skipped = [];
+      s.result.summary.skippedSignals = 0;
+    });
+    view({ skippedCounts: [['현금 부족', 0]] }, state);
+    await fireEvent.click(tab('건너뛴 신호 0'));
+    expect(screen.getByText('건너뛴 신호가 없어요')).toBeTruthy();
+    expect(screen.queryByText('목록은 크기 때문에 빼고 보냈어요')).toBeNull();
+  });
+
+  it('건너뜀 목록 없이 개수만 받으면 탭 이름·본문·거래 0건 문구가 개수를 쓴다', async () => {
+    const s = doneState();
+    s.result.skipped = [];
+    view({ skippedCounts: [['현금 부족', 1], ['1주가 1회 금액보다 비쌈', 2]] }, s);
+    await fireEvent.click(tab('건너뛴 신호 3'));
+    expect(screen.getByText('목록은 크기 때문에 빼고 보냈어요')).toBeTruthy();
+    expect(screen.getByText('2번')).toBeTruthy();
+    const z = doneState();
+    noTrades(z, []);
+    z.result.summary.skippedSignals = 3;
+    render(ResultView, { state: z, colorConvention: 'kr', readonly: true, skippedCounts: [['현금 부족', 3]] });
+    expect(screen.getByText('매수 신호가 3번 났지만 한 번도 사지 못했어요')).toBeTruthy();
+  });
+
+  it('솎은 곡선 안내를 차트 아래에 적는다', () => {
+    view({ sampledNote: '곡선은 735점 중 120점으로 줄였어요 · 수치는 전체 기간 기준이에요' });
+    expect(screen.getByText('곡선은 735점 중 120점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
+  });
+});
+
+describe('ResultView 결과 공유', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+  });
+  it('onShare가 있으면 머리줄에 결과 공유 단추', async () => {
+    const onShare = vi.fn();
+    render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn(), onShare });
+    await fireEvent.click(screen.getByRole('button', { name: '결과 공유' }));
+    expect(onShare).toHaveBeenCalledTimes(1);
+  });
+  it('capture: 곡선이 있으면 카드, 거래 0건이면 null', () => {
+    const a = render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn() });
+    const card = a.component.capture();
+    expect(card?.canvas.width).toBe(1600);
+    expect(card?.alt).toMatch(/^눌림목|^새 전략/);
+    expect(card?.line).toBeNull();
+    const s = doneState();
+    noTrades(s);
+    const b = render(ResultView, { state: s, colorConvention: 'kr', onEdit: vi.fn() });
+    expect(b.component.capture()).toBeNull();
+  });
+
+  it('capture는 실제 자산 곡선의 테마 색을 오른쪽 목록에 그린다', () => {
+    const swatches: string[] = [];
+    const ctx = { fillStyle: '', scale() {}, fillText() {}, drawImage() {},
+      fillRect(_x: number, _y: number, w: number, h: number) { if (w === 10 && h === 10) swatches.push(this.fillStyle); },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    document.documentElement.style.setProperty('--accent', '#123456');
+    try {
+      const r = render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn() });
+      r.component.capture();
+      const lines = lwcCharts.at(-1)!.series;
+      expect(swatches).toEqual([lines[0].options.color, lines[1].options.color, lines[3].options.color]);
+      expect(swatches[0]).toBe('#123456');
+    } finally {
+      document.documentElement.style.removeProperty('--accent');
+      vi.restoreAllMocks();
+    }
+  });
+
 });

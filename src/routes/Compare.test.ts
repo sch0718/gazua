@@ -19,6 +19,8 @@ import { createSafeStorage } from '../lib/state/storage';
 import { memoryBacking, seed } from '../lib/state/testStorage';
 import { kstDate, kstEpoch } from '../lib/time/kst';
 import Compare from './Compare.svelte';
+import { closeShare, currentShare, setShareController } from '../lib/share/shareStore.svelte';
+import type { SyncController } from '../lib/sync/controller.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 // 지수 로딩만 테스트에서 실패시킬 수 있게 감싼다(기본은 실제 구현).
@@ -956,5 +958,146 @@ describe('Compare load errors (spec §11)', () => {
     window.dispatchEvent(new Event('online'));
     await new Promise((r) => setTimeout(r, 20));
     expect(spy.mock.calls.length).toBe(after);
+  });
+});
+
+describe('비교 화면 공유', () => {
+  afterEach(() => {
+    closeShare();
+    setShareController(null);
+  });
+
+  it('로그인했고 보이는 종목이 있으면 공유 단추로 비교 화면 스냅샷을 연다', async () => {
+    setShareController({ account: { email: 'me@example.test' } } as unknown as SyncController);
+    const app = makeApp(EXAMPLE);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await fireEvent.click(screen.getByRole('button', { name: '공유' }));
+    const req = currentShare()!;
+    expect(req.kind).toBe('compare');
+    const b = req.build(true);
+    expect(b.ok && b.snapshot).toMatchObject({ kind: 'compare', title: '반도체', symbols: EXAMPLE, view: { period: app.settings.period, metric: app.settings.metric } });
+    expect(typeof req.capture).toBe('function');
+  });
+
+  it('로그인하지 않았으면 공유 단추가 없다', () => {
+    setShareController({ account: null } as unknown as SyncController);
+    const app = makeApp(EXAMPLE);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    expect(screen.queryByRole('button', { name: '공유' })).toBeNull();
+  });
+});
+
+describe('비교 카드 캡처와 표시 지표', () => {
+  let texts: { text: string; color: string }[];
+  let swatches: string[];
+  beforeEach(() => {
+    setShareController({ account: { email: 'me@example.test' } } as unknown as SyncController);
+    texts = [];
+    swatches = [];
+    const ctx = {
+      fillStyle: '', scale() {}, drawImage() {},
+      fillRect(_x: number, _y: number, w: number, h: number) { if (w === 10 && h === 10) swatches.push(this.fillStyle); },
+      fillText(text: string) { texts.push({ text, color: this.fillStyle }); },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    for (const [k, v] of Object.entries({ '--s1': '#123456', '--up': '#ee1122', '--down': '#1122ee', '--t1': '#111111' })) {
+      document.documentElement.style.setProperty(k, v);
+    }
+  });
+  afterEach(() => {
+    closeShare();
+    setShareController(null);
+    vi.restoreAllMocks();
+    for (const k of ['--s1', '--up', '--down', '--t1']) document.documentElement.style.removeProperty(k);
+  });
+  const loaded = () => vi.waitFor(() => expect(screen.queryByText(/불러오는 중 \d/)).toBeNull(), { timeout: 3000 });
+  async function share() {
+    await fireEvent.click(screen.getByRole('button', { name: '공유' }));
+    return currentShare()!;
+  }
+
+  it.each([false, true])('로그인했어도 보이는 종목이 없으면 단추가 없다(전부 숨김=%s)', (hidden) => {
+    const app = makeApp(hidden ? EXAMPLE : []);
+    if (hidden) app.setWatchlists({ ...app.watchlists, groups: app.watchlists.groups.map((g) => ({ ...g, items: g.items.map((i) => ({ ...i, hidden: true })) })) });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    expect(screen.queryByRole('button', { name: '공유' })).toBeNull();
+  });
+
+  it('보이는 종목이 있으면 단추가 있고, 캡처는 리더보드 상위 5개·선 색·둘째 줄을 담으며 받는 중이면 null', async () => {
+    const app = makeApp([...EXAMPLE, '035420', '035720', '051910']);
+    const g = app.watchlists.groups[0];
+    app.setWatchlists({ ...app.watchlists, groups: [{ ...g, items: g.items.map((i, k) => ({ ...i, hidden: k === 1 })) }] });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    const req = await share();
+    expect(screen.getByText(/불러오는 중 \d/)).toBeTruthy();
+    expect(req.capture!()).toBeNull();
+    await loaded();
+    // 숨긴 종목은 목록에 남지만 카드에는 넣지 않는다.
+    const visible = [...screen.getByRole('region', { name: '리더보드' }).querySelectorAll('li')]
+      .filter((li) => li.querySelector('.dotbtn')?.getAttribute('aria-pressed') === 'true');
+    expect(visible).toHaveLength(6);
+    const top = visible.slice(0, 5).map((li) => li.querySelector('.nm b')!.childNodes[0].textContent!.trim());
+    const card = req.capture!()!;
+    expect(card.canvas.width).toBe(1600);
+    expect(card.line).toBeTruthy();
+    expect(texts.slice(3, -1).filter((_, i) => i % 2 === 0).map((t) => t.text)).toEqual(top);
+    expect(swatches).toHaveLength(5);
+    const chartItems = app.watchlists.groups[0].items.filter((i) => !i.hidden);
+    expect(swatches).toEqual(visible.slice(0, 5).map((li) => {
+      const index = chartItems.findIndex((i) => i.symbol === li.getAttribute('data-symbol'));
+      return lwcCharts.at(-1)!.series[index * 2 + 1].options.color;
+    }));
+    expect(card.line).toContain(top[0]);
+    expect(card.line).toContain(top[1]);
+    expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
+  });
+
+  it('받은 뒤 시계만 움직여도 카드와 둘째 줄 기준 시각은 마지막 수신 시각이다', async () => {
+    const app = makeApp(EXAMPLE);
+    const { rerender } = render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const req = await share();
+    const first = req.capture!()!;
+    await rerender({ app, now: NOW + 60_000, sessions, isOpenToday: true, barEnd });
+    const next = req.capture!()!;
+    expect(next.line).toBe(first.line);
+    expect(next.alt).toBe(first.alt);
+  });
+
+  it('대체 등락률을 보이면 스냅샷도 실제 화면 지표를 쓴다(설정 프록시 포함)', async () => {
+    const app = makeApp(EXAMPLE, { metric: 'rsi' });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const req = await share();
+    const built = req.build(false);
+    expect(built.ok && built.snapshot).toMatchObject({ view: { metric: 'change' } });
+    expect(req.capture!()?.alt).toContain('등락률');
+    expect(app.settings.metric).toBe('rsi');
+  });
+
+  it.each(['rvol', 'mcap'] as const)('%s 값에는 등락 색을 쓰지 않는다', async (metric) => {
+    const app = makeApp(EXAMPLE, { metric });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    const req = await share();
+    req.capture!();
+    expect(texts.slice(3, -1).filter((_, i) => i % 2 === 1).map((t) => t.color)).toEqual(Array(4).fill('#111111'));
+  });
+
+  it.each(['kr', 'global'] as const)('%s: 작은 등락도 리더보드의 둘째 자리 반올림과 같은 색이다', async (colorConvention) => {
+    const app = makeApp(EXAMPLE, { colorConvention });
+    const real = app.data.snapshots.load.bind(app.data.snapshots);
+    vi.spyOn(app.data.snapshots, 'load').mockImplementation(async (args) => ({ ...await real(args), base: 1_000_000 }));
+    const changes = [0.006, -0.006, 0.004, -0.004];
+    vi.spyOn(app.provider, 'getQuotes').mockImplementation(async (symbols, venue) => symbols.map((symbol) => ({ symbol, venue, price: 1_000_000 * (1 + changes[EXAMPLE.indexOf(symbol)] / 100), ts: NOW })));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(within(rowOf('삼성전자')).getByText('▲ +0.01%')).toBeTruthy());
+    const req = await share();
+    req.capture!();
+    expect(texts.filter((t) => t.text === '▲ +0.01%')[0]?.color).toBe('#ee1122');
+    expect(texts.filter((t) => t.text === '▼ -0.01%')[0]?.color).toBe('#1122ee');
+    expect(texts.filter((t) => t.text === '0.00%').map((t) => t.color)).toEqual(['#111111', '#111111']);
   });
 });
