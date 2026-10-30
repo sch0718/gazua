@@ -112,6 +112,20 @@ describe('카드 이미지 업로드', () => {
     expect(deleteImage).toHaveBeenCalledWith({ imageUrl: 'https://k.kakaocdn.net/late.jpg' });
   });
 
+  it.each([
+    { url: 'https://k.kakaocdn.net/late-small.jpg', width: 150, height: 150 },
+    { url: 'http://k.kakaocdn.net/late.jpg', width: 1600, height: 800 },
+    { url: 'https://k.kakaocdn.net/late-no-size.jpg' },
+  ])('시간 초과 뒤 늦게 온 무효한 응답 이미지 %j의 url도 지운다', async (original) => {
+    let resolve!: (v: unknown) => void;
+    const deleteImage = vi.fn(async () => ({}));
+    share({ uploadImage: () => new Promise((r) => (resolve = r)), deleteImage });
+    expect(await uploadCardImage(file, 5)).toBeNull();
+    resolve({ infos: { original } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deleteImage).toHaveBeenCalledExactlyOnceWith({ imageUrl: original.url });
+  });
+
   it('지우기 실패는 무시한다', async () => {
     share({ deleteImage: async () => Promise.reject(new Error('x')) });
     expect(() => deleteCardImage('https://k.kakaocdn.net/a.jpg')).not.toThrow();

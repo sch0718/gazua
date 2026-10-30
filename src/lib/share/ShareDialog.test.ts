@@ -298,6 +298,25 @@ describe('ShareDialog', () => {
       expect(sdk.Share.deleteImage).toHaveBeenCalledExactlyOnceWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
     });
 
+    it.each(['닫기 단추', '요청 닫기'])('보낸 뒤 다시 보내다 실패하고 %s로 닫아도 이미 보낸 이미지를 지우지 않는다', async (action) => {
+      const sdk = fakeKakao();
+      const { view, onclose } = await open(cmpReq());
+      await makeLink();
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://k.kakaocdn.net/card.jpg');
+      sdk.Share.sendDefault.mockImplementation(() => { throw new Error('카카오 오류'); });
+      await fireEvent.click(await ready());
+      expect(sdk.Share.sendDefault).toHaveBeenCalledTimes(2);
+      expect(currentSnackbar()?.message).toBe('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
+      if (action === '닫기 단추') {
+        await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+        expect(onclose).toHaveBeenCalledTimes(1);
+      } else {
+        await view.rerender({ request: null });
+      }
+      expect(sdk.Share.deleteImage).not.toHaveBeenCalled();
+    });
+
     it('이미 올린 이미지가 있으면 카카오 설정이 갱신돼도 다시 올리지 않는다', async () => {
       const sdk = fakeKakao();
       const key = writable(KAKAO.appKey);

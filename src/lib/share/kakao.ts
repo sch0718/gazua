@@ -59,7 +59,7 @@ export async function uploadCardImage(file: File, timeoutMs = UPLOAD_TIMEOUT_MS)
     const r = await Promise.race([sent, late]);
     if (r === 'timeout') {
       // 늦게 온 응답의 이미지는 보내지 않으므로 지운다
-      sent.then((x) => validImage(x?.infos?.original) && deleteCardImage(x.infos.original.url)).catch(() => {});
+      sent.then((x) => typeof x?.infos?.original?.url === 'string' && deleteCardImage(x.infos.original.url)).catch(() => {});
       return null;
     }
     const o = r?.infos?.original;

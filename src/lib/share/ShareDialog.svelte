@@ -215,8 +215,8 @@
   function sendToKakao() {
     if (!link || !kakao) return;
     const card = kakaoCard(link.snapshot, link.url, { names, image: dropped ? null : cardImage, line: shot?.line ?? null });
-    sent = sendKakao(card, kakao);
-    if (!sent) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
+    if (sendKakao(card, kakao)) sent = true;
+    else showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
   }
 
   function close() {
