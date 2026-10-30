@@ -13,6 +13,8 @@
   import SymbolTab from './SymbolTab.svelte';
   import TradeChartSheet from './TradeChartSheet.svelte';
   import TradeList from './TradeList.svelte';
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  import { cardAlt, composeCard, readCardColors, simResultCardText } from '../../share/cardImage';
 
   // 'state' 이름은 $state 룬과 겹쳐서 done으로 받는다.
   let {
@@ -113,8 +115,6 @@
     const top = skipList[0]?.reason ?? null;
     return top === '현금 부족' || top === '1주가 1회 금액보다 비쌈';
   });
-  import type { CardCapture } from '../../share/shareStore.svelte';
-  import { cardAlt, composeCard, readCardColors, simResultCardText } from '../../share/cardImage';
   let equityChart = $state<ReturnType<typeof EquityChart>>();
   let root = $state<HTMLElement>();
   /** 지금 보이는 수익 곡선으로 카드를 만든다. 거래 0건이라 곡선이 없으면 null(설계 4.1) */
@@ -122,10 +122,11 @@
     if (result.trades.length === 0 || !root) return null;
     const chart = equityChart?.screenshot();
     if (!chart) return null;
-    const text = simResultCardText(done);
+    const cs = getComputedStyle(document.documentElement);
+    const swatches = Object.fromEntries(EQUITY_LINES.map((l) => [l.key, cs.getPropertyValue(l.color[0]).trim() || l.color[1]]));
+    const text = simResultCardText(done, swatches);
     return { canvas: composeCard(chart, text, readCardColors(root)), alt: cardAlt(text, '시뮬레이션 결과'), line: null };
   }
-
 </script>
 
 <section bind:this={root} class="result" class:stale aria-label="시뮬레이션 결과">
@@ -246,13 +247,19 @@
   .result.stale {
     border-left: 3px solid var(--accent);
   }
-  .head :global(.badge:first-child) {
-    margin-left: 0;
-    margin-right: 6px;
+  .share {
+    margin-left: auto;
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+    font-weight: 700;
   }
-  .share { margin-left: auto; min-height: var(--touch); padding: 0 12px; border-radius: 12px; background: var(--surface2); font-weight: 700; }
   .head {
-    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
     margin: 0;
     font-size: var(--fs-sub);
     color: var(--t2);

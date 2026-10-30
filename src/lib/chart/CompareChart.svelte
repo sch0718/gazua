@@ -1,3 +1,11 @@
+<script lang="ts" module>
+  const SERIES_COLORS = ['#eb6834', '#1baf7a', '#4a3aa7', '#eda100', '#e87ba4', '#008300', '#2a78d6', '#e34948', '#9a4fb8', '#c2185b'];
+
+  export function seriesColor(slot: number): string {
+    return getComputedStyle(document.documentElement).getPropertyValue(`--s${slot}`).trim() || SERIES_COLORS[slot - 1];
+  }
+</script>
+
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import {
@@ -71,7 +79,7 @@
   const MAX_DIRECT_LABELS = 4;
   const LABEL_MIN_GAP = 14;
   const LIGHT = {
-    s: ['#eb6834', '#1baf7a', '#4a3aa7', '#eda100', '#e87ba4', '#008300', '#2a78d6', '#e34948', '#9a4fb8', '#c2185b'],
+    s: SERIES_COLORS,
     t1: '#111317',
     t3: '#676d77',
     grid: 'rgba(17,19,23,.07)',
@@ -126,7 +134,7 @@
     const cs = getComputedStyle(document.documentElement);
     const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
     return {
-      s: LIGHT.s.map((c, i) => v(`--s${i + 1}`, c)),
+      s: LIGHT.s.map((_, i) => seriesColor(i + 1)),
       t1: v('--t1', LIGHT.t1),
       t3: v('--t3', LIGHT.t3),
       grid: v('--grid', LIGHT.grid),

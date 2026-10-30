@@ -14,6 +14,8 @@ import { doneState, noTrades } from '../lib/ui/simulate/resultFixture';
 import { kstEpoch } from '../lib/time/kst';
 import { dismissSnackbar, currentSnackbar } from '@sch0718/ui-svelte';
 import Simulate from './Simulate.svelte';
+import { closeShare, currentShare, setShareController } from '../lib/share/shareStore.svelte';
+import type { SyncController } from '../lib/sync/controller.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 vi.mock('../lib/sim/simulate', async (orig) => {
@@ -41,6 +43,8 @@ function setup(names: string[] = []) {
 }
 
 afterEach(() => {
+  closeShare();
+  setShareController(null);
   vi.mocked(simulate).mockClear();
   vi.restoreAllMocks();
   for (const a of apps) a.destroy();
@@ -1012,6 +1016,45 @@ describe('Simulate 선정 기준 탭', () => {
     expect(workers[1].terminated).toBe(false);
   });
 
+
+  it.each([false, true])('로그인=%s: 검증 공유는 실행 때 기준·수집 시각과 ValidationResult.capture를 쓴다', async (loggedIn) => {
+    setShareController({ account: loggedIn ? { email: 'me@example.test' } : null } as SyncController);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+    const fileInfo = { ...FRESH };
+    const { app, worker } = setupCriteria({ info: fileInfo });
+    app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
+    const run = await screen.findByRole('button', { name: '검증 실행' });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    const original = JSON.parse(JSON.stringify(app.criteria[0]));
+    await fireEvent.click(run);
+    worker.onmessage?.({ data: { type: 'result', result: validationResult() } });
+    await screen.findByRole('button', { name: '관심 그룹으로 만들기' });
+    app.setCriteria(app.criteria.map((c) => ({ ...c, name: '바뀐 이름', capital: 5_000_000, conditions: { ...c.conditions, marketCap: { on: true, minEok: 12345 } } })));
+    fileInfo.collectedAt = '2026-10-12T09:00:00+09:00';
+    await tick();
+    if (!loggedIn) {
+      expect(screen.queryByRole('button', { name: '결과 공유' })).toBeNull();
+      expect(currentShare()).toBeNull();
+      return;
+    }
+    const share = screen.getByRole('button', { name: '결과 공유' });
+    const edit = screen.getByRole('button', { name: '기준 고치기' });
+    expect(share.parentElement).toBe(edit.parentElement);
+    expect([...share.parentElement!.children]).toEqual([edit, share]);
+    await fireEvent.click(share);
+    const req = currentShare()!;
+    expect(req).toMatchObject({ kind: 'validation', name: original.name, profileId: app.meta.activeProfileId });
+    const built = req.build(false);
+    expect(built.ok && built.snapshot).toMatchObject({ kind: 'validation', criteria: { name: original.name, capital: original.capital, conditions: original.conditions }, run: { fetchedAt: Date.parse(FRESH.collectedAt) } });
+    const card = req.capture!()!;
+    expect(card.canvas.width).toBe(1600);
+    expect(card.alt).toContain(original.name + ' 검증 결과 캡처:');
+    expect(card.line).toBeNull();
+    expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
+  });
+
   it('the result keeps the name and capital the run used, even if the criteria changes afterwards', async () => {
     const { app, worker } = setupCriteria();
     app.navigate({ name: 'simulate', tab: 'criteria', criteriaId: 'c0' });
@@ -1024,5 +1067,37 @@ describe('Simulate 선정 기준 탭', () => {
     await tick();
     await fireEvent.click(screen.getByRole('button', { name: '관심 그룹으로 만들기' }));
     expect(((await screen.findByRole('textbox', { name: '새 그룹 이름' })) as HTMLInputElement).value).toBe('반등 기준');
+  });
+});
+
+
+describe('Simulate 시뮬레이션 결과 공유 경로', () => {
+  it.each([false, true])('로그인=%s: 결과 공유 단추와 RunPanel.capture를 연결한다', async (loggedIn) => {
+    stubWidth(false);
+    setShareController({ account: loggedIn ? { email: 'me@example.test' } : null } as SyncController);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+    const app = setup(['눌림목']);
+    shortPeriod(app);
+    vi.mocked(simulate).mockImplementationOnce(() => doneState().result);
+    app.navigate({ name: 'simulate', strategyId: 's0' });
+    await fireEvent.click(await screen.findByRole('button', { name: '시뮬레이션 실행' }));
+    await screen.findByText('배당 제외 · 가격 수익률만이에요', {}, { timeout: 5000 });
+    if (!loggedIn) {
+      expect(screen.queryByRole('button', { name: '결과 공유' })).toBeNull();
+      expect(currentShare()).toBeNull();
+      return;
+    }
+    await fireEvent.click(screen.getByRole('button', { name: '결과 공유' }));
+    const req = currentShare()!;
+    expect(req).toMatchObject({ kind: 'simResult', name: '눌림목', profileId: app.meta.activeProfileId });
+    const built = req.build(false);
+    expect(built.ok && built.snapshot).toMatchObject({ kind: 'simResult', strategy: { name: '눌림목' } });
+    const card = req.capture!()!;
+    expect(card.canvas.width).toBe(1600);
+    expect(card.alt).toContain('눌림목 시뮬레이션 결과 캡처:');
+    expect(card.line).toBeNull();
+    expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
   });
 });

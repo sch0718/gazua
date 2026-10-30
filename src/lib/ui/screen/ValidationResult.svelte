@@ -11,6 +11,8 @@
   import TodayPicks from './TodayPicks.svelte';
   import type { MacroSeriesKey } from '../../screen/types';
   import { ALL_EMPTY_TEXT, FEW_SEGMENTS_TEXT, FIN_GAP_TEXT, FIN_LAG_TEXT, FIN_SHARES_TEXT, FLOW_GAP_TEXT, FLOW_LAG_TEXT, HELP_ALWAYS, MACRO_GAP_TEXT, MACRO_LAG_TEXT, SPARSE_TEXT, THEME_SNAPSHOT_TEXT, trendPp, vsIndex, WARMUP_TEXT, type FinRunSnap, type FlowRunSnap } from './screenText';
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  import { cardAlt, composeCard, readCardColors, validationCardText } from '../../share/cardImage';
 
   let {
     app,
@@ -79,17 +81,16 @@
   const rebalanceDates = $derived(result.rebalances.map((r) => r.date));
 
   const note = (n: ValidationResult['notes'][number]) => result.notes.includes(n);
-  import type { CardCapture } from '../../share/shareStore.svelte';
-  import { cardAlt, composeCard, readCardColors, validationCardText } from '../../share/cardImage';
   let equityChart = $state<ReturnType<typeof EquityChart>>();
   let root = $state<HTMLElement>();
   export function capture(): CardCapture | null {
     const chart = equityChart?.screenshot();
     if (!chart || !root) return null;
-    const text = validationCardText(result, criteriaName);
+    const cs = getComputedStyle(document.documentElement);
+    const swatches = Object.fromEntries(curves.map((c) => [c.id, cs.getPropertyValue(c.color[0]).trim() || c.color[1]]));
+    const text = validationCardText(result, criteriaName, swatches);
     return { canvas: composeCard(chart, text, readCardColors(root)), alt: cardAlt(text, '검증 결과'), line: null };
   }
-
 </script>
 
 <div class="vr" bind:this={root}>

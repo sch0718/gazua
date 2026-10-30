@@ -9,6 +9,7 @@
   import { Banner } from '@sch0718/ui-svelte';
   import ResultView from './ResultView.svelte';
   import type { RunState } from './runController.svelte';
+  import type { CardCapture } from '../../share/shareStore.svelte';
 
   // 'state' 이름은 $state 룬과 겹쳐서 run으로 받는다.
   let {
@@ -111,12 +112,10 @@
       prevKind = kind;
     });
   });
-  import type { CardCapture } from '../../share/shareStore.svelte';
   let resultView = $state<ReturnType<typeof ResultView>>();
   export function capture(): CardCapture | null {
     return resultView?.capture() ?? null;
   }
-
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

@@ -392,4 +392,27 @@ describe('ValidationResult capture', () => {
     expect(card?.alt.startsWith('반등 기준 검증 결과 캡처: 2026.01.05 ~ 2026.02.03')).toBe(true);
     expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
   });
+
+  it('capture는 ①·②·첫 지수의 CurveLine 색을 풀어서 그린다', () => {
+    const swatches: string[] = [];
+    const ctx = { fillStyle: '', scale() {}, fillText() {}, drawImage() {},
+      fillRect(_x: number, _y: number, w: number, h: number) { if (w === 10 && h === 10) swatches.push(this.fillStyle); },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    document.documentElement.style.setProperty('--accent', '#123456');
+    document.documentElement.style.setProperty('--line-bench', '#234567');
+    try {
+      const result = validationResult();
+      result.trading = { curve: result.hold.equity, stats: result.hold.stats, trades: 5, skipCounts: {} };
+      const r = render(ValidationResult, { app: null, result, names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN });
+      r.component.capture();
+      expect(swatches).toEqual(lwcCharts.at(-1)!.series.slice(0, 3).map((s) => s.options.color));
+      expect(swatches.slice(0, 2)).toEqual(['#123456', '#234567']);
+    } finally {
+      document.documentElement.style.removeProperty('--accent');
+      document.documentElement.style.removeProperty('--line-bench');
+      vi.restoreAllMocks();
+    }
+  });
+
 });

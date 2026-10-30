@@ -30,6 +30,8 @@
   import StrategyEditor from '../lib/ui/simulate/StrategyEditor.svelte';
   import StrategyList from '../lib/ui/simulate/StrategyList.svelte';
   import { rulesChanged } from '../lib/ui/simulate/strategyActions.svelte';
+  import { canShare, openShare } from '../lib/share/shareStore.svelte';
+  import { simResultSnapshot, validationSnapshot } from '../lib/share/compact';
 
   let {
     app,
@@ -250,8 +252,6 @@
     app.clearRouteNotice();
     void tick().then(() => showSnackbar(notice));
   });
-  import { canShare, openShare } from '../lib/share/shareStore.svelte';
-  import { simResultSnapshot, validationSnapshot } from '../lib/share/compact';
   let validationView = $state<ReturnType<typeof ValidationResult>>();
 
   function shareSim() {
@@ -277,7 +277,6 @@
       capture: () => validationView?.capture() ?? null,
     });
   }
-
 </script>
 
 <Layout>
@@ -310,8 +309,10 @@
           <div class="result">
             <h2 tabindex="-1" bind:this={resultHead}>검증 결과</h2>
             {#if vctl.state === 'done' && vctl.result}
-              <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
-              {#if canShare()}<button type="button" class="share" onclick={shareValidation}>결과 공유</button>{/if}
+              <div class="result-actions">
+                <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
+                {#if canShare()}<button type="button" class="share" onclick={shareValidation}>결과 공유</button>{/if}
+              </div>
               <ValidationResult bind:this={validationView} {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} fin={runSnap?.fin ?? finRunSnap(crit)} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
@@ -384,7 +385,13 @@
 </Layout>
 
 <style>
-  .share { min-height: var(--touch); padding: 0 12px; border-radius: 12px; background: var(--surface2); font-weight: 700; }
+  .share {
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+    font-weight: 700;
+  }
   .back {
     width: 44px;
     height: 44px;
@@ -443,6 +450,14 @@
   .result h2 {
     margin: 0;
     font-size: 18px;
+  }
+  .result-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .result-actions button {
+    flex: none;
   }
   .cancel {
     min-height: var(--touch);

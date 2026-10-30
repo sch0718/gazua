@@ -435,4 +435,24 @@ describe('ResultView 결과 공유', () => {
     const b = render(ResultView, { state: s, colorConvention: 'kr', onEdit: vi.fn() });
     expect(b.component.capture()).toBeNull();
   });
+
+  it('capture는 실제 자산 곡선의 테마 색을 오른쪽 목록에 그린다', () => {
+    const swatches: string[] = [];
+    const ctx = { fillStyle: '', scale() {}, fillText() {}, drawImage() {},
+      fillRect(_x: number, _y: number, w: number, h: number) { if (w === 10 && h === 10) swatches.push(this.fillStyle); },
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    document.documentElement.style.setProperty('--accent', '#123456');
+    try {
+      const r = render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn() });
+      r.component.capture();
+      const lines = lwcCharts.at(-1)!.series;
+      expect(swatches).toEqual([lines[0].options.color, lines[1].options.color, lines[3].options.color]);
+      expect(swatches[0]).toBe('#123456');
+    } finally {
+      document.documentElement.style.removeProperty('--accent');
+      vi.restoreAllMocks();
+    }
+  });
+
 });

@@ -3,7 +3,7 @@ import type { ValidationResult } from '../screen/runValidation';
 import { kstDate } from '../time/kst';
 import { kstHHMM } from '../ui/compare/compareText';
 import type { DoneState } from '../ui/simulate/runController.svelte';
-import { dotDate, fmtReturnPct, trendReturn } from '../ui/simulate/simText';
+import { dotDate, fmtReturnPct, returnClass, trendReturn } from '../ui/simulate/simText';
 
 export interface CardText {
   /** 굵은 제목(그룹·전략·기준 이름) */
@@ -52,7 +52,7 @@ export function composeCard(chart: HTMLCanvasElement, text: CardText, colors: Ca
   g.fillText('가즈아', 24, 12);
   g.fillStyle = colors.text;
   g.font = `700 20px ${font}`;
-  g.fillText(text.title, 100, 10);
+  g.fillText(text.title, 100, 10, 680);
   g.fillStyle = colors.sub;
   g.font = `400 13px ${font}`;
   g.fillText(text.subtitle, 100, 38);
@@ -70,10 +70,10 @@ export function composeCard(chart: HTMLCanvasElement, text: CardText, colors: Ca
     }
     g.fillStyle = colors.sub;
     g.font = `400 13px ${font}`;
-    g.fillText(row.label, LIST_X + (row.swatch ? 16 : 0), y);
+    g.fillText(row.label, LIST_X + (row.swatch ? 16 : 0), y, 272);
     g.fillStyle = row.tone === 'up' ? colors.up : row.tone === 'down' ? colors.down : colors.text;
     g.font = `700 20px ${font}`;
-    g.fillText(row.value, LIST_X, y + 20);
+    g.fillText(row.value, LIST_X, y + 20, W - LIST_X - 16);
   });
   g.fillStyle = colors.sub;
   g.font = `400 12px ${font}`;
@@ -111,9 +111,7 @@ export function readCardColors(el: Element): CardColors {
 }
 
 export function toneOf(v: number | null): 'up' | 'down' | 'flat' {
-  if (v === null || !Number.isFinite(v)) return 'flat';
-  const r = Math.round(v * 10) / 10;
-  return r > 0 ? 'up' : r < 0 ? 'down' : 'flat';
+  return returnClass(v) || 'flat';
 }
 
 /** `{제목} {종류} 캡처: {부제}, {값 목록을 쉼표로}` */
@@ -128,13 +126,13 @@ export function compareCardText(a: {
   period: string;
   metric: string;
   at: number;
-  rows: { name: string; value: string; tone: 'up' | 'down' | 'flat' }[];
+  rows: { name: string; value: string; tone: 'up' | 'down' | 'flat'; swatch?: string }[];
   provider: 'kis' | 'toss' | 'demo';
 }): CardText {
   return {
     title: a.title,
     subtitle: `${a.period} · ${a.metric} · ${stamp(a.at)} 기준`,
-    rows: a.rows.slice(0, 5).map((r) => ({ label: r.name, value: r.value, tone: r.tone })),
+    rows: a.rows.slice(0, 5).map((r) => ({ label: r.name, value: r.value, tone: r.tone, ...(r.swatch ? { swatch: r.swatch } : {}) })),
     footer: PROVIDER_NAME[a.provider],
   };
 }
@@ -144,26 +142,26 @@ export function compareCardLine(rows: readonly { name: string; value: string }[]
   return [...rows.map((r) => `${r.name} ${r.value}`), `${stamp(at)} 기준`].join(' · ');
 }
 
-export function simResultCardText(done: DoneState): CardText {
+export function simResultCardText(done: DoneState, swatches: Partial<Record<'strategy' | 'hold' | 'index', string>> = {}): CardText {
   const { result, meta } = done;
   const s = result.summary;
   return {
     title: meta.strategy.name,
     subtitle: `${dotDate(meta.from)} ~ ${dotDate(meta.to)}`,
     rows: [
-      { label: '총수익률', value: trendReturn(s.totalReturnPct), tone: toneOf(s.totalReturnPct) },
+      { label: '총수익률', value: trendReturn(s.totalReturnPct), tone: toneOf(s.totalReturnPct), swatch: swatches.strategy },
       { label: '최대 낙폭', value: fmtReturnPct(s.mddPct), tone: toneOf(s.mddPct) },
-      { label: '같은 종목 보유', value: trendReturn(result.benchmarks.holdReturnPct), tone: toneOf(result.benchmarks.holdReturnPct) },
-      { label: meta.strategy.benchmarks.index, value: trendReturn(result.benchmarks.indexReturnPct), tone: toneOf(result.benchmarks.indexReturnPct) },
+      { label: '같은 종목 보유', value: trendReturn(result.benchmarks.holdReturnPct), tone: toneOf(result.benchmarks.holdReturnPct), swatch: swatches.hold },
+      { label: meta.strategy.benchmarks.index, value: trendReturn(result.benchmarks.indexReturnPct), tone: toneOf(result.benchmarks.indexReturnPct), swatch: swatches.index },
     ],
     footer: meta.demo ? '데모 데이터' : meta.venueLabel,
   };
 }
 
-export function validationCardText(result: ValidationResult, title: string): CardText {
-  const rows: CardText['rows'] = [{ label: '① 선정만', value: trendReturn(result.hold.stats.totalPct), tone: toneOf(result.hold.stats.totalPct) }];
-  if (result.trading) rows.push({ label: '② 선정 + 매매 규칙', value: trendReturn(result.trading.stats.totalPct), tone: toneOf(result.trading.stats.totalPct) });
+export function validationCardText(result: ValidationResult, title: string, swatches: Record<string, string> = {}): CardText {
+  const rows: CardText['rows'] = [{ label: '① 선정만', value: trendReturn(result.hold.stats.totalPct), tone: toneOf(result.hold.stats.totalPct), swatch: swatches.hold }];
+  if (result.trading) rows.push({ label: '② 선정 + 매매 규칙', value: trendReturn(result.trading.stats.totalPct), tone: toneOf(result.trading.stats.totalPct), swatch: swatches.trading });
   const idx = result.indices[0];
-  if (idx) rows.push({ label: idx.id, value: idx.stats ? trendReturn(idx.stats.totalPct) : '—', tone: toneOf(idx.stats?.totalPct ?? null) });
+  if (idx) rows.push({ label: idx.id, value: idx.stats ? trendReturn(idx.stats.totalPct) : '—', tone: toneOf(idx.stats?.totalPct ?? null), swatch: swatches[`idx-${idx.id}`] });
   return { title, subtitle: `${dotDate(result.axis[0])} ~ ${dotDate(result.axis[result.axis.length - 1])}`, rows, footer: '시장 데이터 파일' };
 }

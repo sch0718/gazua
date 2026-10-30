@@ -14,7 +14,7 @@ const ctx = {
   textBaseline: '',
   scale: (x: number, y: number) => calls.push(['scale', x, y]),
   fillRect: (...a: number[]) => calls.push(['rect', ...a]),
-  fillText: (t: string, x: number, y: number) => calls.push(['text', t, x, y]),
+  fillText: (t: string, x: number, y: number, maxWidth?: number) => calls.push(['text', t, x, y, maxWidth]),
   drawImage: (img: unknown, ...a: number[]) => calls.push(['image', img, ...a]),
 };
 beforeEach(() => {
@@ -54,6 +54,27 @@ describe('composeCard', () => {
     const valueXs = calls.filter((c) => c[0] === 'text' && String(c[1]).startsWith('종목')).map((c) => c[2] as number);
     expect(Math.min(...valueXs)).toBeGreaterThanOrEqual(496);
   });
+
+  it('swatch가 있는 행만 선 색 칸을 그린다', () => {
+    composeCard(document.createElement('canvas'), { ...TEXT, rows: [
+      { label: '삼성전자', value: '+3.2%', tone: 'up', swatch: '#123456' },
+      { label: '최대 낙폭', value: '−1.0%', tone: 'down' },
+    ] }, COLORS);
+    expect(calls.filter((c) => c[0] === 'rect')).toEqual([
+      ['rect', 0, 0, 800, 400], ['rect', 512, 84, 10, 10],
+    ]);
+  });
+
+  it('긴 제목·라벨·값은 maxWidth로 카드 오른쪽 여백 안에 그린다', () => {
+    const title = '반도체'.repeat(10);
+    const label = '삼성전자'.repeat(10);
+    const value = '+1234567890.00%';
+    composeCard(document.createElement('canvas'), { ...TEXT, title, rows: [{ label, value, tone: 'up', swatch: '#123456' }] }, COLORS);
+    expect(calls.find((c) => c[1] === title)).toEqual(['text', title, 100, 10, 680]);
+    expect(calls.find((c) => c[1] === label)).toEqual(['text', label, 528, 80, 272]);
+    expect(calls.find((c) => c[1] === value)).toEqual(['text', value, 512, 100, 272]);
+  });
+
 });
 
 describe('cardFile', () => {
@@ -114,5 +135,41 @@ describe('카드 글', () => {
     expect(t.subtitle).toBe('2026.01.05 ~ 2026.02.03');
     expect(t.rows.map((r) => r.label)).toEqual(['① 선정만', 'KOSPI']);
     expect(t.footer).toBe('시장 데이터 파일');
+  });
+});
+
+
+describe('카드 선 색과 등락', () => {
+  it('비교 카드 글은 입력의 swatch를 옮긴다', () => {
+    const t = compareCardText({ title: '반도체', period: '1개월', metric: '등락률', at: 1, provider: 'demo', rows: [
+      { name: '삼성전자', value: '+3.2%', tone: 'up', swatch: '#123456' },
+    ] });
+    expect(t.rows[0].swatch).toBe('#123456');
+  });
+
+  it('시뮬레이션 카드 글은 전략·보유·지수 선 색을 넣고 낙폭에는 색 칸이 없다', () => {
+    const t = simResultCardText(doneState(), { strategy: '#123456', hold: '#234567', index: '#345678' });
+    expect(t.rows.map((r) => r.swatch)).toEqual(['#123456', undefined, '#234567', '#345678']);
+  });
+
+  it('검증 카드 글은 ①·②·첫 지수의 선 색을 넣는다', () => {
+    const r = validationResult();
+    r.trading = { curve: r.hold.equity, stats: r.hold.stats, trades: 5, skipCounts: {} };
+    const t = validationCardText(r, '반등 기준', { hold: '#123456', trading: '#234567', 'idx-KOSPI': '#345678' });
+    expect(t.rows.map((r) => r.swatch)).toEqual(['#123456', '#234567', '#345678']);
+  });
+
+  it.each([0.006, -0.006])('결과 카드의 %s는 화면처럼 소수 첫째 자리 0.0%%·중립색이다', (value) => {
+    const done = doneState((s) => {
+      s.result.summary.totalReturnPct = value;
+      s.result.benchmarks.holdReturnPct = value;
+      s.result.benchmarks.indexReturnPct = value;
+    });
+    const simRows = simResultCardText(done).rows.filter((r) => r.label !== '최대 낙폭');
+    expect(simRows.map((r) => [r.value, r.tone])).toEqual(Array(3).fill(['0.0%', 'flat']));
+    const result = validationResult();
+    result.hold.stats.totalPct = value;
+    result.indices[0].stats!.totalPct = value;
+    expect(validationCardText(result, '반등 기준').rows.map((r) => [r.value, r.tone])).toEqual(Array(2).fill(['0.0%', 'flat']));
   });
 });
