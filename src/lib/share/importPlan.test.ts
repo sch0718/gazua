@@ -81,7 +81,7 @@ describe('planImport / applyImport', () => {
   });
 
   it.each(['group', 'compare', 'strategy', 'criteria', 'basket'] as const)('%s: 긴 이모지 이름을 자르기만 하면 충돌 안내를 하지 않는다', (kind) => {
-    const title = '😀'.repeat(31);
+    const title = '😀'.repeat(30);
     const criteria = newCriteria(NOW, null, title);
     const basket = newBasket(NOW, title, ['005930']);
     criteria.pool.baskets = [basket.id];

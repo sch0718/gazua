@@ -40,7 +40,7 @@ export interface ImportPlan {
 }
 export interface ImportApplied {
   /** 실제 저장한 이름. 기준은 기준 이름 다음에 새 묶음 이름들을 순서대로 둔다 */
-  names?: string[];
+  names: string[];
   watchlists?: Watchlists;
   strategies?: Strategy[];
   criteria?: SelectionCriteria[];
@@ -54,12 +54,16 @@ export interface ImportInput {
   from: ShareKind;
 }
 
+function baseName(x: string, max = IMPORT_NAME_MAX): string {
+  return cutUtf16(x.trim(), max).trim() || '공유';
+}
+
 /**
  * base가 taken에 없으면 그대로, 있으면 ` 2`, ` 3`…을 붙인다. 붙인 결과가 max(UTF-16 길이, 저장 검사와 같은 기준)를 넘으면
  * 이름 끝을 잘라 맞추되 서로게이트 쌍을 반으로 자르지 않는다.
  */
 export function uniqueName(base: string, taken: ReadonlySet<string>, max = IMPORT_NAME_MAX): string {
-  const b = cutUtf16(base.trim(), max).trim() || '공유';
+  const b = baseName(base, max);
   if (!taken.has(b)) return b;
   for (let n = 2; ; n++) {
     const suffix = ` ${n}`;
@@ -68,7 +72,10 @@ export function uniqueName(base: string, taken: ReadonlySet<string>, max = IMPOR
   }
 }
 
-/** 이름의 마지막 글자 발음에 맞춰 「이름」로/으로를 붙인다 */
+/**
+ * 한글 음절과 숫자로 끝나는 이름만 발음에 맞춰 「이름」로/으로를 붙이고, 그 밖의 글자는 '로'로 둔다.
+ * 충돌로 바뀐 이름은 늘 숫자로 끝난다.
+ */
 export function withRo(name: string): string {
   const last = name.at(-1) ?? '';
   const code = last.charCodeAt(0);
@@ -109,8 +116,7 @@ export function planImport(p: ImportInput, cur: ImportState): ImportPlan {
   let blocked: string | null = null;
   let view: ImportPlan['view'] = null;
   const renamed = (base: string, name: string) => {
-    const normalized = cutUtf16(base.trim(), IMPORT_NAME_MAX).trim() || '공유';
-    if (name !== normalized) notes.push(`같은 이름이 있어 ${withRo(name)} 저장해요`);
+    if (name !== baseName(base)) notes.push(`같은 이름이 있어 ${withRo(name)} 저장해요`);
   };
   switch (s.kind) {
     case 'group':
