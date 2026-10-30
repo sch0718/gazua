@@ -12,6 +12,7 @@
     "dev": "vite",
     "universe": "node scripts/build-universe.mjs",
     "build:motion": "node scripts/build-motion.mjs",
+    "build:share-images": "node scripts/build-share-images.mjs",
     "collect": "node scripts/collect-market-data.mjs",
     "prebuild": "node scripts/build-universe.mjs && node scripts/build-notices.mjs",
     "build": "vite build",
