@@ -18,13 +18,15 @@
   import type { SyncController } from '../sync/controller.svelte';
   import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareBuild, type ShareSnapshot } from './snapshot';
   import { jsonBytes } from '../sync/forbidden';
-  import type { ShareRequest } from './shareStore.svelte';
+  import type { CardCapture, ShareRequest } from './shareStore.svelte';
   import { kindLabel } from './kinds';
   import type { UniverseItem } from '../data/universe';
   import { sharedUniverse } from '../../sheets/universeSource';
   import { snapshotLines, symbolNames, type SymbolNames } from './shareText';
   import { kakaoLinkFits, preloadKakao, sendKakao, type KakaoShareConfig } from '@sch0718/kakao-share';
-  import { kakaoCard, readKakaoConfig } from './kakao';
+  import { untrack } from 'svelte';
+  import { cardFile } from './cardImage';
+  import { deleteCardImage, kakaoCard, readKakaoConfig, uploadCardImage, type KakaoImage } from './kakao';
 
   let {
     request,
@@ -66,6 +68,45 @@
   // 링크와 함께 그 링크를 만든 스냅샷을 둔다. 카카오톡 메시지는 이 스냅샷의 요약만 쓴다.
   let link = $state<{ url: string; expiresAt: number; snapshot: ShareSnapshot } | null>(null);
   let failed = $state<string | null>(null);
+
+  // 캡처: 카카오 키가 있고 capture가 있으면 열 때 한 번(보이는 화면 그대로). null이면 캡처 부분을 숨기고 고정 이미지(설계 4.2)
+  let shot = $state.raw<CardCapture | null>(null);
+  let preview = $state<string | null>(null);
+  /** 「화면 캡처 함께 보내기」. 링크 전 화면에서만 정한다 */
+  let sendShot = $state(true);
+  /** 「이미지 빼고 보내기」를 눌렀다(되돌리지 않는다) */
+  let dropped = $state(false);
+  let cardImage = $state.raw<KakaoImage | null>(null);
+  let uploadNote = $state<string | null>(null);
+  let sent = false;
+
+  function takeShot(r: ShareRequest | null): CardCapture | null {
+    if (!r?.capture || !kakao) return null;
+    try {
+      return r.capture();
+    } catch {
+      return null;
+    }
+  }
+  /** 보내지 않은 캡처는 카카오 서버에서 지운다(설계 1.5-8) */
+  function discardImage() {
+    if (cardImage && !sent) deleteCardImage(cardImage.url);
+    cardImage = null;
+  }
+  function resetShot(r: ShareRequest | null) {
+    discardImage();
+    sent = false;
+    dropped = false;
+    sendShot = true;
+    uploadNote = null;
+    shot = untrack(() => takeShot(r));
+    try {
+      preview = shot ? shot.canvas.toDataURL('image/jpeg', 0.85) : null;
+    } catch {
+      shot = null;
+      preview = null;
+    }
+  }
 
   const build = $derived.by<ShareBuild | null>(() => {
     if (!request) return null;
@@ -112,6 +153,7 @@
     link = null;
     failed = null;
     rawOpen = false;
+    untrack(() => resetShot(request));
   });
 
   async function copyLink() {
@@ -126,7 +168,7 @@
 
   // 링크가 생기면 SDK를 미리 받는다. 클릭 안에서 기다림 없이 보내야 PC 팝업 차단을 피한다.
   // 받지 못하면 단추를 숨기고 링크 복사만 남긴다.
-  let kakaoState = $state<'off' | 'loading' | 'ready'>('off');
+  let kakaoState = $state<'off' | 'loading' | 'uploading' | 'ready'>('off');
   const kakaoUrl = $derived(link && kakao && kakaoLinkFits(link.url, kakao) ? link.url : null);
   $effect(() => {
     if (!kakaoUrl || !kakao) {
@@ -136,8 +178,23 @@
     let alive = true;
     kakaoState = 'loading';
     preloadKakao(kakao).then(
-      () => {
-        if (alive) kakaoState = 'ready';
+      async () => {
+        if (!alive) return;
+        const s = untrack(() => (sendShot && !dropped ? shot : null));
+        if (s) {
+          kakaoState = 'uploading';
+          const file = await cardFile(s.canvas);
+          const img = file ? await uploadCardImage(file) : null;
+          // 다른 요청으로 바뀌었거나(alive) 이미지를 뺐으면(dropped) 늦게 온 응답은 버리고 그 이미지를 지운다
+          if (!alive || dropped) {
+            if (img) deleteCardImage(img.url);
+            if (!alive) return;
+          } else {
+            cardImage = img;
+            if (!img) uploadNote = '캡처를 올리지 못해 기본 그림으로 보내요';
+          }
+        }
+        kakaoState = 'ready';
       },
       () => {
         if (alive) kakaoState = 'off';
@@ -148,18 +205,34 @@
     };
   });
 
+  function dropImage() {
+    dropped = true;
+    if (cardImage) deleteCardImage(cardImage.url);
+    cardImage = null;
+    if (kakaoState === 'uploading') kakaoState = 'ready';
+  }
+
   function sendToKakao() {
     if (!link || !kakao) return;
-    if (!sendKakao(kakaoCard(link.snapshot, link.url, names), kakao)) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
+    sent = true;
+    const card = kakaoCard(link.snapshot, link.url, { names, image: dropped ? null : cardImage, line: shot?.line ?? null });
+    if (!sendKakao(card, kakao)) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
   }
 
   function close() {
+    discardImage();
     attempt++;
     link = null;
     failed = null;
     rawOpen = false;
     ttl = SHARE_TTL_DEFAULT_DAYS;
     hideCapital = true;
+    sent = false;
+    dropped = false;
+    sendShot = true;
+    shot = null;
+    preview = null;
+    uploadNote = null;
     onclose();
   }
 
@@ -174,9 +247,18 @@
         <input class="url" readonly value={link.url} aria-label="공유 링크" onfocus={(e) => e.currentTarget.select()} />
         <button type="button" class="primary" onclick={copyLink}>링크 복사</button>
         {#if kakaoState !== 'off'}
-          <button type="button" class="kakao" disabled={kakaoState !== 'ready'} onclick={sendToKakao}>
-            {kakaoState === 'ready' ? '카카오톡으로 보내기' : '카카오톡 준비 중…'}
-          </button>
+          {#if preview && sendShot && !dropped}
+            <div class="shot-mini">
+              <img src={preview} alt={shot?.alt ?? ''} width="160" height="80" />
+              <button type="button" class="ghost" onclick={dropImage}>이미지 빼고 보내기</button>
+            </div>
+          {/if}
+          <div aria-live="polite">
+            <button type="button" class="kakao" disabled={kakaoState !== 'ready'} onclick={sendToKakao}>
+              {kakaoState === 'ready' ? '카카오톡으로 보내기' : kakaoState === 'uploading' ? '캡처 올리는 중…' : '카카오톡 준비 중…'}
+            </button>
+          </div>
+          {#if uploadNote}<p class="hint">{uploadNote}</p>{/if}
         {/if}
         <p class="hint">설정 › 동기화 › 내 공유에서 언제든 철회할 수 있어요. 이미 본 내용·캡처는 지울 수 없어요.</p>
       {:else}
@@ -208,6 +290,16 @@
               {#if rawOpen && (snapshot.kind === 'simResult' || snapshot.kind === 'validation')}<pre>{JSON.stringify(snapshot.result)}</pre>{/if}
             </details>
           {/if}
+          {#if kakao && preview}
+            <figure class="shot">
+              <img src={preview} alt={shot?.alt ?? ''} width="400" height="200" />
+            </figure>
+            <label class="check">
+              <input type="checkbox" bind:checked={sendShot} />
+              화면 캡처 함께 보내기
+            </label>
+            <p class="hint">링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.</p>
+          {/if}
         {/if}
         {#if hasCapital}
           <label class="check">
@@ -228,6 +320,25 @@
 </Sheet>
 
 <style>
+  .shot img {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+  }
+  .shot-mini {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .shot-mini img {
+    border-radius: 8px;
+  }
+  .ghost {
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+  }
   .share {
     display: flex;
     flex-direction: column;

@@ -120,9 +120,9 @@ describe('ShareDialog', () => {
   describe('카카오톡으로 보내기', () => {
     const KAKAO = { appKey: 'test-kakao-key' };
     // 실제 SDK처럼 init 뒤에야 Share를 붙인다. 시험은 돌려받은 Share로 호출을 확인한다.
-    function fakeKakao() {
+    function fakeKakao(upload: (o: { file: File[] }) => Promise<unknown> = async () => ({ infos: { original: { url: 'https://k.kakaocdn.net/card.jpg', width: 1600, height: 800 } } })) {
       let initialized = false;
-      const Share = { sendDefault: vi.fn() };
+      const Share = { sendDefault: vi.fn(), uploadImage: vi.fn(upload), deleteImage: vi.fn(async () => ({})) };
       const init = vi.fn(() => {
         initialized = true;
         Object.assign(sdk, { Share });
@@ -137,6 +137,122 @@ describe('ShareDialog', () => {
       await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
       await waitFor(() => expect(screen.getByLabelText('공유 링크')).toBeTruthy());
     }
+
+    const shotCanvas = () =>
+      ({
+        width: 1600,
+        height: 800,
+        toDataURL: (type: string) => `data:${type};base64,AAAA`,
+        toBlob: (cb: (b: Blob) => void) => cb(new Blob(['jpeg'], { type: 'image/jpeg' })),
+      }) as unknown as HTMLCanvasElement;
+    const ALT = '반도체 비교 화면 캡처: 1개월 · 등락률 · 10.29 14:32 기준, 삼성전자 +3.2%';
+    const cmpReq = (capture: ShareRequest['capture'] = vi.fn(() => ({ canvas: shotCanvas(), alt: ALT, line: '삼성전자 +3.2% · 10.29 14:32 기준' }))): ShareRequest => ({
+      kind: 'compare',
+      name: '반도체',
+      profileId: 'p1',
+      build: () => built({ kind: 'compare', v: 1, title: '반도체', symbols: ['005930'], view: { period: { unit: 'M', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' } }),
+      capture,
+    });
+    async function open(req: ShareRequest, kakao: { appKey: string } | null = KAKAO) {
+      const onclose = vi.fn();
+      const view = render(ShareDialog, { request: req, sync: sync(), onclose, copy: vi.fn(async () => {}), universe, kakao });
+      return { view, onclose };
+    }
+    const makeLink = async () => {
+      await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
+      await waitFor(() => expect(screen.getByLabelText('공유 링크')).toBeTruthy());
+    };
+    const ready = async () => {
+      const b = (await screen.findByRole('button', { name: '카카오톡으로 보내기' })) as HTMLButtonElement;
+      await waitFor(() => expect(b.disabled).toBe(false));
+      return b;
+    };
+    const sentImage = (sdk: ReturnType<typeof fakeKakao>) => (sdk.Share.sendDefault.mock.calls[0]![0] as { content: { imageUrl: string; description: string } }).content;
+
+    it('키가 있고 캡처가 있으면 열 때 한 번 캡처해 data: URL로 미리 보고, 체크와 안내를 둔다', async () => {
+      fakeKakao();
+      const capture = vi.fn(() => ({ canvas: shotCanvas(), alt: ALT, line: null }));
+      await open(cmpReq(capture));
+      expect(capture).toHaveBeenCalledTimes(1);
+      const img = screen.getByRole('img', { name: ALT }) as HTMLImageElement;
+      expect(img.src.startsWith('data:image/jpeg')).toBe(true);
+      expect((screen.getByLabelText('화면 캡처 함께 보내기') as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByText('링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.')).toBeTruthy();
+    });
+
+    it('카카오 키가 없으면 캡처하지 않고, 캡처가 null이면 캡처 부분을 숨긴다', async () => {
+      const capture = vi.fn(() => null);
+      await open(cmpReq(capture), null);
+      expect(capture).not.toHaveBeenCalled();
+      await open(cmpReq(vi.fn(() => null)));
+      expect(screen.queryByLabelText('화면 캡처 함께 보내기')).toBeNull();
+    });
+
+    it('링크를 만들면 캡처를 올리고(캡처 올리는 중…) 그 이미지로 보낸다. 보낸 뒤 닫으면 지우지 않는다', async () => {
+      let finish!: (v: unknown) => void;
+      const sdk = fakeKakao(() => new Promise((r) => (finish = r)));
+      const { view } = await open(cmpReq());
+      await makeLink();
+      expect(await screen.findByRole('button', { name: '캡처 올리는 중…' })).toBeTruthy();
+      finish({ infos: { original: { url: 'https://k.kakaocdn.net/card.jpg', width: 1600, height: 800 } } });
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://k.kakaocdn.net/card.jpg');
+      expect(sentImage(sdk).description).toBe('종목 1개 · 1개월 등락률\n삼성전자 +3.2% · 10.29 14:32 기준');
+      await view.rerender({ request: null, sync: sync(), onclose: () => {}, kakao: KAKAO });
+      expect(sdk.Share.deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('체크를 끄면 올리지 않고 고정 이미지로 보낸다', async () => {
+      const sdk = fakeKakao();
+      await open(cmpReq());
+      await fireEvent.click(screen.getByLabelText('화면 캡처 함께 보내기'));
+      await makeLink();
+      await fireEvent.click(await ready());
+      expect(sdk.Share.uploadImage).not.toHaveBeenCalled();
+      expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+    });
+
+    it('업로드에 실패하면 고정 이미지로 돌아가고 안내한다', async () => {
+      const sdk = fakeKakao(async () => Promise.reject(new Error('403')));
+      await open(cmpReq());
+      await makeLink();
+      await fireEvent.click(await ready());
+      expect(screen.getByText('캡처를 올리지 못해 기본 그림으로 보내요')).toBeTruthy();
+      expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+    });
+
+    it('보내지 않고 닫으면 올린 이미지를 지운다', async () => {
+      const sdk = fakeKakao();
+      const { view } = await open(cmpReq());
+      await makeLink();
+      await ready();
+      await view.rerender({ request: null, sync: sync(), onclose: () => {}, kakao: KAKAO });
+      expect(sdk.Share.deleteImage).toHaveBeenCalledWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
+    });
+
+    it('이미지 빼고 보내기: 지우고 고정 이미지 카드로 바꾼다', async () => {
+      const sdk = fakeKakao();
+      await open(cmpReq());
+      await makeLink();
+      await ready();
+      await fireEvent.click(screen.getByRole('button', { name: '이미지 빼고 보내기' }));
+      expect(sdk.Share.deleteImage).toHaveBeenCalledWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+    });
+
+    it('업로드 중에 이미지를 빼면 카드는 바로 고정 이미지, 늦게 온 응답의 이미지도 지운다', async () => {
+      let finish!: (v: unknown) => void;
+      const sdk = fakeKakao(() => new Promise((r) => (finish = r)));
+      await open(cmpReq());
+      await makeLink();
+      await screen.findByRole('button', { name: '캡처 올리는 중…' });
+      await fireEvent.click(screen.getByRole('button', { name: '이미지 빼고 보내기' }));
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+      finish({ infos: { original: { url: 'https://k.kakaocdn.net/late.jpg', width: 1600, height: 800 } } });
+      await waitFor(() => expect(sdk.Share.deleteImage).toHaveBeenCalledWith({ imageUrl: 'https://k.kakaocdn.net/late.jpg' }));
+    });
 
     it('키가 없으면 단추가 없고 링크 복사만 있다', async () => {
       await made(null);
@@ -155,7 +271,7 @@ describe('ShareDialog', () => {
       const feed = sdk.Share.sendDefault.mock.calls[0]![0] as { content: { title: string; description: string; link: { webUrl: string } } };
       const url = 'https://app.example.test/#/s/' + 'x'.repeat(43);
       expect(feed.content.title).toBe('그룹 공유: 반도체');
-      expect(feed.content.description).toBe('종목 1개: 삼성전자(005930)');
+      expect(feed.content.description).toBe('종목 1개: 삼성전자');
       expect(feed.content.link.webUrl).toBe(url);
       const sent = JSON.stringify(feed);
       expect(sent).not.toContain('test-kakao-key');
