@@ -193,4 +193,19 @@ describe('planImport / applyImport', () => {
     const crit = Array.from({ length: 20 }, (_, i) => newCriteria(NOW, null, `c${i}`));
     expect(planImport(input(snap), state({ criteria: crit })).blocked).toBe(CRITERIA_CAP_MESSAGE);
   });
+
+  it('기준과 묶음 이름이 함께 바뀌면 같은 안내는 처음 한 번만 넣고 순서를 유지한다', () => {
+    const c = newCriteria(NOW, null, '대형');
+    const b = newBasket(NOW, '대형', ['005930']);
+    c.pool.baskets = [b.id];
+    const snap = criteriaSnapshot(c, { baskets: [b], strategies: [] }, { hideCapital: true, now: NOW });
+    const p = planImport(input(snap, 'validation'), state({ criteria: [c], baskets: [b] }));
+    expect(p.blocked).toBeNull();
+    expect(p.notes).toEqual([
+      '같은 이름이 있어 「대형 2」로 저장해요',
+      '초기 자금은 기본값으로 저장해요',
+      '② 매매 규칙은 함께 오지 않아요. 저장한 뒤 매매 규칙을 골라 주세요',
+      '결과는 저장하지 않아요. 저장한 뒤 실행하면 내 데이터로 다시 계산해요',
+    ]);
+  });
 });

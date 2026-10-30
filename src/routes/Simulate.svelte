@@ -253,17 +253,17 @@
   {#snippet bar()}
     {#if crit}
       <button type="button" class="back" aria-label={resultView ? '기준 편집으로' : '선정 기준 목록으로'} onclick={() => (resultView ? cancelCriteria() : app.navigate({ name: 'simulate', tab: 'criteria' }))}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
     {:else if strategy}
       <button type="button" class="back" aria-label="전략 목록으로" onclick={() => app.navigate({ name: 'simulate' })}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
       <!-- `규칙`↔`결과`는 같은 버튼(이름·동작만 바뀐다): 눌러도 포커스가 남는다 -->
       {#if !wide && (showResult || ctl.state.kind !== 'idle')}
         <button type="button" class="rules" onclick={() => (showResult ? edit() : showRun())}>{showResult ? '규칙' : '결과'}</button>
       {/if}
     {:else}
       <button type="button" class="back" aria-label="비교로 돌아가기" onclick={() => app.navigate({ name: 'compare' })}>‹</button>
-      <span class="title">시뮬레이션</span>
+      <span class="title" data-landing-title tabindex="-1">시뮬레이션</span>
     {/if}
     {@render barEnd(compact)}
   {/snippet}

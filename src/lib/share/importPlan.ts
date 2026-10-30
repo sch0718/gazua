@@ -160,7 +160,7 @@ export function planImport(p: ImportInput, cur: ImportState): ImportPlan {
   }
   if (p.from === 'validation') notes.push('② 매매 규칙은 함께 오지 않아요. 저장한 뒤 매매 규칙을 골라 주세요');
   if (p.from === 'simResult' || p.from === 'validation') notes.push('결과는 저장하지 않아요. 저장한 뒤 실행하면 내 데이터로 다시 계산해요');
-  return { lines, notes, blocked, view };
+  return { lines, notes: [...new Set(notes)], blocked, view };
 }
 
 /**

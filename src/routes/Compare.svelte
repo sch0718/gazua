@@ -400,7 +400,7 @@
       onadd={addGroup}
       onmanage={() => (openSheet = 'group')}
     />
-    <span class="title">{group?.name ?? '가즈아'}</span>
+    <span class="title" data-landing-title tabindex="-1">{group?.name ?? '가즈아'}</span>
     {@render barEnd()}
   {/snippet}
 

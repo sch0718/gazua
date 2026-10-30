@@ -38,7 +38,12 @@
 
   $effect(() => {
     const name = app.route.name;
-    if (!NORMAL.includes(name)) return;
+    if (!NORMAL.includes(name)) {
+      // 관문·공유 화면으로 옮기면 창만 닫는다. 대기 값은 복귀할 때 다시 읽는다.
+      pending = null;
+      plan = null;
+      return;
+    }
     untrack(() => {
       if (pending || loading) return;
       const p = peekImport(now());
@@ -49,13 +54,22 @@
         return;
       }
       loading = true;
-      universe()
-        .then(
+      let timeout: ReturnType<typeof setTimeout>;
+      const timedOut = new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), 10_000);
+      });
+      // 목록을 받지 못해도 가져올 수 있다. 늦은 응답은 계획을 바꾸지 않는다.
+      Promise.race([
+        universe().then(
           (items) => new Set(items.map((u) => u.s)),
           () => null,
-        )
+        ),
+        timedOut,
+      ])
+        .finally(() => clearTimeout(timeout))
         .then((set) => {
           loading = false;
+          if (!NORMAL.includes(app.route.name)) return;
           codes = set;
           applyView = true;
           plan = planImport(p, current());
@@ -73,7 +87,7 @@
   /** 이동한 화면의 첫 제목으로 포커스(설계 8절) */
   async function focusLanding() {
     await tick();
-    const h = document.querySelector<HTMLElement>('main h1') ?? document.querySelector<HTMLElement>('main h2') ?? document.querySelector<HTMLElement>('h1, h2');
+    const h = document.querySelector<HTMLElement>('[data-landing-title]') ?? document.querySelector<HTMLElement>('main h1') ?? document.querySelector<HTMLElement>('main h2') ?? document.querySelector<HTMLElement>('h1, h2') ?? document.querySelector<HTMLElement>('main');
     if (!h) return;
     if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
     h.focus();
@@ -123,11 +137,11 @@
       {#if isKakaoInApp(ua)}<p class="where">지금 이 브라우저(카카오톡)에 저장돼요</p>{/if}
       <p>「{profileName}」 프로필에 저장해요</p>
       <ul class="lines" aria-label="만들 것">
-        {#each plan.lines as line (line)}<li>{line}</li>{/each}
+        {#each plan.lines as line, i (i)}<li>{line}</li>{/each}
       </ul>
       {#if plan.notes.length > 0}
         <ul class="notes" aria-label="안내">
-          {#each plan.notes as note (note)}<li>{note}</li>{/each}
+          {#each plan.notes as note, i (i)}<li>{note}</li>{/each}
         </ul>
       {/if}
       {#if plan.view}
