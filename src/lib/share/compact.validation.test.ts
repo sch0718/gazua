@@ -31,6 +31,17 @@ describe('validationSnapshot', () => {
     expect(b.snapshot.result.today.picks[0].values.length).toBeGreaterThan(0); // 오늘 선정은 늘 계산값까지
   });
 
+  it('30자를 넘는 비교 종목 이름은 30자로 잘라 담아 create 검사를 통과한다', () => {
+    const run = smallRun();
+    const long = '하나 Solactive 2X US Tech Top 10 ETN(H)';
+    expect(long.length).toBeGreaterThan(30);
+    run.result.benchmarks = run.result.benchmarks.map((x) => ({ ...x, name: long }));
+    const b = validationSnapshot(run, { hideCapital: false, now: NOW });
+    if (!b.ok) throw new Error(JSON.stringify(b));
+    expect(b.snapshot.result.benchmarks[0].name).toBe(long.slice(0, 30));
+    expect(checkShareSnapshot(JSON.parse(JSON.stringify(b.snapshot)), 'validation', NOW, 'create').ok).toBe(true);
+  });
+
   it('3년 월간 · 상위 30은 계산값만 빼고 create 검사를 통과한다', () => {
     const b = validationSnapshot(bigValidationRun({ days: 735, every: 21, take: 30 }), { hideCapital: false, now: NOW });
     if (!b.ok) throw new Error(JSON.stringify(b));

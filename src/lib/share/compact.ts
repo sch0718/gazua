@@ -7,12 +7,13 @@ import type { SimResult, Strategy } from '../sim/types';
 import type { Group, Settings } from '../state/schema';
 import { jsonBytes } from '../sync/forbidden';
 import type { DoneState } from '../ui/simulate/runController.svelte';
-import { AXIS_MAX, axisDate, dayOffset } from './checkResult';
+import { AXIS_MAX, axisDate, dayOffset, NAME_MAX } from './checkResult';
 import { SELL_KINDS, SKIP_REASONS, VALUE_KEY_RULE } from './resultEnums';
 import type { SymbolNames } from './shareText';
 import {
   checkShareSnapshot,
   criteriaSnapshot,
+  cutUtf16,
   SHARE_MAX_BYTES,
   shareTitle,
   strategySnapshot,
@@ -427,7 +428,7 @@ export function validationSnapshot(run: ValidationRun, opts: { hideCapital: bool
     }));
     const benchmarks = result.benchmarks.map((x, i) => ({
       symbol: x.symbol,
-      name: x.name,
+      name: cutUtf16(x.name, NAME_MAX),
       curve: x.curve ? curvePct(x.curve, `result.benchmarks[${i}].curve`) : null,
       reason: x.curve ? null : (x.reason ?? '받지 못했어요'),
       stats: x.curve && x.stats ? stats(x.stats, `result.benchmarks[${i}].stats`) : null,
