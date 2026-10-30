@@ -968,7 +968,7 @@ describe('비교 화면 공유', () => {
   });
 
   it('로그인했고 보이는 종목이 있으면 공유 단추로 비교 화면 스냅샷을 연다', async () => {
-    setShareController({ account: { email: 'me@example.test' } } as SyncController);
+    setShareController({ account: { email: 'me@example.test' } } as unknown as SyncController);
     const app = makeApp(EXAMPLE);
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
     await fireEvent.click(screen.getByRole('button', { name: '공유' }));
@@ -980,7 +980,7 @@ describe('비교 화면 공유', () => {
   });
 
   it('로그인하지 않았으면 공유 단추가 없다', () => {
-    setShareController({ account: null } as SyncController);
+    setShareController({ account: null } as unknown as SyncController);
     const app = makeApp(EXAMPLE);
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
     expect(screen.queryByRole('button', { name: '공유' })).toBeNull();
@@ -991,7 +991,7 @@ describe('비교 카드 캡처와 표시 지표', () => {
   let texts: { text: string; color: string }[];
   let swatches: string[];
   beforeEach(() => {
-    setShareController({ account: { email: 'me@example.test' } } as SyncController);
+    setShareController({ account: { email: 'me@example.test' } } as unknown as SyncController);
     texts = [];
     swatches = [];
     const ctx = {
