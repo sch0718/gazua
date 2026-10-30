@@ -87,10 +87,16 @@
   /** 이동한 화면의 첫 제목으로 포커스(설계 8절) */
   async function focusLanding() {
     await tick();
-    const h = document.querySelector<HTMLElement>('[data-landing-title]') ?? document.querySelector<HTMLElement>('main h1') ?? document.querySelector<HTMLElement>('main h2') ?? document.querySelector<HTMLElement>('h1, h2') ?? document.querySelector<HTMLElement>('main');
-    if (!h) return;
-    if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
-    h.focus();
+    for (const selector of ['[data-landing-title]', 'main h1', 'main h2', 'h1, h2', 'main']) {
+      for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+        if (el.hidden || getComputedStyle(el).display === 'none') continue;
+        const addedTabindex = !el.hasAttribute('tabindex');
+        if (addedTabindex) el.setAttribute('tabindex', '-1');
+        el.focus();
+        if (document.activeElement === el) return;
+        if (addedTabindex) el.removeAttribute('tabindex');
+      }
+    }
   }
 
   function write(applied: ImportApplied, before: ImportState) {

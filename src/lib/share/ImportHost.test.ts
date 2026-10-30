@@ -174,6 +174,10 @@ describe('ImportHost', () => {
     ['main h2', '<h1>바깥 제목</h1><main><h2 data-target>본문 제목</h2></main>'],
     ['바깥 제목', '<h2 data-target>바깥 제목</h2><main>본문</main>'],
     ['제목 없는 main', '<main data-target>본문</main>'],
+    ['hidden 도착 제목을 건너뛴 main', '<span data-landing-title hidden data-skipped>숨은 제목</span><main data-target>본문</main>'],
+    ['display:none 도착 제목을 건너뛴 main', '<span data-landing-title style="display:none" data-skipped>숨은 제목</span><main data-target>본문</main>'],
+    ['같은 선택자의 다음 도착 제목', '<span data-landing-title hidden data-skipped>숨은 제목</span><span data-landing-title data-target>도착 제목</span><main>본문</main>'],
+    ['포커스 실패 뒤 다음 도착 제목', '<span data-landing-title data-focus-fails data-skipped>포커스 불가 제목</span><span data-landing-title data-target>도착 제목</span><main>본문</main>'],
   ])('저장 뒤 %s에 포커스를 둔다', async (_, html) => {
     stashImport(g, NOW);
     const app = setup();
@@ -185,10 +189,17 @@ describe('ImportHost', () => {
       navigate(route);
       landing.innerHTML = html;
       document.body.append(landing);
+      // jsdom이 재현하지 못하는 브라우저의 포커스 거부를 흉내 낸다.
+      for (const el of landing.querySelectorAll<HTMLElement>('[data-focus-fails]')) {
+        vi.spyOn(el, 'focus').mockImplementation(() => {});
+      }
     });
     await fireEvent.click(await screen.findByRole('button', { name: '저장' }));
     await waitFor(() => expect(document.activeElement).toBe(landing.querySelector('[data-target]')));
     expect(document.activeElement?.getAttribute('tabindex')).toBe('-1');
+    for (const skipped of landing.querySelectorAll('[data-skipped]')) {
+      expect(skipped.hasAttribute('tabindex')).toBe(false);
+    }
   });
 
   it('종목 목록 대기 중 이탈하면 열지 않고, 복귀할 때 다시 요청한다', async () => {
