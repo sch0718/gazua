@@ -73,7 +73,6 @@ test('온보딩 전: 첫 실행이면 온보딩이 먼저 뜨고, 데모로 둘�
   await expect(sheet.getByText('그룹 「반도체 공유」 · 종목 2개')).toBeVisible();
   await expect(sheet.getByText('같은 이름이 있어', { exact: false })).toHaveCount(0);
   const applyView = sheet.getByRole('checkbox', { name: '보기 설정도 적용' });
-  await applyView.check();
   await expect(applyView).toBeChecked();
   await expectNoSeriousViolations(page, '확인 창');
   await sheet.getByRole('button', { name: '저장', exact: true }).click();

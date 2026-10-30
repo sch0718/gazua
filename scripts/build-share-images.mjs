@@ -32,7 +32,10 @@ const KINDS = [
   ['compare', 'lines'],
   ['simResult', 'lines'],
   ['validation', 'bars'],
-].map(([kind, shape]) => [kind, labels[kind], shape]);
+].map(([kind, shape]) => {
+  if (!labels[kind]) throw new Error(`SHARE_KIND_LABEL에서 ${kind} 이름을 읽지 못했어요`);
+  return [kind, labels[kind], shape];
+});
 
 const SHAPES = {
   lines: [
