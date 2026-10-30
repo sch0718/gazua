@@ -1,9 +1,23 @@
+<script lang="ts" module>
+  import type { ShareReduction } from './snapshot';
+  /** 줄인 단계 안내(설계 3.4, 「내가 정한 기본값」 10번) */
+  export const REDUCTION_TEXT: Record<ShareReduction, string> = {
+    'skipped-counts': '건너뛴 신호는 이유별 개수만 보내요',
+    'no-values': '선정 이력의 조건 계산값은 빼고 보내요',
+    thinned: '곡선은 점 수를 줄여 보내요',
+    'codes-only': '선정 이력은 종목 코드만 보내요',
+  };
+  export const tooLargeText = (bytes: number) => `결과가 너무 커서 공유할 수 없어요(약 ${Math.ceil(bytes / 1024)} KB, 한도 100 KB). 기간이나 종목을 줄여 다시 실행해 주세요`;
+  export const INVALID_TEXT = '이 결과는 공유 형식으로 바꾸지 못했어요';
+</script>
+
 <script lang="ts">
   // 읽기 전용 공유 링크 만들기(제안서 6절): 보낼 내용을 먼저 보여 주고, 만료(기본 7일·최대 30일)를 고른 뒤 링크를 만든다.
   import { Sheet } from '@sch0718/ui-svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import type { SyncController } from '../sync/controller.svelte';
-  import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareSnapshot } from './snapshot';
+  import { SHARE_TTL_DEFAULT_DAYS, SHARE_TTL_MAX_DAYS, type ShareBuild, type ShareSnapshot } from './snapshot';
+  import { jsonBytes } from '../sync/forbidden';
   import type { ShareRequest } from './shareStore.svelte';
   import { kindLabel } from './kinds';
   import type { UniverseItem } from '../data/universe';
@@ -53,7 +67,20 @@
   let link = $state<{ url: string; expiresAt: number; snapshot: ShareSnapshot } | null>(null);
   let failed = $state<string | null>(null);
 
-  const snapshot = $derived<ShareSnapshot | null>(request ? request.build(hideCapital) : null);
+  const build = $derived<ShareBuild | null>(request ? request.build(hideCapital) : null);
+  const snapshot = $derived<ShareSnapshot | null>(build?.ok ? build.snapshot : null);
+  const isResult = $derived(request?.kind === 'simResult' || request?.kind === 'validation');
+  const hasCapital = $derived(request !== null && ['strategy', 'criteria', 'simResult', 'validation'].includes(request.kind));
+  /** 규칙 부분: 결과 종류는 strategy 또는 criteria·baskets만(들여 쓴 JSON) */
+  const rulesPart = $derived.by(() => {
+    const s = snapshot;
+    if (!s) return null;
+    if (s.kind === 'simResult') return { strategy: s.strategy };
+    if (s.kind === 'validation') return { criteria: s.criteria, baskets: s.baskets };
+    return s;
+  });
+  const sizeKb = $derived(snapshot && isResult ? Math.max(1, Math.round(jsonBytes(snapshot) / 1024)) : 0);
+  let rawOpen = $state(false);
   const ttlValid = $derived(Number.isInteger(ttl) && ttl >= 1 && ttl <= SHARE_TTL_MAX_DAYS);
 
   // 닫거나 다른 공유를 열면 늘린다. 그 전에 보낸 요청의 응답은 버린다(다른 대상에 이전 링크가 보이지 않게).
@@ -74,6 +101,7 @@
     attempt++;
     link = null;
     failed = null;
+    rawOpen = false;
   });
 
   async function copyLink() {
@@ -119,6 +147,7 @@
     attempt++;
     link = null;
     failed = null;
+    rawOpen = false;
     ttl = SHARE_TTL_DEFAULT_DAYS;
     hideCapital = true;
     onclose();
@@ -128,7 +157,7 @@
 </script>
 
 <Sheet open={request !== null} title={request ? `${kindLabel(request.kind)} 공유` : '공유'} onclose={close}>
-  {#if request && snapshot}
+  {#if request && build}
     <div class="share">
       {#if link}
         <p class="lead">링크를 가진 사람은 누구나 {fmtDate(link.expiresAt)}까지 읽을 수 있어요.</p>
@@ -141,18 +170,39 @@
         {/if}
         <p class="hint">설정 › 동기화 › 내 공유에서 언제든 철회할 수 있어요. 이미 본 내용·캡처는 지울 수 없어요.</p>
       {:else}
-        <p class="lead">아래 내용만 보내요. 프로필 이름·키·계좌·프록시 주소는 넣지 않아요.</p>
-        <ul class="preview" aria-label="보낼 내용">
-          {#each snapshotLines(snapshot, names) as line, i (i)}<li>{line}</li>{/each}
-        </ul>
-        <details>
-          <summary>보낼 원문 보기</summary>
-          <pre>{JSON.stringify(snapshot, null, 2)}</pre>
-        </details>
-        {#if request.kind !== 'group'}
+        {#if !build.ok}
+          <p class="err" role="alert">{build.code === 'too-large' ? tooLargeText(build.bytes) : INVALID_TEXT}</p>
+          {#if build.code === 'invalid' && build.path}
+            <details>
+              <summary>보낼 원문 보기</summary>
+              <pre>{build.path}</pre>
+            </details>
+          {/if}
+        {:else if snapshot}
+          <p class="lead">아래 내용만 보내요. 프로필 이름·키·계좌·프록시 주소는 넣지 않아요.</p>
+          {#if build.reduced.length > 0}
+            <ul class="reduced" aria-label="줄인 내용">
+              {#each build.reduced as r (r)}<li>{REDUCTION_TEXT[r]}</li>{/each}
+            </ul>
+          {/if}
+          <ul class="preview" aria-label="보낼 내용">
+            {#each snapshotLines(snapshot, names) as line, i (i)}<li>{line}</li>{/each}
+          </ul>
+          <details>
+            <summary>보낼 원문 보기</summary>
+            <pre>{JSON.stringify(rulesPart, null, 2)}</pre>
+          </details>
+          {#if isResult}
+            <details ontoggle={(e) => (rawOpen = e.currentTarget.open)}>
+              <summary>결과 원문(약 {sizeKb} KB)</summary>
+              {#if rawOpen && (snapshot.kind === 'simResult' || snapshot.kind === 'validation')}<pre class="compact">{JSON.stringify(snapshot.result)}</pre>{/if}
+            </details>
+          {/if}
+        {/if}
+        {#if hasCapital}
           <label class="check">
             <input type="checkbox" bind:checked={hideCapital} />
-            가상 초기 자금 빼기
+            {isResult ? '가상 초기 자금과 금액·수량 빼기' : '가상 초기 자금 빼기'}
           </label>
         {/if}
         <label class="ttl" for="share-ttl-{uid}">
@@ -161,7 +211,7 @@
         </label>
         {#if !ttlValid}<p class="err" role="alert">1~{SHARE_TTL_MAX_DAYS}일 사이로 정해 주세요</p>{/if}
         {#if failed}<p class="err" role="alert">{failed}</p>{/if}
-        <button type="button" class="primary" disabled={!ttlValid || sync.busy} onclick={create}>{sync.busy ? '만드는 중…' : '링크 만들기'}</button>
+        <button type="button" class="primary" disabled={!snapshot || !ttlValid || sync.busy} onclick={create}>{sync.busy ? '만드는 중…' : '링크 만들기'}</button>
       {/if}
     </div>
   {/if}
@@ -182,7 +232,8 @@
     font-size: var(--fs-sub);
     color: var(--t2);
   }
-  .preview {
+  .preview,
+  .reduced {
     background: var(--surface2);
     border-radius: 12px;
     padding: 10px 14px 10px 28px;
@@ -190,6 +241,13 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .reduced {
+    color: var(--t2);
+  }
+  .compact {
+    white-space: pre-wrap;
+    word-break: break-all;
   }
   details summary {
     cursor: pointer;

@@ -11,7 +11,7 @@
   import { strategyLine } from './simText';
   import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
   import { canShare, openShare } from '../../share/shareStore.svelte';
-  import { strategySnapshot } from '../../share/snapshot';
+  import { built, strategySnapshot } from '../../share/snapshot';
 
   let { app }: { app: App } = $props();
 
@@ -46,7 +46,7 @@
       kind: 'strategy',
       name: s.name,
       profileId: app.meta.activeProfileId,
-      build: (hideCapital) => strategySnapshot(s, watchlists, { hideCapital, now: Date.now() }),
+      build: (hideCapital) => built(strategySnapshot(s, watchlists, { hideCapital, now: Date.now() })),
     });
   }
 

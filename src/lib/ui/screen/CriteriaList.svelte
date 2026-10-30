@@ -2,7 +2,7 @@
   // 선정 기준 목록(스펙 7.2): 행 = 이름 · 조건 요약 · 마지막 결과(이 탭에서 실행한 경우만), 행 메뉴 = 복제·이름 바꾸기·삭제.
   import { tick } from 'svelte';
   import { canShare, openShare } from '../../share/shareStore.svelte';
-  import { criteriaSnapshot } from '../../share/snapshot';
+  import { built, criteriaSnapshot } from '../../share/snapshot';
   import { CRITERIA_CAP_MESSAGE } from '../../screen/criteriaStore';
   import { MAX_CRITERIA, NAME_MAX, newCriteria } from '../../screen/defaults';
   import type { SelectionCriteria } from '../../screen/types';
@@ -57,7 +57,7 @@
       kind: 'criteria',
       name: c.name,
       profileId: app.meta.activeProfileId,
-      build: (hideCapital) => criteriaSnapshot(c, refs, { hideCapital, now: Date.now() }),
+      build: (hideCapital) => built(criteriaSnapshot(c, refs, { hideCapital, now: Date.now() })),
     });
   }
 

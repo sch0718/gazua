@@ -5,7 +5,9 @@ import { newStrategy } from '../sim/defaults';
 import type { SyncController } from '../sync/controller.svelte';
 import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import ShareDialog from './ShareDialog.svelte';
-import { groupSnapshot, strategySnapshot } from './snapshot';
+import { built, groupSnapshot, strategySnapshot } from './snapshot';
+import { simResultSnapshot } from './compact';
+import { bigDone, NOW as FIX_NOW, simResultFixture } from './testFixtures';
 import type { ShareRequest } from './shareStore.svelte';
 
 afterEach(() => {
@@ -19,7 +21,7 @@ const groupReq: ShareRequest = {
   kind: 'group',
   name: '반도체',
   profileId: 'p1',
-  build: () => groupSnapshot({ id: 'g', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] }),
+  build: () => built(groupSnapshot({ id: 'g', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] })),
 };
 
 type Made = { url: string; expiresAt: number } | null;
@@ -36,7 +38,7 @@ describe('ShareDialog', () => {
     expect((screen.getByLabelText('만료(일)') as HTMLInputElement).value).toBe('7');
     expect(screen.queryByLabelText('가상 초기 자금 빼기')).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
-    expect(s.createShare).toHaveBeenCalledWith('p1', 'group', groupReq.build(true), 7);
+    expect(s.createShare).toHaveBeenCalledWith('p1', 'group', (groupReq.build(true) as { snapshot: unknown }).snapshot, 7);
     await waitFor(() => expect(screen.getByLabelText('공유 링크')).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: '링크 복사' }));
     expect(copy).toHaveBeenCalledWith('https://app.example.test/#/s/' + 'x'.repeat(43));
@@ -59,7 +61,7 @@ describe('ShareDialog', () => {
   it('전략은 가상 자금을 기본으로 빼고, 체크를 풀면 넣는다', async () => {
     const st = { ...newStrategy(NOW, null, '눌림목'), id: 's1' };
     st.capital.initial = 123_456_789;
-    const req: ShareRequest = { kind: 'strategy', name: st.name, profileId: 'p1', build: (h) => strategySnapshot(st, { groups: [] }, { hideCapital: h, now: NOW }) };
+    const req: ShareRequest = { kind: 'strategy', name: st.name, profileId: 'p1', build: (h) => built(strategySnapshot(st, { groups: [] }, { hideCapital: h, now: NOW })) };
     const s = sync();
     render(ShareDialog, { request: req, sync: s, onclose: () => {} });
     expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('비공개');
@@ -82,7 +84,7 @@ describe('ShareDialog', () => {
     const view = render(ShareDialog, { request: groupReq, sync: s, onclose: () => {} });
     await fireEvent.click(screen.getByRole('button', { name: '링크 만들기' }));
     await view.rerender({ request: null, sync: s, onclose: () => {} });
-    const other: ShareRequest = { ...groupReq, name: '배당', build: () => groupSnapshot({ id: 'h', name: '배당', items: [] }) };
+    const other: ShareRequest = { ...groupReq, name: '배당', build: () => built(groupSnapshot({ id: 'h', name: '배당', items: [] })) };
     await view.rerender({ request: other, sync: s, onclose: () => {} });
     finish({ url: 'https://app.example.test/#/s/' + 'y'.repeat(43), expiresAt: NOW });
     await new Promise((r) => setTimeout(r, 0));
@@ -156,5 +158,65 @@ describe('ShareDialog', () => {
       await fireEvent.click(button);
       expect(currentSnackbar()?.message).toContain('링크를 복사');
     });
+  });
+});
+
+describe('ShareDialog 결과 종류', () => {
+  const simReq = (build: ShareRequest['build']): ShareRequest => ({ kind: 'simResult', name: '눌림목', profileId: 'p1', build });
+
+  it('제목은 종류 이름, 자금 빼기 문구는 결과용, 미리 보기는 요약만', () => {
+    render(ShareDialog, { request: simReq(() => built(simResultFixture())), sync: sync(), onclose: () => {} });
+    expect(screen.getByText('시뮬레이션 결과 공유')).toBeTruthy();
+    expect(screen.getByLabelText('가상 초기 자금과 금액·수량 빼기')).toBeTruthy();
+    const lines = screen.getByRole('list', { name: '보낼 내용' }).textContent!;
+    expect(lines).toContain('총수익률');
+    expect(lines).not.toContain('"trades"');
+  });
+
+  it('결과 원문은 펼칠 때만 만들어지고, 규칙 원문은 들여 쓴 JSON이다', async () => {
+    render(ShareDialog, { request: simReq(() => built(simResultFixture())), sync: sync(), onclose: () => {} });
+    const raw = screen.getByText(/^결과 원문\(약 \d+ KB\)$/).closest('details')!;
+    expect(raw.querySelector('pre')).toBeNull();
+    raw.open = true;
+    await fireEvent(raw, new Event('toggle'));
+    expect(raw.querySelector('pre')!.textContent).toContain('"axis":{"start":"2024-01-02"');
+    const rules = screen.getByText('보낼 원문 보기').closest('details')!;
+    expect(rules.querySelector('pre')!.textContent).toContain('\n  "strategy": {');
+  });
+
+  it('줄인 단계를 한 줄씩 알린다', () => {
+    render(ShareDialog, { request: simReq(() => ({ ok: true, snapshot: simResultFixture(), reduced: ['skipped-counts', 'thinned'] })), sync: sync(), onclose: () => {} });
+    const list = screen.getByRole('list', { name: '줄인 내용' });
+    expect(list.textContent).toContain('건너뛴 신호는 이유별 개수만 보내요');
+    expect(list.textContent).toContain('곡선은 점 수를 줄여 보내요');
+  });
+
+  it('너무 크면 거절 문구를 보이고 링크 만들기를 끈다(서버에 보내지 않는다)', async () => {
+    const s = sync();
+    render(ShareDialog, { request: simReq((h) => simResultSnapshot(bigDone({ days: 735, trades: 3000, skips: 0 }), { hideCapital: h, now: FIX_NOW })), sync: s, onclose: () => {} });
+    expect(screen.getByRole('alert').textContent).toMatch(/^결과가 너무 커서 공유할 수 없어요\(약 \d+ KB, 한도 100 KB\)\. 기간이나 종목을 줄여 다시 실행해 주세요$/);
+    const button = screen.getByRole('button', { name: '링크 만들기' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await fireEvent.click(button);
+    expect(s.createShare).not.toHaveBeenCalled();
+  });
+
+  it('형식으로 바꾸지 못하면 그 문구를 보이고 경로는 원문 보기 안에만 둔다', () => {
+    render(ShareDialog, { request: simReq(() => ({ ok: false, code: 'invalid', path: 'result.trades[3]' })), sync: sync(), onclose: () => {} });
+    expect(screen.getByRole('alert').textContent).toBe('이 결과는 공유 형식으로 바꾸지 못했어요');
+    expect((screen.getByRole('button', { name: '링크 만들기' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('보낼 원문 보기').closest('details')!.textContent).toContain('result.trades[3]');
+  });
+
+  it('비교 화면에는 자금 빼기 체크가 없다', () => {
+    const cmp: ShareRequest = {
+      kind: 'compare',
+      name: '반도체',
+      profileId: 'p1',
+      build: () => built({ kind: 'compare', v: 1, title: '반도체', symbols: ['005930'], view: { period: { unit: 'D', n: 1 }, metric: 'change', benchmark: 'AUTO', boardOrder: 'value' } }),
+    };
+    render(ShareDialog, { request: cmp, sync: sync(), onclose: () => {} });
+    expect(screen.queryByLabelText(/가상 초기 자금/)).toBeNull();
+    expect(screen.getByText('비교 화면 공유')).toBeTruthy();
   });
 });

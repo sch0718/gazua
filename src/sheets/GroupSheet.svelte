@@ -8,7 +8,7 @@
   import { deleteGroupWithUndo } from './groupActions';
   import TossImport from './TossImport.svelte';
   import { canShare, openShare } from '../lib/share/shareStore.svelte';
-  import { groupSnapshot } from '../lib/share/snapshot';
+  import { built, groupSnapshot } from '../lib/share/snapshot';
 
   // 그룹 관리 시트(스펙 7.3): 이름 바꾸기·순서·삭제(확인 + 되돌리기). 그룹은 하나 이상 남긴다.
   let {
@@ -156,7 +156,7 @@
               aria-label="{g.name} 공유"
               onclick={() => {
                 onclose();
-                openShare({ kind: 'group', name: g.name, profileId: app.meta.activeProfileId, build: () => groupSnapshot(g) });
+                openShare({ kind: 'group', name: g.name, profileId: app.meta.activeProfileId, build: () => built(groupSnapshot(g)) });
               }}>⇪</button
             >
           {/if}
