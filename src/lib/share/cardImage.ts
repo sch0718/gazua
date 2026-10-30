@@ -70,7 +70,8 @@ export function composeCard(chart: HTMLCanvasElement, text: CardText, colors: Ca
     }
     g.fillStyle = colors.sub;
     g.font = `400 13px ${font}`;
-    g.fillText(row.label, LIST_X + (row.swatch ? 16 : 0), y, 272);
+    const x = LIST_X + (row.swatch ? 16 : 0);
+    g.fillText(row.label, x, y, W - x - 16);
     g.fillStyle = row.tone === 'up' ? colors.up : row.tone === 'down' ? colors.down : colors.text;
     g.font = `700 20px ${font}`;
     g.fillText(row.value, LIST_X, y + 20, W - LIST_X - 16);

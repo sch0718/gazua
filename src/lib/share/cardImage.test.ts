@@ -71,7 +71,7 @@ describe('composeCard', () => {
     const value = '+1234567890.00%';
     composeCard(document.createElement('canvas'), { ...TEXT, title, rows: [{ label, value, tone: 'up', swatch: '#123456' }] }, COLORS);
     expect(calls.find((c) => c[1] === title)).toEqual(['text', title, 100, 10, 680]);
-    expect(calls.find((c) => c[1] === label)).toEqual(['text', label, 528, 80, 272]);
+    expect(calls.find((c) => c[1] === label)).toEqual(['text', label, 528, 80, 256]);
     expect(calls.find((c) => c[1] === value)).toEqual(['text', value, 512, 100, 272]);
   });
 
@@ -137,7 +137,6 @@ describe('카드 글', () => {
     expect(t.footer).toBe('시장 데이터 파일');
   });
 });
-
 
 describe('카드 선 색과 등락', () => {
   it('비교 카드 글은 입력의 swatch를 옮긴다', () => {

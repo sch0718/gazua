@@ -264,6 +264,9 @@
     font-size: var(--fs-sub);
     color: var(--t2);
   }
+  .head :global(.badge) {
+    margin: 0;
+  }
   .cards {
     list-style: none;
     margin: 0;

@@ -987,7 +987,6 @@ describe('비교 화면 공유', () => {
   });
 });
 
-
 describe('비교 카드 캡처와 표시 지표', () => {
   let texts: { text: string; color: string }[];
   let swatches: string[];

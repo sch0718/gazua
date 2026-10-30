@@ -1070,7 +1070,6 @@ describe('Simulate 선정 기준 탭', () => {
   });
 });
 
-
 describe('Simulate 시뮬레이션 결과 공유 경로', () => {
   it.each([false, true])('로그인=%s: 결과 공유 단추와 RunPanel.capture를 연결한다', async (loggedIn) => {
     stubWidth(false);
