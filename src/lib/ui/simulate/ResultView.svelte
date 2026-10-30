@@ -103,7 +103,7 @@
   // 건너뜀 수·이유: 목록이 없으면(개수만 받은 공유) summary와 받은 개수로 센다
   const skipN = $derived(skippedCounts ? sum.skippedSignals : result.skipped.length);
   const skipList = $derived(
-    skippedCounts ? skippedCounts.map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n) : skipCounts(result.skipped),
+    skippedCounts ? skippedCounts.filter(([, n]) => n > 0).map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n) : skipCounts(result.skipped),
   );
   // 가장 많은 이유가 현금·금액이면 기간·자금을 고치라고 안내하고 그 구역을 연다
   const cashIssue = $derived.by(() => {
@@ -136,10 +136,11 @@
       {#if !readonly && onEdit}
         <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>
       {/if}
+      {#if skippedCounts}
+        <p>{skipN > 0 ? '목록은 크기 때문에 빼고 보냈어요' : '건너뛴 신호가 없어요'}</p>
+      {/if}
     </div>
-    {#if skippedCounts}
-      <p>목록은 크기 때문에 빼고 보냈어요</p>
-    {:else if skipN > 0}
+    {#if !skippedCounts && skipN > 0}
       <SkipList skipped={result.skipped} names={meta.names} />
     {/if}
   {:else}

@@ -15,7 +15,7 @@
       {/each}
     </ul>
   {/if}
-  <p class="none">목록은 크기 때문에 빼고 보냈어요</p>
+  <p class="none">{positiveCounts.length > 0 ? '목록은 크기 때문에 빼고 보냈어요' : '건너뛴 신호가 없어요'}</p>
 {:else if skipped.length === 0}
   <p class="none">건너뛴 신호가 없어요</p>
 {:else}

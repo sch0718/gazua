@@ -351,13 +351,45 @@ describe('ResultView 읽기 전용(받은 공유)', () => {
     const notes = screen.getAllByText('목록은 크기 때문에 빼고 보냈어요');
     expect(notes).toHaveLength(1);
     expect(notes[0].tagName).toBe('P');
+    expect(notes[0].closest('.empty')).not.toBeNull();
     expect(container.querySelector('ul.rows')).toBeNull();
   });
 
-  it('거래·건너뜀 모두 0건이어도 목록 없이 개수만 받았으면 생략 안내가 보인다', () => {
-    view({ skippedCounts: [] }, doneState((s) => noTrades(s)));
-    expect(screen.getByText('목록은 크기 때문에 빼고 보냈어요').tagName).toBe('P');
+  it.each([{ skippedCounts: [] }, { skippedCounts: [['현금 부족', 0]] }])('거래·건너뜀 모두 0건이고 개수가 $skippedCounts면 빈 상태 문구가 보인다', ({ skippedCounts }) => {
+    view({ skippedCounts }, doneState((s) => noTrades(s)));
+    expect(screen.getByText('건너뛴 신호가 없어요').tagName).toBe('P');
+    expect(screen.queryByText('목록은 크기 때문에 빼고 보냈어요')).toBeNull();
     expect(screen.queryByRole('list', { name: '건너뛴 이유' })).toBeNull();
+  });
+
+  it('거래 0건 공유의 사유 목록은 양수 개수만 쓴다', () => {
+    const state = doneState((s) => {
+      noTrades(s);
+      s.result.summary.skippedSignals = 2;
+    });
+    view({ skippedCounts: [['현금 부족', 0], ['거래 없음', 2], ['1주가 1회 금액보다 비쌈', -1]] }, state);
+    const rows = within(screen.getByRole('list', { name: '건너뛴 이유' })).getAllByRole('listitem');
+    expect(rows.map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['그날 거래가 없었어요 2번']);
+    expect(screen.queryByText(/기간·자금에서/)).toBeNull();
+  });
+
+  it('0건인 현금 사유는 자금 안내와 규칙 고치기 대상에 쓰지 않는다', async () => {
+    const onEdit = vi.fn();
+    view({ skippedCounts: [['현금 부족', 0]], readonly: false, onEdit }, doneState((s) => noTrades(s)));
+    expect(screen.queryByText(/기간·자금에서/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
+    expect(onEdit).toHaveBeenCalledWith();
+  });
+
+  it('거래가 있고 건너뜀 개수가 모두 0이면 탭에 빈 상태 문구가 보인다', async () => {
+    const state = doneState((s) => {
+      s.result.skipped = [];
+      s.result.summary.skippedSignals = 0;
+    });
+    view({ skippedCounts: [['현금 부족', 0]] }, state);
+    await fireEvent.click(tab('건너뛴 신호 0'));
+    expect(screen.getByText('건너뛴 신호가 없어요')).toBeTruthy();
+    expect(screen.queryByText('목록은 크기 때문에 빼고 보냈어요')).toBeNull();
   });
 
   it('건너뜀 목록 없이 개수만 받으면 탭 이름·본문·거래 0건 문구가 개수를 쓴다', async () => {

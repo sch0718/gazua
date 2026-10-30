@@ -105,14 +105,19 @@ describe('TradeList', () => {
 });
 
 describe('TradeList 읽기 전용', () => {
-  it.each([false, true])('hideQty=%s: 버튼과 같은 접근 이름을 가지며 axe 위반이 없다', async (hideQty) => {
+  it.each([false, true])('hideQty=%s: 목록 본문에 구분자가 있고 axe 위반이 없다', async (hideQty) => {
     const trades = doneState().result.trades;
     const editable = render(TradeList, { trades, names, onTrade: vi.fn(), hideQty });
     const labels = screen.getAllByRole('button').map((row) => row.getAttribute('aria-label')!);
     editable.unmount();
     const { container } = render(TradeList, { trades, names, hideQty });
     const group = screen.getByRole('group', { name: '거래 내역' });
-    for (const label of labels) expect(within(group).getByRole('group', { name: label })).toBeTruthy();
+    const rows = within(group).getAllByRole('listitem');
+    expect(rows.map(text)).toEqual(labels);
+    for (const row of rows) {
+      expect(row.querySelector('.item')?.hasAttribute('role')).toBe(false);
+      expect(row.querySelector('.item')?.hasAttribute('aria-label')).toBe(false);
+    }
     await expectNoAxeViolations(container);
   });
 
