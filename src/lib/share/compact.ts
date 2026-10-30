@@ -32,7 +32,7 @@ import {
   type ValuePairs,
 } from './snapshot';
 
-/** 시세 값은 넣지 않는다. 받은 사람이 자기 연결이나 데모로 다시 받는다. 지표는 사용자가 고른 값(app.settings.metric)이다. */
+/** 시세 값은 넣지 않는다. 받은 사람이 자기 연결이나 데모로 다시 받는다. 지표는 화면에 보이는(대체된) 값을 넣는다. */
 export function compareSnapshot(g: Group, s: Pick<Settings, 'period' | 'metric' | 'benchmark' | 'boardOrder'>): CompareSnapshot {
   return {
     kind: 'compare',

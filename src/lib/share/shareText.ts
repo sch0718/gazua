@@ -93,7 +93,7 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
       return [
         `제목: ${s.title}`,
         `종목 ${symbols.length}개: ${symbolList(symbols, names)}`,
-        `기간: ${st.period.from} ~ ${st.period.to}`,
+        `기간: ${dotDate(st.period.from)} ~ ${dotDate(st.period.to)}`,
         `초기 자금: ${s.capitalHidden ? '비공개' : won(st.capital.initial)} · 1회 ${st.capital.perBuyPct}%`,
         `하락 ${st.entry.decline.dropPct.on ? `${st.entry.decline.dropPct.value}%` : '끔'} · 분할 매수 ${on(st.scaleIn.on)}`,
         `익절 ${st.exit.takeProfit.map((t) => `${t.pct}%`).join('/')} · 손절 ${st.exit.stopLoss.pct}%`,
@@ -104,10 +104,10 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
       const c = s.criteria;
       return [
         `제목: ${s.title}`,
-        `시장: ${c.pool.markets.join(', ')} · 종류: ${c.pool.types.join(', ')}`,
-        `바구니 ${s.baskets.length}개${s.baskets.length ? `: ${s.baskets.map((b) => `${b.name}(${b.symbols.length})`).join(', ')}` : ''}`,
-        `상위 ${c.rank.take}개 · 리밸런싱 ${c.rebalance}`,
-        `기간: ${c.period.from} ~ ${c.period.to}`,
+        `시장: ${c.pool.markets.join(', ')} · 종류: ${c.pool.types.map((t) => (t === 'STOCK' ? '주식' : t)).join(', ')}`,
+        `묶음 ${s.baskets.length}개${s.baskets.length ? `: ${s.baskets.map((b) => `${b.name}(${b.symbols.length})`).join(', ')}` : ''}`,
+        `상위 ${c.rank.take}개 · ${REBAL[c.rebalance]} 재선정`,
+        `기간: ${dotDate(c.period.from)} ~ ${dotDate(c.period.to)}`,
         `초기 자금: ${s.capitalHidden ? '비공개' : won(c.capital)}`,
       ];
     }

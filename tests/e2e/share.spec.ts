@@ -88,6 +88,27 @@ test('온보딩 전: 첫 실행이면 온보딩이 먼저 뜨고, 데모로 둘�
   await expectNoSeriousViolations(page, '가져온 비교 화면');
 });
 
+test('온보딩 전: 처음 안내는 가져오기 확인 창에서 저장한 뒤에 뜬다', async ({ page }) => {
+  await openApp(page, { intro: true });
+  await stash(page, pending('compare', compare));
+  await expect(page.getByRole('button', { name: '데모로 둘러보기' })).toBeVisible();
+  await expect(page.getByText(TITLE)).toHaveCount(0);
+  await page.getByRole('button', { name: '데모로 둘러보기' }).click();
+  const sheet = page.getByRole('dialog', { name: TITLE });
+  const intro = page.getByRole('dialog', { name: '비교 차트', exact: true });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByText('그룹 「반도체 공유」 · 종목 2개')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(intro).toHaveCount(0);
+  await sheet.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/compare\/[^/]+$/);
+  await expect(groupItem(page, '반도체 공유', 2)).toHaveCount(1);
+  await expect(intro).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), KEY)).toBeNull();
+});
+
 test('온보딩 후: 같은 이름 그룹(기본 그룹 「내 관심」)이 있으면 2를 붙여 바로 확인 창에서 저장한다', async ({ page }) => {
   await openApp(page);
   await enterDemo(page);

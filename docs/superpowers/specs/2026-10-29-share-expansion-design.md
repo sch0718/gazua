@@ -160,7 +160,7 @@ export function compareSnapshot(g: Group, s: Settings): CompareSnapshot;
 - 제목은 그룹 이름(`shareTitle`)이다.
 - **시세 값은 넣지 않는다.** 받은 사람이 자기 연결이나 데모로 다시 받는다. 보낸 순간의 시세는 카드 캡처(4.3)에만 있다.
 - `view`의 각 값은 동기화 DTO의 `SETTING_OK`(`src/lib/sync/dto.ts`)로 검사한다. 이 표를 내보내 같이 쓴다.
-- 지금 화면이 고를 수 없는 지표를 등락률로 대신 보여 주는 중이어도(`fallbackNote`) 스냅샷에는 사용자가 고른 `app.settings.metric`을 넣는다. 받은 사람 환경에서는 고를 수 있을 수 있다.
+- 지금 화면이 고를 수 없는 지표를 등락률로 대신 보여 주는 중이면(`fallbackNote`) 스냅샷에도 화면에 보이는(대체된) 지표를 넣는다.
 
 ### 2.4 simResult
 

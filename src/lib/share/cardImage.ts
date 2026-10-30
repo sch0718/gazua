@@ -4,6 +4,7 @@ import { kstDate } from '../time/kst';
 import { kstHHMM } from '../ui/compare/compareText';
 import type { DoneState } from '../ui/simulate/runController.svelte';
 import { dotDate, fmtReturnPct, returnClass, trendReturn } from '../ui/simulate/simText';
+import { shareTitle } from './snapshot';
 
 export interface CardText {
   /** 굵은 제목(그룹·전략·기준 이름) */
@@ -147,7 +148,7 @@ export function simResultCardText(done: DoneState, swatches: Partial<Record<'str
   const { result, meta } = done;
   const s = result.summary;
   return {
-    title: meta.strategy.name,
+    title: shareTitle(meta.strategy.name),
     subtitle: `${dotDate(meta.from)} ~ ${dotDate(meta.to)}`,
     rows: [
       { label: '총수익률', value: trendReturn(s.totalReturnPct), tone: toneOf(s.totalReturnPct), swatch: swatches.strategy },

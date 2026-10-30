@@ -293,6 +293,15 @@ describe('ResultView', () => {
     await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
     expect(onEdit).toHaveBeenCalledWith();
   });
+
+  it.each([false, true])('전부 건너뜀: 자금 편집 안내는 일반 화면에만 보인다(readonly=%s)', (readonly) => {
+    const state = doneState((s) => noTrades(s, [{ date: '2024-07-02', symbol: '000660', reason: '현금 부족' }]));
+    render(ResultView, { state, colorConvention: 'kr', readonly });
+    expect(screen.getByText('매수 신호가 1번 났지만 한 번도 사지 못했어요')).toBeTruthy();
+    const hint = screen.queryByText('기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요');
+    if (readonly) expect(hint).toBeNull();
+    else expect(hint).toBeTruthy();
+  });
 });
 
 describe('ResultView 읽기 전용(받은 공유)', () => {

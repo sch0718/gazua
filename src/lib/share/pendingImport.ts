@@ -6,6 +6,7 @@ import { checkShareSnapshot, type CompareSnapshot, type CriteriaSnapshot, type G
 export const IMPORT_KEY = 'gazua:v1:share-import';
 export const IMPORT_DONE_KEY = 'gazua:v1:share-import-done';
 export const IMPORT_TTL_MS = 30 * 60 * 1000;
+export const IMPORT_CLEARED_EVENT = 'gazua:import-cleared';
 const DONE_MAX = 20;
 
 /** 가져올 수 있는 종류만 둔다. simResult는 strategy로, validation은 criteria로 바꿔 넣는다 */
@@ -112,6 +113,8 @@ export function clearImport(store: Storage | null = session()): void {
   } catch {
     // 지우지 못해도 30분 뒤 버린다
   }
+  // 창을 열지 않고 대기 값만 지운 경우에도 메뉴 처음 안내가 다시 확인한다.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(IMPORT_CLEARED_EVENT));
 }
 
 function doneIds(store: Storage | null): string[] {

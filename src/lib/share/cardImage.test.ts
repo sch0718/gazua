@@ -136,6 +136,14 @@ describe('카드 글', () => {
     expect(t.rows.map((r) => r.label)).toEqual(['① 선정만', 'KOSPI']);
     expect(t.footer).toBe('시장 데이터 파일');
   });
+
+  it.each([
+    ['  ' + '가'.repeat(31) + '  ', '가'.repeat(30)],
+    ['가'.repeat(29) + '😀끝', '가'.repeat(29)],
+  ])('시뮬레이션 카드의 긴 제목을 UTF-16 30자 안으로 자른다: %s', (name, title) => {
+    const done = doneState((s) => { s.meta.strategy.name = name; });
+    expect(simResultCardText(done).title).toBe(title);
+  });
 });
 
 describe('카드 선 색과 등락', () => {

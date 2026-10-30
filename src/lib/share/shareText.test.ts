@@ -7,6 +7,7 @@ import { simResultFixture, validationFixture } from './testFixtures';
 import { fmtReturnPct, trendReturn } from '../ui/simulate/simText';
 import { trendPp } from '../ui/screen/screenText';
 import { newCriteria } from '../screen/defaults';
+import { newBasket } from '../screen/baskets';
 
 const group = groupSnapshot({
   id: 'g',
@@ -33,8 +34,32 @@ describe('snapshotLines', () => {
   it('전략 종목에도 이름을 붙인다', () => {
     const s = newStrategy(1, null);
     s.universe = { kind: 'symbols', symbols: ['005930'] };
+    s.period = { from: '2023-10-11', to: '2026-10-11' };
     const snap = strategySnapshot(s, { groups: [], activeGroupId: null } as never, { hideCapital: true });
     expect(snapshotLines(snap, names)[1]).toBe('종목 1개: 삼성전자(005930)');
+    expect(snapshotLines(snap, names)[2]).toBe('기간: 2023.10.11 ~ 2026.10.11');
+  });
+
+  it.each([
+    ['monthly', '매월'],
+    ['quarterly', '매 분기'],
+    ['semiannual', '반기마다'],
+  ] as const)('선정 기준 요약은 화면의 종류·묶음·날짜와 %s 재선정 표현을 쓴다', (rebalance, label) => {
+    const c = newCriteria(1, null, '기준');
+    const b = newBasket(1, '반도체', ['005930', '000660']);
+    c.pool.types = ['STOCK', 'ETF'];
+    c.pool.baskets = [b.id];
+    c.rebalance = rebalance;
+    c.period = { from: '2023-10-11', to: '2026-10-11' };
+    const snap = criteriaSnapshot(c, { baskets: [b], strategies: [] }, { hideCapital: true });
+    expect(snapshotLines(snap)).toEqual([
+      '제목: 기준',
+      '시장: KOSPI, KOSDAQ · 종류: 주식, ETF',
+      '묶음 1개: 반도체(2)',
+      `상위 10개 · ${label} 재선정`,
+      '기간: 2023.10.11 ~ 2026.10.11',
+      '초기 자금: 비공개',
+    ]);
   });
 });
 

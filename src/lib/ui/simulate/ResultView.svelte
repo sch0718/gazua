@@ -149,7 +149,7 @@
             <li>{skipReasonLabel(c.reason)} <span class="num">{c.n}번</span></li>
           {/each}
         </ul>
-        {#if cashIssue}<p>기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요</p>{/if}
+        {#if !readonly && cashIssue}<p>기간·자금에서 회당 비중이나 처음 자금을 늘려 보세요</p>{/if}
       {/if}
       {#if !readonly && onEdit}
         <button type="button" class="fix" onclick={() => (cashIssue ? onEdit('capital') : onEdit())}>규칙 고치기</button>

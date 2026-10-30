@@ -4,10 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tick } from 'svelte';
 import { fromStore, writable } from 'svelte/store';
 import { newStrategy } from '../sim/defaults';
+import { newCriteria } from '../screen/defaults';
 import type { SyncController } from '../sync/controller.svelte';
 import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
 import ShareDialog from './ShareDialog.svelte';
-import { built, groupSnapshot, strategySnapshot } from './snapshot';
+import { built, criteriaSnapshot, groupSnapshot, strategySnapshot } from './snapshot';
 import { simResultSnapshot } from './compact';
 import { bigDone, NOW as FIX_NOW, simResultFixture } from './testFixtures';
 import type { ShareRequest } from './shareStore.svelte';
@@ -64,12 +65,26 @@ describe('ShareDialog', () => {
   it('전략은 가상 자금을 기본으로 빼고, 체크를 풀면 넣는다', async () => {
     const st = { ...newStrategy(NOW, null, '눌림목'), id: 's1' };
     st.capital.initial = 123_456_789;
+    st.period = { from: '2023-10-11', to: '2026-10-11' };
     const req: ShareRequest = { kind: 'strategy', name: st.name, profileId: 'p1', build: (h) => built(strategySnapshot(st, { groups: [] }, { hideCapital: h, now: NOW })) };
     const s = sync();
     render(ShareDialog, { request: req, sync: s, onclose: () => {} });
+    expect(screen.getByText('기간: 2023.10.11 ~ 2026.10.11')).toBeTruthy();
     expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('비공개');
     await fireEvent.click(screen.getByLabelText('가상 초기 자금 빼기'));
     expect(screen.getByRole('list', { name: '보낼 내용' }).textContent).toContain('123,456,789원');
+  });
+
+  it('선정 기준 미리 보기는 종류 표시 이름·묶음·재선정·점 날짜를 쓴다', () => {
+    const c = newCriteria(NOW, null, '기준');
+    c.pool.types = ['STOCK', 'ETF'];
+    c.period = { from: '2023-10-11', to: '2026-10-11' };
+    const request: ShareRequest = { kind: 'criteria', name: c.name, profileId: 'p1', build: (h) => built(criteriaSnapshot(c, { baskets: [], strategies: [] }, { hideCapital: h, now: NOW })) };
+    render(ShareDialog, { request, sync: sync(), onclose: () => {} });
+    expect(screen.getByText('시장: KOSPI, KOSDAQ · 종류: 주식, ETF')).toBeTruthy();
+    expect(screen.getByText('묶음 0개')).toBeTruthy();
+    expect(screen.getByText('상위 10개 · 매월 재선정')).toBeTruthy();
+    expect(screen.getByText('기간: 2023.10.11 ~ 2026.10.11')).toBeTruthy();
   });
 
   it.each(['strategy', 'simResult'] as const)('%s 링크를 만드는 동안 자금 체크와 만료 입력을 끈다', async (kind) => {

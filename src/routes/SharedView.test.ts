@@ -87,10 +87,16 @@ describe('SharedView', () => {
   it('전략·선정 기준은 규칙 전체를 펼쳐 볼 수 있다', async () => {
     const c = newCriteria(1, null, '저평가');
     c.conditions.marketCap = { on: true, minEok: 7777 };
+    c.period = { from: '2023-10-11', to: '2026-10-11' };
+    c.pool.types = ['STOCK', 'ETF'];
     const snapshot = criteriaSnapshot(c, { baskets: [], strategies: [] }, { hideCapital: true });
     const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: { ...DATA, kind: 'criteria', title: '저평가', snapshot } }));
     render(SharedView, { capability: CAP, read, onexit: () => {} });
     await waitFor(() => expect(screen.getByRole('heading', { name: '저평가' })).toBeTruthy());
+    expect(screen.getByText('시장: KOSPI, KOSDAQ · 종류: 주식, ETF')).toBeTruthy();
+    expect(screen.getByText('묶음 0개')).toBeTruthy();
+    expect(screen.getByText('상위 10개 · 매월 재선정')).toBeTruthy();
+    expect(screen.getByText('기간: 2023.10.11 ~ 2026.10.11')).toBeTruthy();
     const details = screen.getByText('규칙 전체 보기').closest('details')!;
     expect(details.textContent).toContain('7777');
   });

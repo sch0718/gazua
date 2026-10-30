@@ -3,6 +3,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHelpSeenStore } from '../../help/seen';
+import { clearImport, stashImport } from '../../share/pendingImport';
+import { groupSnapshot } from '../../share/snapshot';
 import type { App } from '../../state/app.svelte';
 import { makeTestApp } from '../../../sheets/testApp';
 import HelpIntro from './HelpIntro.svelte';
@@ -31,6 +33,7 @@ afterEach(() => {
   for (const a of apps) a.destroy();
   apps = [];
   document.body.innerHTML = '';
+  clearImport();
 });
 
 describe('HelpIntro', () => {
@@ -77,6 +80,31 @@ describe('HelpIntro', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(intro()).toBeNull();
     other.remove();
+    await waitFor(() => expect(intro()).toBeTruthy());
+  });
+
+  it('waits while an import is pending, then shows after it is cleared and the dialog closes', async () => {
+    stashImport(groupSnapshot({ id: 'shared', name: '반도체', items: [] }), Date.now());
+    setup();
+    await tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(intro()).toBeNull();
+    const other = document.createElement('div');
+    other.setAttribute('role', 'dialog');
+    document.body.append(other);
+    await tick();
+    clearImport();
+    other.remove();
+    await waitFor(() => expect(intro()).toBeTruthy());
+  });
+
+  it('shows when the pending import is cleared without a DOM change', async () => {
+    stashImport(groupSnapshot({ id: 'shared', name: '반도체', items: [] }), Date.now());
+    setup();
+    await tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(intro()).toBeNull();
+    clearImport();
     await waitFor(() => expect(intro()).toBeTruthy());
   });
 });
