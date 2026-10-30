@@ -411,3 +411,28 @@ describe('ResultView 읽기 전용(받은 공유)', () => {
     expect(screen.getByText('곡선은 735점 중 120점으로 줄였어요 · 수치는 전체 기간 기준이에요')).toBeTruthy();
   });
 });
+
+describe('ResultView 결과 공유', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+  });
+  it('onShare가 있으면 머리줄에 결과 공유 단추', async () => {
+    const onShare = vi.fn();
+    render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn(), onShare });
+    await fireEvent.click(screen.getByRole('button', { name: '결과 공유' }));
+    expect(onShare).toHaveBeenCalledTimes(1);
+  });
+  it('capture: 곡선이 있으면 카드, 거래 0건이면 null', () => {
+    const a = render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn() });
+    const card = a.component.capture();
+    expect(card?.canvas.width).toBe(1600);
+    expect(card?.alt).toMatch(/^눌림목|^새 전략/);
+    expect(card?.line).toBeNull();
+    const s = doneState();
+    noTrades(s);
+    const b = render(ResultView, { state: s, colorConvention: 'kr', onEdit: vi.fn() });
+    expect(b.component.capture()).toBeNull();
+  });
+});

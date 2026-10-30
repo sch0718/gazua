@@ -24,7 +24,7 @@
   import { issueView, runIssueAction } from '../lib/ui/compare/loadIssue';
   import { Banner } from '@sch0718/ui-svelte';
   import { createCompareController, indexForMeta } from '../lib/ui/compare/compareController.svelte';
-  import { INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
+  import { formatMetricValue, INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
   import { buildRows, isSuspended, rowSeries, sortRows } from '../lib/ui/compare/rows';
@@ -372,6 +372,32 @@
       refreshing = false;
     }
   }
+  import { canShare, openShare, type CardCapture } from '../lib/share/shareStore.svelte';
+  import { built, shareTitle } from '../lib/share/snapshot';
+  import { compareSnapshot } from '../lib/share/compact';
+  import { cardAlt, compareCardLine, compareCardText, composeCard, readCardColors, toneOf } from '../lib/share/cardImage';
+  import { orderRows } from '../lib/ui/compare/rows';
+
+  let chartPanel = $state<ReturnType<typeof ChartPanel>>();
+  const canShareCompare = $derived(canShare() && group !== undefined && items.some((i) => !i.hidden));
+
+  /** 시세가 보이는 화면 캡처(설계 4.3). 불러오는 중이면 반쯤 그린 차트를 보내지 않는다 */
+  function captureCard(): CardCapture | null {
+    if (!group || ctl.progress) return null;
+    const chart = chartPanel?.screenshot();
+    if (!chart) return null;
+    const ordered = orderRows(rows.filter((r) => !r.hidden), app.settings.boardOrder, null).slice(0, 5);
+    const cells = ordered.map((r) => ({ name: r.name, value: r.value === null ? '—' : formatMetricValue(r.value, unit), tone: toneOf(r.value) }));
+    const text = compareCardText({ title: shareTitle(group.name), period: periodLabel(period), metric: metricDef.label, at: now, rows: cells, provider: app.provider.id });
+    return { canvas: composeCard(chart, text, readCardColors(document.documentElement)), alt: cardAlt(text, '비교 화면'), line: compareCardLine(cells.slice(0, 2), now) };
+  }
+
+  function shareCompare() {
+    const g = group;
+    if (!g) return;
+    openShare({ kind: 'compare', name: g.name, profileId: app.meta.activeProfileId, build: () => built(compareSnapshot(g, app.settings)), capture: captureCard });
+  }
+
 </script>
 
 <Layout side={items.length > 0 ? side : undefined} barWrap>
@@ -400,6 +426,7 @@
       onadd={addGroup}
       onmanage={() => (openSheet = 'group')}
     />
+    {#if canShareCompare}<button type="button" class="share" onclick={shareCompare}>공유</button>{/if}
     <span class="title" data-landing-title tabindex="-1">{group?.name ?? '가즈아'}</span>
     {@render barEnd()}
   {/snippet}
@@ -450,7 +477,7 @@
           <p class="fallback" role="status">{rvolNote}</p>
         {/if}
         <div class="chart-slot">
-          <ChartPanel
+          <ChartPanel bind:this={chartPanel}
             series={chartSeries}
             {mode}
             sessions={chartSessions}
@@ -529,6 +556,7 @@
 <CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} {detailRestoredFocus} />
 
 <style>
+  .share { min-height: var(--touch); padding: 0 12px; border-radius: 12px; background: var(--surface2); font-weight: 700; flex-shrink: 0; }
   .compare {
     display: flex;
     flex-direction: column;

@@ -25,6 +25,11 @@
     theme?: string;
     oncrosshair: (t: number | null) => void;
   } = $props();
+  let chartRef = $state<ReturnType<typeof CompareChart>>();
+  export function screenshot(): HTMLCanvasElement | null {
+    return chartRef?.screenshot() ?? null;
+  }
+
 </script>
 
 <div class="panel">
@@ -32,7 +37,7 @@
     <div class="loading num" role="status">불러오는 중 {progress.done}/{progress.total}</div>
   {/if}
   <div class="chart">
-    <CompareChart {series} {mode} {sessions} {markers} {unit} {openDays} {theme} directLabels {oncrosshair} />
+    <CompareChart bind:this={chartRef} {series} {mode} {sessions} {markers} {unit} {openDays} {theme} directLabels {oncrosshair} />
   </div>
   <div class="legend">
     {#if mode === 'intraday'}

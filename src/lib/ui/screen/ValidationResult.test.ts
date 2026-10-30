@@ -379,3 +379,17 @@ describe('ValidationResult 색 관례 prop', () => {
     }
   });
 });
+
+describe('ValidationResult capture', () => {
+  it('자산 곡선을 찍어 카드를 만든다', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () => ({ scale() {}, fillRect() {}, fillText() {}, drawImage() {} }) as unknown as CanvasRenderingContext2D,
+    );
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '반도체', items: [] }], now: NOW });
+    apps.push(app);
+    const r = render(ValidationResult, { app, result: validationResult(), names: {}, criteriaName: '반등 기준', capital: 10_000_000, flow: DEFAULT_FLOW, fin: DEFAULT_FIN });
+    const card = r.component.capture();
+    expect(card?.alt.startsWith('반등 기준 검증 결과 캡처: 2026.01.05 ~ 2026.02.03')).toBe(true);
+    expect(lwcCharts.at(-1)!.screenshots).toEqual([[true, false]]);
+  });
+});

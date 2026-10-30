@@ -19,6 +19,8 @@ import { createSafeStorage } from '../lib/state/storage';
 import { memoryBacking, seed } from '../lib/state/testStorage';
 import { kstDate, kstEpoch } from '../lib/time/kst';
 import Compare from './Compare.svelte';
+import { closeShare, currentShare, setShareController } from '../lib/share/shareStore.svelte';
+import type { SyncController } from '../lib/sync/controller.svelte';
 
 vi.mock('lightweight-charts', async () => (await import('../lib/chart/lwcStub')).lwcModule());
 // 지수 로딩만 테스트에서 실패시킬 수 있게 감싼다(기본은 실제 구현).
@@ -956,5 +958,31 @@ describe('Compare load errors (spec §11)', () => {
     window.dispatchEvent(new Event('online'));
     await new Promise((r) => setTimeout(r, 20));
     expect(spy.mock.calls.length).toBe(after);
+  });
+});
+
+describe('비교 화면 공유', () => {
+  afterEach(() => {
+    closeShare();
+    setShareController(null);
+  });
+
+  it('로그인했고 보이는 종목이 있으면 공유 단추로 비교 화면 스냅샷을 연다', async () => {
+    setShareController({ account: { email: 'me@example.test' } } as SyncController);
+    const app = makeApp(EXAMPLE);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await fireEvent.click(screen.getByRole('button', { name: '공유' }));
+    const req = currentShare()!;
+    expect(req.kind).toBe('compare');
+    const b = req.build(true);
+    expect(b.ok && b.snapshot).toMatchObject({ kind: 'compare', title: '반도체', symbols: EXAMPLE, view: { period: app.settings.period, metric: app.settings.metric } });
+    expect(typeof req.capture).toBe('function');
+  });
+
+  it('로그인하지 않았거나 보이는 종목이 없으면 단추가 없다', () => {
+    setShareController({ account: null } as SyncController);
+    const app = makeApp(EXAMPLE);
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    expect(screen.queryByRole('button', { name: '공유' })).toBeNull();
   });
 });

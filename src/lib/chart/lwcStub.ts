@@ -12,6 +12,8 @@ export interface StubSeries {
 }
 
 export interface StubChart {
+  /** takeScreenshot(addTopLayer, includeCrosshair) 호출 기록 */
+  screenshots: [boolean | undefined, boolean | undefined][];
   series: StubSeries[];
   removed: boolean;
   /** addSeries 호출 수(시리즈를 다시 만든 횟수 확인용) */
@@ -47,6 +49,7 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
   const rangeHandlers = new Set<() => void>();
   const sizeHandlers = new Set<() => void>();
   const chart: StubChart = {
+    screenshots: [],
     series: [],
     removed: false,
     addSeriesCalls: 0,
@@ -92,6 +95,10 @@ function createChart(_el: unknown, initial: Record<string, unknown> = {}): unkno
       crosshair.push(h);
     },
     timeScale: () => timeScale,
+    takeScreenshot: (addTopLayer?: boolean, includeCrosshair?: boolean) => {
+      chart.screenshots.push([addTopLayer, includeCrosshair]);
+      return Object.assign(document.createElement('canvas'), { width: 600, height: 300 });
+    },
     resize: () => {},
     applyOptions: (o: Record<string, unknown>) => {
       chart.options = { ...chart.options, ...o };

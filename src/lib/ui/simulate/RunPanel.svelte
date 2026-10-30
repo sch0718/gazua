@@ -17,6 +17,7 @@
     theme,
     stale = false,
     onEdit,
+    onShare,
     onRetry,
     onCancel,
     onIssueAction,
@@ -29,6 +30,8 @@
     stale?: boolean;
     /** 편집으로 돌아간다. section이 있으면 그 구역을 연다 */
     onEdit: (section?: Issue['section']) => void;
+    /** 결과 공유(로그인했을 때만 넘긴다) */
+    onShare?: () => void;
     onRetry: () => void;
     onCancel: () => void;
     onIssueAction: (target: ErrorActionTarget) => void;
@@ -108,6 +111,12 @@
       prevKind = kind;
     });
   });
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  let resultView = $state<ReturnType<typeof ResultView>>();
+  export function capture(): CardCapture | null {
+    return resultView?.capture() ?? null;
+  }
+
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -128,7 +137,7 @@
         onaction={onRetry}
       />
     {/if}
-    <ResultView state={run} {colorConvention} {theme} {stale} {onEdit} />
+    <ResultView bind:this={resultView} state={run} {colorConvention} {theme} {stale} {onEdit} {onShare} />
   {:else if run.kind === 'idle'}
     <p class="hint">규칙을 정하고 시뮬레이션 실행을 누르면 여기에 결과가 나와요</p>
   {:else}

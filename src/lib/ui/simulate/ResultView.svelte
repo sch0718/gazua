@@ -21,6 +21,7 @@
     theme,
     stale = false,
     onEdit,
+    onShare,
     readonly = false,
     hideAmounts = false,
     skippedCounts,
@@ -35,6 +36,8 @@
     stale?: boolean;
     /** 편집으로 돌아간다. 읽기 전용(받은 공유)이면 없다 */
     onEdit?: (section?: Issue['section']) => void;
+    /** 결과 공유(로그인했을 때만 넘긴다) */
+    onShare?: () => void;
     /** 받은 공유: 규칙 고치기·거래 차트 시트를 숨기고 거래 줄을 누를 수 없게 */
     readonly?: boolean;
     /** 자금 숨김 공유: 거래 수량을 숨기고 종목별은 자금 대비 %로 */
@@ -110,13 +113,27 @@
     const top = skipList[0]?.reason ?? null;
     return top === '현금 부족' || top === '1주가 1회 금액보다 비쌈';
   });
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  import { cardAlt, composeCard, readCardColors, simResultCardText } from '../../share/cardImage';
+  let equityChart = $state<ReturnType<typeof EquityChart>>();
+  let root = $state<HTMLElement>();
+  /** 지금 보이는 수익 곡선으로 카드를 만든다. 거래 0건이라 곡선이 없으면 null(설계 4.1) */
+  export function capture(): CardCapture | null {
+    if (result.trades.length === 0 || !root) return null;
+    const chart = equityChart?.screenshot();
+    if (!chart) return null;
+    const text = simResultCardText(done);
+    return { canvas: composeCard(chart, text, readCardColors(root)), alt: cardAlt(text, '시뮬레이션 결과'), line: null };
+  }
+
 </script>
 
-<section class="result" class:stale aria-label="시뮬레이션 결과">
+<section bind:this={root} class="result" class:stale aria-label="시뮬레이션 결과">
   <p class="head">
     {#if stale}<Badge tone="nxt">이전 결과</Badge>{/if}
     <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt, meta.strategy.period.from)}</span>
     {#if meta.demo}<Badge>데모 데이터</Badge>{/if}
+    {#if onShare}<button type="button" class="share" onclick={onShare}>결과 공유</button>{/if}
   </p>
 
   {#if noTrades}
@@ -155,7 +172,7 @@
     </ul>
 
     {#key result}
-      <EquityChart
+      <EquityChart bind:this={equityChart}
         equity={result.equity}
         initial={meta.strategy.capital.initial}
         labels={{ benchmark: benchName, index: meta.strategy.benchmarks.index }}
@@ -233,7 +250,9 @@
     margin-left: 0;
     margin-right: 6px;
   }
+  .share { margin-left: auto; min-height: var(--touch); padding: 0 12px; border-radius: 12px; background: var(--surface2); font-weight: 700; }
   .head {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
     margin: 0;
     font-size: var(--fs-sub);
     color: var(--t2);

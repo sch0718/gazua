@@ -79,9 +79,20 @@
   const rebalanceDates = $derived(result.rebalances.map((r) => r.date));
 
   const note = (n: ValidationResult['notes'][number]) => result.notes.includes(n);
+  import type { CardCapture } from '../../share/shareStore.svelte';
+  import { cardAlt, composeCard, readCardColors, validationCardText } from '../../share/cardImage';
+  let equityChart = $state<ReturnType<typeof EquityChart>>();
+  let root = $state<HTMLElement>();
+  export function capture(): CardCapture | null {
+    const chart = equityChart?.screenshot();
+    if (!chart || !root) return null;
+    const text = validationCardText(result, criteriaName);
+    return { canvas: composeCard(chart, text, readCardColors(root)), alt: cardAlt(text, '검증 결과'), line: null };
+  }
+
 </script>
 
-<div class="vr">
+<div class="vr" bind:this={root}>
   <!-- 경고는 맨 위에 -->
   {#if note('allEmpty')}<Banner tone="warn" message={ALL_EMPTY_TEXT} />{/if}
   {#if note('warmup')}<Banner tone="warn" message={WARMUP_TEXT} />{/if}
@@ -125,7 +136,7 @@
     <h3 id="eq-h">자산 곡선</h3>
     {#key result}
       <!-- ETF 선 색(--etf-1)은 색 관례에 따라 달라서, 관례가 바뀌어도 색을 다시 읽게 함께 넘긴다 -->
-      <EquityChart initial={capital} {curves} {rebalanceDates} theme="{theme ?? ''}:{conv}" {sampledNote} />
+      <EquityChart bind:this={equityChart} initial={capital} {curves} {rebalanceDates} theme="{theme ?? ''}:{conv}" {sampledNote} />
     {/key}
     <p class="cap">세로 눈금은 재선정일이에요</p>
   </section>

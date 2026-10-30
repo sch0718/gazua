@@ -483,6 +483,10 @@
       built = [];
     };
   }
+  /** 카드 이미지용: 위 레이어는 넣고 십자선은 뺀다 */
+  export function screenshot(): HTMLCanvasElement | null {
+    return chart ? chart.takeScreenshot(true, false) : null;
+  }
 </script>
 
 <div class="compare-chart">
