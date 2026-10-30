@@ -86,6 +86,22 @@ describe('카드 이미지 업로드', () => {
     expect(await uploadCardImage(file)).toBeNull();
   });
 
+  it.each([{}, null, { infos: null }, { infos: {} }, { infos: { original: null } }])('SDK 응답 %j에 이미지 정보가 없으면 던지지 않고 null', async (response) => {
+    share({ uploadImage: async () => response });
+    await expect(uploadCardImage(file)).resolves.toBeNull();
+  });
+
+  it.each([
+    { url: 'https://k.kakaocdn.net/small.jpg', width: 150, height: 150 },
+    { url: 'http://k.kakaocdn.net/a.jpg', width: 1600, height: 800 },
+    { url: 'https://k.kakaocdn.net/no-size.jpg' },
+  ])('응답 이미지 %j를 카드에 쓸 수 없으면 지운다', async (original) => {
+    const deleteImage = vi.fn(async () => ({}));
+    share({ uploadImage: async () => ({ infos: { original } }), deleteImage });
+    await expect(uploadCardImage(file)).resolves.toBeNull();
+    expect(deleteImage).toHaveBeenCalledWith({ imageUrl: original.url });
+  });
+
   it('시간이 지나면 null이고, 늦게 온 응답의 이미지는 지운다', async () => {
     let resolve!: (v: unknown) => void;
     const deleteImage = vi.fn(async () => ({}));

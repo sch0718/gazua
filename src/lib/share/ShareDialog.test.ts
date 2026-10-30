@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { fromStore, writable } from 'svelte/store';
 import { newStrategy } from '../sim/defaults';
 import type { SyncController } from '../sync/controller.svelte';
 import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
@@ -180,6 +182,18 @@ describe('ShareDialog', () => {
       expect(screen.getByText('링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.')).toBeTruthy();
     });
 
+    it('링크를 만드는 동안 화면 캡처 체크를 끈다', async () => {
+      fakeKakao();
+      const { view } = await open(cmpReq());
+      const checkbox = screen.getByLabelText('화면 캡처 함께 보내기') as HTMLInputElement;
+      expect(checkbox.disabled).toBe(false);
+      await view.rerender({ sync: { ...sync(), busy: true } });
+      expect(checkbox.disabled).toBe(true);
+      expect(checkbox.checked).toBe(true);
+      await view.rerender({ sync: sync() });
+      expect(checkbox.disabled).toBe(false);
+    });
+
     it('카카오 키가 없으면 캡처하지 않고, 캡처가 null이면 캡처 부분을 숨긴다', async () => {
       const capture = vi.fn(() => null);
       await open(cmpReq(capture), null);
@@ -221,6 +235,24 @@ describe('ShareDialog', () => {
       expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
     });
 
+    it('업로드에 실패하면 미리 보기와 이미지 빼고 보내기를 숨긴다', async () => {
+      fakeKakao(async () => Promise.reject(new Error('403')));
+      await open(cmpReq());
+      await makeLink();
+      await ready();
+      expect(screen.queryByRole('img', { name: ALT })).toBeNull();
+      expect(screen.queryByRole('button', { name: '이미지 빼고 보내기' })).toBeNull();
+    });
+
+    it('업로드 실패 안내는 aria-live 영역 안에 둔다', async () => {
+      fakeKakao(async () => Promise.reject(new Error('403')));
+      await open(cmpReq());
+      await makeLink();
+      await ready();
+      const note = screen.getByText('캡처를 올리지 못해 기본 그림으로 보내요');
+      expect(note.closest('div[aria-live="polite"]')).not.toBeNull();
+    });
+
     it('보내지 않고 닫으면 올린 이미지를 지운다', async () => {
       const sdk = fakeKakao();
       const { view } = await open(cmpReq());
@@ -228,6 +260,86 @@ describe('ShareDialog', () => {
       await ready();
       await view.rerender({ request: null, sync: sync(), onclose: () => {}, kakao: KAKAO });
       expect(sdk.Share.deleteImage).toHaveBeenCalledWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
+    });
+
+    it('Sheet 닫기 단추로 닫으면 보내지 않은 이미지를 지운다', async () => {
+      const sdk = fakeKakao();
+      const { onclose } = await open(cmpReq());
+      await makeLink();
+      await ready();
+      await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+      expect(onclose).toHaveBeenCalledTimes(1);
+      expect(sdk.Share.deleteImage).toHaveBeenCalledExactlyOnceWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
+    });
+
+    it('보낸 뒤 이미지를 빼면 이미 보낸 이미지는 남기고 다음 카드는 고정 이미지로 보낸다', async () => {
+      const sdk = fakeKakao();
+      await open(cmpReq());
+      await makeLink();
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://k.kakaocdn.net/card.jpg');
+      await fireEvent.click(screen.getByRole('button', { name: '이미지 빼고 보내기' }));
+      expect(sdk.Share.deleteImage).not.toHaveBeenCalled();
+      sdk.Share.sendDefault.mockClear();
+      await fireEvent.click(await ready());
+      expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+      await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+      expect(sdk.Share.deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('보내기에 실패한 뒤 닫으면 이미지를 지우고 기존 링크 복사 안내를 쓴다', async () => {
+      const sdk = fakeKakao();
+      sdk.Share.sendDefault.mockImplementation(() => { throw new Error('카카오 오류'); });
+      await open(cmpReq());
+      await makeLink();
+      await fireEvent.click(await ready());
+      expect(currentSnackbar()?.message).toBe('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
+      await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+      expect(sdk.Share.deleteImage).toHaveBeenCalledExactlyOnceWith({ imageUrl: 'https://k.kakaocdn.net/card.jpg' });
+    });
+
+    it('이미 올린 이미지가 있으면 카카오 설정이 갱신돼도 다시 올리지 않는다', async () => {
+      const sdk = fakeKakao();
+      const key = writable(KAKAO.appKey);
+      const config = fromStore(key);
+      await open(cmpReq(), { get appKey() { return config.current; } });
+      await makeLink();
+      await ready();
+      key.set('updated-kakao-key');
+      await tick();
+      await fireEvent.click(await ready());
+      expect(sdk.Share.uploadImage).toHaveBeenCalledTimes(1);
+      expect(sentImage(sdk).imageUrl).toBe('https://k.kakaocdn.net/card.jpg');
+    });
+
+    it.each(['닫기 단추', '요청 닫기', '이미지 제외'])('파일 변환 중 %s를 하면 업로드를 시작하지 않는다', async (action) => {
+      const sdk = fakeKakao();
+      let finish!: BlobCallback;
+      const canvas = shotCanvas();
+      canvas.toBlob = vi.fn((callback: BlobCallback) => { finish = callback; });
+      const { view, onclose } = await open(cmpReq(() => ({ canvas, alt: ALT, line: null })));
+      await makeLink();
+      await waitFor(() => expect(canvas.toBlob).toHaveBeenCalledTimes(1));
+      expect(sdk.Share.uploadImage).not.toHaveBeenCalled();
+      if (action === '닫기 단추') {
+        await fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+        expect(onclose).toHaveBeenCalledTimes(1);
+      } else if (action === '요청 닫기') {
+        await view.rerender({ request: null });
+      } else {
+        await fireEvent.click(screen.getByRole('button', { name: '이미지 빼고 보내기' }));
+        await ready();
+      }
+      finish(new Blob(['jpeg'], { type: 'image/jpeg' }));
+      await tick();
+      expect(sdk.Share.uploadImage).not.toHaveBeenCalled();
+      if (action === '이미지 제외') {
+        await fireEvent.click(await ready());
+        expect(sentImage(sdk).imageUrl).toBe('https://app.example.test/share/compare.png');
+      } else {
+        expect(screen.queryByLabelText('공유 링크')).toBeNull();
+        expect(screen.queryByRole('button', { name: /카카오톡으로 보내기|캡처 올리는 중/ })).toBeNull();
+      }
     });
 
     it('이미지 빼고 보내기: 지우고 고정 이미지 카드로 바꾼다', async () => {

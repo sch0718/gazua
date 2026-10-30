@@ -63,7 +63,10 @@ export async function uploadCardImage(file: File, timeoutMs = UPLOAD_TIMEOUT_MS)
       return null;
     }
     const o = r?.infos?.original;
-    return validImage(o) ? { url: o.url, width: o.width, height: o.height } : null;
+    const url = o?.url;
+    if (validImage(o)) return { url: o.url, width: o.width, height: o.height };
+    if (typeof url === 'string') deleteCardImage(url);
+    return null;
   } catch {
     return null;
   } finally {

@@ -180,10 +180,11 @@
     preloadKakao(kakao).then(
       async () => {
         if (!alive) return;
-        const s = untrack(() => (sendShot && !dropped ? shot : null));
+        const s = untrack(() => (sendShot && !dropped && !cardImage ? shot : null));
         if (s) {
           kakaoState = 'uploading';
           const file = await cardFile(s.canvas);
+          if (!alive || dropped) return;
           const img = file ? await uploadCardImage(file) : null;
           // 다른 요청으로 바뀌었거나(alive) 이미지를 뺐으면(dropped) 늦게 온 응답은 버리고 그 이미지를 지운다
           if (!alive || dropped) {
@@ -207,16 +208,15 @@
 
   function dropImage() {
     dropped = true;
-    if (cardImage) deleteCardImage(cardImage.url);
-    cardImage = null;
+    discardImage();
     if (kakaoState === 'uploading') kakaoState = 'ready';
   }
 
   function sendToKakao() {
     if (!link || !kakao) return;
-    sent = true;
     const card = kakaoCard(link.snapshot, link.url, { names, image: dropped ? null : cardImage, line: shot?.line ?? null });
-    if (!sendKakao(card, kakao)) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
+    sent = sendKakao(card, kakao);
+    if (!sent) showSnackbar('카카오톡을 열지 못했어요. 링크를 복사해 보내 주세요');
   }
 
   function close() {
@@ -247,7 +247,7 @@
         <input class="url" readonly value={link.url} aria-label="공유 링크" onfocus={(e) => e.currentTarget.select()} />
         <button type="button" class="primary" onclick={copyLink}>링크 복사</button>
         {#if kakaoState !== 'off'}
-          {#if preview && sendShot && !dropped}
+          {#if preview && sendShot && !dropped && (kakaoState === 'uploading' || cardImage)}
             <div class="shot-mini">
               <img src={preview} alt={shot?.alt ?? ''} width="160" height="80" />
               <button type="button" class="ghost" onclick={dropImage}>이미지 빼고 보내기</button>
@@ -257,8 +257,8 @@
             <button type="button" class="kakao" disabled={kakaoState !== 'ready'} onclick={sendToKakao}>
               {kakaoState === 'ready' ? '카카오톡으로 보내기' : kakaoState === 'uploading' ? '캡처 올리는 중…' : '카카오톡 준비 중…'}
             </button>
+            {#if uploadNote}<p class="hint">{uploadNote}</p>{/if}
           </div>
-          {#if uploadNote}<p class="hint">{uploadNote}</p>{/if}
         {/if}
         <p class="hint">설정 › 동기화 › 내 공유에서 언제든 철회할 수 있어요. 이미 본 내용·캡처는 지울 수 없어요.</p>
       {:else}
@@ -295,7 +295,7 @@
               <img src={preview} alt={shot?.alt ?? ''} width="400" height="200" />
             </figure>
             <label class="check">
-              <input type="checkbox" bind:checked={sendShot} />
+              <input type="checkbox" bind:checked={sendShot} disabled={sync.busy} />
               화면 캡처 함께 보내기
             </label>
             <p class="hint">링크를 만들면 이 캡처를 카카오 서버에 바로 올려요(카카오톡 카드에 넣으려고요). 링크를 철회해도 카카오톡으로 보낸 캡처는 지울 수 없어요.</p>
