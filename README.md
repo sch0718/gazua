@@ -83,6 +83,7 @@ gh release create v0.7.0 --target <병합 커밋> --title "v0.7.0 — <요약>" 
 
 ## 개발자용
 
+- [로드맵](docs/roadmap.md) — 우선순위, 최우선 과제(전략 재생·AI CLI), 범위 밖으로 둔 것
 - [증권사 연결](docs/providers.md) — KIS·토스 준비, 프록시, 보안 주의
 - [개발 문서](docs/development.md) — 시장 데이터 수집, 설치·명령, 클라우드 세션, 배포, 설계·계획 문서. 설치에는 공용 패키지(`@sch0718/*`)용 GitHub Packages 토큰(`GITHUB_PACKAGES_TOKEN`)이 필요해요
 - [프록시](proxy/README.md) — Cloudflare Worker·Node 프록시 배포와 HTTP 계약
