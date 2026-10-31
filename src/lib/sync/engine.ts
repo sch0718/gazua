@@ -82,7 +82,10 @@ export interface SyncEngine {
   flush(): Promise<void>;
   /** 키 단계만(이 기기 키 변경 직후, 받기·올리기 뒤) */
   keysNow(): Promise<void>;
-  /** 엔진과 같은 직렬화(탭 안 chain + Web Lock) 안에서 fn을 돈다. 켜기·받기·끄기·rekey·전체 삭제가 쓴다 */
+  /**
+   * 엔진과 같은 직렬화(탭 안 chain + Web Lock) 안에서 fn을 돈다. 켜기·받기·끄기·rekey·전체 삭제가 쓴다.
+   * fn 안에서 syncNow·keysNow·pull·reset·resolve 같은 엔진 메서드를 기다리면 교착된다.
+   */
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
   resolve(profileId: string, choice: Resolution): Promise<void>;
   /** 서버의 과거 리비전을 새 로컬 프로필 `이름 (복원)`으로 만든다(원래 프로필은 그대로). 새 프로필 ID를 돌려준다. */
@@ -353,13 +356,14 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
 
   async function run(steps: ('pull' | 'keys' | 'push')[]): Promise<void> {
     if (!status.enabled || destroyed) return;
+    const keysOnly = steps.length === 1 && steps[0] === 'keys';
     await serial(async () => {
       // 다른 탭이 끄면(같은 IndexedDB) 이 탭의 상태는 늦게 안다. 잠금 안에서 저장된 값을 다시 본다.
       if ((await store.getMeta<boolean>('enabled')) !== true) {
         await refresh({ enabled: false, phase: 'off' });
         return;
       }
-      emit({ phase: 'syncing' });
+      if (!keysOnly) emit({ phase: 'syncing' });
       let phase: SyncPhase = 'idle';
       for (const s of steps) {
         // 단계 사이에 꺼졌으면(이 탭·다른 탭) 남은 일을 하지 않는다
@@ -381,6 +385,8 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         }
         if (phase !== 'idle') break;
       }
+      // 키만 동기화해도 프로필의 동기화 표시·실패 횟수·재시도는 그대로 둔다.
+      if (keysOnly) return;
       if (phase === 'off') {
         await refresh({ enabled: false, phase: 'off' });
         return;
