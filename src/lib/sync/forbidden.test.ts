@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { exceedsDepth, findForbidden, JSON_DEPTH_MAX, jsonDiff } from './forbidden';
+import { exceedsDepth, findForbidden, FORBIDDEN_KEYS, JSON_DEPTH_MAX, jsonDiff } from './forbidden';
+import { checkShareSnapshot } from '../share/snapshot';
+import { allKeys, NOW as SHARE_NOW, shareFixtures } from '../share/testFixtures';
+import { doc } from '../../../sync-worker/test/docs';
+import { T0 } from '../../../sync-worker/test/harness';
+import { checkProfileDoc } from './dto';
 
 /** 깊이 n의 중첩 객체: 가장 안쪽 객체가 깊이 n이다(루트 0). */
 function nest(n: number, leaf: Record<string, unknown> = {}): Record<string, unknown> {
@@ -89,5 +94,60 @@ describe('깊이 상한', () => {
 
   it('얕은 곳의 금지 키는 그대로 찾는다', () => {
     expect(findForbidden({ a: [{ b: { token: 1 } }] })).toBe('a[0].b.token');
+  });
+});
+
+const KEY_WIRE_NAMES = ['keyVault', 'vaultId', 'keyBlobs', 'nonce', 'ciphertext', 'verifier', 'vaultRevision', 'contentId'];
+
+/** 값 안에서 가장 깊은 객체(배열 제외)의 경로 조각. 루트면 [] */
+function deepestObject(v: unknown, path: (string | number)[] = [], best = { depth: -1, path: [] as (string | number)[] }) {
+  if (Array.isArray(v)) v.forEach((x, i) => deepestObject(x, [...path, i], best));
+  else if (typeof v === 'object' && v !== null) {
+    if (path.length > best.depth) Object.assign(best, { depth: path.length, path });
+    for (const [k, x] of Object.entries(v)) deepestObject(x, [...path, k], best);
+  }
+  return best.path;
+}
+function inject(v: unknown, at: (string | number)[], key: string): string {
+  let o = v as Record<string | number, unknown>;
+  for (const k of at) o = o[k] as Record<string | number, unknown>;
+  o[key] = 'FAKE';
+  return at.reduce<string>((p, k) => (typeof k === 'number' ? `${p}[${k}]` : p ? `${p}.${k}` : k), '');
+}
+
+describe('키 동기화 와이어 이름 금지(설계 2.4, 7.6)', () => {
+  it('여덟 이름이 FORBIDDEN_KEYS에 있고, profileId·revision·deleted·updatedAt은 없다', () => {
+    for (const k of KEY_WIRE_NAMES) expect(FORBIDDEN_KEYS, k).toContain(k);
+    for (const k of ['profileId', 'revision', 'deleted', 'updatedAt']) expect(FORBIDDEN_KEYS, k).not.toContain(k);
+  });
+
+  it('프로필 문서 깊은 자리의 keyVault·nonce는 forbidden-field와 그 경로', () => {
+    const a = doc() as unknown as { watchlists: { groups: Record<string, unknown>[] }; strategies: Record<string, unknown>[] };
+    a.watchlists.groups[0].keyVault = { x: 1 };
+    expect(checkProfileDoc(a, T0)).toEqual({ ok: false, code: 'forbidden-field', path: 'watchlists.groups[0].keyVault' });
+    const b = doc() as unknown as { strategies: Record<string, unknown>[] };
+    b.strategies[0].Nonce = 'FAKE';
+    expect(checkProfileDoc(b, T0)).toEqual({ ok: false, code: 'forbidden-field', path: 'strategies[0].Nonce' });
+  });
+
+  it('공유 여섯 종류마다 가장 깊은 객체에 ciphertext·verifier를 넣으면 forbidden-field', () => {
+    for (const name of ['ciphertext', 'verifier']) {
+      for (const fixture of shareFixtures()) {
+        expect(checkShareSnapshot(fixture, fixture.kind, SHARE_NOW).ok, fixture.kind).toBe(true);
+        const s = structuredClone(fixture);
+        const at = deepestObject(s);
+        const base = inject(s, at, name);
+        const path = base ? `${base}.${name}` : name;
+        expect(checkShareSnapshot(s, s.kind, SHARE_NOW), `${s.kind} ${path}`).toEqual({ ok: false, code: 'forbidden-field', path });
+      }
+    }
+  });
+
+  it('정상 고정 데이터(프로필 문서 + 여섯 공유 종류)의 키 경로는 FORBIDDEN_KEYS와 겹치지 않는다', () => {
+    const forbidden = new Set(FORBIDDEN_KEYS.map((k) => k.toLowerCase()));
+    const keys = new Set<string>([...allKeys(doc())]);
+    for (const s of shareFixtures()) allKeys(s, keys);
+    expect(keys.size).toBeGreaterThan(30);
+    for (const k of keys) expect(forbidden.has(k.toLowerCase()), k).toBe(false);
   });
 });
