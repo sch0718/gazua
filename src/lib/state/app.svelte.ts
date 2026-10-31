@@ -131,6 +131,20 @@ export interface App {
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
   clearSecrets(): void;
   /**
+   * 동기화 전용: 받은 KIS·토스 키를 지금 프로필에 병합한다. keys에 있고 로컬 값과 실제로 다른 공급자만 덮어쓰고,
+   * 없는 공급자·같은 값의 로컬 키와 proxyToken은 그대로 둔다. 바뀐 것이 없으면 아무것도 쓰지 않는다.
+   * 이 기기 키 잠금 설정대로 저장한다: 잠금이면 passphrase가 필요하다(호출 쪽이 verifyPassphrase로 먼저 확인한다, 설계 5.7).
+   * 바뀐 공급자의 접근 토큰만 버리고 토스가 바뀌었을 때만 주문 캐시도 버린다. onSecretsChange는 부르지 않는다.
+   * 돌려주는 값은 실제로 바뀐 공급자. 쓰기 직전에 저장소의 키 원문이 시작 때와 다르면 SecretsChangedError(아무것도 쓰지 않음).
+   * profileId가 지금 프로필이 아니면, 잠겨 있고 풀리지 않았으면 던진다. 저장 실패는 setSecrets와 같은 오류.
+   */
+  applySyncedSecrets(profileId: string, keys: Pick<Secrets, 'kis' | 'toss'>, passphrase?: string): Promise<('kis' | 'toss')[]>;
+  /**
+   * 동기화 전용: 올릴 키(kis·toss만). 지금 프로필이 아니거나 잠겨서 풀리지 않았으면 null.
+   * 잠금이 꺼져 있으면 저장소에서 새로 읽는다(다른 탭이 방금 쓴 값). 잠금이면 메모리 값이 저장소의 잠긴 키와 같은 것일 때만 돌려준다.
+   */
+  syncableSecrets(profileId: string): Pick<Secrets, 'kis' | 'toss'> | null;
+  /**
    * 공유 읽기 화면(#/s/…)에서 앱으로 나간다. 공유 해시를 지우고 enter()와 같은 판단을 한다:
    * 관문(프로필 선택·잠금 해제)이 있으면 관문, 없고 첫 실행이면 온보딩, 아니면 비교 화면(설계 1.5-11).
    */
@@ -153,6 +167,10 @@ export interface AppDeps {
    * 키·토큰·최근 종목·기기 전용 설정만 바뀐 경우에는 부르지 않는다.
    */
   onSyncableChange?: (e: { kind: 'changed' | 'deleted'; profileId: string }) => void;
+  /** 지금 프로필의 KIS·토스 키가 바뀌었다. providers는 값이 바뀐 공급자(proxyToken만 바뀐 경우·잠금 켜고 끄기·기기에서 삭제·동기화로 받은 키는 부르지 않는다) */
+  onSecretsChange?: (e: { profileId: string; providers: ('kis' | 'toss')[] }) => void;
+  /** lock()이 실제로 키를 버렸다 */
+  onLock?: () => void;
 }
 
 /**
@@ -193,6 +211,14 @@ export class StoredKeysNotRemovedError extends Error {
   }
 }
 
+/** 받은 키를 쓰기 직전에 이 프로필의 저장된 키가 (다른 탭에서) 바뀐 것을 알았다. 아무것도 쓰지 않았다(설계 5.2) */
+export class SecretsChangedError extends Error {
+  constructor() {
+    super('stored keys changed while applying synced keys: nothing was saved');
+    this.name = 'SecretsChangedError';
+  }
+}
+
 export const STORAGE_BANNER = '이 브라우저에선 설정이 저장되지 않아요';
 export const CORRUPT_BANNER = '저장된 설정 일부를 읽지 못해 기본값으로 되돌렸어요';
 export const PROXY_CLEARED_BANNER = (origin?: string) =>
@@ -208,6 +234,24 @@ function sameCredentials(p: 'kis' | 'toss', a: Secrets, b: Secrets | null): bool
   if (p === 'kis') return !!a.kis && a.kis.appKey === b.kis?.appKey && a.kis.appSecret === b.kis?.appSecret;
   return !!a.toss && a.toss.clientId === b.toss?.clientId && a.toss.clientSecret === b.toss?.clientSecret;
 }
+
+/** 한 공급자의 두 값(KIS appKey·appSecret, 토스 clientId·clientSecret)이 같은지. proxyToken은 보지 않는다. 둘 다 없으면 같다 */
+export function sameProviderKeys(p: 'kis' | 'toss', a: Pick<Secrets, 'kis' | 'toss'> | null, b: Pick<Secrets, 'kis' | 'toss'> | null): boolean {
+  if (p === 'kis') {
+    const x = a?.kis;
+    const y = b?.kis;
+    return !x && !y ? true : !!x && !!y && x.appKey === y.appKey && x.appSecret === y.appSecret;
+  }
+  const x = a?.toss;
+  const y = b?.toss;
+  return !x && !y ? true : !!x && !!y && x.clientId === y.clientId && x.clientSecret === y.clientSecret;
+}
+
+/** 키 동기화가 다루는 두 공급자만(proxyToken 제외) 새 객체로 */
+const pickSyncable = (s: Secrets): Pick<Secrets, 'kis' | 'toss'> => ({
+  ...(s.kis && { kis: { appKey: s.kis.appKey, appSecret: s.kis.appSecret } }),
+  ...(s.toss && { toss: { clientId: s.toss.clientId, clientSecret: s.toss.clientSecret } }),
+});
 
 export function createApp(deps: AppDeps): App {
   const { storage, now, fetchImpl } = deps;
@@ -388,6 +432,88 @@ export function createApp(deps: AppDeps): App {
     memoryTokens.delete(`${id}:kis`);
     memoryTokens.delete(`${id}:toss`);
     storageTick++;
+  }
+
+  /** 한 공급자의 접근 토큰만 버린다(받은 키가 바뀐 공급자, 설계 5.2). 발급 시각은 남긴다 */
+  function forgetToken(id: string, p: 'kis' | 'toss') {
+    storage.remove(profileKeys.token(id, p));
+    memoryTokens.delete(`${id}:${p}`);
+    storageTick++;
+  }
+
+  /**
+   * setSecrets·applySyncedSecrets가 함께 쓰는 저장 경로(설계 5.2).
+   * forget 'all': 지금 setSecrets 동작(평문은 두 공급자 토큰, 잠금은 토큰 + 주문 캐시). 배열이면 그 공급자 토큰만, 토스가 있으면 주문 캐시도.
+   * guard: 쓰기 직전(평문은 잠금 확인 뒤, 잠금은 봉한 뒤)에 부른다. 던지면 아무것도 쓰지 않는다.
+   * notify: 이 탭 상태가 바뀐 뒤(실패를 던지기 전 포함) 바뀐 공급자를 onSecretsChange로 알린다.
+   */
+  async function storeSecrets(
+    s: Secrets,
+    passphrase: string | undefined,
+    opts: { notify: boolean; forget: 'all' | ('kis' | 'toss')[]; guard?: () => void },
+  ): Promise<void> {
+    const id = activeId();
+    const before = secrets;
+    const forget = (sealedPath: boolean) => {
+      if (opts.forget === 'all') {
+        forgetTokens(id);
+        if (sealedPath) forgetOrders(id);
+        return;
+      }
+      for (const p of opts.forget) forgetToken(id, p);
+      if (opts.forget.includes('toss')) forgetOrders(id);
+    };
+    const announce = () => {
+      if (!opts.notify) return;
+      const providers = (['kis', 'toss'] as const).filter((p) => !sameProviderKeys(p, s, before));
+      if (providers.length > 0) deps.onSecretsChange?.({ profileId: id, providers });
+    };
+    if (passphrase === undefined) {
+      if (settings.keyLock) throw new Error('keyLock is on: a passphrase is required');
+      // 저장소의 키가 잠겨 있으면 평문으로 덮어쓰지 않는다. 이 탭이 지우지 못한 키면 그 이유로,
+      // 아니면 다른 탭이 그사이 잠근 것으로 알린다(이 탭은 아직 잠금 꺼짐으로 알고 있을 수 있다).
+      const stored = storage.readBacking<unknown>(profileKeys.secrets(id), null);
+      if (isLocked(stored)) {
+        if (undeletedSealed?.id === id && undeletedSealed.blob === JSON.stringify(stored)) throw new StoredKeysNotRemovedError();
+        throw new KeyLockedElsewhereError();
+      }
+      opts.guard?.();
+      undeletedSealed = null;
+      forget(false);
+      locked = null;
+      unlockUnsaved = false;
+      write(profileKeys.secrets(id), s);
+      // 평문 키는 언제나 잠금 꺼짐과 함께 저장한다.
+      write(profileKeys.settings(id), settings);
+    } else {
+      const sealed = await lockSecrets(s, passphrase);
+      // 암호화하는 동안 프로필이 바뀌었으면 아무것도 저장하지 않았다고 알린다(성공으로 보이지 않게).
+      if (activeId() !== id) throw new Error('profile changed while locking: nothing was saved');
+      opts.guard?.();
+      forget(true);
+      undeletedSealed = null;
+      locked = sealed;
+      unlockUnsaved = false;
+      const key = profileKeys.secrets(id);
+      write(key, sealed);
+      if (!settings.keyLock) {
+        settings = { ...settings, keyLock: true };
+        write(profileKeys.settings(id), settings);
+      }
+      if (!storage.persistent) {
+        // 잠금이 저장되지 않았다. 저장소에 남은 이전 평문 키를 지우고(removeItem은 용량과 무관),
+        // 이 탭에서는 메모리의 암호문으로 잠금을 유지한다.
+        const cleared = remove(key);
+        write(key, sealed);
+        secrets = s;
+        rebuild();
+        announce();
+        throw new KeyLockNotSavedError('lock', !storage.backed ? 'no-storage' : cleared ? 'cleared' : 'not-cleared');
+      }
+    }
+    secrets = s;
+    rebuild();
+    announce();
   }
 
   // ── 경로 ────────────────────────────────────────────────
@@ -812,50 +938,46 @@ export function createApp(deps: AppDeps): App {
     },
 
     async setSecrets(s, passphrase) {
+      await storeSecrets(s, passphrase, { notify: true, forget: 'all' });
+    },
+
+    async applySyncedSecrets(profileId, keys, passphrase) {
       const id = activeId();
-      if (passphrase === undefined) {
-        if (settings.keyLock) throw new Error('keyLock is on: a passphrase is required');
-        // 저장소의 키가 잠겨 있으면 평문으로 덮어쓰지 않는다. 이 탭이 지우지 못한 키면 그 이유로,
-        // 아니면 다른 탭이 그사이 잠근 것으로 알린다(이 탭은 아직 잠금 꺼짐으로 알고 있을 수 있다).
-        const stored = storage.readBacking<unknown>(profileKeys.secrets(id), null);
-        if (isLocked(stored)) {
-          if (undeletedSealed?.id === id && undeletedSealed.blob === JSON.stringify(stored)) throw new StoredKeysNotRemovedError();
-          throw new KeyLockedElsewhereError();
-        }
-        undeletedSealed = null;
-        forgetTokens(id);
-        locked = null;
-        unlockUnsaved = false;
-        write(profileKeys.secrets(id), s);
-        // 평문 키는 언제나 잠금 꺼짐과 함께 저장한다.
-        write(profileKeys.settings(id), settings);
-      } else {
-        const sealed = await lockSecrets(s, passphrase);
-        // 암호화하는 동안 프로필이 바뀌었으면 아무것도 저장하지 않았다고 알린다(성공으로 보이지 않게).
-        if (activeId() !== id) throw new Error('profile changed while locking: nothing was saved');
-        forgetTokens(id);
-        forgetOrders(id);
-        undeletedSealed = null;
-        locked = sealed;
-        unlockUnsaved = false;
-        const key = profileKeys.secrets(id);
-        write(key, sealed);
-        if (!settings.keyLock) {
-          settings = { ...settings, keyLock: true };
-          write(profileKeys.settings(id), settings);
-        }
-        if (!storage.persistent) {
-          // 잠금이 저장되지 않았다. 저장소에 남은 이전 평문 키를 지우고(removeItem은 용량과 무관),
-          // 이 탭에서는 메모리의 암호문으로 잠금을 유지한다.
-          const cleared = remove(key);
-          write(key, sealed);
-          secrets = s;
-          rebuild();
-          throw new KeyLockNotSavedError('lock', !storage.backed ? 'no-storage' : cleared ? 'cleared' : 'not-cleared');
-        }
+      if (profileId !== id) throw new Error('applySyncedSecrets: not the current profile');
+      if (locked !== null && secrets === null) throw new Error('applySyncedSecrets: unlock first');
+      const key = profileKeys.secrets(id);
+      const raw = storage.readBacking<unknown>(key, null);
+      const original = JSON.stringify(raw);
+      // 잠금이 꺼져 있으면 저장소의 값(다른 탭이 방금 쓴 것)을 병합의 바탕으로 쓴다. proxyToken을 지키기 위해서다
+      const base: Secrets =
+        locked === null && storage.backed && raw !== null && typeof raw === 'object' && !isLocked(raw) ? (raw as Secrets) : (secrets ?? {});
+      const changed = (['kis', 'toss'] as const).filter((p) => keys[p] !== undefined && !sameProviderKeys(p, keys, base));
+      if (changed.length === 0) return [];
+      if (settings.keyLock && passphrase === undefined) throw new Error('keyLock is on: a passphrase is required');
+      const next: Secrets = { ...base };
+      if (changed.includes('kis')) next.kis = { appKey: keys.kis!.appKey, appSecret: keys.kis!.appSecret };
+      if (changed.includes('toss')) next.toss = { clientId: keys.toss!.clientId, clientSecret: keys.toss!.clientSecret };
+      await storeSecrets(next, settings.keyLock ? passphrase : undefined, {
+        notify: false,
+        forget: [...changed],
+        // 연결 설정 저장은 동기화 잠금을 잡지 않는다: 쓰기 직전에 원문을 다시 본다(같은 동기 구간)
+        guard: () => {
+          if (JSON.stringify(storage.readBacking<unknown>(key, null)) !== original) throw new SecretsChangedError();
+        },
+      });
+      return [...changed];
+    },
+
+    syncableSecrets(profileId) {
+      if (profileId !== activeId()) return null;
+      const raw = storage.readBacking<unknown>(profileKeys.secrets(profileId), null);
+      if (locked === null) {
+        if (isLocked(raw)) return null; // 다른 탭이 잠갔다
+        if (!storage.backed) return pickSyncable(secrets ?? {});
+        return pickSyncable(raw !== null && typeof raw === 'object' ? (raw as Secrets) : {});
       }
-      secrets = s;
-      rebuild();
+      if (secrets === null || !isLocked(raw) || JSON.stringify(raw) !== JSON.stringify(locked)) return null;
+      return pickSyncable(secrets);
     },
 
     disableKeyLock() {
@@ -915,6 +1037,7 @@ export function createApp(deps: AppDeps): App {
       void sessionOrders.removeProfile(activeId()).catch(() => {});
       rebuild();
       route = { name: 'unlock' };
+      deps.onLock?.();
     },
 
     clearSecrets() {
