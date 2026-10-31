@@ -102,7 +102,17 @@ destroy()
 
 - 진행: `raf` 루프에서 경과 시간(프레임당 최대 1초로 자름) × speed(거래일/초)만큼 소수 누적, 정수가 넘으면 index를 올려요. 한 프레임에 여러 날을 건너뛸 수 있어요(16배·느린 기기).
 - 마지막 날에 닿으면 멈춰요.
-- 생명주기: `ResultView`에서 `$effect`로 만들어요. `result`가 바뀌면 이전 것을 정리(`return () => r.destroy()`)하고 새로 만들어요. `$derived` 안에서 만들지 않아요(부작용·정리 누락).
+- 생명주기: `ResultView`에서 아래처럼 만들어요. `createReplay`가 자기 `$state`를 읽어도 바깥 effect의 의존성이 되지 않게 `untrack`으로 감싸요. `$derived` 안에서 만들지 않아요(부작용·정리 누락). 첫 렌더에서 `replay`는 `undefined`예요.
+
+  ```ts
+  let replay = $state.raw<Replay>();
+  $effect(() => {
+    const n = result.equity.length;
+    const r = untrack(() => createReplay({ length: n }));
+    replay = r;
+    return () => r.destroy();
+  });
+  ```
 
 ## 4. 화면
 
@@ -118,7 +128,7 @@ destroy()
 
 - 재생 막대·패널은 아래를 모두 만족할 때만 보여요: `timeline`이 있음, 길이가 `equity`와 같음, 거래일 2일 이상, 거래가 1건 이상(거래 0건이면 자산 차트 자체가 없어요, `ResultView.svelte:140-164`).
 - 차트에 넘기는 `upTo`는 `touched`일 때만 `index`, 아니면 `undefined`예요. 그래서 재생을 건드리지 않으면 화면은 지금과 똑같아요.
-- 공유 카드 캡처(`capture()`, `ResultView.svelte:121-128`) 전에 `replay.reset()` 후 `await tick()`을 해요. 카드는 늘 최종 곡선·마커 없음으로 찍혀 받은 공유 화면과 같아요.
+- 공유 카드: 캡처 경로(`capture()`)는 동기라 그대로 둬요. 대신 「결과 공유」 버튼 핸들러를 `async () => { replay?.reset(); await tick(); onShare?.(); }`로 바꿔 대화상자를 열기 전에 차트를 최종 상태로 되돌려요. 카드는 늘 최종 곡선·마커 없음으로 찍혀 받은 공유 화면과 같아요.
 - 모바일도 같은 세로 순서예요. 보유 카드는 한 줄에 하나예요. 좁은 화면(< 480px)에서는 배속 선택을 재생 버튼·날짜 아래 별도 줄에 둬요.
 
 ### 4.2 재생 막대 (`ReplayBar.svelte`)
@@ -134,10 +144,12 @@ destroy()
 ### 4.3 자산 차트 (`EquityChart.svelte`)
 
 - 새 prop `upTo?: number`(equity 인덱스). 없으면 지금과 같아요(마커도 없음).
-- 시리즈 데이터 다시 넣기: 지금은 `onMount`에서 한 번만 `setData`해요(`:162-175`). `upTo`가 있으면 `$effect`에서 `upTo`를 읽고 선마다 `setData`를 다시 불러요. `upTo` 뒤 날짜는 값 없는 점(whitespace)으로 넣어 가로축을 전체 기간으로 고정해요.
+- 시리즈 데이터 다시 넣기: 지금은 `onMount`에서 한 번만 `setData`해요(`:162-175`). `$effect`가 차트 준비 뒤 `upTo`를 늘 읽어요.
+  - 숫자면 선마다 `upTo`까지 실제 값, 그 뒤 날짜는 값 없는 점(whitespace)으로 `setData`해 가로축을 전체 기간으로 고정해요.
+  - `undefined`로 돌아오면 전체 데이터로 `setData`, `setMarkers([])`, 각 시리즈 `applyOptions({ autoscaleInfoProvider: undefined })`로 지금 화면과 같게 되돌려요.
 - 세로축 고정: whitespace는 자동 축 계산에서 빠져 날마다 축이 출렁이므로, `upTo`가 있으면 각 시리즈에 `autoscaleInfoProvider`로 전체 기간 최소·최대를 넣어요.
 - 범례: `upTo`가 있으면 기본 날짜를 `equity[upTo].date`로 하고, 크로스헤어 날짜가 그보다 뒤면 무시하고 기본 날짜를 보여요.
-- 체결 마커: `onMount`에서 전략 선에 `createSeriesMarkers(series, [])`로 한 번 붙이고, 이후에는 `setMarkers()`만 불러요. `upTo` 날짜까지의 체결만 넣어요. 매수(`buy`·`add`)는 아래 ▲, 매도는 위 ▼. 색과 같은 날 합치기는 `TradeChartSheet`의 `--up`/`--down` 토큰·`mergedMarkers` 방식을 가져와 써요(같은 날 여러 종목 체결은 한 마커로).
+- 체결 마커: `onMount`에서 전략 선에 `createSeriesMarkers(series, [])`로 한 번 붙이고, 이후에는 `setMarkers()`만 불러요. `upTo` 날짜까지의 체결만 넣어요. 매수(`buy`·`add`)는 아래 ▲, 매도는 위 ▼. `TradeChartSheet.svelte`의 지역 `mergedMarkers`·`MARKER_COLOR`·`LABEL`을 `src/lib/ui/simulate/markers.ts`로 옮기고 묶기 간격을 인자로 받게 해요. `TradeChartSheet`는 지금 간격(`MERGE_BARS`) 그대로, 재생 차트는 0(같은 날·같은 방향만 한 마커)으로 써서 그날 체결이 늘 그날 마커로 생겨요.
 - `curves` 모드에는 `upTo`를 쓰지 않아요.
 
 ### 4.4 그날 상황 패널 (`DayPanel.svelte`)
@@ -183,9 +195,10 @@ destroy()
 ### 6.2 컴포넌트 (vitest + `lwcStub`)
 
 - `ReplayBar`: 버튼·배속·range 동작, 날짜 표시, Space 토글(한 번만 전환), axe.
-- `EquityChart`: `upTo`일 때 실제 점 수와 마커 수, `upTo` 변경에 `setData` 다시 호출, 범례가 `upTo` 날짜를 보임, `upTo` 없으면 마커 없음.
+- `EquityChart`: `upTo`일 때 실제 점 수와 마커 수, `upTo` 변경에 `setData` 다시 호출, 범례가 `upTo` 날짜를 보임, `upTo` 없으면 마커 없음, 숫자 → `undefined`로 바뀌면 전체 점·마커 0개.
+- `markers.ts`: 간격 0이면 같은 날·같은 방향만 묶임, 기존 간격 동작은 `TradeChartSheet` 테스트가 그대로 통과.
 - `DayPanel`·`HoldingCard`: 보유 없음/있음, 손절 null 안내, axe.
-- `ResultView`: `timeline` 있으면 막대가 보이고 없으면(공유) 안 보여요. 「그날 상황 보기」로 패널이 펼쳐져요. 캡처 전 reset.
+- `ResultView`: `timeline` 있으면 막대가 보이고 없으면(공유) 안 보여요. 「그날 상황 보기」로 패널이 펼쳐져요. 「결과 공유」를 누르면 reset 뒤 `onShare`가 불려요.
 
 ### 6.3 성능
 
@@ -208,7 +221,8 @@ destroy()
 | `src/lib/ui/simulate/ReplayBar.svelte` | 새 파일 |
 | `src/lib/ui/simulate/DayPanel.svelte`, `HoldingCard.svelte` | 새 파일 |
 | `src/lib/ui/simulate/EquityChart.svelte` | `upTo`, 마커 |
-| `src/lib/ui/simulate/ResultView.svelte` | 컨트롤러 생명주기, 배치, 캡처 전 reset |
+| `src/lib/ui/simulate/markers.ts`(새), `TradeChartSheet.svelte` | 마커 합치기·색 공용화 |
+| `src/lib/ui/simulate/ResultView.svelte` | 컨트롤러 생명주기, 배치, 공유 전 reset |
 | `src/lib/ui/simulate/simText.ts`, `TradeList.svelte` | 체결 사유 문구 `why`를 옮김, 가격 막대 문구 |
 | `tests/e2e/simulate.spec.ts`, `a11y.spec.ts` | 재생 흐름 |
 
