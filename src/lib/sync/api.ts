@@ -1,5 +1,5 @@
 // sync-worker HTTP 클라이언트. 토큰·세션 헤더, 재시도, 공통 실패 매핑은 @sch0718/firebase-session/client가 한다.
-// 여기서는 가즈아 고유 실패(409 conflict, 410 gone)와 profiles·shares 메서드를 더한다.
+// 여기서는 가즈아 고유 실패(409 conflict, 410 gone)와 profiles·shares·keys 메서드를 더한다.
 import {
   createSessionClient,
   type ApiResult as BaseResult,
@@ -10,6 +10,7 @@ import {
 } from '@sch0718/firebase-session/client';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import type { ProfileDocV1 } from './dto';
+import type { RekeyBody, Sealed } from './keyWire';
 
 export type { Credentials, DeviceSession };
 
@@ -17,7 +18,19 @@ export type { Credentials, DeviceSession };
 export const SESSION_HEADER = 'X-Gazua-Session';
 
 type GazuaFail =
-  | { ok: false; kind: 'conflict'; revision: number; doc: ProfileDocV1 | null }
+  | {
+      ok: false;
+      kind: 'conflict';
+      revision: number;
+      doc: ProfileDocV1 | null;
+      /** 409의 error: conflict·vault-exists·no-vault·vault-changed·not-deleted */
+      code?: string;
+      vaultRevision?: number | null;
+      deleted?: boolean;
+      /** 검사 전 값. keySync.ts가 checkVaultHead·checkBlobRows로 본 뒤에만 쓴다 */
+      keyVault?: unknown;
+      keyBlobs?: unknown;
+    }
   | {
       ok: false;
       kind: 'gone';
@@ -37,6 +50,11 @@ function mapStatus(status: number, body: Record<string, unknown>): GazuaFail | u
       kind: 'conflict',
       revision: Number(body.revision ?? 0),
       doc: (body.doc as ProfileDocV1 | undefined) ?? null,
+      ...(typeof body.error === 'string' && { code: body.error }),
+      ...('vaultRevision' in body && { vaultRevision: typeof body.vaultRevision === 'number' ? body.vaultRevision : null }),
+      ...(typeof body.deleted === 'boolean' && { deleted: body.deleted }),
+      ...('keyVault' in body && { keyVault: body.keyVault }),
+      ...('keyBlobs' in body && { keyBlobs: body.keyBlobs }),
     };
   if (status === 410) {
     return {
@@ -92,6 +110,18 @@ export interface SyncApi {
   listShares(): Promise<ApiResult<{ shares: ShareRow[] }>>;
   revokeShare(id: string): Promise<ApiResult<{ revoked: boolean }>>;
   readShare(capability: string): Promise<ApiResult<SharedRead>>;
+  listKeys(): Promise<ApiResult<{ keyVault: unknown; keyBlobs: unknown }>>;
+  getKeyBlob(id: string): Promise<ApiResult<unknown>>;
+  createKeyVault(body: { vaultId: string; kdf: 'PBKDF2-SHA256'; iter: number; salt: string; verifier: Sealed }): Promise<ApiResult<{ vaultRevision: number; updatedAt: number }>>;
+  putKeyBlob(
+    id: string,
+    body: { expectedRevision: number; newRevision: number; contentId: string; vaultId: string; vaultRevision: number } & Sealed,
+  ): Promise<ApiResult<{ revision: number; updatedAt: number }>>;
+  /** 본문 없음 */
+  deleteKeyBlob(id: string): Promise<ApiResult<{ deleted: boolean; revision: number }>>;
+  rekey(body: RekeyBody): Promise<ApiResult<{ vaultRevision: number; updatedAt: number }>>;
+  /** 본문 없음 */
+  wipeKeys(): Promise<ApiResult<{ deleted: { vault: boolean; blobs: number } }>>;
 }
 
 export function createSyncApi(
@@ -129,5 +159,12 @@ export function createSyncApi(
     revokeShare: (id) => send('DELETE', `/v1/shares/${enc(id)}`),
     readShare: (capability) =>
       send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),
+    listKeys: () => send('GET', '/v1/keys'),
+    getKeyBlob: (id) => send('GET', `/v1/keys/${enc(id)}`),
+    createKeyVault: (body) => send('PUT', '/v1/keys/vault', { body }),
+    putKeyBlob: (id, body) => send('PUT', `/v1/keys/${enc(id)}`, { body }),
+    deleteKeyBlob: (id) => send('DELETE', `/v1/keys/${enc(id)}`),
+    rekey: (body) => send('POST', '/v1/keys/rekey', { body }),
+    wipeKeys: () => send('DELETE', '/v1/keys'),
   };
 }

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SESSION_HEADER, createSyncApi } from './api';
+import { deviceApi, testServer } from '../../../sync-worker/test/server';
+import { doc } from '../../../sync-worker/test/docs';
 
 describe('createSyncApi', () => {
   it('지정한 세션만 철회할 때 현재 세션과 Google 토큰을 보내지 않아요', async () => {
@@ -23,5 +25,47 @@ describe('createSyncApi', () => {
     const api = createSyncApi('https://sync.example.test', { idToken: async () => Promise.reject(new Error('auth/network-request-failed')), sessionId: async () => 's' }, fetchImpl);
     expect(await api.listProfiles()).toEqual({ ok: false, kind: 'offline' });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('키 금고 메서드', () => {
+  const A = (n: number, c: string) => c.repeat(n);
+  const vault = (vaultId = A(24, 'V')) => ({ vaultId, kdf: 'PBKDF2-SHA256' as const, iter: 600000, salt: A(24, 'S'), verifier: { nonce: A(16, 'N'), ciphertext: A(56, 'C') } });
+
+  it('금고·블롭·목록·끄기·전체 삭제가 서버와 왕복하고, 409는 code와 금고·목록을 담는다', async () => {
+    const s = testServer();
+    const { api } = await deviceApi(s);
+    expect((await api.putProfile('p1', { opId: 'op-1', expectedRevision: 0, doc: doc() })).ok).toBe(true);
+    expect(await api.createKeyVault(vault())).toEqual({ ok: true, data: { vaultRevision: 1, updatedAt: s.h.clock.now } });
+    const exists = await api.createKeyVault(vault(A(24, 'W')));
+    expect(exists).toMatchObject({ ok: false, kind: 'conflict', code: 'vault-exists' });
+    expect(exists.ok === false && exists.kind === 'conflict' && exists.keyVault).toMatchObject({ vaultId: A(24, 'V') });
+    const body = { expectedRevision: 0, newRevision: 1, contentId: A(24, 'I'), vaultId: A(24, 'V'), vaultRevision: 1, nonce: A(16, 'N'), ciphertext: A(64, 'X') };
+    expect(await api.putKeyBlob('p1', body)).toEqual({ ok: true, data: { revision: 1, updatedAt: s.h.clock.now } });
+    expect(await api.putKeyBlob('p1', { ...body, contentId: A(24, 'J'), nonce: A(16, 'O') })).toMatchObject({ ok: false, kind: 'conflict', code: 'conflict', revision: 1, vaultRevision: 1, deleted: false });
+    // 첫 요청과 nonce가 다르게: 같은 newRevision·nonce면 서버가 재전송으로 보고 200을 준다(설계 4.5)
+    expect(await api.putKeyBlob('p1', { ...body, nonce: A(16, 'P'), vaultRevision: 2 })).toMatchObject({ ok: false, kind: 'conflict', code: 'vault-changed', vaultRevision: 1 });
+    const list = await api.listKeys();
+    expect(list.ok && (list.data.keyBlobs as unknown[]).length).toBe(1);
+    expect(await api.getKeyBlob('p1')).toMatchObject({ ok: true, data: { revision: 1, ciphertext: A(64, 'X') } });
+    expect(await api.getKeyBlob('p9')).toEqual({ ok: false, kind: 'not-found' });
+    expect(await api.deleteKeyBlob('p1')).toEqual({ ok: true, data: { deleted: true, revision: 2 } });
+    const rk = await api.rekey({ expectedVaultId: A(24, 'V'), expectedVaultRevision: 1, salt: A(24, 'T'), verifier: { nonce: A(16, 'M'), ciphertext: A(56, 'D') }, keyBlobs: [] });
+    expect(rk).toEqual({ ok: true, data: { vaultRevision: 2, updatedAt: s.h.clock.now } });
+    expect(await api.wipeKeys()).toEqual({ ok: true, data: { deleted: { vault: true, blobs: 1 } } });
+    expect(await api.putKeyBlob('p1', { ...body, expectedRevision: 2, newRevision: 3 })).toMatchObject({ ok: false, kind: 'conflict', code: 'no-vault', vaultRevision: null });
+    expect(await api.createKeyVault({ ...vault(), iter: 310000 })).toMatchObject({ ok: false, kind: 'invalid', code: 'invalid' });
+  });
+
+  it('두 DELETE는 본문을 보내지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"deleted":false,"revision":0}'));
+    const api = createSyncApi('https://sync.example.test', { idToken: async () => 't', sessionId: async () => 's' }, fetchImpl);
+    await api.deleteKeyBlob('p1');
+    await api.wipeKeys();
+    const calls = vi.mocked(fetchImpl as typeof fetch).mock.calls;
+    expect(calls.map(([url, init]) => [String(url), init?.method, init?.body ?? null])).toEqual([
+      ['https://sync.example.test/v1/keys/p1', 'DELETE', null],
+      ['https://sync.example.test/v1/keys', 'DELETE', null],
+    ]);
   });
 });
