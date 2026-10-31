@@ -56,4 +56,24 @@ describe('purge', () => {
     expect((await purge(h.env, h.clock.now + 31 * DAY)).profiles).toBe(5);
     expect(n(h, 'profile_index')).toBe(0);
   });
+
+  it('정리 batch는 키 행을 지우지 않고 남은 암호문만 삭제 표시로 바꾼다(profile_index 삭제 앞이어야 통과)', async () => {
+    const A = (n: number, c: string) => c.repeat(n);
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    await me.as('PUT', '/v1/keys/vault', { vaultId: A(24, 'V'), kdf: 'PBKDF2-SHA256', iter: 600000, salt: A(24, 'S'), verifier: { nonce: A(16, 'N'), ciphertext: A(56, 'C') } });
+    const blob = (o: Record<string, unknown> = {}) => ({ expectedRevision: 0, newRevision: 1, contentId: A(24, 'I'), vaultId: A(24, 'V'), vaultRevision: 1, nonce: A(16, 'N'), ciphertext: A(64, 'X'), ...o });
+    await me.as('PUT', '/v1/keys/p1', blob());
+    await me.as('DELETE', '/v1/profiles/p1', { opId: 'd1', expectedRevision: 1 });
+    // 고아: 되돌린 Worker 기간에 암호문이 남았다고 친다
+    h.env.DB.raw.prepare("UPDATE key_blobs SET revision = 2, content_id = ?, nonce = ?, ciphertext = ? WHERE profile_id = 'p1'").run(A(24, 'I'), A(16, 'N'), A(64, 'X'));
+    expect((await purge(h.env, h.clock.now + 31 * DAY)).profiles).toBe(1);
+    expect(h.env.DB.raw.prepare("SELECT revision, ciphertext FROM key_blobs WHERE profile_id = 'p1'").get()).toEqual({ revision: 3, ciphertext: null });
+    // 정리된 프로필을 같은 ID로 다시 올려 키를 켜면 리비전이 이어진다(1로 돌아가지 않는다)
+    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-again', expectedRevision: 0, doc: doc() })).status).toBe(200);
+    expect(await (await me.as('GET', '/v1/keys')).json()).toMatchObject({ keyBlobs: [{ profileId: 'p1', revision: 3, deleted: true, contentId: null }] });
+    expect((await me.as('PUT', '/v1/keys/p1', blob({ expectedRevision: 3, newRevision: 4, contentId: A(24, 'J') }))).status).toBe(200);
+    expect(h.env.DB.raw.prepare("SELECT revision FROM key_blobs WHERE profile_id = 'p1'").get()).toEqual({ revision: 4 });
+  });
 });

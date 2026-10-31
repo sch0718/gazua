@@ -5,6 +5,7 @@ import type { D1PreparedStatement } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
 import { HttpError } from '@sch0718/firebase-session/worker';
 import type { AuthContext } from './session';
+import { KEY_TOMBSTONE_SQL } from './keySql';
 
 export const PAST_REVISIONS = 10;
 export const RESTORE_WINDOW = 30 * DAY;
@@ -172,6 +173,10 @@ export async function deleteProfile(
          WHERE user_id = ? AND profile_id = ? AND revision = ? AND deleted_at IS NULL`,
       ).bind(revision, opId, now, now, now + RESTORE_WINDOW, ctx.userId, profileId, expectedRevision),
       ...historyStatements(env, ctx, profileId, opId, revision, null, now),
+      // 키 행을 같은 batch에서 삭제 표시로(설계 4.9). 이 작업이 반영되어 지금 삭제 상태일 때만
+      env.DB.prepare(
+        `${KEY_TOMBSTONE_SQL} AND EXISTS (SELECT 1 FROM profile_index WHERE user_id = ? AND profile_id = ? AND last_op_id = ? AND deleted_at IS NOT NULL)`,
+      ).bind(now, ctx.userId, profileId, ctx.userId, profileId, opId),
     ]);
   }
   const h = await head(env, ctx.userId, profileId);
@@ -204,6 +209,8 @@ export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: 
          SELECT user_id, profile_id, ?, ?, body, ? FROM profiles WHERE user_id = ? AND profile_id = ? AND ${APPLIED}`,
       ).bind(revision, opId, now, ctx.userId, profileId, ctx.userId, profileId, opId),
       historyStatements(env, ctx, profileId, opId, revision, null, now)[1],
+      // 되살린 프로필에 살아 있는 키 행이 남아 있으면(되돌린 Worker 기간의 고아) 삭제 표시로. 블롭은 되살아나지 않는다
+      env.DB.prepare(`${KEY_TOMBSTONE_SQL} AND ${APPLIED}`).bind(now, ctx.userId, profileId, ctx.userId, profileId, opId),
     ]);
     const after = await head(env, ctx.userId, profileId);
     if (after?.lastOpId !== opId) throw new HttpError(409, 'conflict', { revision: after?.revision ?? null });
