@@ -71,11 +71,12 @@ timeline?: DayFrame[]; // equity와 같은 길이·같은 날짜. 옵션을 켠 
 
 ### 2.3 동일성 고정
 
-엔진을 고치기 **전에** 골든 테스트를 먼저 커밋해요(`src/lib/sim/simulate.golden.test.ts`).
-
-- 대표 사례: 분할 매수 + 3단계 익절 + `breakeven`, 손절(갭 포함), 현금 부족 건너뜀, `buyWindows`, 봉 없는 날, 지수·지정 종목 포함.
-- 지금 엔진의 `simulate()` 결과에서 `equity`·`trades`·`skipped`·`summary`·`perSymbol`·`nearMiss`·`benchmarks`를 인라인 스냅샷이나 `__snapshots__`로 고정해요.
-- 엔진 변경 뒤에는 옵션을 끄든 켜든 `timeline`을 뺀 나머지가 스냅샷과 같아야 해요.
+1. 엔진을 고치기 **전에** 골든 테스트를 먼저 커밋해요(`src/lib/sim/simulate.golden.test.ts`).
+   - 대표 입력 3개: (가) 분할 매수 + 3단계 익절 + `breakeven`, (나) 손절(갭 포함) + 현금 부족 건너뜀 + 봉 없는 날, (다) `buyWindows` + 지수·지정 종목.
+   - 각 입력의 지금 `simulate()` 결과 전체를 `toMatchSnapshot()`으로 고정해요.
+2. 엔진 변경 뒤 같은 파일에 불변식을 더해요: 대표 입력마다 `const { timeline, ...rest } = simulate(i, { timeline: true }); expect(rest).toStrictEqual(simulate(i))`.
+   - 옵션을 끄면 `timeline` 키를 아예 넣지 않아요(`toStrictEqual`이 `undefined` 키를 구분하므로).
+3. 옵션을 끈 경로는 기존 `simulate.test.ts`와 골든 스냅샷이 지켜요.
 
 ## 3. 재생 상태 (`src/lib/ui/simulate/replay.svelte.ts`)
 
@@ -83,23 +84,25 @@ DOM 없는 컨트롤러예요. Svelte 5 룬으로 상태를 갖고, 시계는 �
 
 ```ts
 createReplay(opts: { length: number; now?: () => number; raf?: (cb) => number; caf?: (id) => void })
-// 상태
+// 상태(읽기 전용 getter)
 index: number      // 0..length−1, 처음 값 = length−1(마지막 날 = 지금 결과 화면과 같음)
 playing: boolean
 speed: 1 | 2 | 4 | 8 | 16
+touched: boolean   // play·seek·step 중 하나라도 하면 true, reset()이 false로
 // 동작
 play()   // 마지막 날에서 누르면 0으로 돌아가 시작
 pause()
 toggle()
-seek(i)  // 범위로 자름, 재생 중이면 계속 재생
+seek(i)  // 범위로 자르고 일시정지
 step(±1) // 일시정지하고 하루 이동
 setSpeed(s)
+reset()  // 일시정지, index = length−1, touched = false
 destroy()
 ```
 
-- 진행: `raf` 루프에서 경과 시간 × speed(거래일/초)만큼 소수 누적, 정수가 넘으면 index를 올려요. 한 프레임에 여러 날을 건너뛸 수 있어요(16배·느린 기기).
+- 진행: `raf` 루프에서 경과 시간(프레임당 최대 1초로 자름) × speed(거래일/초)만큼 소수 누적, 정수가 넘으면 index를 올려요. 한 프레임에 여러 날을 건너뛸 수 있어요(16배·느린 기기).
 - 마지막 날에 닿으면 멈춰요.
-- 결과(`result`)가 바뀌면 새 컨트롤러를 만들어요(index = 마지막 날).
+- 생명주기: `ResultView`에서 `$effect`로 만들어요. `result`가 바뀌면 이전 것을 정리(`return () => r.destroy()`)하고 새로 만들어요. `$derived` 안에서 만들지 않아요(부작용·정리 누락).
 
 ## 4. 화면
 
@@ -107,90 +110,91 @@ destroy()
 
 ```
 요약 카드 (최종 결과, 바뀌지 않음)
-자산 차트 (index까지 그림, 가로축은 전체 기간 고정)
+자산 차트 (재생 중이면 index까지 그림, 가로·세로축은 전체 기간 고정)
 재생 막대
-그날 상황 패널 (index가 마지막 날이고 재생한 적 없으면 접힘 → 「그날 상황 보기」)
+그날 상황 패널 (touched일 때만 펼침, 아니면 「그날 상황 보기」 버튼 → 누르면 touched)
 탭(체결·종목·건너뜀, 지금과 같음)
 ```
 
-- `timeline`이 있을 때만 재생 막대·패널이 보여요.
-- 모바일도 같은 세로 순서예요. 보유 카드는 한 줄에 하나예요.
+- 재생 막대·패널은 아래를 모두 만족할 때만 보여요: `timeline`이 있음, 길이가 `equity`와 같음, 거래일 2일 이상, 거래가 1건 이상(거래 0건이면 자산 차트 자체가 없어요, `ResultView.svelte:140-164`).
+- 차트에 넘기는 `upTo`는 `touched`일 때만 `index`, 아니면 `undefined`예요. 그래서 재생을 건드리지 않으면 화면은 지금과 똑같아요.
+- 공유 카드 캡처(`capture()`, `ResultView.svelte:121-128`) 전에 `replay.reset()` 후 `await tick()`을 해요. 카드는 늘 최종 곡선·마커 없음으로 찍혀 받은 공유 화면과 같아요.
+- 모바일도 같은 세로 순서예요. 보유 카드는 한 줄에 하나예요. 좁은 화면(< 480px)에서는 배속 선택을 재생 버튼·날짜 아래 별도 줄에 둬요.
 
 ### 4.2 재생 막대 (`ReplayBar.svelte`)
 
-- ▶/⏸ 버튼(`aria-label` 「재생」/「일시정지」, `aria-pressed` 없이 라벨로 상태 표시).
+- ▶/⏸ 버튼(`aria-label` 「재생」/「일시정지」).
 - 배속: 기존 `Segmented`로 1×·2×·4×·8×·16×.
-- 날짜: `2024-03-15(금) · 120/245거래일`.
-- 타임라인: 네이티브 `<input type="range" min=0 max=length−1 step=1>`. 누르기·끌기·키보드가 기본으로 돼요. `aria-valuetext`에 날짜를 넣어요.
-- 타임라인 위 눈금: 매수(`buy`·`add`)·매도 날짜를 색 막대로(장식, `aria-hidden`).
+- 날짜: `dotDate` 형식 `2024.03.15(금) · 120/245거래일`.
+- 타임라인: 네이티브 `<input type="range" min=0 max=length−1 step=1 aria-label="거래일">`. `aria-valuetext`에 날짜를 넣어요. `oninput`에서 `seek`(일시정지)해요.
 - 안내 문구: 「일봉 기준이라 하루 단위로 움직여요」.
-- 키보드(막대에 포커스가 있을 때): Space 재생/정지, ←/→ 하루, Home/End 처음/끝. range 입력의 기본 동작과 겹치는 키는 range에 맡겨요.
+- 키보드: 단축키는 range 요소에만 걸어요. Space는 `preventDefault` 후 `toggle`. ←/→·Home/End는 range 기본 동작 → `oninput` → `seek`. 버튼과 `Segmented`에는 따로 핸들러를 달지 않아요(이벤트가 겹치지 않게).
 - 재생 중에는 화면 낭독기에 매일 알리지 않아요. 멈췄을 때 날짜만 `aria-live="polite"`로 알려요.
 
 ### 4.3 자산 차트 (`EquityChart.svelte`)
 
-- 새 prop `upTo?: number`(equity 인덱스). 없으면 지금과 같아요.
-- 있으면 각 선을 `upTo`까지만 실제 값으로, 그 뒤는 값 없는 점(whitespace)으로 넣어 가로축을 전체 기간으로 고정해요.
-- 전략 선에 체결 마커(`createSeriesMarkers`)를 `upTo` 날짜까지만 넣어요. 매수는 아래 ▲, 매도는 위 ▼, 색은 상승·하락 관례(`colorConvention`)를 따라요.
-- `upTo`가 바뀔 때 `setData`를 다시 해요. 16배(초당 16번)에서도 버벅이지 않아야 해요.
+- 새 prop `upTo?: number`(equity 인덱스). 없으면 지금과 같아요(마커도 없음).
+- 시리즈 데이터 다시 넣기: 지금은 `onMount`에서 한 번만 `setData`해요(`:162-175`). `upTo`가 있으면 `$effect`에서 `upTo`를 읽고 선마다 `setData`를 다시 불러요. `upTo` 뒤 날짜는 값 없는 점(whitespace)으로 넣어 가로축을 전체 기간으로 고정해요.
+- 세로축 고정: whitespace는 자동 축 계산에서 빠져 날마다 축이 출렁이므로, `upTo`가 있으면 각 시리즈에 `autoscaleInfoProvider`로 전체 기간 최소·최대를 넣어요.
+- 범례: `upTo`가 있으면 기본 날짜를 `equity[upTo].date`로 하고, 크로스헤어 날짜가 그보다 뒤면 무시하고 기본 날짜를 보여요.
+- 체결 마커: `onMount`에서 전략 선에 `createSeriesMarkers(series, [])`로 한 번 붙이고, 이후에는 `setMarkers()`만 불러요. `upTo` 날짜까지의 체결만 넣어요. 매수(`buy`·`add`)는 아래 ▲, 매도는 위 ▼. 색과 같은 날 합치기는 `TradeChartSheet`의 `--up`/`--down` 토큰·`mergedMarkers` 방식을 가져와 써요(같은 날 여러 종목 체결은 한 마커로).
 - `curves` 모드에는 `upTo`를 쓰지 않아요.
 
 ### 4.4 그날 상황 패널 (`DayPanel.svelte`)
 
-입력: `frame: DayFrame`, 그날 `trades`·`skipped`, `names`, `initial`, `colorConvention`.
+입력: `frame: DayFrame`, 그날 `trades`·`skipped`, `names`, `initial`.
 
 - 머리: 날짜, 총자산, 현금(비중 %), 그날까지 수익률.
 - 보유 카드(`HoldingCard.svelte`): 종목명, 수량, 평단, 종가, 평가액, 수익률, 보유 시작일.
-  - 가격 막대: 손절 · 다음 추가 · 평단 · 익절 1~3 위치에 눈금, 종가 위치에 점. 막대 범위는 표시할 가격들의 최소·최대에 여유 5%. 눈금마다 라벨과 가격.
-  - 값이 없으면(손절 미정 등) 그 눈금은 빼고 라벨 줄에 「손절: 분할 매수 끝나면 정해져요」처럼 이유를 적어요.
-- 예약 매수: 「다음 거래일 시가에 사요: 삼성전자 — 고점 대비 −20% 뒤 반등 3일」.
-- 그날 체결: 기존 `TradeList`의 한 줄 표현을 재사용하거나 같은 문구 함수(`simText`)를 써요.
+  - 가격 막대: 손절 · 다음 추가 · 평단 · 익절 1~3 위치에 눈금, 종가 위치에 점. 막대 범위는 표시할 가격들의 최소·최대에 여유 5%. 눈금마다 라벨과 가격. 「다음 거래일 기준」이라고 적어요.
+  - `stop`이 null이면(분할 매수 끝나기 전 `avgAfterScaleIn`, 유일한 경우) 「손절: 분할 매수 끝나면 정해져요」라고 적어요. `nextAdd`가 null이면 눈금만 빼요.
+- 예약 매수: 「다음 거래일 시가에 사요: 삼성전자 — <신호 이유>」.
+- 그날 체결: `TradeList.svelte`의 지역 함수 `why`(사유 문구)를 `simText.ts`로 옮겨 `TradeList`와 패널이 같이 써요.
 - 그날 건너뜀: 사유별로.
 - 보유가 없으면 「보유한 종목이 없어요」.
 
 ### 4.5 모션
 
-- 차트는 index가 바뀔 때마다 그날까지 다시 그려져서 앞으로 나아가요.
-- 그날 새 체결 줄과 새 보유 카드는 150ms 떠오르며 나타나요(`transition:fly`).
-- 가격 막대의 점은 150ms 미끄러져요(CSS `transition: left`).
-- `prefers-reduced-motion: reduce`면 위 두 효과를 끄고 값만 바꿔요. 재생 자체(날짜 진행)는 사용자가 누른 동작이라 그대로 해요.
+- 차트는 index가 바뀔 때마다 그날까지 다시 그려져서 앞으로 나아가요. 마커는 그날이 되면 생겨요.
+- index가 1만큼 바뀌었을 때만(재생 1·2배, step) 그날 새 체결 줄·새 보유 카드가 150ms 떠오르고(`transition:fly`) 가격 막대 점이 150ms 미끄러져요(CSS `transition: left`). 한 번에 여러 날을 건너뛰면 효과 없이 값만 바꿔요.
+- `prefers-reduced-motion: reduce`면 위 효과를 끄고 값만 바꿔요. 재생 자체(날짜 진행)는 사용자가 누른 동작이라 그대로 해요.
 
 ## 5. 오류·경계
 
 - `timeline` 길이가 `equity`와 다르면 재생 막대를 숨기고 `console.error`를 남겨요(엔진 버그 방어).
-- 기간이 1거래일이면 재생 막대를 숨겨요.
+- 기간이 1거래일이거나 거래가 0건이면 재생 막대·패널을 숨겨요.
 - 결과가 `stale`(이전 결과)이어도 재생은 돼요.
-- 재생 중 다른 탭으로 가면 `raf`가 멈추고, 돌아오면 경과 시간이 한 번에 커지지 않게 프레임당 최대 1초로 잘라요.
-- 화면을 떠나면(`onDestroy`) 컨트롤러를 정리해요.
+- 재생 중 다른 탭으로 가면 `raf`가 멈추고, 돌아오면 프레임당 경과 시간을 최대 1초로 잘라요.
+- 화면을 떠나거나 결과가 바뀌면 `$effect` 정리에서 컨트롤러를 `destroy`해요.
 
 ## 6. 테스트
 
 ### 6.1 단위
 
-- 골든: §2.3.
+- 골든·불변식: §2.3.
 - `timeline`:
   - 길이·날짜가 `equity`와 같고, `cash`·`value`가 같아요.
-  - 매수 다음 날 `holdings`에 생기고, 전량 매도한 날 빠져요.
-  - `stop`·`nextAdd`·`takes`가 같은 시점의 `Position` 계산과 같아요(분할 매수 중 `avgAfterScaleIn`은 `null`, `breakeven` 뒤 평단).
+  - `buy` 체결일 프레임부터 `holdings`에 있고, 전량 매도일 프레임에서 빠져요. 같은 날 사고 전량 판 종목은 `holdings`에 없고 그날 체결에만 있어요.
+  - `stop`·`nextAdd`·`takes`가 같은 시점의 `Position` 계산과 같아요(분할 매수 중 `avgAfterScaleIn`은 `null`, `breakeven` 뒤 평단 이상).
   - 봉 없는 날 `close`는 마지막 종가예요.
-  - `pending`은 신호 난 날에만 있고, 다음 날 `buy` 체결이나 건너뜀으로 이어져요.
-- `replay.svelte.ts`: 가짜 시계로 1·16배 진행, 끝에서 멈춤, 끝에서 play → 0, seek 범위 자르기, step이 일시정지, 큰 경과 시간 자르기.
+  - `pending`은 신호 난 날에만 있고, 다음 거래일 `buy` 체결이나 건너뜀으로 이어져요.
+- `replay.svelte.ts`: 가짜 시계로 1·16배 진행, 끝에서 멈춤, 끝에서 play → 0, seek 범위 자르기·일시정지, step 일시정지, touched·reset, 큰 경과 시간 자르기, destroy 뒤 raf 멈춤.
 
 ### 6.2 컴포넌트 (vitest + `lwcStub`)
 
-- `ReplayBar`: 버튼·배속·range 동작, 날짜 표시, 키보드, axe.
-- `EquityChart`: `upTo`일 때 실제 점 수와 마커 수.
-- `DayPanel`·`HoldingCard`: 보유 없음/있음, null 가격 안내, axe.
-- `ResultView`: `timeline` 있으면 막대가 보이고 없으면(공유) 안 보여요.
+- `ReplayBar`: 버튼·배속·range 동작, 날짜 표시, Space 토글(한 번만 전환), axe.
+- `EquityChart`: `upTo`일 때 실제 점 수와 마커 수, `upTo` 변경에 `setData` 다시 호출, 범례가 `upTo` 날짜를 보임, `upTo` 없으면 마커 없음.
+- `DayPanel`·`HoldingCard`: 보유 없음/있음, 손절 null 안내, axe.
+- `ResultView`: `timeline` 있으면 막대가 보이고 없으면(공유) 안 보여요. 「그날 상황 보기」로 패널이 펼쳐져요. 캡처 전 reset.
 
 ### 6.3 성능
 
-- 10년(약 2,450거래일)·8종목 합성 데이터로 `simulate()`를 돌려 `timeline`이 있어도 Node에서 500ms 이하인지 확인해요. 넘으면 웹 워커 이전을 다음 작업으로 남겨요.
+- 10년(약 2,450거래일)·8종목 합성 데이터로 `simulate()`를 timeline 끔/켬 각각 돌려, 켬 시간이 끔의 2배 이하인지 단언해요. 절대 시간은 로그로만 남겨요. 결과가 나쁘면 웹 워커 이전을 다음 작업으로 남겨요.
 
 ### 6.4 e2e (`tests/e2e/simulate.spec.ts`, `a11y.spec.ts`)
 
-- 데모 데이터로 실행 → ▶ → 날짜가 바뀜 → ⏸ → 타임라인을 처음으로 이동 → 패널에 「보유한 종목이 없어요」 또는 첫 날 상태.
-- 결과 화면 axe에 재생 막대·패널 포함.
+- 데모 데이터로 실행 → ▶ → 날짜가 바뀜 → ⏸ → 타임라인을 처음(Home)으로 이동 → 패널에 「보유한 종목이 없어요」(첫 거래일에는 예약이 있을 수 없어요).
+- 결과 화면 axe에 재생 막대·펼친 패널 포함.
 
 ## 7. 바뀌는 파일
 
@@ -204,8 +208,8 @@ destroy()
 | `src/lib/ui/simulate/ReplayBar.svelte` | 새 파일 |
 | `src/lib/ui/simulate/DayPanel.svelte`, `HoldingCard.svelte` | 새 파일 |
 | `src/lib/ui/simulate/EquityChart.svelte` | `upTo`, 마커 |
-| `src/lib/ui/simulate/ResultView.svelte` | 배치 |
-| `src/lib/ui/simulate/simText.ts` | 날짜·가격 막대 문구 |
+| `src/lib/ui/simulate/ResultView.svelte` | 컨트롤러 생명주기, 배치, 캡처 전 reset |
+| `src/lib/ui/simulate/simText.ts`, `TradeList.svelte` | 체결 사유 문구 `why`를 옮김, 가격 막대 문구 |
 | `tests/e2e/simulate.spec.ts`, `a11y.spec.ts` | 재생 흐름 |
 
 동기화(`src/lib/sync/`)와 공유(`src/lib/share/`) 형식은 바꾸지 않아요. `SimResult.timeline`은 선택 필드라 공유 복원 코드도 그대로 컴파일돼요.
