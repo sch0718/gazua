@@ -5,7 +5,7 @@ describe('테스트용 D1', () => {
   it('마이그레이션으로 표를 만든다', async () => {
     const db = createTestD1();
     const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all<{ name: string }>();
-    expect(results.map((r) => r.name)).toEqual(['profile_index', 'profiles', 'revisions', 'sessions', 'shares', 'users']);
+    expect(results.map((r) => r.name)).toEqual(['key_blobs', 'key_guard', 'key_vault', 'profile_index', 'profiles', 'revisions', 'sessions', 'shares', 'users']);
   });
 
   it('batch는 하나가 실패하면 전부 되돌린다', async () => {
@@ -25,5 +25,17 @@ describe('테스트용 D1', () => {
     await db.prepare("INSERT INTO users VALUES ('u', 's', 'e', 0, 0)").run();
     expect((await db.prepare("UPDATE users SET email = 'f' WHERE id = 'u'").run()).meta.changes).toBe(1);
     expect((await db.prepare("UPDATE users SET email = 'f' WHERE id = 'x'").run()).meta.changes).toBe(0);
+  });
+
+  it('CHECK에 걸리는 문장은 batch 앞 문장까지 되돌린다(key_guard)', async () => {
+    const db = createTestD1();
+    await expect(
+      db.batch([
+        db.prepare("INSERT INTO users (id, firebase_sub, email, created_at, last_seen_at) VALUES ('u1', 's1', 'a@example.test', 0, 0)"),
+        db.prepare('INSERT INTO key_guard (ok) SELECT 0'),
+      ]),
+    ).rejects.toThrow();
+    expect(await db.prepare('SELECT count(*) AS n FROM users').first()).toEqual({ n: 0 });
+    expect(await db.prepare('SELECT count(*) AS n FROM key_guard').first()).toEqual({ n: 0 });
   });
 });
