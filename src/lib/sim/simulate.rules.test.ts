@@ -99,3 +99,58 @@ describe('손절·익절 끄기와 트레일링(§4.3·§4.4)', () => {
     expect(r.trades.map((t) => t.kind)).toEqual(['buy', 'take', 'stop']);
   });
 });
+
+describe('기간 청산·조건 매도(§4.2·§4.5·§4.6)', () => {
+  const quiet = (edit: (s: Strategy) => void) =>
+    v2((s) => {
+      s.rules.sell.takeProfit.on = false;
+      s.rules.sell.stopLoss.on = false;
+      edit(s);
+    });
+  const hold = flat([86, 87, 88, 89, 90, 91]);
+
+  it('기간 청산: 매수일 = 1일째, N일째 종가 → 다음 날 시가', () => {
+    const r = simulate(input(quiet((s) => (s.rules.sell.timeExit = { on: true, days: 2 })), [hold]));
+    expect(r.trades.map((t) => [t.kind, t.date])).toEqual([['buy', D[9]], ['time', D[11]]]);
+    expect(r.trades[1].reason).toBe('보유 2일 청산');
+    expect(r.trades[1].price).toBe(88);
+  });
+  it('기간 청산: 거래정지일도 세고, 파는 날 봉이 없으면 봉 있는 날로 미룬다', () => {
+    const s = quiet((x) => (x.rules.sell.timeExit = { on: true, days: 2 }));
+    const stopped = { strategy: s, days: D.slice(0, 16), stocks: [stockOf(0, candlesFrom(BASE, hold, [10]))], index: null, benchmarkStock: null };
+    expect(simulate(stopped).trades.map((t) => [t.kind, t.date])).toEqual([['buy', D[9]], ['time', D[11]]]);
+    const late = { ...stopped, stocks: [stockOf(0, candlesFrom(BASE, hold, [11]))] };
+    expect(simulate(late).trades.map((t) => [t.kind, t.date])).toEqual([['buy', D[9]], ['time', D[12]]]);
+  });
+  it('조건 매도: 종가가 맞으면 다음 날 시가에 남은 수량 전부', () => {
+    const s = quiet((x) => (x.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 2, side: 'below' }] }] }));
+    const r = simulate(input(s, [flat([86, 90, 80, 81, 82, 83])]));
+    expect(r.trades.map((t) => [t.kind, t.date])).toEqual([['buy', D[9]], ['signalSell', D[12]]]);
+    expect(r.trades[1].reason).toBe('종가 2일선 아래');
+  });
+  it('예약 매도가 같은 날 갭 손절보다 먼저다', () => {
+    const s = v2((x) => {
+      x.rules.sell.takeProfit.on = false;
+      x.rules.sell.stopLoss = { on: true, pct: 5, basis: 'firstBuy' };
+      x.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 2, side: 'below' }] }] };
+    });
+    const r = simulate(input(s, [[[86, 90, 86, 90], [90, 90, 84, 84], [70, 70, 70, 70], ...flat([70, 70])]]));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy', 'signalSell']);
+    expect(r.trades[1].price).toBe(70);
+  });
+  it('조건 매도와 기간 청산이 같은 날이면 조건 매도', () => {
+    const s = quiet((x) => {
+      x.rules.sell.timeExit = { on: true, days: 1 };
+      x.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 2, side: 'below' }] }] };
+    });
+    const r = simulate(input(s, [flat([80, 80, 80])]));
+    expect(r.trades[1].kind).toBe('signalSell');
+  });
+  it('판 날에는 매수 판정을 하지 않고, 마지막 거래일에는 예약을 만들지 않는다', () => {
+    const s = quiet((x) => (x.rules.sell.timeExit = { on: true, days: 1 }));
+    const r = simulate(input(s, [hold], 11));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy', 'time']);
+    const last = simulate(input(s, [hold], 10));
+    expect(last.trades.map((t) => t.kind)).toEqual(['buy']);
+  });
+});

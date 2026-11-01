@@ -163,6 +163,10 @@ interface SymState {
   posAmount: number;
   posSeq: number;
   pending: { reason: string; snapshot?: PatternSnapshot } | null;
+  /** 어제 종가에 생긴 매도 예약(조건 매도·기간 청산). 오늘 시가에 남은 수량 전부 판다. 봉이 없으면 다음 봉까지 둔다 */
+  pendingSell: { kind: 'time' | 'signalSell'; reason: string } | null;
+  /** 조건 매도 평가기. 꺼져 있거나 묶음이 없으면 null */
+  sellEval: RuleEvaluator | null;
   lastClose: number | null;
   rt: { open: string; openDay: number; cost: number; proceeds: number } | null;
 }
@@ -212,16 +216,19 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
     const dates = stock.candles.map((k) => kstDate(k.t));
     const firstIdx = dates.findIndex((dt) => dt >= days[0]);
     const tracker = createRuleEvaluator(stock.candles, s.rules.buy, firstIdx < 0 ? dates.length : firstIdx);
+    const sig = s.rules.sell.signal;
+    const sellEval = sig.on && sig.groups.length > 0 ? createRuleEvaluator(stock.candles, sig.groups, firstIdx < 0 ? dates.length : firstIdx) : null;
     let lastClose: number | null = null;
     // 워밍업: 패턴만 먹이고 거래·예약 없음
     for (let i = 0; i < dates.length && dates[i] < days[0]; i++) {
       tracker.update(i);
+      sellEval?.update(i);
       lastClose = stock.candles[i].c;
     }
     tracker.resetStats();
     const byDate = new Map<string, number>();
     dates.forEach((dt, i) => inDays.has(dt) && byDate.set(dt, i));
-    return { stock, dates, byDate, tracker, pos: null, posAmount: 0, posSeq: 0, pending: null, lastClose, rt: null };
+    return { stock, dates, byDate, tracker, pos: null, posAmount: 0, posSeq: 0, pending: null, pendingSell: null, sellEval, lastClose, rt: null };
   });
 
   const initial = roundMoney(s.capital.initial);
@@ -247,8 +254,39 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
     else rt.proceeds = roundMoney(rt.proceeds + roundMoney(t.price * t.qty) - t.fee - t.tax);
   };
 
+  /** 전량 매도한 종목을 정리한다(왕복 기록·포지션 비움·그날 청산 표시) */
+  const closeRound = (st: SymState, di: number, date: string, closed: Set<SymState>) => {
+    const rt = st.rt!;
+    roundTrips.push({ symbol: st.stock.symbol, open: rt.open, close: date, cost: rt.cost, pnl: roundMoney(rt.proceeds - rt.cost), holdDays: di - rt.openDay + 1 });
+    st.pos = null;
+    st.rt = null;
+    st.pendingSell = null;
+    closed.add(st);
+  };
+
   days.forEach((date, di) => {
-    // 1. 시가: 예약 매수
+    const settle = settlementDate(date, days); // 세율은 양도일(결제일) 기준
+    const closed = new Set<SymState>();
+
+    // 1-1. 시가: 예약 매도(조건 매도·기간 청산). 매도 대금이 먼저 들어와 예약 매수에 쓴다
+    for (const st of syms) {
+      const ps = st.pendingSell;
+      if (!ps || !st.pos) continue;
+      const i = st.byDate.get(date);
+      if (i === undefined) continue; // 봉 없는 날은 예약을 두고 다음 봉에서 판다(건너뜀으로 남기지 않는다)
+      const { symbol, market, isEtf } = st.stock;
+      sellQty(st.pos, st.pos.qty, st.stock.candles[i].o, ps.kind, ps.reason, {
+        date,
+        symbol,
+        wallet,
+        feePct,
+        taxPct: sellTaxPct(settle, market, isEtf),
+        trade: (t) => record(st, t),
+      });
+      closeRound(st, di, date, closed);
+    }
+
+    // 1-2. 시가: 예약 매수
     for (const st of syms) {
       if (!st.pending) continue;
       const { reason, snapshot } = st.pending;
@@ -279,8 +317,6 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
     }
 
     // 2. 장중 경로, 3. 종가
-    const settle = settlementDate(date, days); // 세율은 양도일(결제일) 기준
-    const closed = new Set<SymState>();
     for (const st of syms) {
       const i = st.byDate.get(date);
       if (!st.pos || i === undefined) continue;
@@ -305,25 +341,27 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
           skipped.push({ date, symbol, reason });
         },
       });
-      if (st.pos.qty === 0) {
-        const rt = st.rt!;
-        roundTrips.push({ symbol, open: rt.open, close: date, cost: rt.cost, pnl: roundMoney(rt.proceeds - rt.cost), holdDays: di - rt.openDay + 1 });
-        st.pos = null;
-        st.rt = null;
-        closed.add(st);
-      }
+      if (st.pos.qty === 0) closeRound(st, di, date, closed);
     }
 
     let held = 0;
     for (const st of syms) {
       const i = st.byDate.get(date);
+      // 4-1. 보유 중이면 매도 판정만(보유 중 재진입 없음). 조건 매도가 기간 청산보다 먼저. 기간은 시장 축이라 봉 없는 날도 센다
+      if (st.pos && !st.pendingSell && di < days.length - 1) {
+        const sig = i !== undefined && st.sellEval ? st.sellEval.signal(i) : null;
+        const te = s.rules.sell.timeExit;
+        if (sig) st.pendingSell = { kind: 'signalSell', reason: sig.reason };
+        else if (te.on && di - st.rt!.openDay + 1 >= te.days) st.pendingSell = { kind: 'time', reason: `보유 ${te.days}일 청산` };
+      }
       if (i !== undefined) {
-        // 그날 청산한 종목은 리셋 전 상태로 신호를 내지 않는다
+        // 4-2. 보유하지 않고 그날 청산하지 않았으면 매수 판정(그날 청산한 종목은 리셋 전 상태로 신호를 내지 않는다)
         if (!st.pos && !closed.has(st) && di < days.length - 1) {
           const sig = st.tracker.signal(i);
           if (sig) st.pending = sig;
         }
         st.tracker.update(i);
+        st.sellEval?.update(i);
         if (closed.has(st)) st.tracker.reset(i);
         if (st.pos) st.pos.markClose(st.stock.candles[i].c); // 트레일 기준가는 종가로(스펙 §4.3)
         st.lastClose = st.stock.candles[i].c;
