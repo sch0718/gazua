@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
-import { doneState, noTrades } from './resultFixture';
+import { doneState, noTrades, withTimeline } from './resultFixture';
 import ResultView from './ResultView.svelte';
 import resultViewSource from './ResultView.svelte?raw';
 import type { DoneState } from './runController.svelte';
@@ -431,7 +431,7 @@ describe('ResultView 결과 공유', () => {
     const onShare = vi.fn();
     render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn(), onShare });
     await fireEvent.click(screen.getByRole('button', { name: '결과 공유' }));
-    expect(onShare).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onShare).toHaveBeenCalledTimes(1));
   });
   it('capture: 곡선이 있으면 카드, 거래 0건이면 null', () => {
     const a = render(ResultView, { state: doneState(), colorConvention: 'kr', onEdit: vi.fn() });
@@ -464,4 +464,111 @@ describe('ResultView 결과 공유', () => {
     }
   });
 
+});
+
+describe('ResultView 재생', () => {
+  // jsdom에는 matchMedia가 없다. 움직임 줄이기를 켠 것처럼 두어 fly 효과(element.animate, jsdom에 없음)를 부르지 않는다
+  const reducedMotion = (query: string) => ({
+    matches: query.includes('reduce'),
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  });
+  beforeEach(() => vi.stubGlobal('matchMedia', reducedMotion));
+
+  const withReplay = () => {
+    const s = doneState();
+    withTimeline(s);
+    return s;
+  };
+  const strategySeries = () => lwcCharts.at(-1)!.series[0];
+  const realPoints = () => (strategySeries().data as { value?: number }[]).filter((p) => p.value !== undefined).length;
+
+  it('timeline이 있으면 재생 막대와 「그날 상황 보기」가 보이고, 건드리기 전 차트는 지금과 같다', async () => {
+    setup(withReplay());
+    expect(screen.getByRole('group', { name: '재생' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '그날 상황 보기' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: '그날 상황' })).toBeNull();
+    await vi.waitFor(() => expect(lwcCharts.at(-1)?.series).toHaveLength(4));
+    expect(strategySeries().data).toHaveLength(3);
+    expect(realPoints()).toBe(3);
+    expect(strategySeries().markers).toEqual([]);
+  });
+
+  it('timeline이 없으면(공유에서 복원한 결과) 재생 막대가 없다', () => {
+    setup();
+    expect(screen.queryByRole('group', { name: '재생' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '그날 상황 보기' })).toBeNull();
+  });
+
+  it('timeline 길이가 equity와 다르면 숨기고 console.error를 남긴다', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const s = withReplay();
+      s.result.timeline!.pop();
+      setup(s);
+      expect(screen.queryByRole('group', { name: '재생' })).toBeNull();
+      await vi.waitFor(() => expect(err).toHaveBeenCalled());
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('거래일이 1일이거나 거래가 0건이면 숨긴다', () => {
+    const one = doneState((s) => (s.result.equity = s.result.equity.slice(0, 1)));
+    withTimeline(one);
+    const a = setup(one);
+    expect(screen.queryByRole('group', { name: '재생' })).toBeNull();
+    a.unmount();
+    const none = doneState();
+    noTrades(none);
+    withTimeline(none);
+    setup(none);
+    expect(screen.queryByRole('group', { name: '재생' })).toBeNull();
+  });
+
+  it('「그날 상황 보기」를 누르면 마지막 날 패널이 펼쳐지고, 타임라인으로 옮기면 패널과 차트가 따라간다', async () => {
+    setup(withReplay());
+    await fireEvent.click(screen.getByRole('button', { name: '그날 상황 보기' }));
+    const panel = () => screen.getByRole('region', { name: '그날 상황' });
+    expect(within(panel()).getByText('보유한 종목이 없어요')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '그날 상황 보기' })).toBeNull();
+    await vi.waitFor(() => expect(realPoints()).toBe(3)); // upTo = 마지막 날
+    expect(strategySeries().data).toHaveLength(3);
+
+    await fireEvent.input(screen.getByRole('slider', { name: '거래일' }), { target: { value: '1' } });
+    expect(within(panel()).getByRole('article', { name: '삼성전자' })).toBeTruthy();
+    await vi.waitFor(() => expect(realPoints()).toBe(2));
+
+    await fireEvent.input(screen.getByRole('slider', { name: '거래일' }), { target: { value: '0' } });
+    expect(within(panel()).getByText('다음 거래일 시가에 사요: SK하이닉스 — B 돌파')).toBeTruthy();
+  });
+
+  it('결과 공유: 재생을 처음 상태로 되돌리고(패널 접힘·전체 곡선) 그 뒤에 onShare를 부른다', async () => {
+    let seen: { panel: boolean; points: number } | null = null;
+    const onShare = vi.fn(() => {
+      seen = { panel: document.querySelector('[aria-label="그날 상황"]') !== null, points: realPoints() };
+    });
+    render(ResultView, { state: withReplay(), colorConvention: 'kr', onEdit: vi.fn(), onShare });
+    await fireEvent.click(screen.getByRole('button', { name: '그날 상황 보기' }));
+    await fireEvent.input(screen.getByRole('slider', { name: '거래일' }), { target: { value: '0' } });
+    await vi.waitFor(() => expect(realPoints()).toBe(1));
+    await fireEvent.click(screen.getByRole('button', { name: '결과 공유' }));
+    await vi.waitFor(() => expect(onShare).toHaveBeenCalledTimes(1));
+    expect(seen).toEqual({ panel: false, points: 3 });
+    expect(screen.getByRole('button', { name: '그날 상황 보기' })).toBeTruthy();
+  });
+
+  it('결과가 바뀌면 이전 컨트롤러를 정리하고 새로 만든다(재생 상태가 처음으로)', async () => {
+    const { rerender } = setup(withReplay());
+    await fireEvent.click(screen.getByRole('button', { name: '그날 상황 보기' }));
+    expect(screen.getByRole('region', { name: '그날 상황' })).toBeTruthy();
+    await rerender({ state: withReplay(), colorConvention: 'kr', theme: 'system', onEdit: vi.fn() });
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: '그날 상황 보기' })).toBeTruthy());
+    expect(screen.queryByRole('region', { name: '그날 상황' })).toBeNull();
+  });
 });

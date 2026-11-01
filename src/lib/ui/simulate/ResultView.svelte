@@ -15,6 +15,11 @@
   import TradeList from './TradeList.svelte';
   import type { CardCapture } from '../../share/shareStore.svelte';
   import { cardAlt, composeCard, readCardColors, simResultCardText } from '../../share/cardImage';
+  import { tick, untrack } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
+  import DayPanel from './DayPanel.svelte';
+  import ReplayBar from './ReplayBar.svelte';
+  import { createReplay, replayMotion, type Replay } from './replay.svelte';
 
   // 'state' 이름은 $state 룬과 겹쳐서 done으로 받는다.
   let {
@@ -105,6 +110,43 @@
   const lineOf = (k: EquityKey) => EQUITY_LINES.find((l) => l.key === k)!;
 
   const noTrades = $derived(result.trades.length === 0);
+  // 재생(설계 §3·§4.1): 결과마다 컨트롤러를 하나 만들고, 결과가 바뀌거나 화면을 떠나면 정리한다.
+  // createReplay가 자기 $state를 읽어도 이 effect의 의존성이 되지 않게 untrack으로 감싼다. 첫 렌더에서는 undefined다.
+  let replay = $state.raw<Replay>();
+  $effect(() => {
+    const n = result.equity.length;
+    const r = untrack(() => createReplay({ length: n }));
+    replay = r;
+    return () => r.destroy();
+  });
+  const timeline = $derived(result.timeline);
+  const dates = $derived(result.equity.map((e) => e.date));
+  // 엔진 버그 방어: 길이가 다르면 재생을 숨긴다
+  const timelineBroken = $derived(timeline !== undefined && timeline.length !== result.equity.length);
+  $effect(() => {
+    if (timelineBroken) console.error('재생 기록 길이가 자산 곡선과 달라 재생을 숨겨요', timeline?.length, result.equity.length);
+  });
+  // 재생 막대·패널: 기록이 있고 길이가 맞고, 거래일 2일 이상, 거래 1건 이상(거래 0건이면 자산 곡선이 없다)
+  const canReplay = $derived(timeline !== undefined && !timelineBroken && result.equity.length >= 2 && !noTrades);
+  // 재생을 건드리기 전에는 차트를 지금 그대로(upTo 없음) 둔다
+  const upTo = $derived(canReplay && replay?.touched ? replay.index : undefined);
+  const frame = $derived(canReplay && replay && timeline ? (timeline[replay.index] ?? null) : null);
+  const dayTrades = $derived(frame ? result.trades.filter((t) => t.date === frame.date) : []);
+  const daySkipped = $derived(frame ? result.skipped.filter((k) => k.date === frame.date) : []);
+  // 움직임 줄이기면 효과 없이 값만 바꾼다. svelte/motion의 prefersReducedMotion은 불러오는 순간 matchMedia를 불러 jsdom에서 깨진다
+  const reducedQuery = typeof matchMedia === 'function' ? new MediaQuery('(prefers-reduced-motion: reduce)') : null;
+  const motion = $derived(replay ? replayMotion(replay, reducedQuery?.current ?? false) : false);
+
+  /** 「그날 상황 보기」: 움직이지 않고 touched만 켠다 */
+  function openDay() {
+    if (replay) replay.seek(replay.index);
+  }
+  /** 공유 카드는 늘 최종 곡선·마커 없음으로 찍히게, 대화상자를 열기 전에 재생을 처음 상태로 되돌린다 */
+  async function share() {
+    replay?.reset();
+    await tick();
+    onShare?.();
+  }
   // 건너뜀 수·이유: 목록이 없으면(개수만 받은 공유) summary와 받은 개수로 센다
   const skipN = $derived(skippedCounts ? sum.skippedSignals : result.skipped.length);
   const skipList = $derived(
@@ -134,7 +176,7 @@
     {#if stale}<Badge tone="nxt">이전 결과</Badge>{/if}
     <span>{resultHeadline(meta.from, meta.to, meta.venueLabel, meta.fetchedAt, meta.strategy.period.from)}</span>
     {#if meta.demo}<Badge>데모 데이터</Badge>{/if}
-    {#if onShare}<button type="button" class="share" onclick={onShare}>결과 공유</button>{/if}
+    {#if onShare}<button type="button" class="share" onclick={share}>결과 공유</button>{/if}
   </p>
 
   {#if noTrades}
@@ -179,8 +221,19 @@
         labels={{ benchmark: benchName, index: meta.strategy.benchmarks.index }}
         {theme}
         {sampledNote}
+        {upTo}
+        trades={result.trades}
       />
     {/key}
+
+    {#if canReplay && replay}
+      <ReplayBar {replay} {dates} />
+      {#if replay.touched && frame}
+        <DayPanel {frame} trades={dayTrades} skipped={daySkipped} names={meta.names} initial={meta.strategy.capital.initial} {motion} />
+      {:else}
+        <button type="button" class="open-day" onclick={openDay}>그날 상황 보기</button>
+      {/if}
+    {/if}
 
     <ul class="bench" aria-label="비교 기준">
       {#each rows as r (r.label)}
@@ -249,6 +302,14 @@
   }
   .share {
     margin-left: auto;
+    min-height: var(--touch);
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface2);
+    font-weight: 700;
+  }
+  .open-day {
+    align-self: flex-start;
     min-height: var(--touch);
     padding: 0 12px;
     border-radius: 12px;

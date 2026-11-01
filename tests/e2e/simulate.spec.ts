@@ -105,6 +105,48 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
+test('시뮬레이션 재생: ▶ → 날짜가 바뀜 → ⏸ → 타임라인 처음 → 그날 상황', async ({ page }, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e.message));
+
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
+
+  const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
+  await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const bar = result.getByRole('group', { name: '재생' });
+  await expect(bar).toBeVisible();
+  const when = bar.locator('.when');
+  const last = (await when.textContent())!.trim();
+  expect(last).toMatch(/^\d{4}\.\d{2}\.\d{2}\([일월화수목금토]\) · (\d+)\/\1거래일$/);
+
+  // ▶: 마지막 날에서 누르면 처음으로 돌아가 재생
+  await bar.getByRole('button', { name: '재생' }).click();
+  await expect(bar.getByRole('button', { name: '일시정지' })).toBeVisible();
+  await expect(when).not.toHaveText(last);
+  await expect(result.getByRole('region', { name: '그날 상황' })).toBeVisible();
+  // 둘째 날 이후로 실제로 진행했는지 기다린다(1배 = 초당 1거래일)
+  await expect(when).toContainText(/ · ([2-9]|\d{2,})\/\d+거래일$/, { timeout: 5_000 });
+  await bar.getByRole('button', { name: '일시정지' }).click();
+  await expect(bar.getByRole('button', { name: '재생' })).toBeVisible();
+
+  // 타임라인 처음(Home): 첫 거래일에는 아직 산 종목이 없다
+  const range = bar.getByRole('slider', { name: '거래일' });
+  await range.focus();
+  await page.keyboard.press('Home');
+  await expect(range).toHaveValue('0');
+  await expect(when).toContainText(/ · 1\/\d+거래일$/);
+  await expect(result.getByRole('region', { name: '그날 상황' })).toContainText('보유한 종목이 없어요');
+
+  await expectNoHorizontalScroll(page);
+  await shot(page, testInfo, 'sim-4-replay');
+  expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
 test('시뮬레이션: 목록·편집·로딩·결과 어느 상태에서도 가로 스크롤이 없다', async ({ page }) => {
   // 데모 공급자는 일봉을 메모리에서 만들어 로딩이 순식간이다. 실행이 종목 목록(universe.json)을 기다리게 해서 로딩에 붙들어 둔다:
   // 예시 그룹 밖의 종목(035420)을 그룹에 넣고, 새로고침 뒤 첫 universe.json 응답을 풀어 줄 때까지 붙든다.

@@ -73,6 +73,13 @@ test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위�
   await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expectNoSeriousViolations(page, '시뮬레이션 결과');
   await expectNoHorizontalScroll(page);
+
+  // 재생 막대와 펼친 「그날 상황」(마지막 날: 보유 카드가 있을 수 있다)
+  await expect(result.getByRole('group', { name: '재생' })).toBeVisible();
+  await result.getByRole('button', { name: '그날 상황 보기' }).click();
+  await expect(result.getByRole('region', { name: '그날 상황' })).toBeVisible();
+  await expectNoSeriousViolations(page, '시뮬레이션 결과(재생 막대·그날 상황)');
+  await expectNoHorizontalScroll(page);
 });
 
 // 펼친 구역: 기본 전략에서 꺼진 조건(고점 뒤 지난 거래일·골든크로스 칸 등)이 흐리게 보여도 글자 대비를 지킨다.
