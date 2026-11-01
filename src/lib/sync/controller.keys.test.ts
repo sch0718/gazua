@@ -9,6 +9,7 @@ import { SYNC_BASE, testServer, type TestServer } from '../../../sync-worker/tes
 import type { AuthClient } from './auth';
 import { createSyncController, KEY_CHANNEL, type SyncController } from './controller.svelte';
 import { createMemoryKeyStore, type KeyStore } from './keyStore';
+import { KEY_TEXT } from './keySync';
 import { createMemorySyncStore, type SyncStore } from './store';
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -252,7 +253,6 @@ describe('컨트롤러의 키 동기화', () => {
     expect(d.app.secrets?.kis).toBeUndefined();
   });
 
-
   it('destroy 전에 시작한 비밀 변경 알림이 늦게 끝나도 키 타이머를 다시 걸지 않는다', async () => {
     const s = testServer();
     const d = await on(s, { keyDebounceMs: 60_000 });
@@ -287,6 +287,120 @@ describe('컨트롤러의 키 동기화', () => {
     expect(d.sync.keys.view.remembered).toBe(false);
   });
 
+  it.each(['forget', 'pagehide', 'channel', 'lock', 'destroy'] as const)('금고 풀기의 세션 확인 중 %s이면 마스터 키를 되살리지 않는다', async (how) => {
+    const s = testServer();
+    const d = await on(s, { keyDebounceMs: 60_000 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const getMeta = d.store.getMeta.bind(d.store);
+    let sessions = 0;
+    let waiting = false;
+    const spy = vi.spyOn(d.store, 'getMeta').mockImplementation(async (key) => {
+      const value = await getMeta(key);
+      // 첫 확인은 머리 조회 전, 두 번째는 KDF 뒤 keyAction 내부이다.
+      if (key === 'session' && ++sessions === 2) {
+        waiting = true;
+        await gate;
+      }
+      return value;
+    });
+    const unlock = d.sync.keys.unlockVault(PASS);
+    let ch: BroadcastChannel | undefined;
+    try {
+      await vi.waitFor(() => expect(waiting).toBe(true), { timeout: 5000 });
+      if (how === 'forget') d.sync.keys.forget();
+      else if (how === 'pagehide') window.dispatchEvent(new Event('pagehide'));
+      else if (how === 'lock') d.sync.onLock();
+      else if (how === 'destroy') d.sync.destroy();
+      else {
+        ch = new BroadcastChannel(KEY_CHANNEL);
+        ch.postMessage({ type: 'forget' });
+      }
+      await vi.waitFor(() => expect(d.sync.keys.view.remembered).toBe(false));
+      release();
+      const result = await unlock;
+      expect(d.sync.keys.view.remembered).toBe(false);
+      expect(result).toEqual({ ok: false, message: null });
+    } finally {
+      release();
+      await unlock;
+      spy.mockRestore();
+      ch?.close();
+    }
+  });
+
+  it.each(['wipe', 'changePassphrase'] as const)('%s 응답을 기다리는 중 종료하면 닫힌 채널로 알리지 않는다', async (action) => {
+    const s = testServer();
+    const d = await on(s, { keyDebounceMs: 60_000 });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let waiting = false;
+    const api = d.sync.api!;
+    const wipe = api.wipeKeys.bind(api);
+    const rekey = api.rekey.bind(api);
+    const spy = action === 'wipe'
+      ? vi.spyOn(api, 'wipeKeys').mockImplementationOnce(async () => {
+        const result = await wipe();
+        waiting = true;
+        await gate;
+        return result;
+      })
+      : vi.spyOn(api, 'rekey').mockImplementationOnce(async (body) => {
+        const result = await rekey(body);
+        waiting = true;
+        await gate;
+        return result;
+      });
+    const pending = action === 'wipe' ? d.sync.keys.wipe() : d.sync.keys.changePassphrase(PASS, 'FAKE-sync-pass-0002');
+    try {
+      await vi.waitFor(() => expect(waiting).toBe(true), { timeout: 5000 });
+      d.sync.destroy();
+      release();
+      await expect(pending).resolves.toMatchObject({ ok: true });
+      expect(d.sync.keys.view.remembered).toBe(false);
+    } finally {
+      release();
+      await pending.catch(() => {});
+      spy.mockRestore();
+    }
+  });
+
+  it.each([null, undefined, 'invalid', 1, []].map((data) => ({ data })))('금고 머리 응답 본문 $data를 응답 모양 오류로 돌려준다', async ({ data }) => {
+    const s = testServer();
+    const d = await setup(s);
+    // 잘못된 서버 응답을 재현하기 위해 API 반환형 밖의 본문을 주입한다.
+    const malformed = { ok: true, data } as unknown as Awaited<ReturnType<NonNullable<SyncController['api']>['listKeys']>>;
+    const spy = vi.spyOn(d.sync.api!, 'listKeys').mockResolvedValueOnce(malformed);
+    try {
+      await expect(d.sync.keys.unlockVault(PASS)).resolves.toEqual({ ok: false, message: KEY_TEXT.badResponse });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each(['lock', 'store'] as const)('받기 준비의 %s 예외를 서버 오류 결과로 돌려주고 평문을 남기지 않는다', async (source) => {
+    let rejectLock = false;
+    const s = testServer();
+    const sender = await on(s);
+    const d = await setup(s, { lock: async (fn) => {
+      if (rejectLock) throw new Error('lock failed');
+      return fn();
+    } });
+    const id = sender.app.meta.activeProfileId;
+    d.app.switchProfile(id);
+    await d.sync.keys.unlockVault(PASS);
+    expect(await d.sync.keys.prepareReceive(id)).toEqual({ ok: true, overwrite: [] });
+    rejectLock = source === 'lock';
+    const spy = source === 'store' ? vi.spyOn(d.keyStore, 'state').mockRejectedValueOnce(new Error('store failed')) : null;
+    try {
+      await expect(d.sync.keys.prepareReceive(id)).resolves.toEqual({ ok: false, message: KEY_TEXT.server });
+      expect(await d.sync.keys.commitReceive()).toEqual({ ok: false, message: null, recheck: true });
+    } finally {
+      rejectLock = false;
+      spy?.mockRestore();
+    }
+  });
+
   it('받기 잠금 암호 확인 중 취소하면 풀어 둔 키를 저장하지 않는다', async () => {
     const s = testServer();
     const sender = await on(s);
@@ -307,7 +421,6 @@ describe('컨트롤러의 키 동기화', () => {
     expect(d.app.secrets?.kis).toEqual(KIS2);
   });
 
-
   it('금고 풀기가 세션 철회를 확인해도 마스터 키를 잊고 로그아웃한다', async () => {
     const s = testServer();
     const d = await on(s);
@@ -316,5 +429,4 @@ describe('컨트롤러의 키 동기화', () => {
     expect(d.sync.keys.view.remembered).toBe(false);
     expect(d.sync.account).toBeNull();
   });
-
 });

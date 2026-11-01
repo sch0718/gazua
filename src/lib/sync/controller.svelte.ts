@@ -258,6 +258,16 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     if (keyTimer !== null) clearTimeout(keyTimer);
     keyTimer = null;
   }
+  /** keyOperationGeneration은 exclusive 진입점(keyAction·prepareReceive·키 단계)에서 정한다. */
+  function setVaultKey(key: VaultKey | null, generation = keyOperationGeneration): boolean {
+    if (!key) {
+      forgetVaultKey();
+      return true;
+    }
+    if (destroyed || generation !== keyGeneration) return false;
+    vaultKey = key;
+    return true;
+  }
   /** 마스터 키를 잊는다. broadcast면 다른 탭에도 알린다(로그아웃·계정 전환·전체 삭제·암호 바꾸기) */
   function forgetVaultKey(broadcast = false) {
     ++keyGeneration;
@@ -265,7 +275,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     pendingReceive = null;
     keyView.remembered = false;
     clearKeyTimer();
-    if (broadcast) keyChannel?.postMessage({ type: 'forget' });
+    if (broadcast && !destroyed) keyChannel?.postMessage({ type: 'forget' });
     void refreshKeys();
   }
   function scheduleKeys() {
@@ -341,6 +351,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       else if (l.kind === 'not-allowed') onAuthFailure('not-allowed');
       return { ok: false, message: keyFailText(l) };
     }
+    if (!l.data || typeof l.data !== 'object') return { ok: false, message: KEY_TEXT.badResponse };
     const head = l.data.keyVault === null ? null : checkVaultHead(l.data.keyVault);
     if (!head) return { ok: false, message: l.data.keyVault === null ? KEY_TEXT.noVault : KEY_TEXT.badResponse };
     const key = await deriveVaultKey(pass, head.salt, head.iter);
@@ -369,7 +380,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           forgetVaultKey();
           return { ok: false, message: KEY_TEXT.auth };
         }
-        vaultKey = r.key;
+        if (!setVaultKey(r.key, generation)) return { ok: false, message: null };
         if ((await keyStore?.getMeta<KeyAccountNotice>('keyNotice')) === 'vault-changed') await keyStore?.setMeta('keyNotice', null);
         return { ok: true, notes: [] };
       }, generation);
@@ -392,19 +403,24 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       const ks = keySync;
       const eng = engine;
       if (!ks || !eng) return { ok: false, message: KEY_TEXT.server };
-      const r = await eng.exclusive(() => {
-        if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return Promise.resolve<KeyFail>({ ok: false, message: null });
-        keyOperationGeneration = generation;
-        return ks.prepareReceive(id);
-      });
-      if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return { ok: false, message: null };
-      if (!r.ok) {
-        if (r.recheck) await eng.keysNow();
+      try {
+        const r = await eng.exclusive(() => {
+          if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return Promise.resolve<KeyFail>({ ok: false, message: null });
+          keyOperationGeneration = generation;
+          return ks.prepareReceive(id);
+        });
+        if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return { ok: false, message: null };
+        if (!r.ok) {
+          if (r.recheck) await eng.keysNow();
+          return r;
+        }
+        pendingReceive = r.prepared;
+        return { ok: true, overwrite: [...r.prepared.overwrite] };
+      } catch {
+        return { ok: false, message: KEY_TEXT.server };
+      } finally {
         await refreshKeys();
-        return r;
       }
-      pendingReceive = r.prepared;
-      return { ok: true, overwrite: [...r.prepared.overwrite] };
     },
     async commitReceive(lockPass) {
       const generation = keyGeneration;
@@ -434,16 +450,16 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       const salt = randomId();
       const key = await deriveVaultKey(next, salt, KEY_ITER);
       const r = await keyAction((ks) => {
-        vaultKey = cur.key;
+        if (!setVaultKey(cur.key, generation)) return Promise.resolve<KeyFail>({ ok: false, message: null });
         return ks.rekey({ key, salt });
       }, generation);
       if (!r.ok) return r;
-      keyChannel?.postMessage({ type: 'forget' });
+      if (!destroyed) keyChannel?.postMessage({ type: 'forget' });
       return { ok: true, notes: [KEY_TEXT.passChangedDone] };
     },
     async wipe() {
       const r = await keyAction((ks) => ks.wipe());
-      if (r.ok) keyChannel?.postMessage({ type: 'forget' });
+      if (r.ok && !destroyed) keyChannel?.postMessage({ type: 'forget' });
       return r;
     },
     forget: () => forgetVaultKey(),
@@ -667,10 +683,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
             return { uploaded: !!st && st.syncedRevision > 0 && !st.deleted };
           },
           vaultKey: () => vaultKey,
-          setVaultKey: (k) => {
-            if (!k) forgetVaultKey();
-            else if (!destroyed && keyOperationGeneration === keyGeneration) vaultKey = k;
-          },
+          setVaultKey,
           sessionOk,
           onAuthFailure,
         });
