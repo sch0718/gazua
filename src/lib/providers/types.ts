@@ -109,6 +109,8 @@ export interface AccountHolding {
   symbol: string;
   name: string;
   quantity: number;
+  /** 평균 매수가(토스 averagePurchasePrice). 응답에 없거나 숫자가 아니면 빠진다 */
+  avgPrice?: number;
 }
 
 export interface AccountSource {

@@ -34,6 +34,11 @@ export interface ProxyClientConfig {
    * 기본은 proxy-unreachable이다. CORS 판정은 연결 진단(① no-cors로 프록시 생존을 확인한 뒤)이 한다.
    */
   typeErrorCode?: 'proxy-unreachable' | 'cors-blocked';
+  /**
+   * 요청 주소(쿼리 제외)를 직접 만든다. 없으면 `${baseUrl}/${provider}${path}`.
+   * CLI가 프록시 없이 증권사 원 주소를 부를 때 쓴다(같은 시간 제한·오류 분류·retry-after를 그대로 쓰려고).
+   */
+  urlFor?: (provider: ProxyProvider, path: string) => string;
 }
 
 const DEFAULT_TIMEOUT_MS = 8000;
@@ -77,7 +82,8 @@ export function createProxyClient(cfg: ProxyClientConfig): ProxyClient {
       if (isOffline()) throw new ApiError('offline');
 
       const search = opts.query ? new URLSearchParams(opts.query).toString() : '';
-      const url = `${base}/${provider}${path}${search ? `?${search}` : ''}`;
+      const target = cfg.urlFor ? cfg.urlFor(provider, path) : `${base}/${provider}${path}`;
+      const url = `${target}${search ? `?${search}` : ''}`;
 
       const headers = new Headers(opts.headers);
       if (cfg.proxyToken) headers.set('x-proxy-token', cfg.proxyToken);

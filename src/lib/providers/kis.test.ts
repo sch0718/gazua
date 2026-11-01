@@ -6,7 +6,7 @@ import { runProviderContract } from './contract';
 import { ApiError } from './errors';
 import { createProxyClient, type ProxyClient, type ProxyResponse } from './http';
 import { KIS_MINUTE_TIME_IS_BAR_END, UnsupportedRangeError, createKisProvider } from './kis';
-import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from './types';
+import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenLock, TokenStore } from './types';
 import chkHoliday from './fixtures/kis/chk-holiday.json';
 import daily005930 from './fixtures/kis/daily-005930.json';
 import indexDaily0001 from './fixtures/kis/index-daily-0001.json';
@@ -827,5 +827,48 @@ describe('KIS token throttle countdown', () => {
     const err = await provider.getQuotes(['005930'], 'KRX').catch((e) => e);
     expect(err.code).toBe('token-throttled');
     expect(err.retryAfterMs).toBe(60_000);
+  });
+});
+
+
+describe('KIS tokenLock', () => {
+  function build(tokenLock?: TokenLock, events: string[] = []) {
+    const inner = fakeClient();
+    const client: ProxyClient = {
+      request: (provider, method, path, opts) => {
+        if (path === '/oauth2/tokenP') events.push('issue');
+        return inner.request(provider, method, path, opts);
+      },
+    };
+    const provider = createKisProvider({
+      client,
+      queue: fastQueue(),
+      creds: { appKey: APP_KEY, appSecret: APP_SECRET },
+      tokenStore: memoryStore(),
+      now: () => SUN,
+      ...(tokenLock ? { tokenLock } : {}),
+    });
+    return { provider, events };
+  }
+
+  it('tokenLock을 넘기면 토큰 발급이 잠금 안에서 일어난다', async () => {
+    const events: string[] = [];
+    const lock: TokenLock = async (fn) => {
+      events.push('lock');
+      try {
+        return await fn();
+      } finally {
+        events.push('unlock');
+      }
+    };
+    const { provider } = build(lock, events);
+    await provider.getQuotes(['005930'], 'KRX');
+    expect(events).toEqual(['lock', 'issue', 'unlock']);
+  });
+
+  it('tokenLock을 안 넘기면 지금처럼 잠금 없이 발급한다', async () => {
+    const { provider, events } = build();
+    await provider.getQuotes(['005930'], 'KRX');
+    expect(events).toEqual(['issue']);
   });
 });

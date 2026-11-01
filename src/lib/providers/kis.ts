@@ -6,7 +6,7 @@ import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../time/kst';
 import { createTokenManager } from './auth';
 import { ApiError, kisBodyCode } from './errors';
 import type { ProxyClient, ProxyResponse } from './http';
-import type { CandleQuery, IssuedAtStore, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenStore } from './types';
+import type { CandleQuery, IssuedAtStore, MarketDataProvider, Quote, StockMeta, TokenInfo, TokenLock, TokenStore } from './types';
 
 /**
  * `stck_cntg_hour`가 봉의 끝 시각이면 true (09:01:00 → 09:00 봉).
@@ -30,6 +30,8 @@ export interface KisDeps {
   now: () => number;
   /** 마지막 발급 시각 저장소(새로고침 뒤에도 1분 제한 남은 초를 계산). */
   issuedAt?: IssuedAtStore;
+  /** 같은 저장소를 쓰는 실행끼리 토큰 발급을 하나로 묶는 잠금(CLI의 병렬 실행). 앱은 넘기지 않는다 */
+  tokenLock?: TokenLock;
 }
 
 /** KIS 토큰 발급은 1분에 한 번. */
@@ -243,7 +245,7 @@ export function createKisProvider(deps: KisDeps): MarketDataProvider {
     });
   }
 
-  const tokens = createTokenManager(issueToken, deps.tokenStore, now, deps.issuedAt);
+  const tokens = createTokenManager(issueToken, deps.tokenStore, now, deps.issuedAt, deps.tokenLock);
   let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */

@@ -98,6 +98,14 @@ describe('createProxyClient', () => {
     expect(new Headers(init.headers).has('x-proxy-token')).toBe(false);
   });
 
+  it('urlFor가 없으면 지금 주소, 있으면 그 주소에 쿼리를 붙인다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}));
+    await createProxyClient({ baseUrl: 'https://p.example', fetchImpl }).request('kis', 'GET', '/x', { query: { a: '1' } });
+    await createProxyClient({ baseUrl: '', fetchImpl, urlFor: (p, path) => `https://upstream.example/${p}-direct${path}` }).request('toss', 'GET', '/y', { query: { b: '2' } });
+    const urls = fetchImpl.mock.calls.map((c) => String((c as unknown as [string])[0]));
+    expect(urls).toEqual(['https://p.example/kis/x?a=1', 'https://upstream.example/toss-direct/y?b=2']);
+  });
+
   it('sends plain objects as JSON', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({}));
     const client = createProxyClient({ baseUrl: 'https://p.example', fetchImpl });

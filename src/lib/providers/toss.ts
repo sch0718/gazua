@@ -13,6 +13,7 @@ import type {
   GroupImportSource,
   ImportSector,
   ImportStock,
+  IssuedAtStore,
   MarketDataProvider,
   Quote,
   StockMeta,
@@ -28,6 +29,8 @@ export interface TossDeps {
   tokenStore: TokenStore;
   /** 같은 저장소를 쓰는 탭끼리 발급을 하나로 묶는다. 없으면 이 탭 안에서만 묶는다. */
   tokenLock?: TokenLock;
+  /** 마지막 발급 시각 저장소(실행을 넘는 재발급 간격). 앱은 넘기지 않는다. CLI는 파일 저장소를 넘긴다 */
+  issuedAt?: IssuedAtStore;
   now: () => number;
 }
 
@@ -235,7 +238,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     return token;
   }
 
-  const tokens = createTokenManager(issueToken, deps.tokenStore, now, undefined, deps.tokenLock);
+  const tokens = createTokenManager(issueToken, deps.tokenStore, now, deps.issuedAt, deps.tokenLock);
   let lastInvalidated: string | undefined;
 
   /** 큐를 거치는 데이터 호출. `{ result }`를 벗겨 돌려준다. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */
@@ -462,7 +465,8 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       return (await holdingItems()).flatMap((r) => {
         const quantity = toNumber(r.quantity);
         if (r.marketCountry !== 'KR' || text(r.symbol) === '' || quantity === undefined) return [];
-        return [{ symbol: text(r.symbol), name: text(r.name) || text(r.symbol), quantity }];
+        const avgPrice = toNumber(r.averagePurchasePrice);
+        return [{ symbol: text(r.symbol), name: text(r.name) || text(r.symbol), quantity, ...(avgPrice !== undefined ? { avgPrice } : {}) }];
       });
     },
   };

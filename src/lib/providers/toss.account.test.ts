@@ -205,6 +205,25 @@ describe('toss account: holdings and id', () => {
     expect(await account.accountId()).toBe('3');
   });
 
+  it('보유의 평균 매수가(averagePurchasePrice)를 avgPrice로 읽고, 없거나 숫자가 아니면 뺀다', async () => {
+    const { account } = setup({
+      '/api/v1/accounts': ACCOUNTS,
+      '/api/v1/holdings': () =>
+        ok({
+          items: [
+            { symbol: '005930', name: '삼성전자', marketCountry: 'KR', currency: 'KRW', quantity: '10', averagePurchasePrice: '68500' },
+            { symbol: '000660', name: 'SK하이닉스', marketCountry: 'KR', currency: 'KRW', quantity: '2' },
+            { symbol: '035420', name: 'NAVER', marketCountry: 'KR', currency: 'KRW', quantity: '1', averagePurchasePrice: 'x' },
+          ],
+        }),
+    });
+    expect(await account.holdings()).toEqual([
+      { symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 },
+      { symbol: '000660', name: 'SK하이닉스', quantity: 2 },
+      { symbol: '035420', name: 'NAVER', quantity: 1 },
+    ]);
+  });
+
   it('falls back to the first account when there is no brokerage account', async () => {
     const { account } = setup({ '/api/v1/accounts': () => ok([{ accountNo: '1', accountSeq: 9, accountType: 'OTHER' }]) });
     expect(await account.accountId()).toBe('9');

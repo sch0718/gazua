@@ -211,3 +211,40 @@ describe('toss token contention', () => {
     expect(issuedAt).toHaveLength(1);
   });
 });
+
+
+describe('토스 issuedAt(실행을 넘는 재발급 간격)', () => {
+  it('issuedAt 저장소가 최근 발급 시각을 알면, 재시작한 실행은 캐시 토큰이 거절돼도 다시 발급하지 않고 token-contended', async () => {
+    const clock = { now: START };
+    const { client, issuedAt } = tossServer(clock);
+    const store = memoryStore();
+    store.save({ accessToken: 'old-cached', expiresAt: START + 86_400_000 });
+    let saved: number | null = START - 5_000;
+    const provider = createTossProvider({
+      client,
+      queue: createRequestQueue({ ratesPerSec: RATES, now: () => 0, sleep: async () => {} }),
+      creds: { clientId: 'id', clientSecret: 'secret' },
+      tokenStore: store,
+      issuedAt: { load: () => saved, save: (t) => void (saved = t) },
+      now: () => clock.now,
+    });
+    await expect(provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'token-contended' });
+    expect(issuedAt).toEqual([]);
+  });
+
+  it('issuedAt을 안 넘기면(앱) 지금처럼 곧바로 다시 발급한다', async () => {
+    const clock = { now: START };
+    const { client, issuedAt } = tossServer(clock);
+    const store = memoryStore();
+    store.save({ accessToken: 'old-cached', expiresAt: START + 86_400_000 });
+    const provider = createTossProvider({
+      client,
+      queue: createRequestQueue({ ratesPerSec: RATES, now: () => 0, sleep: async () => {} }),
+      creds: { clientId: 'id', clientSecret: 'secret' },
+      tokenStore: store,
+      now: () => clock.now,
+    });
+    expect((await provider.getQuotes(['005930'], 'UNIFIED'))[0].price).toBe(72000);
+    expect(issuedAt).toEqual([START]);
+  });
+});

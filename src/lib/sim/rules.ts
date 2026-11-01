@@ -14,8 +14,8 @@ export const REASON_MAX = 40;
 const EPS = 1e-9;
 
 export interface RuleEvaluator {
-  /** i번째 봉 종가로 묶음을 판정한다. 처음 맞은 묶음의 사유(패턴 블록이 맞았으면 스냅샷도). 상태는 바꾸지 않는다 */
-  signal(i: number): { reason: string; snapshot?: PatternSnapshot } | null;
+  /** i번째 봉 종가로 묶음을 판정한다. 처음 맞은 묶음의 사유와 번호(group, 1부터. 패턴 블록이 맞았으면 스냅샷도). 상태는 바꾸지 않는다. 엔진은 group을 쓰지 않는다(CLI signals가 쓴다) */
+  signal(i: number): { reason: string; snapshot?: PatternSnapshot; group?: number } | null;
   /** i번째 봉 종가로 상태를 갱신한다. 판정과 상관없이 봉이 있는 날마다 부른다 */
   update(i: number): void;
   /** 전량 매도한 날 i에 부른다 */
@@ -180,7 +180,7 @@ export function createRuleEvaluator(candles: Candle[], groups: CondGroup[], firs
 
   return {
     signal(t) {
-      for (const g of compiled) {
+      for (const [gi, g] of compiled.entries()) {
         if (g.length === 0) continue; // 빈 묶음은 맞지 않는다(실행은 경고가 막는다)
         const parts: string[] = [];
         let snapshot: PatternSnapshot | undefined;
@@ -202,7 +202,7 @@ export function createRuleEvaluator(candles: Candle[], groups: CondGroup[], firs
         }
         if (!ok) continue;
         const reason = cut(parts.join(' + '));
-        return snapshot ? { reason, snapshot } : { reason };
+        return snapshot ? { reason, snapshot, group: gi + 1 } : { reason, group: gi + 1 };
       }
       return null;
     },
