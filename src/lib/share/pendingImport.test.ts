@@ -59,7 +59,7 @@ describe('가져오기 대기 값', () => {
     stashImport(sim, NOW, store);
     const a = peekImport(NOW, store)!;
     expect(a.from).toBe('simResult');
-    expect(a.snapshot).toEqual({ kind: 'strategy', v: 1, title: sim.title, strategy: sim.strategy, capitalHidden: false });
+    expect(a.snapshot).toEqual({ kind: 'strategy', v: sim.v, title: sim.title, strategy: sim.strategy, capitalHidden: false });
     expect(store.getItem(IMPORT_KEY)!).not.toContain('"result"');
     const val = validationFixture({ capitalHidden: true });
     stashImport(val, NOW, store);

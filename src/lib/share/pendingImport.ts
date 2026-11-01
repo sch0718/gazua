@@ -51,9 +51,9 @@ const EXPECT: Record<ShareKind, ImportSnapshot['kind']> = {
 export function importPart(s: ShareSnapshot): ImportSnapshot {
   switch (s.kind) {
     case 'simResult':
-      return { kind: 'strategy', v: 1, title: s.title, strategy: s.strategy, capitalHidden: s.capitalHidden };
+      return { kind: 'strategy', v: s.v, title: s.title, strategy: s.strategy, capitalHidden: s.capitalHidden };
     case 'validation':
-      return { kind: 'criteria', v: 1, title: s.title, criteria: s.criteria, baskets: s.baskets, capitalHidden: s.capitalHidden };
+      return { kind: 'criteria', v: s.v, title: s.title, criteria: s.criteria, baskets: s.baskets, capitalHidden: s.capitalHidden };
     default:
       return s;
   }

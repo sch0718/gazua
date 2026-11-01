@@ -1,4 +1,5 @@
 // 공유 스냅샷의 사람이 읽는 요약(만들기 미리 보기·읽기 화면·카카오 카드가 함께 쓴다).
+import { patternEntryOf } from '../sim/patternBlock';
 import type { UniverseItem } from '../data/universe';
 import { METRICS } from '../data/metricRegistry';
 import type { Settings } from '../state/schema';
@@ -49,10 +50,11 @@ export function cardLines(s: ShareSnapshot, names?: SymbolNames, line: string | 
     case 'strategy': {
       const st = s.strategy;
       const n = st.universe.kind === 'symbols' ? st.universe.symbols.length : 0;
-      const drop = st.entry.decline.dropPct.on ? `${st.entry.decline.dropPct.value}%` : '끔';
+      const entry = patternEntryOf(st);
+      const drop = entry?.decline.dropPct.on ? `${entry.decline.dropPct.value}%` : '끔';
       return [
         `종목 ${n}개 · ${dotDate(st.period.from)} ~ ${dotDate(st.period.to)}`,
-        `하락 ${drop} · 익절 ${st.exit.takeProfit.map((t) => `${t.pct}%`).join('/')} · 손절 ${st.exit.stopLoss.pct}%`,
+        `하락 ${drop} · 익절 ${st.rules.sell.takeProfit.stages.map((t) => `${t.pct}%`).join('/')} · 손절 ${st.rules.sell.stopLoss.pct}%`,
       ];
     }
     case 'criteria': {
@@ -89,14 +91,15 @@ export function snapshotLines(s: ShareSnapshot, names?: SymbolNames): string[] {
       return [`제목: ${s.title}`, `종목 ${s.symbols.length}개: ${symbolList(s.symbols, names)}`];
     case 'strategy': {
       const st = s.strategy;
+      const entry = patternEntryOf(st);
       const symbols = st.universe.kind === 'symbols' ? st.universe.symbols : [];
       return [
         `제목: ${s.title}`,
         `종목 ${symbols.length}개: ${symbolList(symbols, names)}`,
         `기간: ${dotDate(st.period.from)} ~ ${dotDate(st.period.to)}`,
-        `초기 자금: ${s.capitalHidden ? '비공개' : won(st.capital.initial)} · 1회 ${st.capital.perBuyPct}%`,
-        `하락 ${st.entry.decline.dropPct.on ? `${st.entry.decline.dropPct.value}%` : '끔'} · 분할 매수 ${on(st.scaleIn.on)}`,
-        `익절 ${st.exit.takeProfit.map((t) => `${t.pct}%`).join('/')} · 손절 ${st.exit.stopLoss.pct}%`,
+        `초기 자금: ${s.capitalHidden ? '비공개' : won(st.capital.initial)} · 1회 ${st.sizing.pct}%`,
+        `하락 ${entry?.decline.dropPct.on ? `${entry.decline.dropPct.value}%` : '끔'} · 분할 매수 ${on(st.scaleIn.on)}`,
+        `익절 ${st.rules.sell.takeProfit.stages.map((t) => `${t.pct}%`).join('/')} · 손절 ${st.rules.sell.stopLoss.pct}%`,
         `수수료 ${st.costs.feePct}%`,
       ];
     }

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BASKET_CAP_MESSAGE, newBasket } from '../screen/baskets';
 import { CRITERIA_CAP_MESSAGE } from '../screen/criteriaStore';
-import { newCriteria } from '../screen/defaults';
+import { criteriaFixture as newCriteria } from './testFixtures';
 import { newStrategy } from '../sim/defaults';
 import { STRATEGY_CAP_MESSAGE } from '../sim/strategyStore';
-import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV2 } from '../sim/strategyV2';
 import { applyImport, planImport, uniqueName, withRo, type ImportInput, type ImportState } from './importPlan';
 import type { ImportSnapshot } from './pendingImport';
 import { criteriaSnapshot, strategySnapshot, type CompareSnapshot, type GroupSnapshot } from './snapshot';
@@ -37,7 +37,7 @@ describe('uniqueName', () => {
     expect(n).toBe('a'.repeat(27) + ' 2');
     expect(n.length).toBeLessThanOrEqual(30);
     const s = newStrategy(NOW, null, n);
-    expect(sanitizeStrategies({ strategies: [s] }, NOW).repaired).toBe(false);
+    expect(sanitizeStrategiesV2({ strategies: [s] }, NOW).repaired).toBe(false);
   });
 });
 
@@ -153,7 +153,7 @@ describe('planImport / applyImport', () => {
 
   it('전략: 정리 함수가 바꾸는 값이 있으면 저장하지 않는다', () => {
     const snap = strategySnapshot(newStrategy(NOW, null, '이상한 전략'), { groups: [] }, { hideCapital: false, now: NOW });
-    snap.strategy.capital.perBuyPct = 0;
+    snap.strategy.sizing.pct = 0;
     expect(planImport(input(snap), state()).blocked).toBe('가져올 수 없는 공유예요');
   });
 

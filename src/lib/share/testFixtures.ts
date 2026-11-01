@@ -2,16 +2,23 @@
 import { newBasket } from '../screen/baskets';
 import { newCriteria } from '../screen/defaults';
 import type { ValidationResult } from '../screen/runValidation';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry, newStrategy } from '../sim/defaults';
 import type { DoneState } from '../ui/simulate/runController.svelte';
 import type { Trade } from '../sim/types';
 import { axisDate } from './checkResult';
 import { SKIP_REASONS } from './resultEnums';
 import type { Group } from '../state/schema';
 import { compareSnapshot, type ValidationRun } from './compact';
-import { criteriaSnapshot, groupSnapshot, strategySnapshot, type ShareSnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
+import { STRATEGY_SHARE_VERSION, criteriaSnapshot, groupSnapshot, strategySnapshot, type ShareSnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
 
 export const NOW = Date.UTC(2026, 9, 29, 3);
+
+/** Task 4d가 바꿀 선정 기준 기본값과 독립적인 공유 테스트 고정값 */
+export function criteriaFixture(...args: Parameters<typeof newCriteria>): ReturnType<typeof newCriteria> {
+  const c = newCriteria(...args);
+  c.conditions.rebound.pattern = { from: 'custom', entry: defaultPatternEntry() };
+  return c;
+}
 
 /** 3종목(하나는 ETN, 기간 안 데이터 없음) · 거래 4건 · 건너뜀 3건 · 지수 곡선 하나 · 지정 종목은 받지 못함 */
 export function simResultFixture(o: { capitalHidden?: boolean } = {}): SimResultSnapshot {
@@ -23,7 +30,7 @@ export function simResultFixture(o: { capitalHidden?: boolean } = {}): SimResult
   const q = (n: number) => (hidden ? null : n);
   return {
     kind: 'simResult',
-    v: 1,
+    v: STRATEGY_SHARE_VERSION,
     title,
     strategy,
     capitalHidden: hidden,
@@ -84,7 +91,7 @@ export function simResultFixture(o: { capitalHidden?: boolean } = {}): SimResult
 /** 재선정 2번(두 번째는 통과 0개) · 묶음 하나 · 지수 KOSPI · 지정 ETF는 받지 못함 */
 export function validationFixture(o: { capitalHidden?: boolean } = {}): ValidationSnapshot {
   const hidden = o.capitalHidden ?? false;
-  const c = newCriteria(NOW, null, '대형 우량');
+  const c = criteriaFixture(NOW, null, '대형 우량');
   const basket = newBasket(NOW, '반도체', ['005930', '000660']);
   c.pool.baskets = [basket.id];
   const { title, criteria, baskets } = criteriaSnapshot(c, { baskets: [basket], strategies: [] }, { hideCapital: hidden, now: NOW });
@@ -217,7 +224,7 @@ const VALUE_NAMES = ['marketCap', 'tradingValue', 'return', 'ma', 'fromHigh', 'v
  * baskets를 주면 300종목 묶음을 그 수만큼 기준에 넣는다.
  */
 export function bigValidationRun(o: { days: number; every: number; take: number; baskets?: number }): ValidationRun {
-  const criteria = newCriteria(NOW, null, '큰 기준');
+  const criteria = criteriaFixture(NOW, null, '큰 기준');
   criteria.rank.take = o.take;
   const baskets = Array.from({ length: o.baskets ?? 0 }, (_, b) =>
     newBasket(NOW, `큰 묶음 ${b + 1}`, Array.from({ length: 300 }, (_, i) => String(100000 + b * 1000 + i))),
@@ -275,7 +282,7 @@ export function shareFixtures(): ShareSnapshot[] {
   return [
     groupSnapshot(group),
     strategySnapshot(strategy, { groups: [group] }, { hideCapital: false, now: NOW }),
-    criteriaSnapshot(newCriteria(NOW, null, '대형'), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW }),
+    criteriaSnapshot(criteriaFixture(NOW, null, '대형'), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW }),
     compareSnapshot(group, { period: { unit: 'M', n: 6 }, metric: 'rsi', benchmark: 'KOSDAQ', boardOrder: 'mine' }),
     simResultFixture(),
     validationFixture(),

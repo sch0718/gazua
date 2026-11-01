@@ -7,12 +7,13 @@ import type { NotBoughtReason } from '../screen/holdSelection';
 import type { ByMarketKey, MissingReason, ValidationNote } from '../screen/runValidation';
 import { sanitizeCriteria } from '../screen/validate';
 import type { Basket } from '../screen/baskets';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry, newStrategy } from '../sim/defaults';
+import { patternEntryOf } from '../sim/patternBlock';
 import type { SimResult, Skip, Strategy, Trade } from '../sim/types';
 import type { SimFailureReason } from '../sim/loadSimData';
 import { resolveSymbols } from '../sim/validate';
-import { sanitizeStrategiesV1 } from '../sim/strategyV1';
-import { sanitizeStrategiesV2, type StrategyV2 } from '../sim/strategyV2';
+import { sanitizeStrategiesV1, toV2, type StrategyV1 } from '../sim/strategyV1';
+import { sanitizeStrategiesV2 } from '../sim/strategyV2';
 import type { Group, Settings, Watchlists } from '../state/schema';
 import { SETTING_OK } from '../sync/dto';
 import { exceedsDepth, findForbidden, jsonBytes, jsonDiff } from '../sync/forbidden';
@@ -22,9 +23,11 @@ import { checkRun, checkSimResult, checkValidation, type ResultFail } from './ch
 
 export type { ShareKind } from './kinds';
 
-/** 만드는 공유 버전. 앱은 아직 1만 만든다(전략 빌더 PR②에서 strategy·simResult를 2로) */
+/** strategy·simResult 밖 종류를 만드는 버전 */
 export const SHARE_VERSION = 1;
-/** strategy·simResult가 받는 가장 높은 버전. create 모드(서버 저장)만 2를 받고 read 모드는 1만 받는다(전략 빌더 §8.4) */
+/** strategy·simResult를 만드는 버전(전략 v2) */
+export const STRATEGY_SHARE_VERSION = 2;
+/** strategy·simResult가 받는 가장 높은 버전(전략 빌더 §8.4) */
 export const STRATEGY_SHARE_MAX_VERSION = 2;
 /** 제안서 7절: 공유 스냅샷 100 KiB. */
 export const SHARE_MAX_BYTES = 100 * 1024;
@@ -50,7 +53,7 @@ export interface GroupSnapshot {
 }
 export interface StrategySnapshot {
   kind: 'strategy';
-  v: 1;
+  v: 2;
   title: string;
   /** id·name·updatedAt은 고정값(SHARED_ID·title·0). 종목은 symbols로 풀어 넣는다. */
   strategy: Strategy;
@@ -104,7 +107,7 @@ export interface ShareRun {
 
 export interface SimResultSnapshot {
   kind: 'simResult';
-  v: 1;
+  v: 2;
   title: string;
   /** strategySnapshot 규칙: id 'shared', name = title, updatedAt 0. universe는 실행한 종목(DoneMeta.symbols, 요청 순서) */
   strategy: Strategy;
@@ -266,7 +269,7 @@ export function strategySnapshot(s: Strategy, w: Watchlists, opts: { hideCapital
   const strategy: Strategy = structuredClone({ ...s, id: SHARED_ID, name: title, updatedAt: 0 });
   strategy.universe = { kind: 'symbols', symbols: resolveSymbols(s, w) };
   if (opts.hideCapital) strategy.capital.initial = newStrategy(opts.now ?? 0, null).capital.initial;
-  return { kind: 'strategy', v: 1, title, strategy, capitalHidden: opts.hideCapital };
+  return { kind: 'strategy', v: STRATEGY_SHARE_VERSION, title, strategy, capitalHidden: opts.hideCapital };
 }
 
 export function criteriaSnapshot(
@@ -289,7 +292,8 @@ export function criteriaSnapshot(
   const pattern = c.conditions.rebound.pattern;
   if (pattern.from === 'strategy') {
     const ref = refs.strategies.find((x) => x.id === pattern.strategyId);
-    criteria.conditions.rebound.pattern = { from: 'custom', entry: structuredClone((ref ?? newStrategy(opts.now ?? 0, null)).entry) };
+    const entry = ref ? patternEntryOf(ref) : null;
+    criteria.conditions.rebound.pattern = { from: 'custom', entry: structuredClone(entry ?? defaultPatternEntry()) };
   }
   criteria.trading = { strategyId: null };
   if (opts.hideCapital) criteria.capital = newCriteria(opts.now ?? 0, null).capital;
@@ -320,12 +324,12 @@ function sameAs(input: unknown, cleaned: unknown, path: string, mode: CheckMode)
 const symbolsOk = (s: unknown, min: number, max: number, re: (x: unknown) => boolean = isShareSymbol): s is string[] =>
   Array.isArray(s) && s.length >= min && s.length <= max && s.every(re) && new Set(s).size === s.length;
 
-/** 전략 부분(strategy·simResult). 돌려주는 strategy는 정리 결과(read면 빠진 필드를 채운 값)다. v = 2면 v2 전략으로 검사한다(create 모드만 불린다). */
-export function checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v: 1 | 2 = 1): { ok: true; strategy: Strategy | StrategyV2 } | PartFail {
+/** 전략 부분(strategy·simResult). 돌려주는 strategy는 정리 결과(read면 빠진 필드를 채운 값)다. v = 2면 v2 전략으로 검사한다. */
+export function checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v: 1 | 2 = 1): { ok: true; strategy: StrategyV1 | Strategy } | PartFail {
   if (!isRecord(s) || s.id !== SHARED_ID || s.name !== title || s.updatedAt !== 0) return fail('invalid', 'strategy');
   if (!isRecord(s.universe) || s.universe.kind !== 'symbols') return fail('reference', 'strategy.universe');
-  // v2는 PR①에서 서버 저장용(create)으로만 받는다. universe·benchmarks는 두 형식이 같은 모양이다
-  const cleaned: Strategy | StrategyV2 | undefined =
+  // universe·benchmarks는 두 형식이 같은 모양이다
+  const cleaned: StrategyV1 | Strategy | undefined =
     v === 2 ? sanitizeStrategiesV2({ strategies: [s] }, now).strategies[0] : sanitizeStrategiesV1({ strategies: [s] }, now).strategies[0];
   if (!cleaned) return fail('invalid', 'strategy');
   const diff = sameAs(s, cleaned, 'strategy', mode);
@@ -336,6 +340,9 @@ export function checkStrategyPart(s: unknown, title: string, now: number, mode: 
   if (cleaned.benchmarks.symbol !== null && !isShareSymbol(cleaned.benchmarks.symbol)) return fail('invalid', 'strategy.benchmarks.symbol');
   return { ok: true, strategy: cleaned };
 }
+
+/** read 결과는 늘 v2 전략·v: 2로 돌려준다(v1 공유 링크는 옮겨 연다, §8.4) */
+const upgrade = (x: StrategyV1 | Strategy): Strategy => ('rules' in x ? x : toV2(x));
 
 /** 기준 부분(criteria·validation): raw의 criteria·baskets·title을 본다. */
 export function checkCriteriaPart(
@@ -370,7 +377,7 @@ export function checkCriteriaPart(
 /**
  * 스냅샷을 검사한다. 깊이 → 금지 키 → 크기 → 원본 ID 모양(UUID) → kind·v·title → 종류별 필드 순서. 고칠 것이 있으면 거절한다.
  * kind는 요청의 kind와 같아야 한다. read 모드는 전략·기준의 빠진 필드만 기본값으로 채워 받고, 돌려주는 snapshot은 채운 값이다.
- * create는 모든 종류에서 검사 통과 시 입력 원본을 돌려준다(Worker가 저장). strategy·simResult의 v2는 create에서만 받는다.
+ * create는 모든 종류에서 검사 통과 시 입력 원본을 돌려준다(Worker가 저장). read는 v1 전략을 v2로 옮긴다.
  */
 export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now(), mode: CheckMode = 'create'): ShareCheck {
   if (!isRecord(raw)) return fail('invalid');
@@ -381,10 +388,10 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
   if (UUID_RE.test(JSON.stringify(raw))) return fail('reference');
   if (raw.kind !== kind) return fail('invalid', 'kind');
   if (!isShareKind(raw.kind)) return typeof raw.kind === 'string' ? fail('unsupported', 'kind') : fail('invalid', 'kind');
-  // 버전: 1 이상의 정수. strategy·simResult는 create에서만 2까지, 나머지 종류와 read는 1까지(전략 빌더 §8.4)
+  // 버전: 1 이상의 정수. strategy·simResult는 2까지, 나머지 종류는 1까지(전략 빌더 §8.4)
   if (typeof raw.v !== 'number' || !Number.isInteger(raw.v) || raw.v < 1) return fail('invalid', 'v');
   const strategyKind = raw.kind === 'strategy' || raw.kind === 'simResult';
-  const maxV = strategyKind && mode === 'create' ? STRATEGY_SHARE_MAX_VERSION : SHARE_VERSION;
+  const maxV = strategyKind ? STRATEGY_SHARE_MAX_VERSION : SHARE_VERSION;
   if (raw.v > maxV) return fail('unsupported', 'v');
   const sv = raw.v as 1 | 2;
   if (!validTitle(raw.title, mode)) return fail('invalid', 'title');
@@ -402,8 +409,8 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       if (typeof raw.capitalHidden !== 'boolean') return fail('invalid', 'capitalHidden');
       const st = checkStrategyPart(raw.strategy, raw.title, now, mode, sv);
       if (!st.ok) return st;
-      // create는 원본을 그대로 돌려준다(서버가 저장). read는 빠진 필드를 채운 값
-      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, strategy: st.strategy }) as unknown as StrategySnapshot };
+      // create는 원본을 그대로 돌려준다(서버가 저장). read는 빠진 필드를 채우고 v2로 옮긴다
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as unknown as StrategySnapshot };
     }
     case 'criteria': {
       const k = exactKeys(raw, ['kind', 'v', 'title', 'criteria', 'baskets', 'capitalHidden'], '');
@@ -434,7 +441,7 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       if (r) return failOf(r);
       const run = checkRun(raw.run, (raw.result as SharedSimResult).axis);
       if (run) return failOf(run);
-      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, strategy: st.strategy }) as unknown as SimResultSnapshot };
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as unknown as SimResultSnapshot };
     }
     case 'validation': {
       const k = exactKeys(raw, ['kind', 'v', 'title', 'criteria', 'baskets', 'capitalHidden', 'run', 'result'], '');

@@ -8,7 +8,7 @@ import { sanitizeCriteria } from '../screen/validate';
 import { MAX_STRATEGIES } from '../sim/defaults';
 import { STRATEGY_CAP_MESSAGE } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
-import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV2 } from '../sim/strategyV2';
 import type { Route } from '../state/routes';
 import type { Settings, Watchlists } from '../state/schema';
 import { MAX_ITEMS } from '../state/watchlist';
@@ -135,7 +135,7 @@ export function planImport(p: ImportInput, cur: ImportState): ImportPlan {
       const name = uniqueName(s.title, namesOf(cur.strategies));
       if (cur.strategies.length >= MAX_STRATEGIES) blocked = STRATEGY_CAP_MESSAGE;
       const next = { ...s.strategy, name };
-      if (!blocked && changed(next, sanitizeStrategies({ strategies: [next] }, 0).strategies[0])) blocked = UNREADABLE;
+      if (!blocked && changed(next, sanitizeStrategiesV2({ strategies: [next] }, 0).strategies[0])) blocked = UNREADABLE;
       lines.push(`전략 「${name}」`);
       renamed(s.title, name);
       if (s.capitalHidden) notes.push('초기 자금은 기본값으로 저장해요');
