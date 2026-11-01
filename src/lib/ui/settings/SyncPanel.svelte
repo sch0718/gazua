@@ -2,7 +2,7 @@
   // 설정 › 동기화(제안서 7절 1단계): Google·카카오·네이버 로그인, 동기화 켜기·상태, 충돌 사본 고르기. 기기·삭제한 프로필·과거 버전·내 공유는 SyncManage.
   import type { App } from '../../state/app.svelte';
   import type { SyncController } from '../../sync/controller.svelte';
-  import type { ProfileDocV1 } from '../../sync/dto';
+  import type { ProfileDoc } from '../../sync/dto';
   import type { Resolution } from '../../sync/engine';
   import type { Conflict } from '../../sync/store';
   import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
@@ -34,7 +34,7 @@
     status.phase === 'idle' ? (status.lastSyncAt ? `동기화됨 · ${fmtTime(status.lastSyncAt)}` : '켜짐') : (PHASE[status.phase] ?? status.phase),
   );
   const profileName = (id: string, fallback: string) => app.meta.profiles.find((p) => p.id === id)?.name ?? fallback;
-  const summary = (d: ProfileDocV1) =>
+  const summary = (d: ProfileDoc) =>
     `그룹 ${d.watchlists.groups.length} · 전략 ${d.strategies.length} · 기준 ${d.criteria.length} · 묶음 ${d.baskets.length}`;
 
   async function askEnable() {

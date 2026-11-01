@@ -5,20 +5,20 @@
 // - 원격 적용은 같은 ID를 쓰고, 이 기기의 기존 프로필을 동의 없이 덮어쓰지 않는다.
 import type { ApiFail, SyncApi } from './api';
 import { docName } from './profileDoc';
-import type { ProfileDocV1 } from './dto';
+import type { ProfileDoc } from './dto';
 import { docHash } from './hash';
 import type { Conflict, OutboxOp, ProfileSyncState, SyncStore } from './store';
 
 /** 앱의 프로필 저장소. 원격 적용·삭제는 변경 알림을 내지 않는다(다시 올리지 않게). */
 export interface LocalProfiles {
   list(): { id: string; name: string }[];
-  read(id: string): ProfileDocV1;
+  read(id: string): ProfileDoc;
   /** 같은 ID에 쓴다. 없으면 추가한다. */
-  write(id: string, doc: ProfileDocV1): void;
+  write(id: string, doc: ProfileDoc): void;
   /** 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. */
   remove(id: string): void;
   /** 새 ID 프로필을 만든다(충돌 사본·복원). */
-  create(doc: ProfileDocV1): string;
+  create(doc: ProfileDoc): string;
   /** 쓴 것이 이 기기 저장소에 실제로 남는지(저장 실패로 메모리에만 반영 중이면 false). 없으면 늘 남는다고 본다. */
   durable?(): boolean;
 }
@@ -108,7 +108,7 @@ export function suffixed(name: string, suffix: string): string {
 }
 const MAX_BACKOFF = 5 * 60 * 1000;
 /** 두 문서가 같은지(동기, 그 사이 다른 코드가 끼어들지 않는다). */
-const sameDoc = (a: ProfileDocV1, b: ProfileDocV1) => JSON.stringify(a) === JSON.stringify(b);
+const sameDoc = (a: ProfileDoc, b: ProfileDoc) => JSON.stringify(a) === JSON.stringify(b);
 /** 응답을 못 받은 업로드 중 지금 문서와 다른 것이 있나. 있으면 마지막 확인 해시만으로 "안 바뀜"이라 보면 안 된다. */
 const unackedOther = (ops: OutboxOp[], id: string, hash: string) => ops.some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
 const BASE_BACKOFF = 5000;
