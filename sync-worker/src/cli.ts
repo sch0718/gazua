@@ -1,7 +1,8 @@
 // 읽기 전용 CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 읽기 전용 허용 목록.
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
-import { base64url, errorBody, HttpError, json, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
+import { base64url, errorBody, HttpError, json, parseAccountList, parseAllowList, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
+import { getProfile, listProfiles, requestDocVersion } from './profiles';
 import type { AuthContext } from './session';
 
 export const CLI_GRANT_TTL = 10 * 60 * 1000;
@@ -12,6 +13,12 @@ export const PENDING_LIMIT = 50;
 export const CLI_LABEL_MAX = 64;
 export const GEO_MAX = 64;
 export const TOKEN_TTL = 90 * DAY;
+export const CLI_TOUCH_INTERVAL = DAY;
+export const CLI_TOKEN_RE = /^gzc_[A-Za-z0-9_-]{43}$/;
+const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+const PROFILES_RE = /^\/v1\/profiles$/;
+const PROFILE_RE = /^\/v1\/profiles\/([^/]+)$/;
+const LOGOUT_RE = /^\/v1\/cli\/token$/;
 export const INTERVAL_STEP_MS = 5000;
 export const INTERVAL_CAP_MS = 60_000;
 export const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
@@ -166,16 +173,97 @@ export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Pr
   return { token, tokenId, expiresAt };
 }
 
+/**
+ * CLI 토큰으로 허용하는 요청(라우터 전, 정확 일치). 그 밖은 null → 403 cli-scope.
+ * 메서드는 req.method 그대로 비교한다(HEAD를 GET으로 보지 않는다). 쿼리는 docVersion이 정확히 하나, 정확히 '2'일 때만.
+ */
+export function cliScope(method: string, url: URL): 'profiles' | 'profile' | 'logout' | null {
+  const path = url.pathname;
+  if (method === 'GET' && PROFILES_RE.test(path)) return 'profiles';
+  if (method === 'GET' && PROFILE_RE.test(path)) {
+    const v = url.searchParams.getAll('docVersion');
+    return v.length === 1 && v[0] === '2' ? 'profile' : null;
+  }
+  if (method === 'DELETE' && LOGOUT_RE.test(path)) return 'logout';
+  return null;
+}
+
+interface TokenRow {
+  id: string;
+  userId: string;
+  expiresAt: number;
+  revokedAt: number | null;
+  lastUsedAt: number;
+  sub: string;
+  email: string;
+}
+
+/** 지금 허용 목록에 있는 사용자인가(세션 인증과 같은 정책, 요청마다 다시 본다) */
+function stillAllowed(env: SyncEnv, row: TokenRow): boolean {
+  if (/^(kakao|naver):/.test(row.sub)) return parseAccountList(env.ALLOWED_ACCOUNTS).has(row.sub);
+  return parseAllowList(env.ALLOWED_EMAILS).has(row.email.toLowerCase());
+}
+
+/** Authorization: Gazua-CLI <토큰> 요청을 인증하고 읽기 전용 허용 목록만 통과시킨다 */
+async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
+  const token = (req.headers.get('Authorization') ?? '').slice('Gazua-CLI '.length);
+  if (!CLI_TOKEN_RE.test(token)) throw new HttpError(401, 'cli-token');
+  const row = await env.DB.prepare(
+    `SELECT t.id, t.user_id AS userId, t.expires_at AS expiresAt, t.revoked_at AS revokedAt, t.last_used_at AS lastUsedAt, u.firebase_sub AS sub, u.email
+     FROM cli_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
+  )
+    .bind(await sha256Hex(token))
+    .first<TokenRow>();
+  const now = deps.now();
+  if (!row || row.revokedAt !== null) throw new HttpError(401, 'cli-token-revoked');
+  if (row.expiresAt <= now) throw new HttpError(401, 'cli-token-expired');
+  if (!stillAllowed(env, row)) throw new HttpError(403, 'not-allowed');
+  const scope = cliScope(req.method, url);
+  if (scope === null) throw new HttpError(403, 'cli-scope');
+  if (now - row.lastUsedAt >= CLI_TOUCH_INTERVAL) {
+    await env.DB.prepare('UPDATE cli_tokens SET last_used_at = ? WHERE id = ?').bind(now, row.id).run();
+  }
+  if (scope === 'logout') {
+    await env.DB.prepare('UPDATE cli_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').bind(now, row.id).run();
+    return json(200, { revoked: true });
+  }
+  // 읽기 전용 호출은 기존 핸들러를 그대로 부른다(세션이 없어 sessionHash는 비운다)
+  const ctx = { userId: row.userId, sessionHash: '', user: { sub: row.sub, email: row.email, authTime: now } } as AuthContext;
+  if (scope === 'profiles') return json(200, { profiles: await listProfiles(env, ctx) });
+  const id = decodeURIComponent(PROFILE_RE.exec(url.pathname)![1]);
+  return json(200, await getProfile(env, ctx, id, requestDocVersion(url)));
+}
+
+export async function listCliTokens(env: SyncEnv, ctx: AuthContext, now: number) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, label, created_at AS createdAt, last_used_at AS lastUsedAt, expires_at AS expiresAt
+     FROM cli_tokens WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? ORDER BY last_used_at DESC, created_at DESC`,
+  )
+    .bind(ctx.userId, now)
+    .all<{ id: string; label: string; createdAt: number; lastUsedAt: number; expiresAt: number }>();
+  return results;
+}
+
+/** 이미 철회했으면 그대로 성공, 남의 것이거나 없으면 404(있는지 알려 주지 않는다) */
+export async function revokeCliToken(env: SyncEnv, ctx: AuthContext, id: string, now: number): Promise<void> {
+  if (!ID_RE.test(id)) throw new HttpError(404, 'not-found');
+  const r = await env.DB.prepare('UPDATE cli_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL').bind(now, id, ctx.userId).run();
+  if (r.meta.changes > 0) return;
+  const mine = await env.DB.prepare('SELECT 1 AS x FROM cli_tokens WHERE id = ? AND user_id = ?').bind(id, ctx.userId).first();
+  if (!mine) throw new HttpError(404, 'not-found');
+}
+
 /** Origin 없는 요청 중 CLI 분기로 받을 것이면 로그에 남길 패턴, 아니면 null */
 export function cliEntry(req: Request, url: URL): string | null {
   if (req.method === 'POST' && url.pathname === '/v1/cli/device') return '/v1/cli/device';
   if (req.method === 'POST' && url.pathname === '/v1/cli/token') return '/v1/cli/token';
-  return null;
+  return (req.headers.get('Authorization') ?? '').startsWith('Gazua-CLI ') ? 'cli-token' : null;
 }
 
 export async function handleCli(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
   if (req.method === 'POST' && url.pathname === '/v1/cli/device') return createDevice(req, env, deps, await readJson(req, 4096));
-  return json(200, await pollToken(env, deps, await readJson(req, 4096)));
+  if (req.method === 'POST' && url.pathname === '/v1/cli/token') return json(200, await pollToken(env, deps, await readJson(req, 4096)));
+  return handleCliToken(req, env, deps, url);
 }
 
 /**

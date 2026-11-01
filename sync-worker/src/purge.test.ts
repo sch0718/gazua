@@ -6,6 +6,7 @@ import { harness } from '../test/harness';
 import { doc } from '../test/docs';
 
 const n = (h: ReturnType<typeof harness>, t: string) => (h.env.DB.raw.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+const rows2 = (h: ReturnType<typeof harness>, sql: string) => (h.env.DB.raw.prepare(sql).all() as { id: string }[]).map((r) => r.id);
 const snap = groupSnapshot({ id: 'g', name: '그룹', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] });
 
 describe('purge', () => {
@@ -38,7 +39,7 @@ describe('purge', () => {
     const keep = await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: snap, ttlDays: 30 });
     void keep;
     await h.login(); // 두 번째 세션
-    expect(await purge(h.env, h.clock.now + 30 * DAY)).toEqual({ profiles: 0, shares: 0, sessions: 0 });
+    expect(await purge(h.env, h.clock.now + 30 * DAY)).toEqual({ profiles: 0, shares: 0, sessions: 0, cliGrants: 0, cliTokens: 0 });
     expect(await purge(h.env, h.clock.now + 31 * DAY + 1)).toMatchObject({ shares: 1 });
     expect(n(h, 'shares')).toBe(1);
     expect(n(h, 'sessions')).toBe(2);
@@ -75,5 +76,30 @@ describe('purge', () => {
     expect(await (await me.as('GET', '/v1/keys')).json()).toMatchObject({ keyBlobs: [{ profileId: 'p1', revision: 3, deleted: true, contentId: null }] });
     expect((await me.as('PUT', '/v1/keys/p1', blob({ expectedRevision: 3, newRevision: 4, contentId: A(24, 'J') }))).status).toBe(200);
     expect(h.env.DB.raw.prepare("SELECT revision FROM key_blobs WHERE profile_id = 'p1'").get()).toEqual({ revision: 4 });
+  });
+  it('하루 지난 CLI grant와 만료·철회 30일 지난 CLI 토큰을 지운다', async () => {
+    const h = harness();
+    const me = await h.login();
+    const userId = (h.env.DB.raw.prepare('SELECT id FROM users').get() as { id: string }).id;
+    const grant = (id: string, expires: number) =>
+      h.env.DB.raw
+        .prepare(`INSERT INTO cli_grants (id, device_hash, user_code, label, ip_hash, status, interval_ms, created_at, expires_at) VALUES (?, ?, ?, 'l', 'ip', 'pending', 5000, 1, ?)`)
+        .run(id, `d-${id}`, `C${id}`.padEnd(8, 'B'), expires);
+    const token = (id: string, expires: number, revoked: number | null) =>
+      h.env.DB.raw
+        .prepare(`INSERT INTO cli_tokens (id, token_hash, user_id, label, created_at, last_used_at, expires_at, revoked_at) VALUES (?, ?, ?, 'l', 1, 1, ?, ?)`)
+        .run(id, `h-${id}`, userId, expires, revoked);
+    const now = h.clock.now;
+    grant('g1', now - DAY - 1); // 지움
+    grant('g2', now - DAY + 1); // 남김
+    token('t1', now - 31 * DAY, null); // 만료 31일: 지움
+    token('t2', now + 5 * DAY, now - 31 * DAY); // 철회 31일: 지움
+    token('t3', now - 29 * DAY, null); // 남김
+    token('t4', now + 5 * DAY, now - 29 * DAY); // 남김
+    token('t5', now + 5 * DAY, null); // 남김
+    void me;
+    expect(await purge(h.env, now)).toMatchObject({ cliGrants: 1, cliTokens: 2 });
+    expect(rows2(h, 'SELECT id FROM cli_grants')).toEqual(['g2']);
+    expect(rows2(h, 'SELECT id FROM cli_tokens ORDER BY id')).toEqual(['t3', 't4', 't5']);
   });
 });

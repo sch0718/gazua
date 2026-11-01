@@ -10,7 +10,7 @@ export const PURGE_ROWS_PER_RUN = 500;
 /** 만료·철회된 공유와 세션도 30일 뒤에 지운다(그동안은 목록에서 상태를 볼 수 있다). */
 export const KEEP_AFTER_END = 30 * DAY;
 
-export async function purge(env: SyncEnv, now: number): Promise<{ profiles: number; shares: number; sessions: number }> {
+export async function purge(env: SyncEnv, now: number): Promise<{ profiles: number; shares: number; sessions: number; cliGrants: number; cliTokens: number }> {
   const db = env.DB;
   const { results: due } = await db
     .prepare('SELECT user_id AS userId, profile_id AS profileId FROM profile_index WHERE purge_at IS NOT NULL AND purge_at <= ? LIMIT ?')
@@ -39,5 +39,14 @@ export async function purge(env: SyncEnv, now: number): Promise<{ profiles: numb
     .run();
   // 세션은 패키지가 소유한 테이블이다. 같은 규칙(만료·철회 후 30일)으로 지운다.
   const sessions = await purgeSessions(db, now, PURGE_ROWS_PER_RUN);
-  return { profiles: due.length, shares: shares.meta.changes, sessions };
+  // CLI: 승인 대기(grant)는 만료 하루 뒤, 토큰은 만료·철회 30일 뒤에 지운다
+  const grants = await db
+    .prepare(`DELETE FROM cli_grants WHERE id IN (SELECT id FROM cli_grants WHERE expires_at <= ? LIMIT ?)`)
+    .bind(now - DAY, PURGE_ROWS_PER_RUN)
+    .run();
+  const cliTokens = await db
+    .prepare(`DELETE FROM cli_tokens WHERE id IN (SELECT id FROM cli_tokens WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?) LIMIT ?)`)
+    .bind(old, old, PURGE_ROWS_PER_RUN)
+    .run();
+  return { profiles: due.length, shares: shares.meta.changes, sessions, cliGrants: grants.meta.changes, cliTokens: cliTokens.meta.changes };
 }

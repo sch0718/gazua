@@ -12,7 +12,7 @@ import {
 } from '@sch0718/firebase-session/worker';
 import { KEY_BODY_MAX } from '../../src/lib/sync/keyWire';
 import { checkKeyId, createVault, deleteKeyBlob, getKeyBlob, listKeys, putKeyBlob, rekey, wipeKeys } from './keys';
-import { approveCli, cliEntry, handleCli } from './cli';
+import { approveCli, cliEntry, handleCli, listCliTokens, revokeCliToken } from './cli';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import type { SyncDeps, SyncEnv } from './env';
 import {
@@ -104,6 +104,8 @@ const ROUTES: [string, RegExp, string, Handler][] = [
   ['GET', /^\/v1\/shares$/, '/v1/shares', authed(async ({ env, ctx }) => ok({ shares: await listShares(env, ctx) }))],
   ['DELETE', /^\/v1\/shares\/([^/]+)$/, '/v1/shares/:id', authed(async ({ env, deps, ctx, params }) => (await revokeShare(env, ctx, params[0], deps.now()), ok({ revoked: true })))],
   ['POST', /^\/v1\/cli\/approve$/, '/v1/cli/approve', authed(async ({ req, env, deps, ctx }) => ok(await approveCli(env, deps, ctx, await readJson(req, 4096))))],
+  ['GET', /^\/v1\/cli\/tokens$/, '/v1/cli/tokens', authed(async ({ env, deps, ctx }) => ok({ tokens: await listCliTokens(env, ctx, deps.now()) }))],
+  ['DELETE', /^\/v1\/cli\/tokens\/([^/]+)$/, '/v1/cli/tokens/:id', authed(async ({ env, deps, ctx, params }) => (await revokeCliToken(env, ctx, params[0], deps.now()), ok({ revoked: true })))],
   ['GET', /^\/v1\/public\/share$/, '/v1/public/share', async ({ req, env, deps }) => ok(await readShare(env, req, deps.now()))],
 ];
 

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { harness, ORIGIN, type Harness } from '../test/harness';
 import { IP_LIMIT, normalizeIp, PENDING_LIMIT, TOKEN_TTL } from './cli';
+import { DAY } from './env';
+import { doc } from '../test/docs';
 
 const j = async (r: Response) => ({ status: r.status, body: (await r.json()) as Record<string, any> });
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -386,5 +388,158 @@ describe('POST /v1/cli/token', () => {
     expect(await j(await poll(h, d.deviceCode))).toMatchObject({ status: 410, body: { error: 'expired' } });
     expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(0);
     expect(rows(h, 'SELECT status, consumed_token_hash FROM cli_grants')).toEqual([{ status: 'approved', consumed_token_hash: null }]);
+  });
+});
+
+async function connect(h: Harness, who?: { as: (m: string, p: string, b?: unknown) => Promise<Response> }, label = 'gazua@mac') {
+  const me = who ?? (await h.login());
+  const d = (await j(await cliCall(h, 'POST', '/v1/cli/device', { body: { label }, ip: '203.0.113.5' }))).body;
+  await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true });
+  h.clock.now += 5000;
+  const t = (await j(await poll(h, d.deviceCode))).body;
+  return { me, token: t.token as string, tokenId: t.tokenId as string };
+}
+
+describe('CLI 토큰 인증과 읽기 전용 강제', () => {
+  async function ready() {
+    const h = harness();
+    const c = await connect(h);
+    await c.me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    return { h, ...c };
+  }
+
+  it('허용된 두 GET은 200', async () => {
+    const { h, token } = await ready();
+    const list = await j(await cliCall(h, 'GET', '/v1/profiles', { token }));
+    expect(list.status).toBe(200);
+    expect(list.body.profiles).toHaveLength(1);
+    expect((await cliCall(h, 'GET', '/v1/profiles/p1?docVersion=2', { token })).status).toBe(200);
+  });
+
+  it('허용 밖은 라우터 전에 403 cli-scope', async () => {
+    const { h, token } = await ready();
+    const cases: [string, string][] = [
+      ['GET', '/v1/profiles/p1'],
+      ['GET', '/v1/profiles/p1?docVersion=1'],
+      ['GET', '/v1/profiles/p1?docVersion=02'],
+      ['GET', '/v1/profiles/p1?docVersion=2&docVersion=3'],
+      ['HEAD', '/v1/profiles'],
+      ['GET', '/v1/profiles/'],
+      ['GET', '/v1/profiles/p1/revisions'],
+      ['PUT', '/v1/profiles/p1?docVersion=2'],
+      ['DELETE', '/v1/profiles/p1?docVersion=2'],
+      ['GET', '/v1/keys'],
+      ['POST', '/v1/shares'],
+      ['GET', '/v1/sessions'],
+      ['GET', '/v1/cli/tokens'],
+      ['DELETE', '/v1/cli/tokens/x'],
+      ['POST', '/v1/cli/approve'],
+      ['DELETE', '/v1/cli/token/'],
+    ];
+    for (const [method, path] of cases) {
+      const r = await j(await cliCall(h, method, path, { token, body: method === 'PUT' || method === 'POST' ? {} : undefined }));
+      expect({ method, path, status: r.status, error: r.body.error }).toEqual({ method, path, status: 403, error: 'cli-scope' });
+    }
+  });
+
+  it('토큰 모양이 틀리면 401 cli-token', async () => {
+    const { h } = await ready();
+    for (const token of ['x', 'gzc_short', `gzc_${'A'.repeat(44)}`, `abc_${'A'.repeat(43)}`]) {
+      const r = await j(await cliCall(h, 'GET', '/v1/profiles', { token }));
+      expect(r).toMatchObject({ status: 401, body: { error: 'cli-token' } });
+    }
+  });
+
+  it('모르는 토큰·앱에서 철회한 토큰은 401 cli-token-revoked', async () => {
+    const { h, token, tokenId, me } = await ready();
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token: `gzc_${'A'.repeat(43)}` }))).toMatchObject({ status: 401, body: { error: 'cli-token-revoked' } });
+    expect((await me.as('DELETE', `/v1/cli/tokens/${tokenId}`)).status).toBe(200);
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token }))).toMatchObject({ status: 401, body: { error: 'cli-token-revoked' } });
+  });
+
+  it('만료 90일 직전까지는 200, 90일이 되면 401 cli-token-expired', async () => {
+    const { h, token } = await ready();
+    h.clock.now += 90 * DAY - 1;
+    expect((await cliCall(h, 'GET', '/v1/profiles', { token })).status).toBe(200);
+    h.clock.now += 1;
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token }))).toMatchObject({ status: 401, body: { error: 'cli-token-expired' } });
+  });
+
+  it('DELETE /v1/cli/token은 요청에 쓴 그 토큰만 철회한다', async () => {
+    const { h, token, me } = await ready();
+    const second = await connect(h, me, 'gazua@pc');
+    const r = await j(await cliCall(h, 'DELETE', '/v1/cli/token', { token }));
+    expect(r).toMatchObject({ status: 200, body: { revoked: true } });
+    expect((await cliCall(h, 'GET', '/v1/profiles', { token })).status).toBe(401);
+    expect((await cliCall(h, 'GET', '/v1/profiles', { token: second.token })).status).toBe(200);
+    expect((await cliCall(h, 'DELETE', '/v1/cli/token', { token })).status).toBe(401); // 이미 끊김
+  });
+
+  it('허용 Origin+세션으로 DELETE /v1/cli/token은 404', async () => {
+    const { me } = await ready();
+    expect((await me.as('DELETE', '/v1/cli/token')).status).toBe(404);
+  });
+
+  it('Origin이 있는 요청의 Gazua-CLI 헤더는 CLI 경로로 가지 않는다(세션 인증 실패)', async () => {
+    const { h, token } = await ready();
+    const r = await h.call('GET', '/v1/profiles', { token: null, headers: { Authorization: `Gazua-CLI ${token}` } });
+    expect(r.status).toBe(401);
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens WHERE revoked_at IS NULL')[0].n).toBe(1);
+  });
+
+  it('「다른 기기 모두 로그아웃」 뒤에도 CLI 토큰은 살아 있다', async () => {
+    const { h, token, me } = await ready();
+    await h.login(); // 두 번째 앱 세션
+    const out = await j(await me.as('DELETE', '/v1/sessions?others=1'));
+    expect(out.body.revoked).toBe(1);
+    expect((await cliCall(h, 'GET', '/v1/profiles', { token })).status).toBe(200);
+  });
+
+  it('허용 목록에서 빠진 사용자는 403 not-allowed(이메일, kakao 소셜)', async () => {
+    const h = harness();
+    const { token } = await connect(h);
+    h.env.ALLOWED_EMAILS = 'someone-else@example.test';
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token }))).toMatchObject({ status: 403, body: { error: 'not-allowed' } });
+
+    const s = harness({ social: true });
+    const kakao = await s.socialLogin('kakao', 'kakao-me');
+    const c = await connect(s, kakao);
+    expect((await cliCall(s, 'GET', '/v1/profiles', { token: c.token })).status).toBe(200);
+    s.env.ALLOWED_ACCOUNTS = 'kakao:someone-else';
+    expect(await j(await cliCall(s, 'GET', '/v1/profiles', { token: c.token }))).toMatchObject({ status: 403, body: { error: 'not-allowed' } });
+  });
+
+  it('last_used_at은 하루에 한 번만 갱신한다', async () => {
+    const { h, token } = await ready();
+    const first = h.clock.now;
+    h.clock.now += DAY - 1;
+    await cliCall(h, 'GET', '/v1/profiles', { token });
+    expect(rows(h, 'SELECT last_used_at FROM cli_tokens')[0].last_used_at).toBeLessThan(first + 1);
+    h.clock.now += 1;
+    await cliCall(h, 'GET', '/v1/profiles', { token });
+    expect(rows(h, 'SELECT last_used_at FROM cli_tokens')[0].last_used_at).toBe(h.clock.now);
+  });
+});
+
+describe('앱용 CLI 토큰 목록·철회', () => {
+  it('살아 있는 내 토큰만 목록에 나오고 원문은 없다', async () => {
+    const h = harness();
+    const a = await connect(h);
+    const b = await connect(h, a.me, 'gazua@pc');
+    await a.me.as('DELETE', `/v1/cli/tokens/${b.tokenId}`);
+    const r = await j(await a.me.as('GET', '/v1/cli/tokens'));
+    expect(r.body.tokens).toEqual([{ id: a.tokenId, label: 'gazua@mac', createdAt: expect.any(Number), lastUsedAt: expect.any(Number), expiresAt: expect.any(Number) }]);
+    expect(JSON.stringify(r.body)).not.toContain(a.token);
+  });
+
+  it('남의 토큰을 철회하면 404, 이미 철회했으면 그대로 200', async () => {
+    const h = harness();
+    const a = await connect(h);
+    const other = await h.login('other@example.test', 'uid-other');
+    expect((await other.as('DELETE', `/v1/cli/tokens/${a.tokenId}`)).status).toBe(404);
+    expect((await a.me.as('DELETE', `/v1/cli/tokens/${a.tokenId}`)).status).toBe(200);
+    expect((await a.me.as('DELETE', `/v1/cli/tokens/${a.tokenId}`)).status).toBe(200);
+    expect((await a.me.as('DELETE', '/v1/cli/tokens/nope')).status).toBe(404);
+    expect((await j(await other.as('GET', '/v1/cli/tokens'))).body.tokens).toEqual([]); // 남의 토큰은 목록에도 없다
   });
 });
