@@ -24,7 +24,7 @@ AI 도구(터미널 에이전트)가 가즈아 데이터를 읽고 계산하게 
 | 토큰 수명 | 90일 고정, 앱에서 철회 |
 | 증권사 키 | 환경변수(`KIS_APP_KEY`·`KIS_APP_SECRET`, `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`), `--env-file`. **토스는 CLI용 앱을 따로 만들어 다른 client ID·secret을 써요**(§4.2) |
 | 증권사 호출 | 프록시 없이 직접. 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로 차단 |
-| 패키지 | `cli/` 워크스페이스, Node ≥ 22, esbuild 단일 번들, bin `gazua` |
+| 패키지 | `cli/` 워크스페이스, Node ≥ 22.13.0, esbuild 단일 번들, bin `gazua` |
 | 출력 | 모든 명령 JSON. `{ ok: true, data }` / `{ ok: false, error: { code, message } }` |
 | 신호 | (a) 조건 신호, (b) 내 보유(토스) 기준 매도 판정 |
 | PR | 한 PR. 배포: 병합 → D1 `0005` → Worker 배포 |
@@ -218,12 +218,12 @@ Cloudflare Workers Rate Limiting 바인딩 대신 D1로 세요. 무료 계정에
 ### 4.2 토스 키 분리와 토큰 잠금
 
 - **CLI용 토스 키를 따로 써요.** 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 받아요. 앱과 같은 키를 쓰면 한쪽이 토큰을 새로 받을 때 다른 쪽 토큰이 무효가 될 수 있어요(앱은 이를 `token-contended`로 다뤄요, `src/lib/providers/toss.ts`). README에 이 경고와 콘솔 안내를 적어요. 콘솔에서 앱을 여러 개 만들 수 있는지는 확인 필요예요(§13).
-- **같은 기기의 CLI 병렬 실행**: AI 도구가 명령을 동시에 여러 개 돌릴 수 있어요. 공급자에 파일 잠금 `TokenLock`을 넘겨 토큰 발급을 한 번에 하나로 묶어요.
-  - 잠금 파일: `~/.config/gazua/<provider>.lock`(`kis.lock`·`toss.lock`). 안에 `{ pid, hostname, nonce, createdAt }`을 써요. `fs.open(path, 'wx')`(`O_EXCL`)로 만들고, 이미 있으면 200ms마다 다시 시도해요.
-  - 회수: 파일 시스템에는 원자적인 「비교 후 삭제」가 없어서 회수 잠금(`.break`)과 시간 기준 회수는 두지 않아요(둘 다 새 경합을 만들어요). 잠금을 읽어 **같은 `hostname`이고 `process.kill(pid, 0)`이 ESRCH(프로세스 없음)일 때만** 회수해요. 지우기 직전에 다시 읽어 nonce가 같으면 `unlink`하고 `open('wx')`를 다시 시도해요. pid가 살아 있거나(EPERM 포함) 다른 host이거나 내용이 깨졌으면 회수하지 않고 기다려요.
-  - 대기 상한은 30초예요. 넘으면 오류 코드 `token-busy`로 실패해요(§6.6).
-  - 해제: 잠금 파일을 읽어 자기 `nonce`일 때만 `unlink`해요(그 사이 남의 잠금으로 바뀌었으면 그대로 둬요).
-  - 한계: 두 회수자가 같은 죽은 잠금을 동시에 보면, 한쪽이 지운 뒤 새로 만든 잠금을 다른 쪽이 (다시 읽기와 `unlink` 사이에) 지울 수 있는 아주 좁은 틈이 남아요. 그 결과는 토큰을 한 번 더 발급하는 것뿐이고, 토스는 `token-revoked`, KIS는 재시도로 복구돼요. 데이터 손실은 없어요.
+- **같은 기기의 CLI 병렬 실행**: AI 도구가 명령을 동시에 여러 개 돌릴 수 있어요. 공급자에 SQLite 잠금 `TokenLock`을 넘겨 토큰 발급을 한 번에 하나로 묶어요. 기존 인터페이스와 공급자 호출부는 유지해요.
+  - 잠금 DB: `~/.config/gazua/<provider>.lock.db`(`kis.lock.db`·`toss.lock.db`), 권한 600. Node 내장 `node:sqlite`의 `DatabaseSync`로 열어요. 별도 플래그 없이 쓰려면 Node 22.13.0 이상이 필요해요.
+  - 획득: `PRAGMA busy_timeout = 30000`을 설정하고 `BEGIN IMMEDIATE`로 쓰기 잠금을 얻어요. 대기 상한을 넘겨 `SQLITE_BUSY`가 나면 오류 코드 `token-busy`로 실패해요(§6.6).
+  - 같은 프로세스의 요청은 DB를 열기 전에 비동기로 순서를 기다려요(기본 상한 30초). 동기식 SQLite 대기가 보유자의 비동기 작업을 막지 않도록 해요. 프로세스 간 배타성은 SQLite 잠금이 보장해요.
+  - 해제: 임계 구역이 끝나면 `COMMIT`, 실패하면 `ROLLBACK` 후 연결을 닫아요. DB 파일은 삭제하거나 교체하지 않아요.
+  - 프로세스가 정상 종료하거나 강제 종료되면 운영체제가 잠금을 풀어요. pid·hostname·nonce·시각을 저장하거나 오래된 잠금을 회수하지 않아요.
   - 잠금 안에서 토큰 저장소(`tokens-<공급자>.json`)를 다시 읽으니, 앞 실행이 받은 토큰을 뒤 실행이 그대로 써요. KIS 1분 발급 제한은 같은 파일의 `issuedAt`으로, 토스 재발급 간격(60초)도 `issuedAt`을 파일에 두어 실행을 넘어 지켜요.
   - `createTossProvider`는 이미 `tokenLock`을 받아요. `createKisProvider`에는 선택 인자 `tokenLock`을 더해 `createTokenManager`의 다섯 번째 인자로 넘기고, `createTossProvider`에는 선택 인자 `issuedAt`(`IssuedAtStore`)을 더해 네 번째 인자로 넘겨요(§6.2). 앱은 둘 다 넘기지 않아 그대로예요.
 
@@ -277,13 +277,13 @@ CLI 연결
 
 | 파일 | 책임 |
 |---|---|
-| `cli/package.json` | `name: "gazua-cli"`, `type: "module"`, `bin: { gazua: "dist/gazua.mjs" }`, `engines.node: ">=22"`, 스크립트 `build`·`test`·`check` |
-| `cli/build.mjs` | esbuild 단일 번들: 진입 `src/main.ts` → `dist/gazua.mjs`, `platform: 'node'`, `format: 'esm'`, `target: 'node22'`, 첫 줄 `#!/usr/bin/env node` |
+| `cli/package.json` | `name: "gazua-cli"`, `type: "module"`, `bin: { gazua: "dist/gazua.mjs" }`, `engines.node: ">=22.13.0"`, 스크립트 `build`·`test`·`check` |
+| `cli/build.mjs` | esbuild 단일 번들: 진입 `src/main.ts` → `dist/gazua.mjs`, `platform: 'node'`, `format: 'esm'`, `target: 'node22.13'`, `external: ['node:sqlite']`(내장 모듈 유지), 첫 줄 `#!/usr/bin/env node` |
 | `cli/src/main.ts` | 인자 해석(`node:util`의 `parseArgs`), 명령 분기, 최상위 오류 → JSON |
 | `cli/src/output.ts` | `ok(data)`·`fail(code, message)`, 비밀값 거르기(§6.4) |
 | `cli/src/errors.ts` | `CliError(code, message)`, 오류 코드 표(§6.6) |
 | `cli/src/config.ts` | `~/.config/gazua/` 경로, 파일 읽기·쓰기(권한 600·700) |
-| `cli/src/fileLock.ts` | 파일 잠금 `TokenLock`(§4.2) |
+| `cli/src/fileLock.ts` | SQLite 쓰기 잠금 `TokenLock`(§4.2) |
 | `cli/src/orderCache.ts` | 토스 주문 이력 파일 캐시(§7.2) |
 | `cli/src/env.ts` | 환경변수·`--env-file`(`process.loadEnvFile`) |
 | `cli/src/syncClient.ts` | 동기화 API(`/v1/cli/*`, `/v1/profiles`). `Authorization: Gazua-CLI` |
@@ -356,12 +356,12 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 { "v": 1, "keyHash": "c3d4…", "accessToken": "…", "expiresAt": 1762000000000, "issuedAt": 1761913600000 }
 ```
 
-- 공급자마다 파일을 나눠, 각자의 공급자 잠금(`kis.lock`·`toss.lock`) 안에서만 갱신해요. 한 파일을 두 공급자가 나눠 쓰면 서로 다른 잠금 아래에서 읽고 덮어써 한쪽 토큰이 사라질 수 있어서예요.
+- 공급자마다 파일을 나눠, 각자의 공급자 잠금(`kis.lock.db`·`toss.lock.db`) 안에서만 갱신해요. 한 파일을 두 공급자가 나눠 쓰면 서로 다른 잠금 아래에서 읽고 덮어써 한쪽 토큰이 사라질 수 있어서예요.
 - `keyHash`: 키 앞 값(appKey·clientId)의 SHA-256 앞 16자. 키를 바꾸면 캐시를 버려요.
 - `TokenStore`·`IssuedAtStore`(`src/lib/providers/types.ts`) 구현이 이 파일을 읽고 써요. 쓰기는 임시 파일 → rename으로 해요. 읽을 때마다 디렉터리·파일 권한이 넓으면 `warnings`를 붙여요(`auth.json`, 토큰 파일, 주문 캐시 모두).
 - `TokenStore.load()`는 메모리에 담지 않고 매번 파일을 읽어요(잠금 안 다시 읽기를 위해, `src/lib/providers/auth.ts`의 `usableStored()` 참고).
 - 동기화 서버 주소: `gazua login --server <주소>` 또는 `GAZUA_SYNC_URL`이 먼저, 없으면 빌드 때 esbuild `define`으로 넣은 기본값(빌드 환경의 `VITE_SYNC_API_URL`, 앱이 `src/lib/sync/config.ts`에서 읽는 값과 같음). 로그인한 뒤에는 `auth.json`의 `server`를 써요. 이 `define`은 `import.meta.env` 전체가 아니라 상수 하나만 바꿔요.
-- 잠금 파일 `kis.lock`·`toss.lock`(§4.2)과 주문 캐시 `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`(§7.2)도 같은 디렉터리·권한이에요.
+- 잠금 파일 `kis.lock.db`·`toss.lock.db`(§4.2)과 주문 캐시 `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`(§7.2)도 같은 디렉터리·권한이에요.
 
 ### 6.6 오류 코드
 
@@ -537,7 +537,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 - `direct.ts`: 토스 `POST /api/v1/orders`·KIS 주문 TR 경로·없는 경로는 fetch 없이 `path-blocked`. 허용 경로는 `UPSTREAM` 주소로 보냄.
 - `output.ts`: 키·토큰·`accountSeq`가 들어간 객체·오류 메시지가 `[숨김]`으로 나옴. 표준 출력이 JSON 한 줄.
 - `config.ts`: 파일 권한 600·디렉터리 700, 넓은 권한 경고, rename 쓰기.
-- `fileLock.ts`: 두 잠금이 겹치면 하나씩, 같은 host의 죽은 pid(ESRCH) 잠금은 회수(지우기 직전 nonce 재확인), 살아 있는 pid 잠금은 회수하지 않고 대기 상한(30초) 뒤 `token-busy`, 다른 host 잠금과 깨진 잠금은 회수 안 함, 해제는 자기 nonce일 때만. 잠금 안에서 다른 실행이 저장한 토큰을 다시 읽어 발급하지 않음. 회수 경합 재현 테스트는 두지 않아요(§4.2 한계).
+- `fileLock.ts`: 같은 프로세스의 두 번째 획득은 첫 해제 전까지 대기하고, 짧은 대기 상한을 넘으면 `token-busy`. 실제 SQLite 연결도 쓰기 잠금을 얻지 못하는지 확인. 임계 구역의 성공·예외 뒤 재획득, 공급자별 독립 잠금, DB 파일 권한 600(생성·재사용). 실제 Node 자식 프로세스가 잠금을 쥔 채 `process.exit`·`SIGKILL`로 종료하면 부모가 즉시 재획득. 여러 자식을 동시에 출발시켜 공유 파일에 진입·퇴장을 기록하고 겹침 0회 확인. 잠금 안에서 다른 실행이 저장한 토큰을 다시 읽어 발급하지 않음.
 - 토큰 파일: 공급자별 파일, 두 공급자 동시 갱신에도 서로의 항목이 남음. 토큰·주문 캐시 읽기에도 644 파일·755 디렉터리 경고. 토스 `issuedAt`: 재시작한 실행의 캐시 토큰이 거절돼도 1분 안이면 `token-contended`. 환경변수 키·접근 토큰이 성공·인자 오류·표준 오류 출력에서 `[숨김]`.
 - `orderCache.ts`: 처음 전체 받기, 다음에는 `syncedThrough` 7일 전부터만 받아 합침, `accountSeq`가 파일에 없음.
 - `logout`: 서버 철회 호출 뒤 파일 삭제, 서버 실패여도 파일 삭제와 `warnings`. 401 `cli-token-revoked`·`cli-token-expired`는 성공(`warnings` 없음)으로 보고 파일만 삭제.
@@ -545,7 +545,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 - `syncClient.ts`: `Authorization: Gazua-CLI` 헤더, `docVersion=2` 쿼리, 401·403·404·422 → 오류 코드 표.
 - `profileData.ts`: v1 문서 옮겨 읽기, 프로필·전략 이름 찾기(없음·여럿).
 - `signals.ts`: venue별 마감(KRX 15:30·통합 20:00) 전후 `--today` 기준 봉, 휴장일, `firstDayIdx` = 기준 봉, 엔진과 같은 조건 판정(Task 대표 입력으로 `createRuleEvaluator` 결과와 비교), 첫 매수일(이력 맞음·모자람), 손절·익절·트레일·기간 청산 가격·도달, `unknown` 처리.
-- 번들 검사: `dist/gazua.mjs`에 `import.meta.env`·`window.`·`navigator.locks`가 없음.
+- 번들 검사: `dist/gazua.mjs`에 `import.meta.env`·`window.`·`navigator.locks`가 없음. `node:sqlite`는 external로 남기고, 빌드된 번들을 실제 Node로 실행해 JSON 출력·종료 코드를 확인하고, 시세 조회 경로에서 SQLite 잠금 DB 생성·권한 600을 확인.
 
 ### 8.3 앱
 

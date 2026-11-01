@@ -7,7 +7,7 @@
 
 ## 설치
 
-저장소에서 빌드해서 써요. npm으로 배포하지 않아요. Node 22 이상이 필요해요.
+저장소에서 빌드해서 써요. npm으로 배포하지 않아요. Node 22.13.0 이상이 필요해요. 이 버전부터 내장 `node:sqlite`를 별도 플래그 없이 쓸 수 있어요([Node 문서](https://nodejs.org/download/release/v22.13.0/docs/api/cli.html#--no-experimental-sqlite)).
 
 ```bash
 corepack pnpm install
@@ -45,7 +45,7 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 
 토스는 **허용 IP**에서만 받아요. CLI를 쓰는 기기의 공인 IP를 토스 개발자 콘솔에 등록하세요. 막히면 `ip-not-allowed`가 나와요.
 
-같은 기기에서 CLI를 여러 개 동시에 돌려도 토큰 발급은 `~/.config/gazua/<공급자>.lock` 파일 잠금으로 한 번에 하나씩만 해요.
+같은 기기에서 CLI를 여러 개 동시에 돌려도 토큰 발급은 `~/.config/gazua/<공급자>.lock.db`의 SQLite 쓰기 잠금으로 한 번에 하나씩만 해요. `BEGIN IMMEDIATE`로 잠그고 끝나면 `COMMIT`(실패하면 `ROLLBACK`) 후 DB를 닫아요. 30초 안에 잠금을 얻지 못하면 `token-busy`예요. 프로세스가 종료되면 운영체제가 잠금을 풀기 때문에 오래된 잠금을 회수할 필요가 없어요. DB 파일은 그대로 두어요.
 
 ## 명령
 
@@ -107,7 +107,7 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 |---|---|
 | `auth.json` | 서버 주소와 CLI 토큰 |
 | `tokens-kis.json`, `tokens-toss.json` | 증권사 접근 토큰 캐시(공급자마다 하나, 키 해시·발급 시각 포함, 키 원문 없음) |
-| `kis.lock`, `toss.lock` | 토큰 발급 잠금 |
+| `kis.lock.db`, `toss.lock.db` | SQLite 토큰 발급 잠금 DB(600, 프로세스 종료 시 잠금 자동 해제, 파일 유지) |
 | `orders-<키 해시>-<계좌 해시>.json` | 토스 주문 이력 캐시(`signals`의 첫 매수일 계산용) |
 
 ## 배포 순서 (관리자)

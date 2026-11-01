@@ -1,4 +1,4 @@
-// 읽기 전용 CLI 번들: src/main.ts → dist/gazua.mjs (esbuild 단일 파일, Node 22).
+// 읽기 전용 CLI 번들: src/main.ts → dist/gazua.mjs (esbuild 단일 파일, Node 22.13 이상).
 // 앱 코드를 상대 경로로 묶으므로 브라우저 전용 코드(import.meta.env, window, navigator.locks)가 딸려 들어오면 빌드를 실패시킨다.
 import { build } from 'esbuild';
 import { chmodSync, readFileSync } from 'node:fs';
@@ -19,7 +19,8 @@ export async function bundle(outfile = join(root, 'dist', 'gazua.mjs'), env = pr
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node22',
+    target: 'node22.13',
+    external: ['node:sqlite'],
     banner: { js: '#!/usr/bin/env node' },
     // import.meta.env 전체가 아니라 기본 서버 주소 상수 하나만 넣는다(src/main에서 typeof로 읽는다)
     define: { __GAZUA_DEFAULT_SERVER__: JSON.stringify((env.VITE_SYNC_API_URL ?? '').trim().replace(/\/+$/, '')) },
