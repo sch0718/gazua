@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { criteriaFixture as newCriteria } from './testFixtures';
 import { MAX_SYMBOLS, newStrategy } from '../sim/defaults';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { sanitizeStrategiesV2 } from '../sim/strategyV2';
-import { newStrategyV1, toV2 } from '../sim/strategyV1';
+import { newStrategyV1, toV2, type StrategyV1 } from '../sim/strategyV1';
 import { patternEntryOf } from '../sim/patternBlock';
 import type { Watchlists } from '../state/schema';
 import { MAX_ITEMS } from '../state/watchlist';
@@ -16,6 +16,10 @@ import {
   SHARE_MAX_BYTES,
   shareTitle,
   strategySnapshot,
+  type CheckMode,
+  type ShareSnapshot,
+  type SimResultSnapshot,
+  type StrategySnapshot,
 } from './snapshot';
 import { compareSnapshot } from './compact';
 import { SIM_SYMBOLS_MAX } from './checkResult';
@@ -298,6 +302,46 @@ describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
     const f = simResultFixture();
     return { ...f, v: 2, strategy: { ...v2Strategy(f.title, (f.strategy.universe as { symbols: string[] }).symbols), benchmarks: f.strategy.benchmarks } };
   };
+
+  it.each([1, 2] as const)('create: v%i 원본의 반환 타입은 v1·v2 합집합이고 read는 v2다', (v) => {
+    type OriginalSnapshot = ShareSnapshot
+      | (Omit<StrategySnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 })
+      | (Omit<SimResultSnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 });
+    const sim = simResultFixture();
+    const legacy = { ...newStrategyV1(NOW, null, sim.title), id: 'shared', updatedAt: 0, universe: sim.strategy.universe, benchmarks: sim.strategy.benchmarks };
+    const strategy = v === 1 ? legacy : sim.strategy;
+    const raws = [
+      { kind: 'strategy', v, title: sim.title, strategy, capitalHidden: false },
+      { ...sim, v, strategy },
+    ];
+    for (const raw of raws) {
+      const created = checkShareSnapshot(raw, raw.kind, NOW, 'create');
+      const defaulted = checkShareSnapshot(raw, raw.kind, NOW);
+      const withoutNow = checkShareSnapshot(raw, raw.kind);
+      expectTypeOf(created).toEqualTypeOf<typeof defaulted>();
+      expectTypeOf(created).toEqualTypeOf<typeof withoutNow>();
+      for (const r of [created, defaulted, withoutNow]) {
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+          expectTypeOf(r.snapshot).toEqualTypeOf<OriginalSnapshot>();
+          expect(r.snapshot).toBe(raw);
+        }
+      }
+      const read = checkShareSnapshot(raw, raw.kind, NOW, 'read');
+      expect(read.ok).toBe(true);
+      if (read.ok) {
+        expectTypeOf(read.snapshot).toEqualTypeOf<ShareSnapshot>();
+        if (read.snapshot.kind === 'strategy' || read.snapshot.kind === 'simResult') {
+          expectTypeOf(read.snapshot.v).toEqualTypeOf<2>();
+          expect(read.snapshot.v).toBe(2);
+          expect(read.snapshot.strategy).toEqual(v === 1 ? toV2(legacy) : sim.strategy);
+        }
+      }
+      const mode: CheckMode = v === 1 ? 'create' : 'read';
+      const dynamic = checkShareSnapshot(raw, raw.kind, NOW, mode);
+      if (dynamic.ok) expectTypeOf(dynamic.snapshot).toEqualTypeOf<OriginalSnapshot>();
+    }
+  });
 
   it('create: v2 전략 공유를 받고 원본을 돌려준다', () => {
     const raw = strategyV2Snap();

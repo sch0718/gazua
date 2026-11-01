@@ -60,6 +60,7 @@ export interface StrategySnapshot {
   /** true면 capital.initial은 기본값으로 바꿔 둔 것이고 화면에 '비공개'로 보인다. */
   capitalHidden: boolean;
 }
+export type StrategySnapshotV1 = Omit<StrategySnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 };
 export interface CriteriaSnapshot {
   kind: 'criteria';
   v: 1;
@@ -116,6 +117,7 @@ export interface SimResultSnapshot {
   run: ShareRun;
   result: SharedSimResult;
 }
+export type SimResultSnapshotV1 = Omit<SimResultSnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 };
 
 export interface SharedSimResult {
   axis: ShareAxis;
@@ -224,9 +226,10 @@ export interface SharedRebalance {
 export type SharedPick = [symbol: string, retPct: number | null, mark: 0 | 1 | NotBoughtReason, values: ValuePairs | null];
 
 export type ShareSnapshot = GroupSnapshot | StrategySnapshot | CriteriaSnapshot | CompareSnapshot | SimResultSnapshot | ValidationSnapshot;
+export type ShareCreateSnapshot = ShareSnapshot | StrategySnapshotV1 | SimResultSnapshotV1;
 
 export type ShareError = 'invalid' | 'unknown-field' | 'forbidden-field' | 'too-large' | 'reference' | 'unsupported';
-export type ShareCheck = { ok: true; snapshot: ShareSnapshot } | { ok: false; code: ShareError; path?: string };
+export type ShareCheck<S extends ShareCreateSnapshot = ShareSnapshot> = { ok: true; snapshot: S } | { ok: false; code: ShareError; path?: string };
 type PartFail = { ok: false; code: ShareError; path?: string };
 
 /** 결과 스냅샷을 줄인 단계(설계 3.4) */
@@ -379,7 +382,9 @@ export function checkCriteriaPart(
  * kind는 요청의 kind와 같아야 한다. read 모드는 전략·기준의 빠진 필드만 기본값으로 채워 받고, 돌려주는 snapshot은 채운 값이다.
  * create는 모든 종류에서 검사 통과 시 입력 원본을 돌려준다(Worker가 저장). read는 v1 전략을 v2로 옮긴다.
  */
-export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now(), mode: CheckMode = 'create'): ShareCheck {
+export function checkShareSnapshot(raw: unknown, kind: unknown, now: number | undefined, mode: 'read'): ShareCheck;
+export function checkShareSnapshot(raw: unknown, kind: unknown, now?: number, mode?: CheckMode): ShareCheck<ShareCreateSnapshot>;
+export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now(), mode: CheckMode = 'create'): ShareCheck<ShareCreateSnapshot> {
   if (!isRecord(raw)) return fail('invalid');
   if (exceedsDepth(raw)) return fail('invalid');
   const forbidden = findForbidden(raw);
@@ -410,7 +415,7 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       const st = checkStrategyPart(raw.strategy, raw.title, now, mode, sv);
       if (!st.ok) return st;
       // create는 원본을 그대로 돌려준다(서버가 저장). read는 빠진 필드를 채우고 v2로 옮긴다
-      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as unknown as StrategySnapshot };
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as StrategySnapshot | StrategySnapshotV1 };
     }
     case 'criteria': {
       const k = exactKeys(raw, ['kind', 'v', 'title', 'criteria', 'baskets', 'capitalHidden'], '');
@@ -441,7 +446,7 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       if (r) return failOf(r);
       const run = checkRun(raw.run, (raw.result as SharedSimResult).axis);
       if (run) return failOf(run);
-      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as unknown as SimResultSnapshot };
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, v: STRATEGY_SHARE_VERSION, strategy: upgrade(st.strategy) }) as SimResultSnapshot | SimResultSnapshotV1 };
     }
     case 'validation': {
       const k = exactKeys(raw, ['kind', 'v', 'title', 'criteria', 'baskets', 'capitalHidden', 'run', 'result'], '');
