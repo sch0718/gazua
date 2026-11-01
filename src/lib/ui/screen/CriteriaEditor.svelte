@@ -16,15 +16,16 @@
   import type { SelectionCriteria } from '../../screen/types';
   import { criteriaIssues, type Issue } from '../../screen/validate';
   import { PreviewError } from '../../screen/validationController.svelte';
-  import { newStrategy } from '../../sim/defaults';
-  import type { Strategy } from '../../sim/types';
+  import { defaultPatternEntry } from '../../sim/defaults';
+  import { patternEntryOf } from '../../sim/patternBlock';
+  import type { PatternEntry, Strategy } from '../../sim/types';
   import type { Basket } from '../../screen/baskets';
   import type { App } from '../../state/app.svelte';
   import { Segmented } from '@sch0718/ui-svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import { Toggle } from '@sch0718/ui-svelte';
   import EditorSection from '../simulate/editor/EditorSection.svelte';
-  import EntrySection from '../simulate/editor/EntrySection.svelte';
+  import PatternFields from '../simulate/editor/PatternFields.svelte';
   import NumberField from '../simulate/editor/NumberField.svelte';
   import BasketPicker from './BasketPicker.svelte';
   import ConditionRow from './ConditionRow.svelte';
@@ -317,33 +318,32 @@
   // ── 반등 신호 패턴 ──
   const pattern = $derived(draft.conditions.rebound.pattern);
   const strategyIds = $derived(app.strategies.map((s) => s.id));
-  let customMemo: Strategy['entry'] | null = untrack(() =>
-    draft.conditions.rebound.pattern.from === 'custom' ? ($state.snapshot(draft.conditions.rebound.pattern.entry) as Strategy['entry']) : null,
+  let customMemo: PatternEntry | null = untrack(() =>
+    draft.conditions.rebound.pattern.from === 'custom' ? ($state.snapshot(draft.conditions.rebound.pattern.entry) as PatternEntry) : null,
   );
   function setPatternFrom(from: string) {
     if (from === pattern.from) return;
     if (from === 'strategy') {
       const first = app.strategies[0];
       if (!first) return;
-      if (pattern.from === 'custom') customMemo = $state.snapshot(pattern.entry) as Strategy['entry'];
+      if (pattern.from === 'custom') customMemo = $state.snapshot(pattern.entry) as PatternEntry;
       for (const k of [...invalid.keys()]) if (k.startsWith('entry-')) invalid.delete(k); // 숨는 매수 칸의 틀린 글은 버린다
       update((c) => {
         c.conditions.rebound.pattern = { from: 'strategy', strategyId: first.id };
       });
     } else {
       const ref = pattern.from === 'strategy' ? app.strategies.find((s) => s.id === pattern.strategyId) : undefined;
-      const entry = customMemo ?? (ref ? (structuredClone($state.snapshot(ref.entry)) as Strategy['entry']) : newStrategy(Date.now(), null).entry);
+      const refEntry = ref ? patternEntryOf(ref) : null;
+      const entry = customMemo ?? (refEntry ? (structuredClone($state.snapshot(refEntry)) as PatternEntry) : defaultPatternEntry());
       update((c) => {
         c.conditions.rebound.pattern = { from: 'custom', entry };
       });
     }
   }
-  // 매수 섹션은 전략 모양을 기대하므로 entry만 가진 겉모양을 넘긴다
-  const entryHost = $derived(pattern.from === 'custom' ? ({ entry: pattern.entry } as unknown as Strategy) : null);
-  const updateEntry = (fn: (s: Strategy) => void) =>
+  const updateEntry = (fn: (e: PatternEntry) => void) =>
     update((c) => {
       const p = c.conditions.rebound.pattern;
-      if (p.from === 'custom') fn({ entry: p.entry } as unknown as Strategy);
+      if (p.from === 'custom') fn(p.entry);
     });
 
   // ── 비교 대상 ──
@@ -496,8 +496,8 @@
                 <option value={s.id} selected={known && s.id === pattern.strategyId}>{s.name}</option>
               {/each}
             </select>
-          {:else if entryHost}
-            <EntrySection s={entryHost} update={updateEntry} nf={(k) => nf(`entry-${k}`)} />
+          {:else if pattern.from === 'custom'}
+            <PatternFields entry={pattern.entry} update={updateEntry} nf={(k) => nf(`entry-${k}`)} />
           {/if}
         </ConditionRow>
         <MacroConditions macro={k.macro} unavailable={noMacro} {nf} update={(fn) => update((c) => fn(c.conditions.macro))} />

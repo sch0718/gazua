@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { exceedsDepth, findForbidden } from '../sync/forbidden';
 import { defaultCond, MAX_CONDS, MAX_GROUPS, sanitizeStrategiesV2 } from './strategyV2';
 import { fullStrategyV2 } from './testStrategyV2';
-import * as validate from './validate';
+import * as strategyV1 from './strategyV1';
 
 const NOW = Date.UTC(2026, 10, 1);
 const one = (s: unknown) => sanitizeStrategiesV2({ strategies: [s] }, NOW);
@@ -20,7 +20,7 @@ describe('sanitizeStrategiesV2', () => {
       s.rules.buy[0].conds[0] = { kind: 'newHigh', days: 60 };
       return s;
     });
-    const spy = vi.spyOn(validate, 'sanitizeEntry');
+    const spy = vi.spyOn(strategyV1, 'sanitizeEntry');
     try {
       expect(sanitizeStrategiesV2({ strategies }, NOW)).toEqual({ strategies, repaired: false });
       expect(spy).not.toHaveBeenCalled();

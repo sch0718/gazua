@@ -1,3 +1,4 @@
+import { patternEntryOf } from './patternBlock';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
@@ -87,10 +88,10 @@ describe('연말 휴장일이 주말인 해의 매도세', () => {
     ];
     const candles = [...closes.map((c, i) => bar(days[i], c, c, c, c)), ...rest.map(([o, h, l, c], i) => bar(days[9 + i], o, h, l, c))];
     const s = newStrategy(0, null);
-    s.capital = { initial: 10_000_000, perBuyPct: 10 };
+    s.capital = { initial: 10_000_000 };
     s.costs.feePct = 0;
-    s.entry.triggers.breakout.on = false;
-    s.exit.stopLoss = { pct: 10, basis: 'avgAlways' };
+    patternEntryOf(s)!.triggers.breakout.on = false;
+    s.rules.sell.stopLoss = { on: true, pct: 10, basis: 'avgAlways' };
     const core = simulateCore({
       strategy: s,
       days,

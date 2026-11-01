@@ -927,16 +927,16 @@ describe('createApp — profiles management, passphrase check, export/import', (
     seed(backing, 'p:p2:settings', { onboarded: true });
     const a = { ...newStrategy(NOW, 'g1', '가'), id: 'a' };
     const b = { ...newStrategy(NOW, 'g1', '나'), id: 'b' };
-    seed(backing, 'p:p2:strategies', { strategies: [b] });
+    seed(backing, 'p:p2:strategySet', { strategies: [b] });
     const app = make(backing);
     expect(app.strategies).toEqual([]);
     app.setStrategies([a]);
-    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:strategies')!)).toEqual({ strategies: [a] });
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:strategySet')!)).toEqual({ strategies: [a] });
     expect(app.strategies).toEqual([a]);
     app.switchProfile('p2');
     expect(app.strategies).toEqual([b]);
     app.deleteProfile('p2');
-    expect(backing.getItem('gazua:v1:p:p2:strategies')).toBeNull();
+    expect(backing.getItem('gazua:v1:p:p2:strategySet')).toBeNull();
     expect(app.strategies).toEqual([a]);
   });
 

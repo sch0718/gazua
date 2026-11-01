@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { patternEntryOf } from '../../sim/patternBlock';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -230,7 +231,7 @@ describe('② 매매 규칙', () => {
   it('a trading strategy the strategy editor would block (all buy signals off) blocks the run with its reason', async () => {
     const { app, onRun } = setup({ strategies: ['눌림목'], crit: (c) => (c.trading.strategyId = 's0') });
     const s = structuredClone(app.strategies[0]);
-    Object.values(s.entry.triggers).forEach((t) => (t.on = false));
+    Object.values(patternEntryOf(s)!.triggers).forEach((t) => (t.on = false));
     app.setStrategies([s]);
     await settle();
     await fireEvent.click(runBtn());

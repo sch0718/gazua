@@ -7,13 +7,13 @@
   import NumberField from './NumberField.svelte';
 
   let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
-  const stages = $derived(s.exit.takeProfit);
+  const stages = $derived(s.rules.sell.takeProfit.stages);
   const uid = Math.random().toString(36).slice(2, 9);
   const BASIS_KEYS: StopBasis[] = ['avgAfterScaleIn', 'avgAlways', 'firstBuy'];
 
   function addStage() {
     update((x) => {
-      const tp = x.exit.takeProfit;
+      const tp = x.rules.sell.takeProfit.stages;
       if (tp.length >= MAX_TAKE_STAGES) return;
       const last = tp[tp.length - 1];
       // 이제 마지막이 아니니 남은 몫의 절반만 판다(앞 단계 합이 100 미만이어야 새 단계가 실행된다)
@@ -25,7 +25,7 @@
 
   function removeStage(i: number) {
     update((x) => {
-      const tp = x.exit.takeProfit;
+      const tp = x.rules.sell.takeProfit.stages;
       if (tp.length <= 1) return;
       tp.splice(i, 1);
       tp[tp.length - 1].sellPct = 100; // 마지막 단계는 나머지 전부
@@ -44,13 +44,13 @@
       {/if}
     </div>
     <div class="row">
-      <NumberField label="목표" namePrefixId="{uid}-st{i}" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.exit.takeProfit[i].pct = v))} />
+      <NumberField label="목표" namePrefixId="{uid}-st{i}" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.rules.sell.takeProfit.stages[i].pct = v))} />
     </div>
     <div class="row">
       {#if last}
         <span class="rest">파는 양</span><span class="rest-v">나머지 전부</span>
       {:else}
-        <NumberField label="파는 양" namePrefixId="{uid}-st{i}" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.exit.takeProfit[i].sellPct = v))} />
+        <NumberField label="파는 양" namePrefixId="{uid}-st{i}" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.rules.sell.takeProfit.stages[i].sellPct = v))} />
       {/if}
     </div>
   </div>
@@ -62,15 +62,15 @@
 
 <p class="group-title">손절</p>
 <div class="row">
-  <NumberField label="손절폭" value={s.exit.stopLoss.pct} min={0.5} max={50} suffix="% 내리면" onchange={(v) => update((x) => (x.exit.stopLoss.pct = v))} />
+  <NumberField label="손절폭" value={s.rules.sell.stopLoss.pct} min={0.5} max={50} suffix="% 내리면" onchange={(v) => update((x) => (x.rules.sell.stopLoss.pct = v))} />
 </div>
 <span class="seg-label">손절 기준 가격</span>
 <Segmented
   wide
   onSurface
   label="손절 기준 가격"
-  value={s.exit.stopLoss.basis}
-  onchange={(v) => update((x) => (x.exit.stopLoss.basis = v as StopBasis))}
+  value={s.rules.sell.stopLoss.basis}
+  onchange={(v) => update((x) => (x.rules.sell.stopLoss.basis = v as StopBasis))}
   options={BASIS_KEYS.map((k) => ({ value: k, label: STOP_BASIS_LABEL[k] }))}
 />
 <p class="hint">평단 = 평균 매수가예요. 분할 매수를 끄면 세 기준이 같아요</p>
@@ -79,8 +79,8 @@
   wide
   onSurface
   label="1단계 익절 뒤 손절선"
-  value={s.exit.afterFirstTake}
-  onchange={(v) => update((x) => (x.exit.afterFirstTake = v as 'keep' | 'breakeven'))}
+  value={s.rules.sell.takeProfit.afterFirstTake}
+  onchange={(v) => update((x) => (x.rules.sell.takeProfit.afterFirstTake = v as 'keep' | 'breakeven'))}
   options={[
     { value: 'keep', label: '그대로' },
     { value: 'breakeven', label: '본전으로 올리기' },

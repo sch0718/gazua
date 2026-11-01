@@ -329,7 +329,7 @@ function runTrading(
   const strategy: Strategy = {
     ...ref,
     period: { ...criteria.period },
-    capital: { initial: criteria.capital, perBuyPct: ref.capital.perBuyPct },
+    capital: { initial: criteria.capital },
     costs: { feePct: criteria.costs.feePct },
     benchmarks: { index: firstIndex ?? 'KOSPI', symbol: null },
   };

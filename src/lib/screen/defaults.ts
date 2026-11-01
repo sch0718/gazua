@@ -1,4 +1,4 @@
-import { defaultPeriod, MAX_INITIAL, NAME_MAX, newStrategy } from '../sim/defaults';
+import { defaultPeriod, MAX_INITIAL, NAME_MAX, defaultPatternEntry } from '../sim/defaults';
 import type { MacroSeriesCond, SelectionCriteria } from './types';
 
 export { MAX_INITIAL, NAME_MAX };
@@ -44,7 +44,7 @@ export function newCriteria(
       rebound: {
         on: true,
         withinDays: 10,
-        pattern: { from: 'custom', entry: newStrategy(now, null).entry },
+        pattern: { from: 'custom', entry: defaultPatternEntry() },
       },
       macro: { betaDays: 120, usdkrw: defaultMacroSeries(), wti: defaultMacroSeries() },
       flow: {

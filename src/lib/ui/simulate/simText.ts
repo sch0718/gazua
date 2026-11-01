@@ -1,4 +1,5 @@
 // 시뮬레이션 화면의 문구. 목업의 한 줄 요약과 같은 말투로 쓴다.
+import { patternEntryOf } from '../../sim/patternBlock';
 import { resolveSymbols, type Issue } from '../../sim/validate';
 import type { HoldingFrame, Skip, Strategy, Trade } from '../../sim/types';
 import { addDays, kstDate, kstWeekday } from '../../time/kst';
@@ -47,7 +48,9 @@ export function money(n: number): string {
 }
 
 function entrySummary(s: Strategy): string {
-  const { decline, triggers: t, filter } = s.entry;
+  const p = patternEntryOf(s);
+  if (!p) return `조건 묶음 ${s.rules.buy.length}개`;
+  const { decline, triggers: t, filter } = p;
   const down: string[] = [];
   if (decline.dropPct.on) down.push(`고점 대비 ${decline.dropPct.value}% 하락`);
   if (decline.days.on) down.push(`${decline.days.value}일 하락`);
@@ -65,7 +68,8 @@ function entrySummary(s: Strategy): string {
 export const STOP_BASIS_LABEL = { avgAfterScaleIn: '분할 후 평단', avgAlways: '매번 평단', firstBuy: '첫 매수가' } as const;
 
 function exitSummary(s: Strategy): string {
-  const { takeProfit, stopLoss, afterFirstTake } = s.exit;
+  const { stages: takeProfit, afterFirstTake } = s.rules.sell.takeProfit;
+  const { stopLoss } = s.rules.sell;
   const n = takeProfit.length;
   // 마지막 단계는 남은 것 전부: 단계가 하나면 전량, 여럿이면 나머지
   const amount = (sellPct: number, i: number) => (i === n - 1 ? (n === 1 ? '전량' : '나머지') : `${sellPct}%`);
@@ -85,7 +89,7 @@ export function sectionSummary(s: Strategy, section: Issue['section'], w: Watchl
     case 'period':
       return `${dots(s.period.from)} ~ ${dots(s.period.to)}`;
     case 'capital':
-      return `${money(s.capital.initial)} · 회당 ${s.capital.perBuyPct}%`;
+      return `${money(s.capital.initial)} · 회당 ${s.sizing.pct}%`;
     case 'entry':
       return entrySummary(s);
     case 'scaleIn':
@@ -207,7 +211,9 @@ export function resultHeadline(from: string, to: string, venueLabel: string, fet
 /** 거래가 0건일 때 가장 가까웠던 순간. */
 export function nearMissText(nm: { maxDropPct: number; declineDays: number }, s: Strategy): string {
   const drop = `${(Math.round(nm.maxDropPct * 10) / 10).toFixed(1)}%`;
-  const { dropPct, days } = s.entry.decline;
+  const p = patternEntryOf(s);
+  if (!p) return `가장 크게 빠진 때는 ${drop}였어요`;
+  const { dropPct, days } = p.decline;
   if (dropPct.on && nm.maxDropPct < dropPct.value) return `고점 대비 가장 크게 빠진 때도 ${drop}라, 하락 조건(${dropPct.value}% 이상)에 닿지 않았어요`;
   if (nm.declineDays > 0) return `충분히 떨어진 날은 ${nm.declineDays}일 있었지만, 그 뒤 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요`;
   if (days.on) return `고점 뒤 하락이 ${days.value}거래일 이상 이어진 적이 없었어요`;

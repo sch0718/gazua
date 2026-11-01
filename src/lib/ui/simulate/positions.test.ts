@@ -1,3 +1,4 @@
+import { patternEntryOf } from '../../sim/patternBlock';
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import { simulate, simulateCore } from '../../sim/simulate';
@@ -25,11 +26,11 @@ describe('positionReturnPct', () => {
 
   it('요약의 승패·round trip 손익과 같은 정의: 수수료 1%·익절 1%는 0승 1패이고 시트도 음수', () => {
     const s = newStrategy(0, null);
-    s.capital = { initial: 10_000_000, perBuyPct: 10 };
+    s.capital = { initial: 10_000_000 };
     s.costs.feePct = 1;
-    s.entry.triggers.breakout.on = false;
-    s.exit.takeProfit = [{ pct: 1, sellPct: 100 }];
-    s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
+    patternEntryOf(s)!.triggers.breakout.on = false;
+    s.rules.sell.takeProfit.stages = [{ pct: 1, sellPct: 100 }];
+    s.rules.sell.stopLoss = { on: true, pct: 5, basis: 'avgAlways' };
     const days = tradingDates('2026-01-05', 11);
     const closes = [90, 100, 92, 95, 88, 80, 82, 84, 86];
     const candles = [...closes.map((c, i) => bar(days[i], c, c, c, c)), bar(days[9], 87, 90, 87, 89), bar(days[10], 89, 89, 89, 89)];

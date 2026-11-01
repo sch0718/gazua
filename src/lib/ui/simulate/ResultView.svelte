@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { patternEntryOf } from '../../sim/patternBlock';
   // 결과 보기(스펙 7.4): 머리줄 · 요약 카드 · 자산 곡선 · 비교 기준 · 탭 · 한계 안내.
   // 탭 본문은 TradeList·SymbolTab·SkipList로 나눴다.
   import type { Skip, Trade } from '../../sim/types';
@@ -63,7 +64,7 @@
   const benchSymbol = $derived(meta.strategy.benchmarks.symbol);
   const benchName = $derived(benchSymbol ? (meta.names[benchSymbol] ?? benchSymbol) : null);
   // 거래 차트 시트에서 강조할 돌파 기준선(돌파 트리거를 쓸 때만)
-  const breakout = $derived(meta.strategy.entry.triggers.breakout);
+  const breakout = $derived(patternEntryOf(meta.strategy)?.triggers.breakout ?? { on: false, level: 'B' as const });
 
   // 누른 거래: 그 포지션의 거래 차트 시트를 연다
   let picked = $state<Trade | null>(null);

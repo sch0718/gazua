@@ -1,8 +1,8 @@
 // 테스트 전용: 손으로 만든 시장 데이터
 import type { FinSeries, FlowSeries, MarketDataFile, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry } from '../sim/defaults';
 import { tradingDates } from '../sim/testBars';
-import type { Strategy } from '../sim/types';
+import type { PatternEntry } from '../sim/types';
 import { kstEpoch } from '../time/kst';
 import { newCriteria } from './defaults';
 import type { MacroSeriesKey, SelectionCriteria } from './types';
@@ -68,8 +68,8 @@ export function offCriteria(): SelectionCriteria {
 }
 
 /** 하락 10% + 2일 연속 상승만 켠 패턴 */
-export function reboundEntry(): Strategy['entry'] {
-  const e = newStrategy(NOW, null).entry;
+export function reboundEntry(): PatternEntry {
+  const e = defaultPatternEntry();
   e.decline = { dropPct: { on: true, value: 10 }, days: { on: false, value: 10 } };
   e.triggers.reboundDays = { on: true, value: 2 };
   e.triggers.breakout.on = false;

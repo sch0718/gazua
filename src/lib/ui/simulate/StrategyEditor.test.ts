@@ -4,6 +4,7 @@ import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../../data/universe';
 import { MAX_STRATEGIES, newStrategy } from '../../sim/defaults';
+import { patternEntryOf } from '../../sim/patternBlock';
 import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
 import type { Strategy } from '../../sim/types';
 import type { App } from '../../state/app.svelte';
@@ -14,7 +15,7 @@ import StrategyEditor from './StrategyEditor.svelte';
 import editorSectionSource from './editor/EditorSection.svelte?raw';
 import periodSource from './editor/PeriodSection.svelte?raw';
 import numberFieldSource from './editor/NumberField.svelte?raw';
-import entrySource from './editor/EntrySection.svelte?raw';
+import entrySource from './editor/PatternFields.svelte?raw';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const UNIVERSE: UniverseItem[] = [
@@ -61,6 +62,26 @@ afterEach(() => {
 });
 
 describe('StrategyEditor 구역', () => {
+  it('뒤 묶음에 있는 패턴 블록을 편집하고 다른 조건은 유지한다', async () => {
+    const { app } = setup((s) => {
+      s.rules.buy.unshift({ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] });
+    });
+    await openSection('매수');
+    await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
+    await settle();
+    expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('A');
+    expect(saved(app).rules.buy[0].conds).toEqual([{ kind: 'rsi', period: 14, op: 'below', level: 30 }]);
+  });
+
+  it('패턴 블록이 없으면 묶음 수를 보여 주고 패턴 칸을 열지 않는다', async () => {
+    setup((s) => {
+      s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] }];
+    });
+    expect(screen.getByText('조건 묶음 1개')).toBeTruthy();
+    await openSection('매수');
+    expect(screen.queryByRole('radiogroup', { name: '전 고점' })).toBeNull();
+  });
+
   it('openRequest로 지정한 구역이 열린다(자금은 기간·자금), 같은 요청 번호는 다시 열지 않는다', async () => {
     const { view } = setup();
     expect(header('기간·자금').getAttribute('aria-expanded')).toBe('false');
@@ -99,9 +120,9 @@ describe('StrategyEditor 구역', () => {
     await openSection('매수');
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     await vi.advanceTimersByTimeAsync(499);
-    expect(saved(app).entry.triggers.breakout.level).toBe('B');
+    expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('B');
     await vi.advanceTimersByTimeAsync(1);
-    expect(saved(app).entry.triggers.breakout.level).toBe('A');
+    expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('A');
     expect(saved(app).updatedAt).toBe(NOW + 1000 + 500);
     expect(screen.getByText('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 A 돌파')).toBeTruthy();
   });
@@ -116,7 +137,7 @@ describe('StrategyEditor 구역', () => {
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     await settle();
     expect(saved(app).capital.initial).toBe(50_000_000);
-    expect(saved(app).entry.triggers.breakout.level).toBe('A');
+    expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('A');
   });
 
   it('a remote change arriving during a pending local edit keeps both (different sections)', async () => {
@@ -128,7 +149,7 @@ describe('StrategyEditor 구역', () => {
     await view.rerender({ strategy: remote });
     await settle();
     expect(saved(app).capital.initial).toBe(50_000_000);
-    expect(saved(app).entry.triggers.breakout.level).toBe('A');
+    expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('A');
   });
 
   it('a pending edit is saved when the editor goes away', async () => {
@@ -150,15 +171,15 @@ describe('매도 구역', () => {
     await fireEvent.click(screen.getByRole('button', { name: '＋ 단계 추가' }));
     expect(screen.queryByRole('button', { name: '＋ 단계 추가' })).toBeNull();
     await settle();
-    expect(saved(app).exit.takeProfit).toHaveLength(3);
-    expect(saved(app).exit.takeProfit[2].sellPct).toBe(100);
+    expect(saved(app).rules.sell.takeProfit.stages).toHaveLength(3);
+    expect(saved(app).rules.sell.takeProfit.stages[2].sellPct).toBe(100);
     // 앞 단계들이 나머지를 남겨서 모든 단계가 실행될 수 있다
-    expect(saved(app).exit.takeProfit.map((t) => t.sellPct)).toEqual([50, 25, 100]);
+    expect(saved(app).rules.sell.takeProfit.stages.map((t) => t.sellPct)).toEqual([50, 25, 100]);
     expect(screen.queryByText('마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요')).toBeNull();
 
     await fireEvent.click(screen.getByRole('button', { name: '3단계 삭제' }));
     await settle();
-    const tp = saved(app).exit.takeProfit;
+    const tp = saved(app).rules.sell.takeProfit.stages;
     expect(tp).toHaveLength(2);
     expect(tp[1].sellPct).toBe(100);
     expect(screen.getByRole('button', { name: '＋ 단계 추가' })).toBeTruthy();
@@ -166,7 +187,7 @@ describe('매도 구역', () => {
 
   it('avgAlways + 분할 간격 ≥ 손절폭: Banner 경고, 실행은 그대로 된다', async () => {
     const { onRun } = setup((s) => {
-      s.exit.stopLoss.basis = 'avgAlways';
+      s.rules.sell.stopLoss.basis = 'avgAlways';
       s.scaleIn = { on: true, stepPct: 6, maxAdds: 2 };
     });
     await openSection('매도');
@@ -180,7 +201,7 @@ describe('매도 구역', () => {
 
   it('앞 단계들이 모두 팔면 Banner 경고, 실행은 그대로 된다', async () => {
     const { onRun } = setup((s) => {
-      s.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
+      s.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
     });
     await openSection('매도');
     expect(screen.getByText('마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요')).toBeTruthy();
@@ -196,18 +217,18 @@ describe('매도 구역', () => {
     await fireEvent.input(field, { target: { value: '99' } });
     expect(screen.getByText('0.5~50 사이로 적어 주세요')).toBeTruthy();
     await settle();
-    expect(saved(app).exit.stopLoss.pct).toBe(5);
+    expect(saved(app).rules.sell.stopLoss.pct).toBe(5);
     await fireEvent.input(field, { target: { value: '7.5' } });
     expect(screen.queryByText('0.5~50 사이로 적어 주세요')).toBeNull();
     await settle();
-    expect(saved(app).exit.stopLoss.pct).toBe(7.5);
+    expect(saved(app).rules.sell.stopLoss.pct).toBe(7.5);
   });
 });
 
 describe('실행 버튼', () => {
   it('막는 경고가 있으면 실행하지 않고 그 구역을 열어 Banner로 포커스를 옮긴다', async () => {
     const { onRun } = setup((s) => {
-      const t = s.entry.triggers;
+      const t = patternEntryOf(s)!.triggers;
       t.reboundDays.on = t.breakout.on = false;
     });
     const run = screen.getByRole('button', { name: '시뮬레이션 실행' });
@@ -215,7 +236,7 @@ describe('실행 버튼', () => {
     await fireEvent.click(run);
     expect(onRun).not.toHaveBeenCalled();
     expect(header('매수').getAttribute('aria-expanded')).toBe('true');
-    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
+    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
     expect(banner).toBeTruthy();
     expect(document.activeElement).toBe(banner);
   });
@@ -223,7 +244,7 @@ describe('실행 버튼', () => {
   it('구역 안 경고 Banner는 라이브 영역이 아니다(펼칠 때마다 다시 알리지 않고, 막힌 실행은 포커스로 읽힌다)', async () => {
     setup((s) => {
       s.scaleIn.on = true;
-      s.capital.perBuyPct = 40; // 자금 경고가 두 구역에
+      s.sizing.pct = 40; // 자금 경고가 두 구역에
     });
     await openSection('기간·자금');
     await openSection('분할 매수');
@@ -235,12 +256,12 @@ describe('실행 버튼', () => {
   it('id가 숫자로 시작하는 난수여도 Banner로 포커스를 옮긴다', async () => {
     const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.05); // base36 "0.1w…" -> 숫자로 시작
     const { onRun } = setup((s) => {
-      s.entry.triggers.reboundDays.on = s.entry.triggers.breakout.on = false;
+      patternEntryOf(s)!.triggers.reboundDays.on = patternEntryOf(s)!.triggers.breakout.on = false;
     });
     rnd.mockRestore();
     await fireEvent.click(screen.getByRole('button', { name: '시뮬레이션 실행' }));
     expect(onRun).not.toHaveBeenCalled();
-    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
+    const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
     expect(/^\d/.test(banner.id)).toBe(false);
     expect(document.activeElement).toBe(banner);
   });
@@ -460,8 +481,8 @@ describe('편집 행 (설정 .row 패턴)', () => {
     await fireEvent.click(screen.getByText('골든크로스', { selector: 'label' }));
     expect(screen.getByRole('switch', { name: '골든크로스 사용' }).getAttribute('aria-checked')).toBe('true');
     await settle();
-    expect(saved(app).entry.decline.dropPct.on).toBe(false);
-    expect(saved(app).entry.triggers.goldenCross.on).toBe(true);
+    expect(patternEntryOf(saved(app))!.decline.dropPct.on).toBe(false);
+    expect(patternEntryOf(saved(app))!.triggers.goldenCross.on).toBe(true);
   });
 
   it('토글 이름은 그 줄의 보이는 라벨 + 사용(WCAG 2.5.3 이름 안의 라벨)', async () => {
@@ -489,7 +510,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
   it('익절 단계 칸 이름은 단계 + 라벨(1단계 목표 · 1단계 파는 양)', async () => {
     setup((s) => {
-      s.exit.takeProfit = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
+      s.rules.sell.takeProfit.stages = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
     });
     await openSection('매도');
     expect(screen.getByRole('textbox', { name: '1단계 목표' })).toBeTruthy();
@@ -517,7 +538,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
   it('꺼진 조건의 숫자 칸·A/B 세그먼트·골든크로스 칸은 muted, 입력은 그대로 된다', async () => {
     const { app } = setup((s) => {
-      s.entry.triggers.breakout.on = false;
+      patternEntryOf(s)!.triggers.breakout.on = false;
     });
     await openSection('매수');
     expect(field('고점 대비 하락폭').classList.contains('muted')).toBe(false);
@@ -529,7 +550,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(days.disabled).toBe(false);
     await fireEvent.input(days, { target: { value: '12' } });
     await settle();
-    expect(saved(app).entry.decline.days.value).toBe(12);
+    expect(patternEntryOf(saved(app))!.decline.days.value).toBe(12);
 
     await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 사용' }));
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeNull();
@@ -658,7 +679,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     await fireEvent.input(screen.getByRole('textbox', { name: '저점 뒤 연속 상승' }), { target: { value: '3.5' } });
     expect(screen.getByText('정수로 적어 주세요')).toBeTruthy();
     await settle();
-    expect(saved(app).entry.triggers.reboundDays.value).toBe(3);
+    expect(patternEntryOf(saved(app))!.triggers.reboundDays.value).toBe(3);
   });
 
   it('기간·자금 문구: 회당 매수 비중 · % (처음 자금 대비), 날짜 칸은 카드 안에 맞춘다', async () => {
@@ -677,8 +698,8 @@ describe('편집 행 (설정 .row 패턴)', () => {
 describe('구역 머리', () => {
   it('막는 경고는 !와 sr-only `· 고쳐야 실행돼요`, 비차단 경고는 △와 `· 확인할 점이 있어요`', async () => {
     setup((s) => {
-      s.entry.triggers.reboundDays.on = s.entry.triggers.breakout.on = false;
-      s.exit.stopLoss.basis = 'avgAlways';
+      patternEntryOf(s)!.triggers.reboundDays.on = patternEntryOf(s)!.triggers.breakout.on = false;
+      s.rules.sell.stopLoss.basis = 'avgAlways';
       s.scaleIn = { on: true, stepPct: 6, maxAdds: 1 };
     });
     const entry = header('매수');
@@ -724,7 +745,7 @@ describe('자금 경고 위치', () => {
 
   it('분할 매수가 켜져 있으면 기간·자금과 분할 매수 두 구역 모두에 보인다', async () => {
     setup((s) => {
-      s.capital.perBuyPct = 30;
+      s.sizing.pct = 30;
       s.scaleIn = { on: true, stepPct: 3, maxAdds: 2 }; // 30 × 3 × 2종목 = 180
     });
     expect(header('기간·자금').querySelector('.flag')?.textContent).toBe('△');
@@ -738,7 +759,7 @@ describe('자금 경고 위치', () => {
 
   it('분할 매수가 꺼져 있으면 기간·자금에만', async () => {
     setup((s) => {
-      s.capital.perBuyPct = 60; // 60 × 1 × 2종목 = 120
+      s.sizing.pct = 60; // 60 × 1 × 2종목 = 120
     });
     expect(header('분할 매수').querySelector('.flag')).toBeNull();
     await openSection('기간·자금');
@@ -765,7 +786,7 @@ describe('매도 구역 문구·삭제', () => {
 
   it('익절 단계 삭제는 단계 제목 줄 끝의 ✕(--err)', async () => {
     setup((s) => {
-      s.exit.takeProfit = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
+      s.rules.sell.takeProfit.stages = [{ pct: 15, sellPct: 50 }, { pct: 25, sellPct: 100 }];
     });
     await openSection('매도');
     const del = screen.getByRole('button', { name: '2단계 삭제' });

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { patternEntryOf } from '../lib/sim/patternBlock';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -494,7 +495,7 @@ describe('Simulate run', () => {
 
 describe('Simulate run states', () => {
   const STALE = '규칙이 바뀌었어요. 다시 실행하면 결과에 반영돼요';
-  const dropOf = () => vi.mocked(simulate).mock.calls.at(-1)![0].strategy.entry.decline.dropPct.value;
+  const dropOf = () => patternEntryOf(vi.mocked(simulate).mock.calls.at(-1)![0].strategy)!.decline.dropPct.value;
 
   async function runWide() {
     stubWidth(true);
@@ -617,7 +618,7 @@ describe('Simulate run states', () => {
     expect(spy.mock.calls.length).toBe(calls); // 다시 받지 않았다
   }, 15000);
 
-  const NO_SIGNAL = '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요';
+  const NO_SIGNAL = '사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요';
   const entryHead = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
   async function turnOffBuySignals() {
     await fireEvent.click(entryHead());

@@ -13,7 +13,7 @@
   import BenchmarkSection from './editor/BenchmarkSection.svelte';
   import CostSection from './editor/CostSection.svelte';
   import EditorSection from './editor/EditorSection.svelte';
-  import EntrySection from './editor/EntrySection.svelte';
+  import PatternFields from './editor/PatternFields.svelte';
   import ExitSection from './editor/ExitSection.svelte';
   import PeriodSection from './editor/PeriodSection.svelte';
   import ScaleInSection from './editor/ScaleInSection.svelte';
@@ -229,7 +229,21 @@
       {:else if key === 'period'}
         <PeriodSection s={draft} {update} />
       {:else if key === 'entry'}
-        <EntrySection s={draft} {update} />
+        {@const gi = draft.rules.buy.findIndex((g) => g.conds.some((c) => c.kind === 'pattern'))}
+        {#if gi >= 0}
+          {@const ci = draft.rules.buy[gi].conds.findIndex((c) => c.kind === 'pattern')}
+          {@const cond = draft.rules.buy[gi].conds[ci]}
+          {#if cond.kind === 'pattern'}
+            <PatternFields
+              entry={cond.entry}
+              update={(fn) =>
+                update((x) => {
+                  const c = x.rules.buy[gi].conds[ci];
+                  if (c.kind === 'pattern') fn(c.entry);
+                })}
+            />
+          {/if}
+        {/if}
       {:else if key === 'scaleIn'}
         <ScaleInSection s={draft} {update} />
       {:else if key === 'exit'}

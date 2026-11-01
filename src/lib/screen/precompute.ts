@@ -2,7 +2,8 @@ import type { Candle } from '../data/metrics';
 import { hasFlowFormat, hasMacroFormat, isV4, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
 import { rollingMax, sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
-import type { Strategy } from '../sim/types';
+import { patternEntryOf } from '../sim/patternBlock';
+import type { PatternEntry, Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
 import { stockFin, type StockFin } from './fin';
 import { flowPrefix, flowStreak, subjectsOf, type FlowSubject, type StockFlow } from './flow';
@@ -114,7 +115,7 @@ export function stableJson(x: unknown): string {
 }
 
 /** 기준이 고를 때 쓰는 값. 미리 계산과 비교한다 */
-export function precomputeParams(criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): PrecomputeParams {
+export function precomputeParams(criteria: SelectionCriteria, reboundEntry: PatternEntry | null): PrecomputeParams {
   const k = criteria.conditions;
   return {
     tvDays: k.tradingValue.days,
@@ -131,6 +132,13 @@ export class MissingStrategyError extends Error {
   constructor() {
     super('반등 패턴에 쓸 전략이 지워졌어요');
     this.name = 'MissingStrategyError';
+  }
+}
+
+export class MissingPatternError extends Error {
+  constructor() {
+    super('반등 패턴에 고른 전략에 반등 패턴이 없어요');
+    this.name = 'MissingPatternError';
   }
 }
 
@@ -162,15 +170,17 @@ export function rebalanceDates(axis: string[], period: { from: string; to: strin
   return out;
 }
 
-/** 반등 조건의 패턴을 실제 entry로 해석한다. 꺼져 있으면 null */
-export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Strategy[]): Strategy['entry'] | null {
+/** 반등 조건의 패턴을 실제 entry로 해석한다. 꺼져 있으면 null. 전략이 없거나 그 전략에 패턴 블록이 없으면 던진다 */
+export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Strategy[]): PatternEntry | null {
   const rb = criteria.conditions.rebound;
   if (!rb.on) return null;
   if (rb.pattern.from === 'custom') return rb.pattern.entry;
   const id = rb.pattern.strategyId;
   const s = strategies.find((x) => x.id === id);
   if (!s) throw new MissingStrategyError();
-  return s.entry;
+  const entry = patternEntryOf(s);
+  if (!entry) throw new MissingPatternError();
+  return entry;
 }
 
 // 최근 days개 일간 수익률(c[k]/c[k-1]−1)의 표본 표준편차(%). 창마다 새로 계산해 오차가 쌓이지 않게 한다
@@ -187,7 +197,7 @@ function rollingVol(c: number[], days: number): (number | null)[] {
   });
 }
 
-function signals(d: string[], st: FileStock, entry: Strategy['entry'] | null): { days: string[]; last: number[] } {
+function signals(d: string[], st: FileStock, entry: PatternEntry | null): { days: string[]; last: number[] } {
   const last = new Array<number>(d.length).fill(-1);
   if (!entry) return { days: [], last };
   const candles: Candle[] = d.map((x, i) => ({ t: kstEpoch(x, '00:00:00'), o: st.o[i], h: st.h[i], l: st.l[i], c: st.c[i], v: st.v[i] }));
@@ -225,7 +235,7 @@ function stockFlow(st: MarketDataFileV3['stocks'][number], params: NonNullable<P
 }
 
 /** 종목마다 날짜순으로 지표를 한 번 계산한다(스펙 6.1). */
-export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: Strategy['entry'] | null): Precomputed {
+export function precompute(data: MarketDataFile, criteria: SelectionCriteria, reboundEntry: PatternEntry | null): Precomputed {
   const k = criteria.conditions;
   const params = precomputeParams(criteria, reboundEntry);
   const v2 = hasMacroFormat(data) ? data : null;
