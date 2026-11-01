@@ -60,7 +60,32 @@ describe('migrateStrategies(§8.3)', () => {
     await migrateStrategies({ storage: st, profiles, store });
     expect(await store.state(PID)).toEqual({ profileId: PID, syncedRevision: 1, syncedHash: 'x' });
   });
-  it('옛 키가 없는 프로필은 해시를 건드리지 않는다', async () => {
+  it('옛 키가 없어도 빈 전략 v1 해시가 확인됐으면 v2 해시로 앞당긴다', async () => {
+    const st = createSafeStorage(memoryBacking());
+    const store = createMemorySyncStore();
+    const h1 = await docHash({ v: 1, ...profileDocBase(st, PID, '내 프로필'), strategies: [] });
+    await store.putState({ profileId: PID, syncedRevision: 7, syncedHash: h1 });
+    expect(st.get(profileKeys.strategies(PID), null)).toBeNull();
+
+    await migrateStrategies({ storage: st, profiles: [{ id: PID, name: '내 프로필' }], store });
+
+    const h2 = await docHash(buildProfileDoc(st, PID, '내 프로필'));
+    expect(h2).not.toBe(h1);
+    expect(await store.state(PID)).toEqual({ profileId: PID, syncedRevision: 7, syncedHash: h2 });
+    expect(st.get(profileKeys.strategies(PID), null)).toBeNull();
+  });
+  it('옛 키가 없어도 실제 수정으로 v1 해시가 다르면 확인 해시를 그대로 둔다', async () => {
+    const st = createSafeStorage(memoryBacking());
+    const store = createMemorySyncStore();
+    const h1 = await docHash({ v: 1, ...profileDocBase(st, PID, '내 프로필'), strategies: [] });
+    const state = { profileId: PID, syncedRevision: 7, syncedHash: h1 };
+    await store.putState(state);
+
+    await migrateStrategies({ storage: st, profiles: [{ id: PID, name: '이 기기에서 고침' }], store });
+
+    expect(await store.state(PID)).toEqual(state);
+  });
+  it('옛 키가 없는 프로필도 확인 해시가 다르면 건드리지 않는다', async () => {
     const st = createSafeStorage(memoryBacking());
     const store = createMemorySyncStore();
     await store.putState({ profileId: PID, syncedRevision: 1, syncedHash: 'x' });

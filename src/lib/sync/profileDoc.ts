@@ -35,8 +35,7 @@ export function buildProfileDoc(st: SafeStorage, profileId: string, name: string
 /** 옛 키로 만든 v1 문서가 확인 해시와 같을 때만 돌려준다. */
 export async function syncedV1Doc(st: SafeStorage, profileId: string, name: string, syncedHash: string): Promise<ProfileDocV1 | null> {
   const raw = st.get<unknown>(profileKeys.strategies(profileId), null);
-  if (raw === null) return null;
-  const doc: ProfileDocV1 = { v: 1, ...profileDocBase(st, profileId, name), strategies: sanitizeStrategiesV1(raw).strategies };
+  const doc: ProfileDocV1 = { v: 1, ...profileDocBase(st, profileId, name), strategies: raw === null ? [] : sanitizeStrategiesV1(raw).strategies };
   return (await docHash(doc)) === syncedHash ? doc : null;
 }
 

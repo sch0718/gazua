@@ -12,6 +12,7 @@ import { APP_OUTDATED_CODE } from './dto';
 import { APP_OUTDATED_TEXT, createSyncEngine, type SyncEngineDeps, type SyncPhase } from './engine';
 import { docHash } from './hash';
 import { appProfiles } from './local';
+import { migrateStrategies } from './migrate';
 import { createMemorySyncStore } from './store';
 
 async function device(keys: SyncEngineDeps['keys'], timers: Pick<SyncEngineDeps, 'setTimer' | 'clearTimer'> = {}) {
@@ -35,6 +36,30 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     await d.engine.init();
     return d;
   }
+
+  it('옛 키 없는 빈 전략 프로필의 해시를 앞당긴 뒤 원격 수정에도 충돌 사본을 만들지 않는다', async () => {
+    const d = await device(undefined);
+    const id = d.app.meta.activeProfileId;
+    const v1 = { ...d.local.read(id), v: 1 as const, strategies: [] };
+    expect(d.storage.get(profileKeys.strategies(id), null)).toBeNull();
+    expect((await d.api.putProfile(id, { opId: 'remote-1', expectedRevision: 0, doc: v1 })).ok).toBe(true);
+    await d.store.putState({ profileId: id, syncedRevision: 1, syncedHash: await docHash(v1) });
+    await d.store.setMeta('enabled', true);
+    await d.engine.init();
+    await d.engine.exclusive(() => migrateStrategies({ storage: d.storage, profiles: d.local.list(), store: d.store }));
+
+    const remote = { ...v1, name: '다른 기기에서 고침' };
+    expect(await d.api.putProfile(id, { opId: 'remote-2', expectedRevision: 1, doc: remote })).toEqual({ ok: true, data: { revision: 2 } });
+    const create = vi.spyOn(d.local, 'create');
+    await d.engine.syncNow();
+
+    expect(d.engine.status().conflicts).toEqual([]);
+    expect(await d.store.conflicts()).toEqual([]);
+    expect(create).not.toHaveBeenCalled();
+    expect(d.local.read(id)).toMatchObject({ v: 2, name: remote.name, strategies: [] });
+    expect(await d.store.state(id)).toEqual({ profileId: id, syncedRevision: 2, syncedHash: await docHash(d.local.read(id)) });
+    expect(await d.api.getProfile(id)).toEqual({ ok: true, data: { revision: 2, doc: remote } });
+  });
 
   it('받은 v1을 옮긴 뒤 서버 리비전이 올라가도 충돌 사본을 만들지 않는다', async () => {
     const d = await receiving();
