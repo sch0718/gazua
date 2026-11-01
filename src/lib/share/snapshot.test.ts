@@ -17,7 +17,7 @@ import {
 } from './snapshot';
 import { compareSnapshot } from './compact';
 import { SIM_SYMBOLS_MAX } from './checkResult';
-import { simResultFixture, NOW as FIX_NOW } from './testFixtures';
+import { shareFixtures, simResultFixture, NOW as FIX_NOW } from './testFixtures';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
 const PROFILE_NAME = '비밀 프로필 이름';
@@ -45,6 +45,12 @@ function allIds() {
 }
 
 describe('공유 스냅샷', () => {
+  it.each(shareFixtures())('create: $kind 공유는 입력 원본을 돌려준다', (raw) => {
+    const r = checkShareSnapshot(raw, raw.kind, FIX_NOW, 'create');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot).toBe(raw);
+  });
+
   it('시뮬레이션 결과의 종목 한도는 전략 기본값과 같다', () => {
     expect(SIM_SYMBOLS_MAX).toBe(MAX_SYMBOLS);
   });

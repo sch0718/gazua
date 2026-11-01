@@ -369,7 +369,7 @@ export function checkCriteriaPart(
 /**
  * 스냅샷을 검사한다. 깊이 → 금지 키 → 크기 → 원본 ID 모양(UUID) → kind·v·title → 종류별 필드 순서. 고칠 것이 있으면 거절한다.
  * kind는 요청의 kind와 같아야 한다. read 모드는 전략·기준의 빠진 필드만 기본값으로 채워 받고, 돌려주는 snapshot은 채운 값이다.
- * create는 입력 원본을 돌려준다(Worker가 저장). strategy·simResult의 v2는 create에서만 받는다.
+ * create는 모든 종류에서 검사 통과 시 입력 원본을 돌려준다(Worker가 저장). strategy·simResult의 v2는 create에서만 받는다.
  */
 export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now(), mode: CheckMode = 'create'): ShareCheck {
   if (!isRecord(raw)) return fail('invalid');
@@ -410,7 +410,7 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       if (typeof raw.capitalHidden !== 'boolean') return fail('invalid', 'capitalHidden');
       const cr = checkCriteriaPart(raw, now, mode);
       if (!cr.ok) return cr;
-      return { ok: true, snapshot: { ...raw, criteria: cr.criteria } as unknown as CriteriaSnapshot };
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, criteria: cr.criteria }) as unknown as CriteriaSnapshot };
     }
     case 'compare': {
       const k = exactKeys(raw, ['kind', 'v', 'title', 'symbols', 'view'], '');
@@ -445,7 +445,7 @@ export function checkShareSnapshot(raw: unknown, kind: unknown, now = Date.now()
       if (r) return failOf(r);
       const run = checkRun(raw.run, (raw.result as SharedValidation).axis);
       if (run) return failOf(run);
-      return { ok: true, snapshot: { ...raw, criteria: cr.criteria } as unknown as ValidationSnapshot };
+      return { ok: true, snapshot: (mode === 'create' ? raw : { ...raw, criteria: cr.criteria }) as unknown as ValidationSnapshot };
     }
     default:
       return fail('unsupported', 'kind');
