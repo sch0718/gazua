@@ -13,6 +13,8 @@ import type { Conflict, OutboxOp, ProfileSyncState, SyncStore } from './store';
 export interface LocalProfiles {
   list(): { id: string; name: string }[];
   read(id: string): ProfileDoc;
+  /** 옛 키의 v1 문서가 확인 해시와 같은지 본다. 없으면 비교하지 않는다. */
+  matchesSyncedV1?(id: string, hash: string): Promise<boolean>;
   /** 같은 ID에 쓴다. 없으면 추가한다. */
   write(id: string, doc: ProfileDoc): void;
   /** 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. */
@@ -199,7 +201,8 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const unsent = ops.filter((o) => o.profileId === p.id && o.sentAt === undefined);
       // 응답을 못 받은 업로드가 다른 내용이면, 그것이 다시 보내져 서버가 바뀐다. 지금 문서가 확인된 것과 같아도 뒤에 다시 올려야 한다.
       const sentOther = ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
-      if (st && !st.deleted && st.syncedHash === hash && !sentOther) {
+      // 옛 탭이 받은 v1이 옛 키에만 있으면 새 키의 묵은 v2를 올리지 않는다.
+      if (st && !st.deleted && !sentOther && (st.syncedHash === hash || await local.matchesSyncedV1?.(p.id, st.syncedHash))) {
         for (const o of unsent) await store.deleteOp(o.opId);
         continue;
       }

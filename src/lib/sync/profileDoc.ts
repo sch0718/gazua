@@ -7,7 +7,8 @@ import { sanitizeStrategiesV1, toV2 } from '../sim/strategyV1';
 import { loadSettings, loadWatchlists, profileKeys } from '../state/profileStore';
 import { DEFAULT_PROFILE_NAME } from '../state/schema';
 import type { SafeStorage } from '../state/storage';
-import { PROFILE_NAME_MAX, pickSyncedSettings, type ProfileDoc, type ProfileDocV2 } from './dto';
+import { PROFILE_NAME_MAX, pickSyncedSettings, type ProfileDoc, type ProfileDocV1, type ProfileDocV2 } from './dto';
+import { docHash } from './hash';
 
 /** 프로필 이름을 문서 규칙(앞뒤 공백 없음, 30자, 빈 값 금지)에 맞춘다. */
 export function docName(name: string): string {
@@ -29,6 +30,14 @@ export function profileDocBase(st: SafeStorage, profileId: string, name: string)
 /** 저장된 프로필로 문서(v2)를 만든다. 읽기 검증은 각 load 함수가 한다. */
 export function buildProfileDoc(st: SafeStorage, profileId: string, name: string): ProfileDocV2 {
   return { v: 2, ...profileDocBase(st, profileId, name), strategies: loadStrategies(st, profileId) };
+}
+
+/** 옛 키로 만든 v1 문서가 확인 해시와 같을 때만 돌려준다. */
+export async function syncedV1Doc(st: SafeStorage, profileId: string, name: string, syncedHash: string): Promise<ProfileDocV1 | null> {
+  const raw = st.get<unknown>(profileKeys.strategies(profileId), null);
+  if (raw === null) return null;
+  const doc: ProfileDocV1 = { v: 1, ...profileDocBase(st, profileId, name), strategies: sanitizeStrategiesV1(raw).strategies };
+  return (await docHash(doc)) === syncedHash ? doc : null;
 }
 
 /**

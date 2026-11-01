@@ -4,6 +4,8 @@ import { createApp } from '../state/app.svelte';
 import { createSafeStorage } from '../state/storage';
 import { memoryBacking } from '../state/testStorage';
 import { createMemoryOrderCache } from '../perf/orderCache';
+import { saveStrategies } from '../sim/strategyStore';
+import { profileKeys } from '../state/profileStore';
 import { deviceApi, testServer, type TestServer } from '../../../sync-worker/test/server';
 import { doc } from '../../../sync-worker/test/docs';
 import { APP_OUTDATED_CODE } from './dto';
@@ -21,7 +23,7 @@ async function device(keys: SyncEngineDeps['keys'], timers: Pick<SyncEngineDeps,
   const store = createMemorySyncStore();
   const engine = createSyncEngine({ local, store, api, now: () => s.h.clock.now, setTimer: () => 0, clearTimer: () => {}, ...timers, keys });
   await engine.init();
-  return { s, app, engine, api, local, store };
+  return { s, app, engine, api, local, store, storage };
 }
 const calls = (s: TestServer, from = 0, to?: number) => s.requests.slice(from, to).map((r) => `${r.method} ${r.path}`);
 
@@ -72,6 +74,44 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     await d.engine.syncNow();
     expect(d.engine.status().conflicts).toEqual([]);
     expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 1, doc: doc() } });
+  });
+
+  it('옛 탭이 받은 v1이 옛 키와 확인 해시에만 반영되면 묵은 v2를 PUT하지 않는다', async () => {
+    const d = await receiving();
+    await d.engine.pull();
+    const before = d.local.read('p1');
+    const remote = doc();
+    remote.strategies[0].name = '다른 기기에서 고친 전략';
+    expect(await d.api.putProfile('p1', { opId: 'remote-2', expectedRevision: 1, doc: remote })).toEqual({ ok: true, data: { revision: 2 } });
+    // 옛 탭은 받은 전략을 옛 키에만 쓰고 v1 해시를 확인한다.
+    d.storage.set(profileKeys.strategies('p1'), { strategies: remote.strategies });
+    const state = { profileId: 'p1', syncedRevision: 2, syncedHash: await docHash(remote) };
+    await d.store.putState(state);
+    expect(d.local.read('p1')).toEqual(before);
+    expect(await docHash(before)).not.toBe(state.syncedHash);
+
+    const put = vi.spyOn(d.api, 'putProfile');
+    await d.engine.syncNow();
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toEqual([]);
+    expect(await d.store.state('p1')).toEqual(state);
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 2, doc: remote } });
+  });
+
+  it('새 키에서 실제로 고친 전략은 옛 키가 남아 있어도 v2로 PUT한다', async () => {
+    const d = await receiving();
+    await d.engine.pull();
+    const before = d.local.read('p1');
+    expect(before.v).toBe(2);
+    if (before.v !== 2) throw new Error('v2 문서가 필요하다');
+    saveStrategies(d.storage, 'p1', [{ ...before.strategies[0], name: '이 기기에서 고친 전략' }]);
+    expect(d.storage.get(profileKeys.strategies('p1'), null)).toEqual({ strategies: doc().strategies });
+
+    const put = vi.spyOn(d.api, 'putProfile');
+    await d.engine.syncNow();
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toEqual([
+      ['p1', { opId: expect.any(String), expectedRevision: 1, doc: d.local.read('p1') }],
+    ]);
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 2, doc: d.local.read('p1') } });
   });
 
   it('v1 적용 뒤 대기 작업을 정리하는 동안 한 실제 수정은 확인 해시에 섞이지 않는다', async () => {
