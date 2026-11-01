@@ -2,7 +2,7 @@
 
 > 2026-11-01 · 로드맵 최우선 1의 A(전략 빌더). B(재생, [`2026-11-01-simulation-replay-design.md`](2026-11-01-simulation-replay-design.md))가 끝난 main(16dd479) 위에서 해요. PR은 둘로 나눠요. PR① 서버 호환, PR② 엔진·화면·옮기기예요(§8.7). 구현 계획은 Task 단위로 잘게 나눠요(§15).
 >
-> 개정: 2026-11-01 검토 1회차 반영(PR 분리, 새 저장 키, 옮기기 해시 앞당김, Worker 원자 검사, 확인 필요 답). 같은 날 검토 2회차 반영(PR①의 read 모드, H2 정의, 키 사용처 표, Worker 공용 경로 계약).
+> 개정: 2026-11-01 검토 1회차 반영(PR 분리, 새 저장 키, 옮기기 해시 앞당김, Worker 원자 검사, 확인 필요 답). 같은 날 검토 2회차 반영(PR①의 read 모드, H2 정의, 키 사용처 표, Worker 공용 경로 계약), 3회차 반영(체결 종류를 PR①로, 꼬리 없는 검증 이름 없앰, INSERT 충돌 처리).
 
 ## 1. 목표
 
@@ -120,7 +120,7 @@ export interface Strategy {
 
 - 이름과 PR(§8.7)
   - PR①은 새 이름만 더해요. v2 타입은 `StrategyV2`, v2 검증은 `sanitizeStrategiesV2`(새 `src/lib/sim/strategyV2.ts`)예요. 앱의 `Strategy`(v1)와 `sanitizeStrategies` 호출은 손대지 않아요.
-  - PR②에서 이름을 바꾸고 호출을 옮겨요. `Strategy`가 v2를 가리키고, 옛 타입은 `StrategyV1`, 옛 검증은 `sanitizeStrategiesV1`(지금 `sanitizeOne` 그대로)로 `src/lib/sim/strategyV1.ts`에 가요. 옮기기 함수 `toV2`도 이 파일에 둬요. 동작은 바꾸지 않고 이름·자리만 바꿔요(§8.7의 공용 경로 계약).
+  - PR②에서 이름을 바꾸고 호출을 옮겨요. `Strategy`가 v2를 가리키고, 옛 타입은 `StrategyV1`, 옛 검증은 `sanitizeStrategiesV1`(지금 `sanitizeOne` 그대로)로 `src/lib/sim/strategyV1.ts`에 가요. 꼬리 없는 `sanitizeStrategies`는 **없애고** `sanitizeStrategiesV1`·`sanitizeStrategiesV2`만 남겨요. 그러면 지금 `sanitizeStrategies`를 부르는 곳(`dto.ts`, `strategyStore.ts`, `exportImport.ts`, `snapshot.ts` 등)이 모두 컴파일 오류로 드러나, 버전을 골라 부르도록 하나씩 고치게 돼요. 옮기기 함수 `toV2`도 이 파일에 둬요. 동작은 바꾸지 않고 이름·자리만 바꿔요(§8.7의 공용 경로 계약).
 - `afterFirstTake`는 익절에 딸린 설정이라 `takeProfit` 안으로 옮겨요.
 - 묶음·조건에는 id를 두지 않아요. 순서(배열 위치)가 곧 이름이에요. 이유는 두 가지예요.
   - 공유 검사가 스냅샷 안의 UUID 모양 문자열을 거절해요(`checkShareSnapshot`의 `UUID_RE`).
@@ -129,7 +129,7 @@ export interface Strategy {
 
 ### 3.2 저장 범위와 실행 조건
 
-저장 검증(`sanitizeStrategies` v2)은 **모양**만 지켜요. 틀린 값은 기본값으로 바꾸고 `repaired`를 켜요. **실행할 수 있는지**는 `ruleIssues` 경고가 정해요(§11). 둘을 섞지 않아요.
+저장 검증(`sanitizeStrategiesV2`)은 **모양**만 지켜요. 틀린 값은 기본값으로 바꾸고 `repaired`를 켜요. **실행할 수 있는지**는 `ruleIssues` 경고가 정해요(§11). 둘을 섞지 않아요.
 
 | 필드 | 저장 범위 | 실행 조건(경고) |
 |---|---|---|
@@ -201,7 +201,7 @@ export function condReason(c: Cond): string;                 // §4.6
 - `firstDayIdx`는 그 종목 배열에서 기간 첫날(`days[0]` 이상인 첫 봉)의 인덱스예요. RSI 시작점에 써요(§5.1).
 - 만들 때 종목마다 필요한 지표 배열을 한 번 계산해요(같은 기간이면 공유).
 - 패턴 블록은 기존 `createPatternTracker(candles, entry)`를 그대로 감싸요. 판정·상태·통계를 바꾸지 않아요.
-- 묶음 판정: 묶음 안 조건을 앞에서부터 보고, 하나라도 틀리면 다음 묶음으로 가요. 그래서 패턴 블록의 `signal(i)`이 불리지 않는 날도 있어요. 그래도 괜찮은 이유는 `signal(i)`이 상태를 바꾸지 않고, 상태는 `update(i)`가 매일 빠짐없이 갱신하기 때문이에요. 묶음·조건 순서는 사유(처음 맞은 묶음)만 정하고 매수 여부는 바꾸지 않아요.
+- 묶음 판정: 묶음 안 조건을 앞에서부터 보고, 하나라도 틀리면 다음 묶음으로 가요. 그래서 패턴 블록의 `signal(i)`이 불리지 않는 날도 있어요. 그래도 괜찮은 이유는 `signal(i)`이 상태를 바꾸지 않고, 상태는 `update(i)`가 갱신하기 때문이에요. `simulateCore`는 그 종목 봉이 있는 날마다(워밍업 포함) 묶음 판정과 상관없이 `update(i)`를 불러요. 지금 `tracker.update(i)`를 부르는 자리 그대로예요. 묶음·조건 순서는 사유(처음 맞은 묶음)만 정하고 매수 여부는 바꾸지 않아요.
 - 패턴 블록이 맞으면 `snapshot`을 같이 돌려줘요. 매수 체결 줄은 `snapshot`이 있을 때만 `pattern` 키를 넣어요(`...(snapshot && { pattern: snapshot })`). 없을 때 `pattern: undefined`를 넣지 않아요. 골든 테스트의 `toStrictEqual`이 `undefined` 키를 구분해요.
 - 매도용으로 `rules.sell.signal.groups`에도 평가기를 하나 더 만들어요. 매도 평가기에는 패턴 블록이 없어서 `update`·`reset`은 아무것도 하지 않아요.
 
@@ -471,14 +471,18 @@ export function condReason(c: Cond): string;                 // §4.6
    - Worker 파싱: 없으면 1. 1 이상의 정수가 아니면 422 `invalid`(path `docVersion`).
 2. **저장 버전 열**: `profile_index`에 버전 열을 더해요. 본문을 파싱하지 않고 비교할 수 있어요.
    - `sync-worker/migrations/0004_doc_version.sql`: `ALTER TABLE profile_index ADD COLUMN doc_v INTEGER NOT NULL DEFAULT 1;` 지금 행은 모두 v1 문서라 기본값 1이 맞아요.
-   - 새로 만들기: `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at, doc_v) VALUES (?, ?, 1, ?, ?, ?)`.
+   - 새로 만들기: `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at, doc_v) VALUES (?, ?, 1, ?, ?, ?) ON CONFLICT (user_id, profile_id) DO NOTHING`. 지금 문장의 충돌 처리를 그대로 둬요. 겹친 만들기는 반영되지 않고 `rejected()`로 가요.
    - 갱신: `UPDATE profile_index SET revision = ?, last_op_id = ?, updated_at = ?, doc_v = ? WHERE user_id = ? AND profile_id = ? AND revision = ? AND deleted_at IS NULL AND doc_v <= ?`. 마지막 `?`는 들어온 문서의 `v`예요.
    - 복원(삭제 취소)은 본문을 바꾸지 않으니 `doc_v`도 그대로예요.
    - 쿼리 파싱: 지금 `sync-worker/src/handler.ts`의 경로 표는 경로 조각만 넘겨요. 프로필 경로 처리기에 `new URL(req.url).searchParams`의 `docVersion`을 넘기도록 고쳐요.
 3. **PUT 순서**: `checkProfileDoc` → `replayed()` → 버전 조건부 갱신.
    - `replayed()`를 버전 검사 앞에 둬요. 이미 반영된 같은 opId를 다시 보내면 처음 결과를 돌려줘요. 응답을 못 받은 기기가 재전송했다가 422를 받아 `rejectedHash`가 남는 일을 막아요.
    - 갱신은 위의 조건부 `UPDATE` 한 문장이에요. 검사와 갱신 사이에 다른 기기가 v2를 올려도 원자적으로 막혀요.
-   - 반영되지 않았으면 지금 `rejected()`가 머리를 다시 읽어요. `doc_v`가 들어온 `v`보다 크면 422(아래 코드), 아니면 지금처럼 409·410이에요.
+   - 반영되지 않았으면 `rejected()`가 머리(`head()`)를 다시 읽고 이 순서로 답해요. 지금 코드의 410·409 순서에 422 하나만 끼워요.
+     1. 머리가 없음 → 410 `gone`.
+     2. 삭제됨 → 410 `gone`.
+     3. 저장된 `doc_v`가 들어온 `v`보다 큼 → 422(아래 코드).
+     4. 그 밖 → 409 `conflict`. 본문 `doc`은 아래 4번 규칙대로 가려요.
 4. **본문을 돌려주는 응답**: 저장된 `doc_v`가 요청 버전보다 크면
    - `getProfile`·`getRevision`(그 리비전 본문의 `v`)·`restoreProfile`은 422로 답해요. `restoreProfile`은 **바꾸기 전에** 검사해서, 거절할 때는 아무것도 바꾸지 않아요.
    - 409 충돌 응답(`rejected()`, `deleteProfile`의 `h?.lastOpId === opId` 분기)은 `doc`을 빼요(`null`).
@@ -544,7 +548,7 @@ export function condReason(c: Cond): string;                 // §4.6
 |---|---|
 | 옮긴 뒤 옛 탭에서 전략을 고침 | 옛 키에만 써져요. 새 앱은 새 키가 있으면 옛 키를 읽지 않아 이 수정은 새 앱에 보이지 않아요 |
 | 위 수정을 옛 탭이 올림, 서버가 v2 | 422(§8.6). 서버는 그대로예요 |
-| 위 수정을 옛 탭이 올림, 서버가 아직 v1 | 받아들여져요. 새 앱이 그 v1 문서를 받으면 `applyProfileDoc`이 새 키를 그 내용으로 바꿔요. 새 앱에서 아직 올리지 않은 수정이 있었으면 지금 충돌 규칙(로컬도 바뀜 → 충돌 사본)을 따라요 |
+| 위 수정을 옛 탭이 올림, 서버가 아직 v1 | 옛 탭 수정은 새 탭의 다음 v2 올리기에 덮여요(서버 리비전 기록으로만 되찾을 수 있어요) |
 | 옛 탭을 새로 고침 | 새 앱이 돼요. 옛 키의 수정은 새 키가 이미 있어 쓰이지 않아요. 옛 키는 백업으로 남아요 |
 
 ### 8.7 PR 나누기와 배포 순서
@@ -555,7 +559,7 @@ export function condReason(c: Cond): string;                 // §4.6
   - 새 파일 `src/lib/sim/strategyV2.ts`: `StrategyV2` 타입과 `sanitizeStrategiesV2`. 새 이름만 더하고, 앱이 부르는 `Strategy`·`sanitizeStrategies`는 손대지 않아요.
   - `src/lib/sync/dto.ts`: `checkProfileDoc`이 `v`로 갈라요. `v: 1`이면 지금 `sanitizeStrategies`(v1), `v: 2`면 `sanitizeStrategiesV2`. 그보다 높으면 `unsupported`. 원본 반환 명시, `APP_OUTDATED_CODE`.
   - `src/lib/share/snapshot.ts`: create 모드는 `strategy`·`simResult`의 v1(지금 검증)·v2(`sanitizeStrategiesV2`)를 받고 원본을 돌려줘요. read 모드는 v1만 받고 v2는 `unsupported`예요(§8.4).
-  - `checkResult.ts`·`resultEnums.ts`: 새 체결 종류 3종.
+  - 새 체결 종류 3종: `src/lib/sim/types.ts`의 `Trade['kind']`, `resultEnums.ts`의 `TRADE_KINDS`·`SELL_KINDS`, `checkResult.ts`, `src/lib/ui/simulate/markers.ts`의 `TRADE_LABEL`·`MARKER_COLOR`(둘 다 `Record<Trade['kind'], …>`라 같이 넣어야 컴파일돼요). 엔진은 아직 이 종류를 내지 않아 동작은 바뀌지 않아요. `resultEnums.test.ts`의 타입 대조(`Same<…, Trade['kind']>`)가 PR①에서 통과해요.
   - `sync-worker/src/profiles.ts`·`handler.ts`·`migrations/0004_doc_version.sql`: `docVersion`, `doc_v`, 원자적 다운그레이드 거절, 본문 응답 가리기, `replayed()` 순서. `shares.ts`는 같은 `checkShareSnapshot`을 부르니 코드 변경 없이 v2를 받아요.
 - Worker가 부르는 함수는 PR①에서 정해져요: 프로필 PUT은 `checkProfileDoc`, 공유 생성은 `checkShareSnapshot(…, 'create')`. 둘 다 안에서 v1·v2를 판정해요.
 - 앱은 여전히 v1만 만들고 `docVersion`을 보내지 않아요. 그래서 Worker에게는 PR① 앱도 「버전 1 클라이언트」예요.
@@ -571,7 +575,9 @@ export function condReason(c: Cond): string;                 // §4.6
 - PR②는 Worker가 함께 쓰는 경로의 **동작**을 바꾸지 않아요. 대상: `src/lib/sync/dto.ts`, `src/lib/share/snapshot.ts`의 검사(create 모드), `sanitizeStrategiesV2`, `checkResult.ts`, `resultEnums.ts`, `src/lib/sync/forbidden.ts`, `sanitizeCriteria`(`src/lib/screen/validate.ts`).
 - 이름 바꾸기·파일 옮기기(예: `sanitizeStrategies` → `sanitizeStrategiesV1`)는 동작이 같으면 괜찮아요.
 - 동작을 바꿔야 하면 그 부분만 PR①-b로 떼어 먼저 병합·Worker 배포해요. 앱이 Worker보다 앞서는 일이 없게요.
-- PR②에 계약 테스트를 둬요: 지금 앱이 만든 v2 프로필 문서(`buildProfileDoc`)와 v2 공유(`strategySnapshot`·`simResult` 스냅샷)가 `checkProfileDoc`·`checkShareSnapshot(…, 'create')`을 통과해요. 템플릿 3개와 묶음·조건을 다 채운 전략으로 돌려요.
+- PR②에 계약 테스트를 둬요.
+  - 지금 앱이 만든 v2 프로필 문서(`buildProfileDoc`)와 v2 공유(`strategySnapshot`·`simResult` 스냅샷)가 `checkProfileDoc`·`checkShareSnapshot(…, 'create')`을 통과해요. 템플릿 3개와 묶음·조건을 다 채운 전략으로 돌려요.
+  - v1 프로필 문서와 v1 공유(create)도 계속 통과해요. 옛 앱이 올리는 것들이에요. PR①의 v1 고정 입력(fixture)을 그대로 써요.
 
 #### 단계별 동작
 
@@ -618,7 +624,7 @@ export interface DayFrame {
 
 | 파일 | 변경 |
 |---|---|
-| `src/lib/ui/simulate/markers.ts` | `TRADE_LABEL`에 `trail: '트레일'`, `time: '기간'`, `signalSell: '조건'`. `MARKER_COLOR`는 셋 다 `MIXED_COLOR`(손익 방향이 정해지지 않음). 매도라 위 ▼ |
+| `src/lib/ui/simulate/markers.ts`(PR①) | `TRADE_LABEL`에 `trail: '트레일'`, `time: '기간'`, `signalSell: '조건'`. `MARKER_COLOR`는 셋 다 `MIXED_COLOR`(손익 방향이 정해지지 않음). 매도라 위 ▼ |
 | `src/lib/ui/simulate/simText.ts` | `tradeWhy`(§4.7), `priceMarks`에 `trail` 눈금(`PriceMark.kind`에 `'trail'`), `pendingSellText`, `STOP_OFF_NOTE`, `nearMissText` |
 | `src/lib/ui/simulate/HoldingCard.svelte` | 트레일 눈금, 손절 문구(§9.2), 「보유 N거래일째 · M일 뒤 청산」 |
 | `src/lib/ui/simulate/DayPanel.svelte` | 전략 prop, 예약 매도 「다음 거래일 시가에 팔아요: 삼성전자 — <사유>」(예약 매수 위) |
@@ -742,7 +748,7 @@ export interface DayFrame {
 
 - `toV2`: 필드 표(§8.1)대로, 결정적(두 번 옮겨도 같음), `sanitizeStrategiesV1` 고침 여부 전달.
 - `strategyStore`: 옛 키만 있음 → 새 키에 옮김·옛 키 그대로·배너 없음, `trySet` 실패 → 메모리로만, 새 키 있으면 옛 키 무시.
-- `applyProfileDoc`: v2 → 새 키만, v1 → 옛 키 쓰고 새 키 지움. `onStorage`가 새 키 변경을 받음. `removeProfile`이 새 키를 지움.
+- `applyProfileDoc`: v2 → 새 키만, v1 → 옛 키에 v1·새 키에 `toV2` 결과. `onStorage`가 새 키 변경을 받음. `removeProfile`이 두 키를 지움.
 - 옮기기 단계: `syncedHash === H1`이면 H2로 앞당기고 리비전 그대로, 다른 기기가 서버를 고친 뒤 받아도 충돌 없음. `syncedHash ≠ H1`이면 앞당기지 않음. 두 번 돌려도 같음(멱등). 「옮김 → 새 키 수정 → 재시작 → 수정이 올라감」. 옛 탭이 남긴 `APP_OUTDATED_CODE` 거절 기록을 지움.
 - `applyProfileDoc`(v1): 옛 키에 v1, 새 키에 `toV2` 결과가 바로 있음. 가져오기(v1 파일): 새 키에만 씀.
 - 계약 테스트: §8.7(지금 앱이 만든 v2 문서·공유가 Worker 검사를 통과).
@@ -785,13 +791,13 @@ export interface DayFrame {
 
 | 파일 | PR | 변경 |
 |---|---|---|
-| `src/lib/sim/types.ts` | ② | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
+| `src/lib/sim/types.ts` | ①(`Trade['kind']` 3종) ②(나머지) | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
 | `src/lib/sim/strategyV2.ts` | ① | 새 파일: `StrategyV2`, `sanitizeStrategiesV2` |
 | `src/lib/sim/strategyV1.ts` | ② | 새 파일: `StrategyV1`, `sanitizeStrategiesV1`(옮김), `toV2` |
-| `src/lib/sim/validate.ts` | ② | `sanitizeStrategies`가 v2를 가리킴, `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
+| `src/lib/sim/validate.ts` | ② | 꼬리 없는 `sanitizeStrategies` 없앰(호출처는 `…V1`·`…V2`로), `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
 | `src/lib/sync/dto.ts` | ① | v1·v2 검사, `unsupported`, `APP_OUTDATED_CODE` |
 | `src/lib/share/snapshot.ts` | ①(create v1·v2, read v1만) ②(read 옮기기, v2 생성) | §8.4 |
-| `src/lib/share/checkResult.ts`, `resultEnums.ts` | ① | 새 체결 종류 |
+| `src/lib/share/checkResult.ts`, `resultEnums.ts`, `src/lib/ui/simulate/markers.ts` | ① | 새 체결 종류(`markers.ts`는 라벨·색) |
 | `sync-worker/src/profiles.ts`, `handler.ts`, `migrations/0004_doc_version.sql` | ① | §8.3 |
 | `sync-worker/src/shares.ts` | ①(테스트만) | 코드 변경 없음, v2 생성 테스트 |
 | `src/lib/sim/indicators.ts`, `src/lib/screen/precompute.ts` | ② | `rsi`·`volumeRatio`, `rollingMax` 이동 |
@@ -811,7 +817,7 @@ export interface DayFrame {
 | `src/lib/ui/simulate/StrategyEditor.svelte`, `StrategyList.svelte` | ② | 구역 제목, 템플릿 시트 |
 | `src/lib/ui/simulate/editor/*` | ② | `BuyRulesSection`·`CondGroupCard`·`CondRow`·`PatternFields`(새), `ExitSection`·`PeriodSection` 고침, `EntrySection` 지움 |
 | `src/lib/ui/screen/CriteriaEditor.svelte` | ② | `PatternFields`, 블록 없는 전략 |
-| `src/lib/ui/simulate/simText.ts`, `markers.ts`, `HoldingCard.svelte`, `DayPanel.svelte`, `ResultView.svelte` | ② | §4.7, §4.8, §9.3 |
+| `src/lib/ui/simulate/simText.ts`, `HoldingCard.svelte`, `DayPanel.svelte`, `ResultView.svelte` | ② | §4.7, §4.8, §9.3 |
 
 ### 15.2 Task 순서 (계획에서 더 잘게)
 
@@ -819,7 +825,7 @@ export interface DayFrame {
 
 1. `strategyV2.ts`: `StrategyV2`·`sanitizeStrategiesV2`와 단위 테스트(앱 호출은 그대로).
 2. `checkProfileDoc` v1·v2 갈래·`unsupported`·원본 반환.
-3. 새 체결 종류(`resultEnums`·`checkResult`).
+3. 새 체결 종류(`Trade['kind']`·`resultEnums`·`checkResult`·`markers.ts` 라벨·색). `resultEnums.test.ts` 통과.
 4. `checkShareSnapshot`: create는 v1·v2 원본, read는 v1 그대로·v2 `unsupported`.
 5. Worker: `0004` 마이그레이션, `handler.ts` 쿼리 전달, `docVersion` 파싱, PUT 순서·조건부 갱신, 본문 응답 가리기, 삭제·복원 규칙. 「쿼리 없음 + v1」 무변화 테스트.
 
