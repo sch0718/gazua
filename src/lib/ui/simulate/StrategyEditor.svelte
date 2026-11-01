@@ -14,7 +14,7 @@
   import BenchmarkSection from './editor/BenchmarkSection.svelte';
   import CostSection from './editor/CostSection.svelte';
   import EditorSection from './editor/EditorSection.svelte';
-  import PatternFields from './editor/PatternFields.svelte';
+  import BuyRulesSection from './editor/BuyRulesSection.svelte';
   import ExitSection from './editor/ExitSection.svelte';
   import PeriodSection from './editor/PeriodSection.svelte';
   import ScaleInSection from './editor/ScaleInSection.svelte';
@@ -46,7 +46,7 @@
   const SECTIONS: { key: Key; title: string }[] = [
     { key: 'universe', title: '종목' },
     { key: 'period', title: '기간·자금' },
-    { key: 'entry', title: '매수' },
+    { key: 'entry', title: '매수 조건' },
     { key: 'scaleIn', title: '분할 매수' },
     { key: 'exit', title: '매도' },
     { key: 'benchmarks', title: '비교 기준' },
@@ -230,21 +230,7 @@
       {:else if key === 'period'}
         <PeriodSection s={draft} {update} />
       {:else if key === 'entry'}
-        {@const gi = draft.rules.buy.findIndex((g) => g.conds.some((c) => c.kind === 'pattern'))}
-        {#if gi >= 0}
-          {@const ci = draft.rules.buy[gi].conds.findIndex((c) => c.kind === 'pattern')}
-          {@const cond = draft.rules.buy[gi].conds[ci]}
-          {#if cond.kind === 'pattern'}
-            <PatternFields
-              entry={cond.entry}
-              update={(fn) =>
-                update((x) => {
-                  const c = x.rules.buy[gi].conds[ci];
-                  if (c.kind === 'pattern') fn(c.entry);
-                })}
-            />
-          {/if}
-        {/if}
+        <BuyRulesSection s={draft} {update} />
       {:else if key === 'scaleIn'}
         <ScaleInSection s={draft} {update} />
       {:else if key === 'exit'}

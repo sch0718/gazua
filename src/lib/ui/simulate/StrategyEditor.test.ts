@@ -11,6 +11,7 @@ import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
 import { makeTestApp, itemsOf } from '../../../sheets/testApp';
 import { currentSnackbar, dismissSnackbar } from '@sch0718/ui-svelte';
+import { expectNoAxeViolations } from '../../share/testAxe';
 import StrategyEditor from './StrategyEditor.svelte';
 import editorSectionSource from './editor/EditorSection.svelte?raw';
 import periodSource from './editor/PeriodSection.svelte?raw';
@@ -24,7 +25,7 @@ const UNIVERSE: UniverseItem[] = [
   { s: '009150', n: '삼성전기', m: 'KOSPI', t: 'STOCK' },
   { s: '069500', n: 'KODEX 200', m: 'KOSPI', t: 'ETF' },
 ];
-const TITLES = ['종목', '기간·자금', '매수', '분할 매수', '매도', '비교 기준', '비용'];
+const TITLES = ['종목', '기간·자금', '매수 조건', '분할 매수', '매도', '비교 기준', '비용'];
 
 let apps: App[] = [];
 function setup(patch: (s: Strategy) => void = () => {}) {
@@ -66,7 +67,7 @@ describe('StrategyEditor 구역', () => {
     const { app } = setup((s) => {
       s.rules.buy.unshift({ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] });
     });
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     await settle();
     expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('A');
@@ -78,7 +79,7 @@ describe('StrategyEditor 구역', () => {
       s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] }];
     });
     expect(screen.getByText('RSI14 30 아래')).toBeTruthy();
-    await openSection('매수');
+    await openSection('매수 조건');
     expect(screen.queryByRole('radiogroup', { name: '전 고점' })).toBeNull();
   });
 
@@ -87,7 +88,7 @@ describe('StrategyEditor 구역', () => {
     expect(header('기간·자금').getAttribute('aria-expanded')).toBe('false');
     await view.rerender({ openRequest: { section: 'capital', seq: 1 } });
     expect(header('기간·자금').getAttribute('aria-expanded')).toBe('true');
-    expect(header('매수').getAttribute('aria-expanded')).toBe('false');
+    expect(header('매수 조건').getAttribute('aria-expanded')).toBe('false');
     await openSection('기간·자금'); // 사용자가 접는다
     await view.rerender({ openRequest: { section: 'capital', seq: 1 } });
     expect(header('기간·자금').getAttribute('aria-expanded')).toBe('false');
@@ -99,7 +100,7 @@ describe('StrategyEditor 구역', () => {
     const { view } = setup();
     await view.rerender({ openRequest: { section: 'entry', seq: 1 } });
     await vi.advanceTimersByTimeAsync(0);
-    expect(document.activeElement).toBe(header('매수'));
+    expect(document.activeElement).toBe(header('매수 조건'));
   });
 
   it('seven collapsed sections in spec order with one-line summaries', async () => {
@@ -117,7 +118,7 @@ describe('StrategyEditor 구역', () => {
 
   it('changing the breakout level to A saves after 500ms', async () => {
     const { app } = setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     await vi.advanceTimersByTimeAsync(499);
     expect(patternEntryOf(saved(app))!.triggers.breakout.level).toBe('B');
@@ -133,7 +134,7 @@ describe('StrategyEditor 구역', () => {
     const remote = { ...saved(app), capital: { ...saved(app).capital, initial: 50_000_000 }, updatedAt: NOW + 500 };
     app.setStrategies([remote]);
     await view.rerender({ strategy: remote });
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     await settle();
     expect(saved(app).capital.initial).toBe(50_000_000);
@@ -142,7 +143,7 @@ describe('StrategyEditor 구역', () => {
 
   it('a remote change arriving during a pending local edit keeps both (different sections)', async () => {
     const { app, view } = setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('radio', { name: /^A / }));
     const remote = { ...saved(app), capital: { ...saved(app).capital, initial: 50_000_000 }, updatedAt: NOW + 500 };
     app.setStrategies([remote]);
@@ -235,7 +236,7 @@ describe('실행 버튼', () => {
     expect((run as HTMLButtonElement).disabled).toBe(false);
     await fireEvent.click(run);
     expect(onRun).not.toHaveBeenCalled();
-    expect(header('매수').getAttribute('aria-expanded')).toBe('true');
+    expect(header('매수 조건').getAttribute('aria-expanded')).toBe('true');
     const banner = screen.getByText('사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요').closest('[tabindex="-1"]') as HTMLElement;
     expect(banner).toBeTruthy();
     expect(document.activeElement).toBe(banner);
@@ -457,7 +458,7 @@ describe('머리줄', () => {
 describe('PatternHelp', () => {
   it('전 고점이 뭔가요? 를 누르면 A·B·L 그림이 펼쳐진다', async () => {
     setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     expect(screen.queryByRole('img')).toBeNull();
     const toggle = screen.getByRole('button', { name: '전 고점이 뭔가요?' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -473,7 +474,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
   it('라벨을 누르면 같은 줄의 토글이 바뀐다', async () => {
     const { app } = setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     const sw = screen.getByRole('switch', { name: '고점 대비 하락폭 사용' });
     expect(sw.getAttribute('aria-checked')).toBe('true');
     await fireEvent.click(screen.getByText('고점 대비 하락폭', { selector: 'label' }));
@@ -487,7 +488,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
   it('토글 이름은 그 줄의 보이는 라벨 + 사용(WCAG 2.5.3 이름 안의 라벨)', async () => {
     setup((s) => (s.scaleIn.on = true));
-    await openSection('매수');
+    await openSection('매수 조건');
     await openSection('분할 매수');
     const switches = screen.getAllByRole('switch');
     expect(switches.map((sw) => sw.getAttribute('aria-label'))).toEqual([
@@ -540,7 +541,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     const { app } = setup((s) => {
       patternEntryOf(s)!.triggers.breakout.on = false;
     });
-    await openSection('매수');
+    await openSection('매수 조건');
     expect(field('고점 대비 하락폭').classList.contains('muted')).toBe(false);
     expect(field('고점 뒤 지난 거래일').classList.contains('muted')).toBe(true); // 기본 끔
     expect(field('짧은 이동평균').classList.contains('muted')).toBe(true);
@@ -675,7 +676,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
 
   it('정수 칸에 소수를 적으면 정수로 적어 주세요', async () => {
     const { app } = setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.input(screen.getByRole('textbox', { name: '저점 뒤 연속 상승' }), { target: { value: '3.5' } });
     expect(screen.getByText('정수로 적어 주세요')).toBeTruthy();
     await settle();
@@ -702,7 +703,7 @@ describe('구역 머리', () => {
       s.rules.sell.stopLoss.basis = 'avgAlways';
       s.scaleIn = { on: true, stepPct: 6, maxAdds: 1 };
     });
-    const entry = header('매수');
+    const entry = header('매수 조건');
     expect(entry.querySelector('.flag')?.textContent).toBe('!');
     expect(entry.querySelector('.sr-only')?.textContent).toBe('· 고쳐야 실행돼요');
     const exit = header('매도');
@@ -804,7 +805,7 @@ describe('매도 구역 문구·삭제', () => {
     await openSection('매도');
     expect(screen.getByRole('radiogroup', { name: '손절 기준 가격' }).classList.contains('on-surface')).toBe(true);
     expect(screen.getByRole('radiogroup', { name: '1단계 익절 뒤 손절선' }).classList.contains('on-surface')).toBe(true);
-    await openSection('매수');
+    await openSection('매수 조건');
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).classList.contains('on-surface')).toBe(true);
     await openSection('종목');
     expect(screen.getByRole('radiogroup', { name: '종목 고르는 방법' }).classList.contains('on-surface')).toBe(true);
@@ -841,8 +842,47 @@ describe('저장 시점', () => {
 describe('PatternHelp 문구', () => {
   it('A는 마지막으로 전량 판 뒤(처음이면 기간 시작부터)', async () => {
     setup();
-    await openSection('매수');
+    await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('button', { name: '전 고점이 뭔가요?' }));
     expect(screen.getByText(/마지막으로 전량 판 뒤\(처음이면 기간 시작부터\)/)).toBeTruthy();
+  });
+});
+
+describe('매수 조건 묶음(§10.2)', () => {
+  it('조건 더하기·종류 바꾸기·지우기, 묶음 더하기가 저장된다', async () => {
+    const { app } = setup();
+    await openSection('매수 조건');
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 조건' }));
+    await tick();
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }));
+    await fireEvent.change(screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }), { target: { value: 'rsi' } });
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 또는 묶음' }));
+    await settle();
+    expect(saved(app).rules.buy).toHaveLength(2);
+    expect(saved(app).rules.buy[0].conds[1]).toEqual({ kind: 'rsi', period: 14, level: 30, op: 'crossUp' });
+    await fireEvent.click(screen.getByRole('button', { name: '매수 묶음 1의 조건 2 지우기' }));
+    await settle();
+    expect(saved(app).rules.buy[0].conds).toHaveLength(1);
+  });
+  it('반등 패턴은 하나만: 다른 줄의 선택지에서 막힌다', async () => {
+    setup();
+    await openSection('매수 조건');
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 조건' }));
+    await tick();
+    const opt = screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }).querySelector('option[value="pattern"]') as HTMLOptionElement;
+    expect(opt.disabled).toBe(true);
+  });
+  it('한도에서는 버튼을 막고 이유를 보인다', async () => {
+    setup((s) => (s.rules.buy = Array.from({ length: 4 }, () => ({ conds: [{ kind: 'newHigh', days: 20 }] }))));
+    await openSection('매수 조건');
+    expect((screen.getByRole('button', { name: '＋ 또는 묶음' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('묶음은 4개까지예요')).toBeTruthy();
+  });
+  it('묶음 카드는 이름 있는 group이고 axe 위반이 없다', async () => {
+    const { view } = setup();
+    await openSection('매수 조건');
+    expect(screen.getByRole('group', { name: '매수 묶음 1' })).toBeTruthy();
+    vi.useRealTimers(); // axe 내부 타이머가 실행되도록 한다.
+    await expectNoAxeViolations(view.container);
   });
 });
