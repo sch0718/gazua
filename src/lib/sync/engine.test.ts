@@ -117,7 +117,7 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     expect(put.mock.calls.filter(([id]) => id === 'p1')).toHaveLength(edited ? 2 : 1);
   });
 
-  it('옛 탭이 받은 v1이 옛 키와 확인 해시에만 반영되면 묵은 v2를 PUT하지 않는다', async () => {
+  it('옛 탭이 확인 해시를 옛 키의 v1 해시로 바꾼 뒤 새 키에서 실제로 고친 전략을 v2로 PUT한다', async () => {
     const d = await receiving();
     await d.engine.pull();
     const before = d.local.read('p1');
@@ -131,11 +131,20 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     expect(d.local.read('p1')).toEqual(before);
     expect(await docHash(before)).not.toBe(state.syncedHash);
 
+    expect(before.v).toBe(2);
+    if (before.v !== 2) throw new Error('v2 문서가 필요하다');
+    saveStrategies(d.storage, 'p1', [{ ...before.strategies[0], name: '새 탭에서 실제로 고친 전략' }]);
+    const edited = d.local.read('p1');
+    expect(edited).toMatchObject({ v: 2, strategies: [{ name: '새 탭에서 실제로 고친 전략' }] });
+    expect(d.storage.get(profileKeys.strategies('p1'), null)).toEqual({ strategies: remote.strategies });
+
     const put = vi.spyOn(d.api, 'putProfile');
     await d.engine.syncNow();
-    expect(put.mock.calls.filter(([id]) => id === 'p1')).toEqual([]);
-    expect(await d.store.state('p1')).toEqual(state);
-    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 2, doc: remote } });
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toEqual([
+      ['p1', { opId: expect.any(String), expectedRevision: 2, doc: edited }],
+    ]);
+    expect(await d.store.state('p1')).toEqual({ profileId: 'p1', syncedRevision: 3, syncedHash: await docHash(edited) });
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 3, doc: edited } });
   });
 
   it('새 키에서 실제로 고친 전략은 옛 키가 남아 있어도 v2로 PUT한다', async () => {
