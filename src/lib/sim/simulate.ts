@@ -6,7 +6,7 @@ import { costOf, maxShares, openPosition, type Position } from './position';
 import { sellTaxPct, settlementDate } from './tax';
 import { holdCurve, indexCurve, singleCurve } from './benchmarks';
 import { nearMiss, retPct, summarize } from './summary';
-import type { PatternSnapshot, SimInput, SimResult, Skip, Strategy, Trade } from './types';
+import type { DayFrame, HoldingFrame, PatternSnapshot, SimInput, SimResult, Skip, Strategy, Trade } from './types';
 
 export interface CoreResult {
   equity: { date: string; value: number; cash: number }[];
@@ -15,6 +15,13 @@ export interface CoreResult {
   roundTrips: { symbol: string; open: string; close: string | null; cost: number; pnl: number; holdDays: number }[];
   perSymbolFirstDate: Record<string, string | null>;
   patternStats: { maxDropPct: number; declineDays: number };
+  /** 옵션 timeline을 켰을 때만 있다 */
+  timeline?: DayFrame[];
+}
+
+export interface SimOptions {
+  /** 결과 화면 재생용 일별 상태(DayFrame)를 기록한다. 기본은 끔(선정 기준 검증은 지금과 같다) */
+  timeline?: boolean;
 }
 
 /** 한 종목의 하루 장중 경로에 필요한 것 */
@@ -144,7 +151,36 @@ interface SymState {
   rt: { open: string; openDay: number; cost: number; proceeds: number } | null;
 }
 
-export function simulateCore(input: SimInput): CoreResult {
+/** 하루 끝 상태(설계 §2.1). 엔진 상태를 읽기만 하고, 가격은 반올림하지 않는다 */
+function dayFrame(date: string, cash: number, value: number, syms: SymState[]): DayFrame {
+  const holdings: HoldingFrame[] = [];
+  const pending: DayFrame['pending'] = [];
+  for (const st of syms) {
+    // 예약은 시가에 비우므로 하루 끝에 남은 것은 그날 종가 신호뿐이다
+    if (st.pending) pending.push({ symbol: st.stock.symbol, reason: st.pending.reason });
+    const pos = st.pos;
+    if (!pos || !st.rt) continue;
+    const close = st.lastClose!;
+    holdings.push({
+      symbol: st.stock.symbol,
+      qty: pos.qty,
+      avgPrice: pos.avgPrice,
+      close,
+      value: roundMoney(pos.qty * close),
+      pnlPct: (close / pos.avgPrice - 1) * 100,
+      stop: pos.stopPrice(),
+      nextAdd: pos.nextAddPrice(),
+      takes: pos
+        .takeLevels()
+        .filter((t) => t.qty > 0)
+        .map(({ stage, price }) => ({ stage, price })),
+      openDate: st.rt.open,
+    });
+  }
+  return { date, cash, value, holdings, pending };
+}
+
+export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult {
   const { strategy: s, days } = input;
   const feePct = s.costs.feePct;
   const amount = roundMoney((s.capital.initial * s.capital.perBuyPct) / 100);
@@ -155,6 +191,7 @@ export function simulateCore(input: SimInput): CoreResult {
   const skipped: Skip[] = [];
   const roundTrips: CoreResult['roundTrips'] = [];
   const skipKeys = new Set<string>();
+  const timeline: DayFrame[] | null = opts.timeline ? [] : null;
 
   const syms: SymState[] = input.stocks.map((stock) => {
     const dates = stock.candles.map((k) => kstDate(k.t));
@@ -257,7 +294,10 @@ export function simulateCore(input: SimInput): CoreResult {
       }
       if (st.pos) held = roundMoney(held + roundMoney(st.pos.qty * st.lastClose!)); // 봉 없는 날은 마지막 종가
     }
-    equity.push({ date, value: roundMoney(wallet.cash + held), cash: wallet.cash });
+    const value = roundMoney(wallet.cash + held);
+    equity.push({ date, value, cash: wallet.cash });
+    // 재생 기록: 그날 종가 처리를 마친 뒤의 상태를 읽기만 한다
+    if (timeline) timeline.push(dayFrame(date, wallet.cash, value, syms));
   });
 
   const last = days.length - 1;
@@ -284,11 +324,11 @@ export function simulateCore(input: SimInput): CoreResult {
     declineDays += ps.declineDays;
   }
 
-  return { equity, trades, skipped, roundTrips, perSymbolFirstDate, patternStats: { maxDropPct, declineDays } };
+  return { equity, trades, skipped, roundTrips, perSymbolFirstDate, patternStats: { maxDropPct, declineDays }, ...(timeline && { timeline }) };
 }
 
-export function simulate(input: SimInput): SimResult {
-  const core = simulateCore(input);
+export function simulate(input: SimInput, opts: SimOptions = {}): SimResult {
+  const core = simulateCore(input, opts);
   const { strategy: s, days } = input;
   const initial = s.capital.initial;
   const fee = s.costs.feePct;
@@ -327,5 +367,6 @@ export function simulate(input: SimInput): SimResult {
       };
     }),
     nearMiss: nearMiss(core),
+    ...(core.timeline && { timeline: core.timeline }),
   };
 }

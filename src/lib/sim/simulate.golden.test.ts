@@ -1,6 +1,6 @@
 // 엔진 동일성 고정(설계 §2.3). 스냅샷은 엔진을 고치기 전에 썼다. 깨지면 엔진 변경이 결과를 바꾼 것이니 -u로 갱신하지 않는다.
 import { describe, expect, it } from 'vitest';
-import { simulate } from './simulate';
+import { simulate, simulateCore } from './simulate';
 import { goldenInputs } from './testInputs';
 
 const A = '분할 매수 + 3단계 익절 + 본전 손절';
@@ -25,5 +25,21 @@ describe('simulate 골든', () => {
     expect(c.trades.map((t) => `${t.symbol}:${t.kind}`)).toEqual(['S1:buy', 'S1:take']);
     expect(c.skipped.some((k) => k.symbol === 'S0' && k.reason === '선정 기간이 아니에요')).toBe(true);
     expect(c.equity.every((e) => e.index !== null && e.benchmark !== null)).toBe(true);
+  });
+});
+
+describe('timeline 옵션 불변식(설계 §2.3-2)', () => {
+  it.each(Object.entries(goldenInputs))('%s: timeline을 켜도 나머지 결과는 끈 결과와 같다', (_name, make) => {
+    const { timeline, ...rest } = simulate(make(), { timeline: true });
+    expect(rest).toStrictEqual(simulate(make()));
+    expect(timeline).toHaveLength(rest.equity.length);
+  });
+
+  it('옵션을 끄면 timeline 키 자체가 없다', () => {
+    const make = goldenInputs[A];
+    expect('timeline' in simulate(make())).toBe(false);
+    expect('timeline' in simulate(make(), {})).toBe(false);
+    expect('timeline' in simulateCore(make())).toBe(false);
+    expect(simulateCore(make(), { timeline: true }).timeline).toHaveLength(make().days.length);
   });
 });

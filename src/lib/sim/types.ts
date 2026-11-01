@@ -99,4 +99,28 @@ export interface SimResult {
   skipped: Skip[];
   perSymbol: { symbol: string; name: string; pnl: number; roundTrips: number; firstDate: string | null }[];
   nearMiss: { maxDropPct: number; declineDays: number } | null; // 거래가 하나도 없을 때만
+  /** 재생용 일별 상태. equity와 같은 길이·같은 날짜. 옵션을 켠 실행에만 있고, 공유에서 복원한 결과에는 없음 */
+  timeline?: DayFrame[];
+}
+
+/** 그날 종가 처리를 마친 뒤 보유 한 종목의 상태(재생 패널). 손절·추가·익절 가격은 다음 거래일 장중 경로에 쓰이는 값 */
+export interface HoldingFrame {
+  symbol: string;
+  qty: number;
+  avgPrice: number; // Position.avgPrice
+  close: number; // 그날 종가, 봉이 없는 날은 마지막 종가
+  value: number; // roundMoney(qty × close), equity 계산과 같은 값
+  pnlPct: number; // (close / avgPrice − 1) × 100
+  stop: number | null; // Position.stopPrice()
+  nextAdd: number | null; // Position.nextAddPrice(), 그날 건너뛴 가격이어도 그대로
+  takes: { stage: number; price: number }[]; // Position.takeLevels() 중 qty > 0
+  openDate: string; // 이번 포지션의 첫 매수일
+}
+
+export interface DayFrame {
+  date: string;
+  cash: number; // equity[i].cash와 같음
+  value: number; // equity[i].strategy와 같음
+  holdings: HoldingFrame[]; // 그룹 순서, 보유 중인 종목만
+  pending: { symbol: string; reason: string }[]; // 그날 종가 신호 → 다음 거래일 시가 매수 예약
 }

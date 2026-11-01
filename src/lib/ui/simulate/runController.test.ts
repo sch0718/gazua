@@ -56,6 +56,16 @@ afterEach(() => {
 });
 
 describe('runController', () => {
+  it('결과 화면 실행은 일별 기록(timeline)을 켠다', async () => {
+    const ctl = ctlFor(fakeApp(provider()));
+    ctl.run(strat());
+    await settled(ctl);
+    const st = ctl.state;
+    if (st.kind !== 'done') throw new Error(st.kind);
+    expect(simulate).toHaveBeenCalledWith(expect.anything(), { timeline: true });
+    expect(st.result.timeline).toHaveLength(st.result.equity.length);
+  });
+
   it('실행한 종목을 요청 순서대로 meta.symbols에 둔다(그룹이 나중에 바뀌어도 그대로)', async () => {
     const app = fakeApp(provider());
     const ctl = ctlFor(app);
