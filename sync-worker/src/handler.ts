@@ -12,6 +12,7 @@ import {
 } from '@sch0718/firebase-session/worker';
 import { KEY_BODY_MAX } from '../../src/lib/sync/keyWire';
 import { checkKeyId, createVault, deleteKeyBlob, getKeyBlob, listKeys, putKeyBlob, rekey, wipeKeys } from './keys';
+import { cliEntry, handleCli } from './cli';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import type { SyncDeps, SyncEnv } from './env';
 import {
@@ -116,6 +117,20 @@ function route(method: string, path: string): { h: Handler; params: string[]; pa
   return pathMatched ? 'method' : null;
 }
 
+/** 핸들러가 던진 오류를 응답으로 바꾼다(앱 분기와 CLI 분기가 같이 쓴다) */
+async function guard(req: Request, deps: SyncDeps, pattern: () => string, fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof HttpError) return json(e.status, errorBody(e.code, e.extra));
+    if (e instanceof CertsUnavailableError) return json(503, errorBody('certs-unavailable'));
+    // 패키지의 설정 안내(예: 0002 마이그레이션 누락)만 문구를 남긴다. 그 밖의 오류는 이름만 남긴다(요청 정보가 섞일 수 있어서).
+    const hint = e instanceof Error && e.message.startsWith('@sch0718/firebase-session:') ? ` ${e.message}` : '';
+    deps.log(`${req.method} ${pattern()} internal ${e instanceof Error ? e.name : 'error'}${hint}`);
+    return json(500, errorBody('internal'));
+  }
+}
+
 export async function handle(req: Request, env: SyncEnv, deps: SyncDeps): Promise<Response> {
   const started = deps.now();
   const url = new URL(req.url);
@@ -123,27 +138,25 @@ export async function handle(req: Request, env: SyncEnv, deps: SyncDeps): Promis
   let pattern = 'unknown';
   let res: Response;
   if (!origin) {
-    res = json(403, errorBody('origin'));
+    // CLI(Node)는 Origin을 보내지 않는다. Origin 헤더가 아예 없을 때만 CLI 분기로 받는다(틀린 Origin은 그대로 403)
+    const cli = req.headers.has('Origin') ? null : cliEntry(req, url);
+    if (cli === null) {
+      res = json(403, errorBody('origin'));
+    } else {
+      pattern = cli;
+      res = await guard(req, deps, () => pattern, () => handleCli(req, env, deps, url));
+    }
   } else if (req.method === 'OPTIONS') {
     res = preflight(origin, { methods: ALLOWED_METHODS, headers: ALLOWED_HEADERS });
     pattern = 'preflight';
   } else {
     const r = route(req.method, url.pathname);
-    try {
+    res = await guard(req, deps, () => pattern, async () => {
       if (r === null) throw new HttpError(404, 'not-found');
       if (r === 'method') throw new HttpError(405, 'method');
       pattern = r.pattern;
-      res = await r.h({ req, env, deps, params: r.params, url });
-    } catch (e) {
-      if (e instanceof HttpError) res = json(e.status, errorBody(e.code, e.extra));
-      else if (e instanceof CertsUnavailableError) res = json(503, errorBody('certs-unavailable'));
-      else {
-        res = json(500, errorBody('internal'));
-        // 패키지의 설정 안내(예: 0002 마이그레이션 누락)만 문구를 남긴다. 그 밖의 오류는 이름만 남긴다(요청 정보가 섞일 수 있어서).
-        const hint = e instanceof Error && e.message.startsWith('@sch0718/firebase-session:') ? ` ${e.message}` : '';
-        deps.log(`${req.method} ${pattern} internal ${e instanceof Error ? e.name : 'error'}${hint}`);
-      }
-    }
+      return r.h({ req, env, deps, params: r.params, url });
+    });
     for (const [k, v] of Object.entries(corsHeaders(origin))) res.headers.set(k, v);
   }
   deps.log(`${req.method} ${pattern} ${res.status} ${deps.now() - started}ms`);
