@@ -227,8 +227,7 @@
     e.preventDefault();
     if (busy) return;
     const kind = sheet;
-    if ((kind === 'create' || kind === 'enter' || kind === 'change') && pass === '') return;
-    if ((kind === 'create' || kind === 'change') && pass2 === '') return;
+    if (kind === 'enter' && pass === '') return;
     if (kind === 'change' && current === '') return;
     if ((kind === 'enter' || kind === 'lockpass') && needLock && lockPass === '') return;
     if (kind === 'create' || kind === 'change') {
@@ -305,110 +304,110 @@
 {/snippet}
 
 {#if view.support !== null}
-<section class="card keys" aria-labelledby="{uid}-title">
-  <h3 id="{uid}-title">키 동기화 (암호화)</h3>
-  {#if view.support === false}
-    <p class="hint">{KEY_TEXT.oldWorker}</p>
-  {:else if view.support === true}
-    <div class="row">
-      <div class="text">
-        <b>이 프로필의 키도 동기화</b>
-        <p>지금 프로필 「{name}」</p>
-      </div>
-      <Toggle
-        checked={on}
-        label="이 프로필의 키도 동기화"
-        disabled={!on && offReason !== null}
-        describedby={!on && offReason ? `${uid}-why` : undefined}
-        onchange={onToggle}
-      />
-    </div>
-    <p class="hint">고른 키를 동기화 암호로 잠가 올려요. 프록시 토큰은 올리지 않아요.</p>
-    {#if !on && offReason}
-      <p id="{uid}-why" class="hint">{offReason}</p>
-    {/if}
-    {#if on && st && st.revision > 0}
-      {@render providerChecks(st.providers, setProvider, `${uid}-on`, uploading)}
-    {/if}
-
-    {#if view.accountNotice === 'vault-changed'}
-      <p class="notice" role="status">
-        {KEY_TEXT.vaultChanged}
-        <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
-        <button type="button" class="link" onclick={() => sync.keys.dismissAccount()}>닫기</button>
-      </p>
-    {:else if view.accountNotice === 'vault-gone'}
-      <p class="notice" role="status">
-        {KEY_TEXT.noVault}
-        <button type="button" class="link" onclick={() => sync.keys.dismissAccount()}>닫기</button>
-      </p>
-    {/if}
-
-    {#if st?.notice === 'removed'}
-      <p class="notice" role="status">
-        {KEY_TEXT.removed}
-        <button type="button" class="link" onclick={() => sync.keys.dismiss(id)}>닫기</button>
-      </p>
-    {:else if on && st}
-      {#if st.notice === 'available' || st.notice === 'newer'}
-        <p class="notice" role="status">
-          {st.notice === 'available' ? KEY_TEXT.available : KEY_TEXT.newer}
-          <button type="button" class="link" disabled={busy || receiving} onclick={receive}>받기</button>
-        </p>
-      {:else if st.notice === 'conflict' || st.notice === 'rollback'}
-        <div class="notice" role="status">
-          <p>{st.notice === 'conflict' ? KEY_TEXT.conflictNotice : KEY_TEXT.rollback}</p>
-          <span class="actions">
-            <button type="button" class="link" disabled={!canUpload} onclick={uploadLocal}>이 기기 키 올리기</button>
-            <button type="button" class="link" disabled={busy || receiving} onclick={receive}>서버 키 받기</button>
-          </span>
-        </div>
-      {:else if st.notice === 'missing-key'}
-        <p class="notice" role="status">{KEY_TEXT.missingKey(missing)}</p>
-      {/if}
-      {#if dirty && !view.remembered}
-        <p class="notice" role="status">
-          {KEY_TEXT.pendingUpload}
-          <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
-        </p>
-      {/if}
-    {/if}
-
-    <p class="sr" aria-live="polite">{uploading ? '올리는 중…' : ''}</p>
-    {#if view.problem}
-      <p class="warn" role="status">{view.problem}</p>
-    {/if}
-    {#if message}
-      <p class="warn" role="alert">
-        {message}
-        {#if offerDelete}<button type="button" class="link" onclick={() => void turnOff()}>서버 키 지우기(이 프로필)</button>{/if}
-      </p>
-    {/if}
-
-    {#if view.vault}
+  <section class="card keys" aria-labelledby="{uid}-title">
+    <h3 id="{uid}-title">키 동기화 (암호화)</h3>
+    {#if view.support === false}
+      <p class="hint">{KEY_TEXT.oldWorker}</p>
+    {:else if view.support === true}
       <div class="row">
-        <p class="text">{view.remembered ? '동기화 암호: 이 탭에서 기억 중' : '동기화 암호: 기억하지 않음'}</p>
-        {#if view.remembered}
-          <button type="button" class="btn" onclick={() => sync.keys.forget()}>잊기</button>
-        {:else}
-          <button type="button" class="btn" onclick={() => ((next = null), open('enter'))}>입력</button>
-        {/if}
+        <div class="text">
+          <b>이 프로필의 키도 동기화</b>
+          <p>지금 프로필 「{name}」</p>
+        </div>
+        <Toggle
+          checked={on}
+          label="이 프로필의 키도 동기화"
+          disabled={!on && offReason !== null}
+          describedby={!on && offReason ? `${uid}-why` : undefined}
+          onchange={onToggle}
+        />
       </div>
-      <div class="row actions">
-        <button type="button" class="btn" onclick={() => ((next = null), open('change'))}>동기화 암호 바꾸기</button>
-        <button type="button" class="btn danger" onclick={() => void wipeFlow()}>서버의 키 모두 지우기</button>
-      </div>
-    {/if}
+      <p class="hint">고른 키를 동기화 암호로 잠가 올려요. 프록시 토큰은 올리지 않아요.</p>
+      {#if !on && offReason}
+        <p id="{uid}-why" class="hint">{offReason}</p>
+      {/if}
+      {#if on && st && st.revision > 0}
+        {@render providerChecks(st.providers, setProvider, `${uid}-on`, uploading)}
+      {/if}
 
-    {#if others.length > 0}
-      <ul class="others" aria-label="다른 프로필의 키 알림">
-        {#each others as o (o.profileId)}
-          <li>「{otherName(o.profileId)}」 받을 키가 있어요 — {KEY_TEXT.otherProfile}</li>
-        {/each}
-      </ul>
+      {#if view.accountNotice === 'vault-changed'}
+        <p class="notice" role="status">
+          {KEY_TEXT.vaultChanged}
+          <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
+          <button type="button" class="link" onclick={() => sync.keys.dismissAccount()}>닫기</button>
+        </p>
+      {:else if view.accountNotice === 'vault-gone'}
+        <p class="notice" role="status">
+          {KEY_TEXT.noVault}
+          <button type="button" class="link" onclick={() => sync.keys.dismissAccount()}>닫기</button>
+        </p>
+      {/if}
+
+      {#if st?.notice === 'removed'}
+        <p class="notice" role="status">
+          {KEY_TEXT.removed}
+          <button type="button" class="link" onclick={() => sync.keys.dismiss(id)}>닫기</button>
+        </p>
+      {:else if on && st}
+        {#if st.notice === 'available' || st.notice === 'newer'}
+          <p class="notice" role="status">
+            {st.notice === 'available' ? KEY_TEXT.available : KEY_TEXT.newer}
+            <button type="button" class="link" disabled={busy || receiving} onclick={receive}>받기</button>
+          </p>
+        {:else if st.notice === 'conflict' || st.notice === 'rollback'}
+          <div class="notice" role="status">
+            <p>{st.notice === 'conflict' ? KEY_TEXT.conflictNotice : KEY_TEXT.rollback}</p>
+            <span class="actions">
+              <button type="button" class="link" disabled={!canUpload} onclick={uploadLocal}>이 기기 키 올리기</button>
+              <button type="button" class="link" disabled={busy || receiving} onclick={receive}>서버 키 받기</button>
+            </span>
+          </div>
+        {:else if st.notice === 'missing-key'}
+          <p class="notice" role="status">{KEY_TEXT.missingKey(missing)}</p>
+        {/if}
+        {#if dirty && !view.remembered}
+          <p class="notice" role="status">
+            {KEY_TEXT.pendingUpload}
+            <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
+          </p>
+        {/if}
+      {/if}
+
+      <p class="sr" aria-live="polite">{uploading ? '올리는 중…' : ''}</p>
+      {#if view.problem}
+        <p class="warn" role="status">{view.problem}</p>
+      {/if}
+      {#if message}
+        <p class="warn" role="alert">
+          {message}
+          {#if offerDelete}<button type="button" class="link" onclick={() => void turnOff()}>서버 키 지우기(이 프로필)</button>{/if}
+        </p>
+      {/if}
+
+      {#if view.vault}
+        <div class="row">
+          <p class="text">{view.remembered ? '동기화 암호: 이 탭에서 기억 중' : '동기화 암호: 기억하지 않음'}</p>
+          {#if view.remembered}
+            <button type="button" class="btn" onclick={() => sync.keys.forget()}>잊기</button>
+          {:else}
+            <button type="button" class="btn" onclick={() => ((next = null), open('enter'))}>입력</button>
+          {/if}
+        </div>
+        <div class="row actions">
+          <button type="button" class="btn" onclick={() => ((next = null), open('change'))}>동기화 암호 바꾸기</button>
+          <button type="button" class="btn danger" onclick={() => void wipeFlow()}>서버의 키 모두 지우기</button>
+        </div>
+      {/if}
+
+      {#if others.length > 0}
+        <ul class="others" aria-label="다른 프로필의 키 알림">
+          {#each others as o (o.profileId)}
+            <li>「{otherName(o.profileId)}」 받을 키가 있어요 — {KEY_TEXT.otherProfile}</li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
-  {/if}
-</section>
+  </section>
 {/if}
 
 <Sheet open={sheet === 'risk'} title="키를 서버에 올리기 전에 확인해 주세요" onclose={close}>

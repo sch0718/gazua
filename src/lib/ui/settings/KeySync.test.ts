@@ -190,6 +190,36 @@ describe('KeySync', () => {
     expect((screen.queryByLabelText('동기화 암호') as HTMLInputElement | null)?.value ?? '').toBe('');
   });
 
+  it.each([
+    ['create', '', '', PASSPHRASE_TEXT.short, '동기화 암호'],
+    ['create', '', 'FAKE-sync-pass', PASSPHRASE_TEXT.short, '동기화 암호'],
+    ['create', 'FAKE-sync-pass', '', PASSPHRASE_TEXT.mismatch, '동기화 암호 확인'],
+    ['change', '', '', PASSPHRASE_TEXT.short, '새 동기화 암호'],
+    ['change', '', 'FAKE-sync-pass', PASSPHRASE_TEXT.short, '새 동기화 암호'],
+    ['change', 'FAKE-sync-pass', '', PASSPHRASE_TEXT.mismatch, '새 동기화 암호 확인'],
+  ])('정하기·바꾸기의 빈 새 암호도 3.4 문구와 필드 연결로 알린다: %s, %s, %s', async (kind, pass, pass2, text, field) => {
+    const keys = fakeKeys({ vault: kind === 'create' ? null : VAULT });
+    await setup({ keys, secrets: { kis: KIS } });
+    if (kind === 'create') {
+      await openRisk();
+      await fireEvent.click(checkbox('위 내용을 이해했어요'));
+      await fireEvent.click(button('계속'));
+    } else {
+      await fireEvent.click(button('동기화 암호 바꾸기'));
+      await fireEvent.input(screen.getByLabelText('현재 동기화 암호'), { target: { value: 'FAKE-current-pass' } });
+    }
+    await fireEvent.input(screen.getByLabelText(kind === 'create' ? '동기화 암호' : '새 동기화 암호'), { target: { value: pass } });
+    await fireEvent.input(screen.getByLabelText(kind === 'create' ? '동기화 암호 확인' : '새 동기화 암호 확인'), { target: { value: pass2 } });
+    await fireEvent.submit(button('확인').closest('form')!);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe(text);
+    expect(screen.getByLabelText(field).getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByLabelText(field).getAttribute('aria-describedby')).toBe(alert.id);
+    expect(keys.createVault).not.toHaveBeenCalled();
+    expect(keys.changePassphrase).not.toHaveBeenCalled();
+    expect(keys.enable).not.toHaveBeenCalled();
+  });
+
   it('암호 입력: 틀리면 문구, KDF 중 「확인하는 중…」이고 Esc로 닫히지 않는다', async () => {
     let finish!: (v: KeyResult) => void;
     const keys = fakeKeys({ vault: VAULT }, { unlockVault: vi.fn(() => new Promise<KeyResult>((r) => (finish = r))) });
@@ -231,22 +261,14 @@ describe('KeySync', () => {
   });
 
   it.each([
-    ['create', '동기화 암호'],
-    ['create', '동기화 암호 확인'],
     ['enter', '동기화 암호'],
     ['change', '현재 동기화 암호'],
-    ['change', '새 동기화 암호'],
-    ['change', '새 동기화 암호 확인'],
     ['lockpass', '이 기기 잠금 암호'],
     ['enter-lock', '이 기기 잠금 암호'],
   ])('빈 암호 칸을 제출하면 아무 일도 하지 않는다: %s, %s', async (kind, emptyField) => {
-    const keys = fakeKeys({ vault: kind === 'create' ? null : VAULT, remembered: kind === 'lockpass', states: kind === 'create' ? [] : [row({ notice: 'newer' })] });
+    const keys = fakeKeys({ vault: VAULT, remembered: kind === 'lockpass', states: [row({ notice: 'newer' })] });
     await setup({ keys, secrets: { kis: KIS }, keyLock: kind === 'lockpass' || kind === 'enter-lock' });
-    if (kind === 'create') {
-      await openRisk();
-      await fireEvent.click(checkbox('위 내용을 이해했어요'));
-      await fireEvent.click(button('계속'));
-    } else await fireEvent.click(button(kind === 'change' ? '동기화 암호 바꾸기' : kind === 'enter' ? '입력' : '받기'));
+    await fireEvent.click(button(kind === 'change' ? '동기화 암호 바꾸기' : kind === 'enter' ? '입력' : '받기'));
     for (const input of document.querySelectorAll<HTMLInputElement>('input[type="password"]')) {
       await fireEvent.input(input, { target: { value: 'FAKE-sync-pass' } });
     }

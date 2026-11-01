@@ -8,12 +8,14 @@
 
 ## 올리는 것과 올리지 않는 것
 
-| 올려요(평문 JSON, Cloudflare 계정 주인과 Cloudflare가 볼 수 있어요) | 올리지 않아요 |
+| 올려요 | 올리지 않아요 |
 |---|---|
 | 프로필 이름, 관심 그룹, 전략, 선정 기준, 내 묶음 | 평문 증권사 키, 프록시 토큰, 접근 토큰, 동기화 암호 |
-| 「키도 동기화」를 켠 프로필의 KIS·토스 키 — 기기에서 동기화 암호(PBKDF2-SHA256 600000회 → AES-GCM 256)로 잠근 **암호문만**(`key_vault`·`key_blobs`). 서버는 풀 수 없고 어느 공급자 키인지도 몰라요 | |
+| 「이 프로필의 키도 동기화」를 켠 프로필의 KIS·토스 키 — 기기에서 동기화 암호(PBKDF2-SHA256 600000회 → AES-GCM 256)로 잠근 **암호문만**(`key_vault`·`key_blobs`). 서버는 풀 수 없고 어느 공급자 키인지도 몰라요 | |
 | 분석 설정: 기간·지표·벤치마크·성과 벤치마크·색 규칙·정렬 | 주문 캐시(`gazua-account`), 성과 이력, 봉 캐시, 시장 데이터 |
 | | 공급자·프록시 주소·거래소·테마·키 잠금·온보딩·마지막 그룹, 최근 종목, 도움말 기록 |
+
+키 금고·블롭 외의 업로드 데이터는 평문 JSON이라 Cloudflare 계정 주인과 Cloudflare가 볼 수 있어요.
 
 카카오·네이버 사용자는 공급자 계정 ID(`kakao:<sub>`·`naver:<sub>`)로 허용 목록을 확인해요. 이메일로 식별하거나 허용하지 않고, Google·카카오·네이버 계정을 서로 연결하지 않아요. 공급자마다 동기화 데이터가 따로예요.
 
@@ -41,7 +43,7 @@ Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보�
 | `GET /v1/profiles/:id/revisions[/:rev]` | 현재와 과거 10개 |
 | `POST/GET /v1/shares`, `DELETE /v1/shares/:id` | 공유 만들기·목록·철회. 만료는 기본 7일, 최대 30일이고, 활성 공유는 50개까지예요 |
 | `GET /v1/public/share` | 로그인 없이 `X-Share-Token: <capability>`로 읽어요. 만료·철회·원본 삭제면 `410`이에요 |
-| `GET /v1/keys` | 키 금고 머리(`keyVault`: `vaultId`·`kdf`·`iter`·`salt`·`verifier`·`vaultRevision`)와 블롭 목록(`keyBlobs`: `profileId`·`revision`·`vaultRevision`·`contentId`·`deleted`). 암호문은 담지 않아요. 금고가 없으면 `keyVault: null` |
+| `GET /v1/keys` | 키 금고 머리(`keyVault`: `vaultId`·`kdf`·`iter`·`salt`·`verifier`·`vaultRevision`·`updatedAt`)와 블롭 목록(`keyBlobs`: `profileId`·`revision`·`vaultRevision`·`contentId`·`deleted`·`updatedAt`). 블롭 암호문은 담지 않아요. 금고가 없으면 `keyVault: null` |
 | `PUT /v1/keys/vault` | 금고 처음 만들기(4 KiB). 이미 있으면 `409 vault-exists`(머리 포함), `iter`가 600000이 아니면 `422` |
 | `GET/PUT/DELETE /v1/keys/:id` | 프로필 하나의 암호문. `PUT`(8 KiB)은 `{ expectedRevision, newRevision, contentId, vaultId, vaultRevision, nonce, ciphertext }`이고 `404`(프로필 없음)·`410`(삭제됨)·`409 no-vault`·`409 vault-changed`·`409 conflict`·`422 key-limit`(살아 있는 블롭 50개)이에요. `DELETE`(끄기)는 본문 없이 암호문을 지우고 리비전만 남겨요 |
 | `POST /v1/keys/rekey` | 동기화 암호 바꾸기(128 KiB). 살아 있는 블롭 전부를 새 키로 다시 봉해 한 batch로 바꿔요. 그사이 무엇이 바뀌었으면 하나도 바꾸지 않고 `409` |
@@ -123,11 +125,15 @@ corepack pnpm --filter sync-worker run deploy
 
 4. **Cron 수를 확인해요.** Workers Free는 계정 전체에 Cron 트리거가 5개까지예요. 같은 계정의 증권사 프록시·랜드마크 Worker가 쓰는 수를 대시보드(Workers & Pages › 각 Worker › Settings › Triggers)에서 합쳐 보고, 넘으면 `wrangler.toml`의 `[triggers]`를 지운 뒤 정리를 다른 방법으로 돌려요.
 
-5. **키 동기화(0003)를 처음 배포할 때는 순서를 지켜요.** 이 Worker의 프로필 삭제·복구·정리가 `key_blobs`를 쓰므로 0003 없이 배포하면 프로필 삭제·복구가 `no such table`로 `500`이 돼요.
+5. **키 동기화(0003)를 처음 배포할 때는 순서를 지켜요.** 이 Worker의 프로필 삭제·복구·정리가 `key_blobs`를 쓰므로 0003 없이 배포하면 프로필 삭제·복구가 `no such table`로 `500`이 되고 Cron 정리(`purge`)도 실패해요.
    1. 원격 D1에 `0003_key_vault`를 적용해요(`corepack pnpm --filter sync-worker migrate:remote`). 표를 더하기만 해서 지금 Worker·앱은 영향이 없어요.
    2. Worker를 배포해요(`corepack pnpm --filter sync-worker run deploy`).
    3. 앱을 배포해요. 앱이 `/v1/keys`를 부르기 시작해요. 옛 Worker에 새 앱이 붙으면 `404`라 키 영역에 「서버를 새로 배포해야 키 동기화를 쓸 수 있어요」만 보이고 프로필 동기화는 그대로예요.
-   - Worker만 되돌리면 표는 남고 옛 Worker는 읽지 않아요. 그동안 지운 프로필의 암호문은 고아로 남아 목록·상한에 보이지 않고, 다시 배포한 뒤 첫 암호 바꾸기·그 프로필 복구·30일 뒤 정리가 비워요. 바로 비우려면 고아 행의 `content_id`·`nonce`·`ciphertext`를 NULL로 바꾸는 SQL을 한 번 돌려요.
+   - Worker만 되돌리면 표는 남고 옛 Worker는 읽지 않아요. 그동안 지운 프로필의 암호문은 고아로 남아 목록·상한에 보이지 않고, 다시 배포한 뒤 첫 암호 바꾸기·그 프로필 복구·30일 뒤 정리가 비워요. 바로 비우려면 아래 SQL을 한 번 돌려요. `<ms>`는 실행 시각의 Unix 밀리초로 바꿔요. `src/keys.ts` rekey의 0단계처럼 암호문을 비우고 리비전도 1 올려요(rekey는 해당 계정만, 아래 SQL은 모든 계정의 고아를 정리해요).
+
+     ```sql
+     UPDATE key_blobs SET content_id = NULL, nonce = NULL, ciphertext = NULL, revision = revision + 1, updated_at = <ms> WHERE ciphertext IS NOT NULL AND NOT EXISTS (SELECT 1 FROM profile_index i WHERE i.user_id = key_blobs.user_id AND i.profile_id = key_blobs.profile_id AND i.deleted_at IS NULL)
+     ```
    - D1을 이전 시점으로 복구하면 키 행이 되감겨요. 켜진 기기에 「서버 키가 예전 것으로 돌아갔어요(서버 복구 등). 받지 않았어요」가 뜨고 「이 기기 키 올리기」·「서버 키 받기」로 빠져나와요.
 
 ### 3. 앱 빌드 설정
@@ -195,7 +201,12 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
 - 두 기기에서 로그인하고 동기화를 켠 뒤, 한쪽에서 그룹을 더하면 다른 쪽에 보여요.
 - Workers 대시보드 › gazua-sync › Metrics에서 **CPU 시간 중앙값**이 무료 한도(요청당 10ms)보다 충분히 낮은지 봐요. 로컬 Node 측정은 토큰 검증 1회에 약 0.06ms였어요(참고값, 인증서 받기 제외).
 - D1 대시보드에서 하루 읽기·쓰기 행 수를 봐요. 무료 한도는 하루 읽기 500만 행, 쓰기 10만 행이에요.
-- 키 동기화를 켠 뒤 D1 대시보드에서 `SELECT profile_id, revision, ciphertext IS NULL FROM key_blobs`로 평문이 없는지(암호문 base64만), 끈 프로필은 암호문이 비었는지 봐요. 실기기 점검은 [실연결 점검 ㉛](../docs/live-check.md)이에요.
+- 키 동기화를 켠 뒤 D1 대시보드에서 아래 쿼리로 본문을 출력하지 않고 암호문 길이와 base64 밖 문자가 든 행 수를 확인해요. 켠 프로필은 길이가 있고, 끈 프로필은 `deleted = 1`·길이 NULL이며, `non_base64_rows`는 0이어야 해요. 실기기 점검은 [실연결 점검 ㉛](../docs/live-check.md)이에요.
+
+  ```sql
+  SELECT profile_id, revision, length(ciphertext) AS ciphertext_length, ciphertext IS NULL AS deleted FROM key_blobs;
+  SELECT count(*) AS non_base64_rows FROM key_blobs WHERE ciphertext GLOB '*[^A-Za-z0-9+/=]*';
+  ```
 
 ## 무료 한도 아끼기
 
