@@ -15,6 +15,7 @@ import {
   criteriaSnapshot,
   cutUtf16,
   SHARE_MAX_BYTES,
+  STRATEGY_SHARE_VERSION,
   shareTitle,
   strategySnapshot,
   type CompareSnapshot,
@@ -211,7 +212,7 @@ export function simResultSnapshot(done: DoneState, opts: { hideCapital: boolean;
       const pos = m === null ? [...Array(n).keys()] : thinIndices(n, m, keep);
       return {
         kind: 'simResult',
-        v: 1,
+        v: STRATEGY_SHARE_VERSION,
         title: rules.title,
         strategy: rules.strategy,
         capitalHidden: opts.hideCapital,

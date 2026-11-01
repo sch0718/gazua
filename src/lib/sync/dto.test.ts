@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { newStrategy } from '../sim/defaults';
+import { newStrategyV1, toV2 } from '../sim/strategyV1';
+import { profileKeys } from '../state/profileStore';
 import { newCriteria } from '../screen/defaults';
 import { FORBIDDEN_KEYS, JSON_DEPTH_MAX } from './forbidden';
-import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV1 } from './dto';
+import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV2 } from './dto';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { applyProfileDoc, buildProfileDoc } from './profileDoc';
+import { stableJson } from './hash';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
 const PID = 'p-1';
@@ -48,13 +51,13 @@ function seeded() {
   });
   seed(backing, `p:${PID}:token:toss`, { accessToken: FAKE.access, expiresAt: NOW + 1000 });
   seed(backing, `p:${PID}:recent`, ['000660']);
-  seed(backing, `p:${PID}:strategies`, { strategies: [newStrategy(NOW, 'g-1', '눌림목')] });
+  seed(backing, `p:${PID}:strategySet`, { strategies: [newStrategy(NOW, 'g-1', '눌림목')] });
   seed(backing, `p:${PID}:criteria`, { criteria: [newCriteria(NOW, null, '저평가')] });
   seed(backing, `p:${PID}:baskets`, { baskets: [{ id: 'b-1', name: '관찰', updatedAt: NOW, symbols: ['035420'] }] });
   return { backing, st: createSafeStorage(backing) };
 }
 
-function validDoc(): ProfileDocV1 {
+function validDoc(): ProfileDocV2 {
   const { st } = seeded();
   return buildProfileDoc(st, PID, '내 프로필');
 }
@@ -142,7 +145,7 @@ describe('checkProfileDoc', () => {
   });
 
   it('고칠 값이 있으면 고쳐 받지 않고 거절한다', () => {
-    const d = validDoc();
+    const d = { ...validDoc(), v: 1 as const, strategies: [newStrategyV1(NOW, 'g0')] };
     d.strategies[0].capital.perBuyPct = 500;
     expect(checkProfileDoc(d, NOW)).toMatchObject({ code: 'invalid', path: 'strategies[0].capital.perBuyPct' });
     const p = validDoc();
@@ -194,14 +197,14 @@ describe('applyProfileDoc', () => {
 describe('checkProfileDoc v1·v2(전략 빌더 §8.3)', () => {
   const v2Doc = () => ({ ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] });
 
-  it('앱이 만드는 버전은 1 그대로, 받는 최대는 2', () => {
-    expect(PROFILE_DOC_VERSION).toBe(1);
+  it('앱이 만드는 버전은 2, 받는 최대는 2', () => {
+    expect(PROFILE_DOC_VERSION).toBe(2);
     expect(PROFILE_DOC_MAX_VERSION).toBe(2);
     expect(APP_OUTDATED_CODE).toBe('앱을 새로 고쳐 주세요');
   });
 
   it('v1 문서는 지금처럼 통과하고 원본을 돌려준다', () => {
-    const d = validDoc();
+    const d = { ...validDoc(), v: 1 as const, strategies: [newStrategyV1(NOW, 'g0')] };
     const r = checkProfileDoc(d, NOW);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.doc).toBe(d);
@@ -215,12 +218,12 @@ describe('checkProfileDoc v1·v2(전략 빌더 §8.3)', () => {
   });
 
   it('v2 문서에 v1 전략이 섞이면 거절한다', () => {
-    const d = { ...v2Doc(), strategies: validDoc().strategies };
+    const d = { ...v2Doc(), strategies: [newStrategyV1(NOW, 'g0')] };
     expect(checkProfileDoc(d, NOW)).toMatchObject({ ok: false, code: 'unknown-field' });
   });
 
   it('v1 문서에 v2 전략이 섞이면 거절한다', () => {
-    const d = { ...validDoc(), strategies: [fullStrategyV2()] };
+    const d = { ...validDoc(), v: 1 as const, strategies: [fullStrategyV2()] };
     expect(checkProfileDoc(d, NOW)).toMatchObject({ ok: false });
   });
 
@@ -231,5 +234,39 @@ describe('checkProfileDoc v1·v2(전략 빌더 §8.3)', () => {
     const extra = v2Doc();
     (extra.strategies[0].rules.buy[0].conds[1] as unknown as Record<string, unknown>).note = 'x';
     expect(checkProfileDoc(extra, NOW)).toMatchObject({ code: 'unknown-field', path: 'strategies[0].rules.buy[0].conds[1].note' });
+  });
+});
+
+describe('applyProfileDoc v1·v2(§8.2)', () => {
+  it('v2 문서는 새 키에만 쓴다', () => {
+    const { st } = seeded();
+    const d = { ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] };
+    applyProfileDoc(st, PID, d);
+    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: d.strategies });
+    expect(st.get(profileKeys.strategies(PID), null)).toBeNull();
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([]), v2: stableJson(d.strategies) });
+  });
+  it('v1 문서는 옛 키에 v1, 새 키에 toV2 결과를 바로 쓴다', () => {
+    const { st } = seeded();
+    const v1 = { ...newStrategyV1(NOW, 'g0', '옛'), id: 'old' };
+    const d = { ...validDoc(), v: 1 as const, strategies: [v1] };
+    applyProfileDoc(st, PID, d);
+    expect(st.get(profileKeys.strategies(PID), null)).toEqual({ strategies: [v1] });
+    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([v1]), v2: stableJson([toV2(v1)]) });
+  });
+  it('v2 수신은 base.v1을 유지하고 새 전략이 뒤늦은 옛 키 수정에 덮이지 않는다', () => {
+    const { st } = seeded();
+    const old = { ...newStrategyV1(NOW, 'g0', '옛'), id: 'old' };
+    const v1 = { ...validDoc(), v: 1 as const, strategies: [old] };
+    applyProfileDoc(st, PID, v1);
+    st.set(profileKeys.strategies(PID), { strategies: [{ ...old, name: '옛 탭 수정' }] });
+    const v2 = { ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] };
+    applyProfileDoc(st, PID, v2);
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([old]), v2: stableJson(v2.strategies) });
+    expect(buildProfileDoc(st, PID, v2.name).strategies).toEqual(v2.strategies);
+  });
+  it('buildProfileDoc은 v2 문서를 만든다', () => {
+    expect(validDoc().v).toBe(2);
   });
 });

@@ -18,13 +18,14 @@ import { sanitizeCriteria } from '../screen/validate';
 import { loadBaskets, sanitizeBaskets, type Basket } from '../screen/baskets';
 import type { SelectionCriteria } from '../screen/types';
 import { loadStrategies } from '../sim/strategyStore';
-import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV1, toV2 } from '../sim/strategyV1';
+import { sanitizeStrategiesV2 } from '../sim/strategyV2';
 import type { Strategy } from '../sim/types';
 import { kstDate } from '../time/kst';
 import { sanitizeSettings, validWatchlists } from './validate';
 
 export const EXPORT_FORMAT = 'gazua-export';
-export const EXPORT_SCHEMA_VERSION = 1;
+export const EXPORT_SCHEMA_VERSION = 2;
 export const IMPORT_BAD_FORMAT = '파일 형식이 맞지 않아요';
 export const IMPORT_BAD_VERSION = '지원하지 않는 버전이에요';
 /** 프로필 이름 최대 길이(프로필 추가 입력 칸과 같다). */
@@ -119,7 +120,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
     return fail(IMPORT_BAD_FORMAT);
   }
   if (!isRecord(file) || file.format !== EXPORT_FORMAT || !('schemaVersion' in file)) return fail(IMPORT_BAD_FORMAT);
-  if (file.schemaVersion !== EXPORT_SCHEMA_VERSION) return fail(IMPORT_BAD_VERSION);
+  if (file.schemaVersion !== 1 && file.schemaVersion !== 2) return fail(IMPORT_BAD_VERSION);
   if (!isRecord(file.settings)) return fail(IMPORT_BAD_FORMAT);
   const watchlists = validWatchlists(file.watchlists);
   if (!watchlists) return fail(IMPORT_BAD_FORMAT);
@@ -130,7 +131,9 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   const recent = rawRecent.filter(isString).slice(0, RECENT_MAX);
 
   if (file.strategies !== undefined && !Array.isArray(file.strategies)) return fail(IMPORT_BAD_FORMAT);
-  const { strategies, repaired: strategiesRepaired } = sanitizeStrategies(file, now());
+  // v1 파일(전략 빌더 이전)은 전략을 옮긴다(스펙 §8.5)
+  const v1 = file.schemaVersion === 1 ? sanitizeStrategiesV1(file, now()) : null;
+  const { strategies, repaired: strategiesRepaired } = v1 ? { strategies: v1.strategies.map(toV2), repaired: v1.repaired } : sanitizeStrategiesV2(file, now());
   if (file.criteria !== undefined && !Array.isArray(file.criteria)) return fail(IMPORT_BAD_FORMAT);
   const { criteria, repaired: criteriaRepaired } = sanitizeCriteria(file, now());
   if (file.baskets !== undefined && !Array.isArray(file.baskets)) return fail(IMPORT_BAD_FORMAT);
@@ -150,7 +153,7 @@ export function importData(st: SafeStorage, json: string, now: () => number = Da
   st.set(profileKeys.settings(id), settings);
   st.set(profileKeys.watchlists(id), watchlists);
   st.set(profileKeys.recent(id), recent);
-  st.set(profileKeys.strategies(id), { strategies });
+  st.set(profileKeys.strategySet(id), { strategies });
   st.set(profileKeys.criteria(id), { criteria });
   st.set(profileKeys.baskets(id), { baskets });
   if (secrets) st.set(profileKeys.secrets(id), secrets);

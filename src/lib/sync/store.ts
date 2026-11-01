@@ -1,14 +1,14 @@
 // 동기화 로컬 상태(IndexedDB `gazua-sync`): 보낼 작업(outbox), 프로필별 마지막 확인 리비전·해시, 충돌 사본, 세션 등.
 // IndexedDB를 열 수 없으면 메모리로 계속하고 persistent=false로 알린다(앱을 닫으면 대기 작업이 사라진다).
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ProfileDocV1 } from './dto';
+import type { ProfileDoc } from './dto';
 
 export interface OutboxOp {
   opId: string;
   profileId: string;
   kind: 'put' | 'delete';
   /** put만. 큐에 넣을 때의 문서. 한 번 보낸 뒤에는 바꾸지 않는다(같은 opId 재시도는 같은 본문). */
-  doc?: ProfileDocV1;
+  doc?: ProfileDoc;
   hash?: string;
   createdAt: number;
   /** 넣은 순서(저장소가 매긴다). 시계가 뒤로 가도 이 순서로 보낸다. */
@@ -32,11 +32,11 @@ export interface ProfileSyncState {
 }
 
 export type Conflict =
-  | { profileId: string; kind: 'edit'; local: ProfileDocV1; remote: ProfileDocV1; remoteRevision: number; detectedAt: number }
+  | { profileId: string; kind: 'edit'; local: ProfileDoc; remote: ProfileDoc; remoteRevision: number; detectedAt: number }
   | {
       profileId: string;
       kind: 'deleted';
-      local: ProfileDocV1;
+      local: ProfileDoc;
       /** null이면 30일이 지나 서버에서 정리됐다(복구 불가, 새로 올리기만 가능). */
       deletedAt: number | null;
       purgeAt: number | null;

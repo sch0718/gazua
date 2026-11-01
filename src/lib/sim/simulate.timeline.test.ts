@@ -44,7 +44,7 @@ describe('timeline', () => {
     const at = (i: number) => r.timeline[i].holdings[0];
 
     // D[9]: 매수 + 추가 1번(아직 분할 매수 중)
-    const p = openPosition(buy.price, buy.qty, s.scaleIn, s.exit);
+    const p = openPosition(buy.price, buy.qty, s.scaleIn, s.rules.sell);
     p.buy(add1.price, add1.qty);
     expect(at(9)).toMatchObject({ qty: p.qty, avgPrice: p.avgPrice, stop: null, nextAdd: p.nextAddPrice(), takes: takesOf(p.takeLevels()), close: 97 });
     expect(at(9).value).toBe(roundMoney(p.qty * 97));
@@ -94,5 +94,23 @@ describe('timeline', () => {
       expect(r.timeline[i - 1].pending).toContainEqual({ symbol: t.symbol, reason: t.reason });
     }
     expect(r.timeline.at(-1)!.pending).toEqual([]);
+  });
+});
+
+describe('timeline 전략 빌더 필드(§9.2)', () => {
+  it('trail·heldDays·pendingSells', () => {
+    const s = baseStrategy();
+    s.rules.sell.takeProfit.on = false;
+    s.rules.sell.stopLoss.on = false;
+    s.rules.sell.trailing = { on: true, pct: 10 };
+    s.rules.sell.timeExit = { on: true, days: 2 };
+    const r = run({ strategy: s, days: D.slice(0, 14), stocks: [stockOf(0, candlesFrom(BASE, [[86, 86, 86, 86], [86, 100, 86, 100], [100, 100, 100, 100], [100, 100, 100, 100]]))], index: null, benchmarkStock: null });
+    const f9 = r.timeline[9].holdings[0];
+    expect(f9.heldDays).toBe(1);
+    expect(f9.trail).toBeCloseTo(86 * 0.9);
+    const f10 = r.timeline[10];
+    expect(f10.holdings[0].trail).toBeCloseTo(90);
+    expect(f10.pendingSells).toEqual([{ symbol: 'S0', reason: '보유 2일 청산' }]);
+    expect(r.timeline[9].pendingSells).toEqual([]);
   });
 });

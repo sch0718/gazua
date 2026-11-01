@@ -2,7 +2,7 @@
   // 설정 › 동기화(제안서 7절 1단계): Google·카카오·네이버 로그인, 동기화 켜기·상태, 충돌 사본 고르기. 기기·삭제한 프로필·과거 버전·내 공유는 SyncManage.
   import type { App } from '../../state/app.svelte';
   import type { SyncController } from '../../sync/controller.svelte';
-  import type { ProfileDocV1 } from '../../sync/dto';
+  import { APP_OUTDATED_CODE, type ProfileDoc } from '../../sync/dto';
   import type { Resolution } from '../../sync/engine';
   import type { Conflict } from '../../sync/store';
   import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
@@ -34,7 +34,7 @@
     status.phase === 'idle' ? (status.lastSyncAt ? `동기화됨 · ${fmtTime(status.lastSyncAt)}` : '켜짐') : (PHASE[status.phase] ?? status.phase),
   );
   const profileName = (id: string, fallback: string) => app.meta.profiles.find((p) => p.id === id)?.name ?? fallback;
-  const summary = (d: ProfileDocV1) =>
+  const summary = (d: ProfileDoc) =>
     `그룹 ${d.watchlists.groups.length} · 전략 ${d.strategies.length} · 기준 ${d.criteria.length} · 묶음 ${d.baskets.length}`;
 
   async function askEnable() {
@@ -135,7 +135,7 @@
     {#each status.notices as n, i (i)}
       <p class="warn">{n} <button type="button" class="link" onclick={() => sync.clearNotices()}>닫기</button></p>
     {/each}
-    {#each status.rejected as r (r.profileId)}
+    {#each status.rejected.filter((r) => r.code !== APP_OUTDATED_CODE) as r (r.profileId)}
       <p class="warn">「{profileName(r.profileId, '프로필')}」을 서버가 받지 않았어요({r.code === 'too-large' ? '256 KiB 초과' : r.code}). 줄이면 다시 보내요.</p>
     {/each}
     {#if status.enabled}

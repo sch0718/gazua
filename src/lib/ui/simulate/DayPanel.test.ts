@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { DayFrame, HoldingFrame, Skip, Trade } from '../../sim/types';
+import { newStrategy } from '../../sim/defaults';
+import type { DayFrame, HoldingFrame, Skip, Strategy, Trade } from '../../sim/types';
 import { expectNoAxeViolations } from '../../share/testAxe';
 import DayPanel from './DayPanel.svelte';
 import HoldingCard from './HoldingCard.svelte';
@@ -15,15 +16,17 @@ const holding = (over: Partial<HoldingFrame> = {}): HoldingFrame => ({
   value: 994_000,
   pnlPct: (71_000 / 70_000 - 1) * 100,
   stop: 66_500,
+  trail: null,
   nextAdd: 67_900,
   takes: [{ stage: 1, price: 73_500 }, { stage: 2, price: 77_000 }],
   openDate: '2023-10-12',
+  heldDays: 1,
   ...over,
 });
-const frame = (over: Partial<DayFrame> = {}): DayFrame => ({ date: '2023-10-12', cash: 9_000_000, value: 10_100_000, holdings: [], pending: [], ...over });
+const frame = (over: Partial<DayFrame> = {}): DayFrame => ({ date: '2023-10-12', cash: 9_000_000, value: 10_100_000, holdings: [], pending: [], pendingSells: [], ...over });
 const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim();
-const panel = (over: { frame?: DayFrame; trades?: Trade[]; skipped?: Skip[] } = {}) =>
-  render(DayPanel, { frame: frame(), trades: [], skipped: [], names, initial: 10_000_000, ...over });
+const panel = (over: { frame?: DayFrame; trades?: Trade[]; skipped?: Skip[]; strategy?: Strategy } = {}) =>
+  render(DayPanel, { frame: frame(), trades: [], skipped: [], names, initial: 10_000_000, strategy: newStrategy(0, null), ...over });
 
 describe('DayPanel', () => {
   it('머리: 날짜(요일) · 총자산 · 현금(비중) · 그날까지 수익률', () => {
@@ -99,7 +102,7 @@ describe('DayPanel', () => {
     (Element.prototype as { animate?: unknown }).animate = animate;
     try {
       const { rerender } = panel({ frame: frame() });
-      await rerender({ frame: frame({ holdings: [holding()] }), trades: [], skipped: [], names, initial: 10_000_000, motion: true });
+      await rerender({ frame: frame({ holdings: [holding()] }), trades: [], skipped: [], names, initial: 10_000_000, strategy: newStrategy(0, null), motion: true });
       await vi.waitFor(() => expect(animate.mock.calls.length).toBeGreaterThan(0));
     } finally {
       if (had) (Element.prototype as { animate?: unknown }).animate = orig;
@@ -110,7 +113,7 @@ describe('DayPanel', () => {
 
 describe('HoldingCard 가격 막대', () => {
   it('눈금·점 위치는 %로, 막대는 화면 낭독기에서 숨긴다', () => {
-    const { container } = render(HoldingCard, { h: holding({ stop: 95, nextAdd: null, avgPrice: 100, takes: [{ stage: 1, price: 105 }, { stage: 2, price: 110 }], close: 102 }), name: '삼성전자' });
+    const { container } = render(HoldingCard, { h: holding({ stop: 95, nextAdd: null, avgPrice: 100, takes: [{ stage: 1, price: 105 }, { stage: 2, price: 110 }], close: 102 }), name: '삼성전자', stopOn: true, timeExitDays: null });
     const bar = container.querySelector('.bar')!;
     expect(bar.getAttribute('aria-hidden')).toBe('true');
     const left = (sel: string) => parseFloat((bar.querySelector(sel) as HTMLElement).style.left);
@@ -121,7 +124,19 @@ describe('HoldingCard 가격 막대', () => {
   });
 
   it('motion이면 점이 미끄러지는 클래스를 단다', () => {
-    const { container } = render(HoldingCard, { h: holding(), name: '삼성전자', motion: true });
+    const { container } = render(HoldingCard, { h: holding(), name: '삼성전자', stopOn: true, timeExitDays: null, motion: true });
     expect(container.querySelector('.bar')!.classList.contains('slide')).toBe(true);
+  });
+});
+
+describe('전략 빌더 표시', () => {
+  it('예약 매도·손절 꺼짐·기간 청산 남은 날', () => {
+    const strategy = newStrategy(0, null);
+    strategy.rules.sell.stopLoss.on = false;
+    strategy.rules.sell.timeExit = { on: true, days: 20 };
+    panel({ frame: frame({ holdings: [holding({ stop: null, trail: null, heldDays: 3 })], pendingSells: [{ symbol: '005930', reason: '보유 20일 청산' }] }), strategy });
+    expect(screen.getByText('다음 거래일 시가에 팔아요: 삼성전자 — 보유 20일 청산')).toBeTruthy();
+    expect(screen.getByText('손절 꺼짐')).toBeTruthy();
+    expect(screen.getByText('보유 3거래일째 · 17일 뒤 청산')).toBeTruthy();
   });
 });

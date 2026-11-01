@@ -88,8 +88,9 @@ export function withTimeline(s: DoneState): void {
     value: e.strategy,
     holdings:
       i === 1
-        ? [{ symbol: '005930', qty: 14, avgPrice: 70_000, close: 71_000, value: 994_000, pnlPct: (71_000 / 70_000 - 1) * 100, stop: 66_500, nextAdd: null, takes: [{ stage: 1, price: 80_500 }], openDate: '2023-10-12' }]
+        ? [{ symbol: '005930', qty: 14, avgPrice: 70_000, close: 71_000, value: 994_000, pnlPct: (71_000 / 70_000 - 1) * 100, stop: 66_500, trail: null, heldDays: 1, nextAdd: null, takes: [{ stage: 1, price: 80_500 }], openDate: '2023-10-12' }]
         : [],
+    pendingSells: [],
     pending: i === 0 ? [{ symbol: '000660', reason: 'B 돌파' }] : [],
   }));
 }

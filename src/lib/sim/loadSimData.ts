@@ -1,6 +1,7 @@
 import type { Candle } from '../data/metrics';
 import type { MarketDataProvider, StockMeta } from '../providers/types';
 import { addDays, kstDate } from '../time/kst';
+import { rulesLookback } from './rules';
 import type { SimInput, Strategy } from './types';
 
 export interface SimMemo {
@@ -45,16 +46,6 @@ class Cancelled extends Error {}
 /** 시·고·저·종가가 모두 유한한 양수인 봉만 쓴다. 나머지는 봉 없음(거래정지)으로 본다. */
 const validBar = (c: Candle) => [c.o, c.h, c.l, c.c].every((p) => Number.isFinite(p) && p > 0);
 
-/** 켜진 조건 중 가장 긴 이동평균 기간. 없으면 0. */
-function longestMa(s: Strategy): number {
-  const { triggers, filter } = s.entry;
-  const periods = [0];
-  if (triggers.maCross.on) periods.push(triggers.maCross.period);
-  if (triggers.goldenCross.on) periods.push(triggers.goldenCross.short, triggers.goldenCross.long);
-  if (filter.aboveMa.on) periods.push(filter.aboveMa.period);
-  return Math.max(...periods);
-}
-
 export async function loadSimData(args: {
   provider: MarketDataProvider;
   strategy: Strategy;
@@ -70,7 +61,8 @@ export async function loadSimData(args: {
   const yesterday = addDays(today, -1);
   const to = strategy.period.to > yesterday ? yesterday : strategy.period.to; // 오늘은 아직 일봉이 끝나지 않았다
   if (from > to) return { ok: false, noData: true, failed: [] }; // 받을 기간이 없다 — 공급자를 부르지 않는다
-  const warmFrom = addDays(from, -Math.max(400, Math.ceil(longestMa(strategy) * 1.6)));
+  const lookback = rulesLookback([...strategy.rules.buy, ...(strategy.rules.sell.signal.on ? strategy.rules.sell.signal.groups : [])]);
+  const warmFrom = addDays(from, -Math.max(400, Math.ceil(lookback * 1.6)));
   const venues = provider.capabilities.venues;
   const venue = venues.length === 0 || venues.includes('KRX') ? 'KRX' : venues[0];
   const venueLabel = venue === 'KRX' ? 'KRX 일봉' : '통합 일봉';

@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SESSION_HEADER, createSyncApi } from './api';
 import { deviceApi, testServer } from '../../../sync-worker/test/server';
-import { doc } from '../../../sync-worker/test/docs';
+import { doc, docV2 } from '../../../sync-worker/test/docs';
 
 describe('createSyncApi', () => {
+  it('프로필 요청에 docVersion=2를 붙인다(§8.3)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}'));
+    const api = createSyncApi('https://sync.example.test', { idToken: async () => 't', sessionId: async () => 's' }, fetchImpl);
+    await Promise.allSettled([
+      api.getProfile('p1'),
+      api.putProfile('p1', { opId: 'o', expectedRevision: 0, doc: {} as never }),
+      api.deleteProfile('p1', { opId: 'o', expectedRevision: 1 }),
+      api.restoreProfile('p1', 'o'),
+      api.getRevision('p1', 3),
+    ]);
+    const urls = vi.mocked(fetchImpl as typeof fetch).mock.calls.map(([u]) => String(u));
+    expect(urls).toHaveLength(5);
+    for (const u of urls) expect(new URL(u).searchParams.get('docVersion')).toBe('2');
+  });
+
   it('지정한 세션만 철회할 때 현재 세션과 Google 토큰을 보내지 않아요', async () => {
     const creds = { idToken: vi.fn(async () => 'current-token'), sessionId: vi.fn(async () => 'current-session') };
     const fetchImpl = vi.fn(async () => new Response('{}'));
@@ -17,6 +32,19 @@ describe('createSyncApi', () => {
     expect(headers.has('Authorization')).toBe(false);
     expect(creds.idToken).not.toHaveBeenCalled();
     expect(creds.sessionId).not.toHaveBeenCalled();
+  });
+
+  it('v2 문서를 저장·읽기·삭제·복원하고 과거 리비전을 읽는다', async () => {
+    const { api } = await deviceApi(testServer());
+    const d = docV2();
+    expect(await api.putProfile('p1', { opId: 'op-1', expectedRevision: 0, doc: d })).toEqual({ ok: true, data: { revision: 1 } });
+    expect(await api.getProfile('p1')).toEqual({ ok: true, data: { revision: 1, doc: d } });
+    expect(await api.deleteProfile('p1', { opId: 'op-2', expectedRevision: 2 })).toMatchObject({
+      ok: false, kind: 'conflict', revision: 1, doc: d,
+    });
+    expect(await api.deleteProfile('p1', { opId: 'op-3', expectedRevision: 1 })).toMatchObject({ ok: true, data: { revision: 2 } });
+    expect(await api.restoreProfile('p1', 'op-4')).toEqual({ ok: true, data: { revision: 3, doc: d } });
+    expect(await api.getRevision('p1', 1)).toEqual({ ok: true, data: { revision: 1, doc: d } });
   });
 
   // Codex 리뷰(PR #39) 3: 오프라인에서 토큰 갱신이 실패해도 예외로 새지 않고 실패 결과가 된다(엔진이 백오프·재시도로 넘어가게).

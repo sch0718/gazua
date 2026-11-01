@@ -1,6 +1,6 @@
 // 테스트 전용: 엔진 골든·timeline·성능 테스트가 같이 쓰는 대표 입력과 봉 생성 도우미.
 import type { Candle } from '../data/metrics';
-import { newStrategy } from './defaults';
+import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
 import { bar, tradingDates } from './testBars';
 import type { SimInput, Strategy } from './types';
 
@@ -20,15 +20,15 @@ export function candlesFrom(closes: number[], rest: Ohlc[] = [], skip: number[] 
 
 export const flat = (xs: number[]): Ohlc[] => xs.map((c): Ohlc => [c, c, c, c]);
 
-/** 자금 1,000만 원, 회당 10%, 수수료 0.015%, 돌파 끔, 손절 5% 매번 평단 */
-export function baseStrategy(over: (s: Strategy) => void = () => {}): Strategy {
-  const s = newStrategy(0, null);
+/** 자금 1,000만 원, 회당 10%, 수수료 0.015%, 돌파 끔, 손절 5% 매번 평단. v1으로 고친 뒤 toV2로 옮긴다(골든이 옮기기까지 지킨다) */
+export function baseStrategy(over: (s: StrategyV1) => void = () => {}): Strategy {
+  const s = newStrategyV1(0, null);
   s.capital = { initial: 10_000_000, perBuyPct: 10 };
   s.costs.feePct = 0.015;
   s.entry.triggers.breakout.on = false;
   s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
   over(s);
-  return s;
+  return toV2(s);
 }
 
 export function stockOf(k: number, candles: Candle[]): SimInput['stocks'][number] {

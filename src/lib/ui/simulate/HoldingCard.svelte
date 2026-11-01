@@ -3,9 +3,9 @@
   // 막대는 그림이라 화면 낭독기에서 숨기고, 같은 눈금을 아래 목록에 글로 둔다.
   import type { HoldingFrame } from '../../sim/types';
   import { fmtWon } from '../format';
-  import { dotDate, PRICE_BASIS_NOTE, priceMarks, returnClass, STOP_PENDING_NOTE, trendReturn } from './simText';
+  import { dotDate, PRICE_BASIS_NOTE, priceMarks, returnClass, STOP_OFF_NOTE, STOP_PENDING_NOTE, timeExitText, trendReturn } from './simText';
 
-  let { h, name, motion = false }: { h: HoldingFrame; name: string; motion?: boolean } = $props();
+  let { h, name, stopOn, timeExitDays, motion = false }: { h: HoldingFrame; name: string; stopOn: boolean; timeExitDays: number | null; motion?: boolean } = $props();
 
   const bar = $derived(priceMarks(h));
   const won = (n: number) => `${fmtWon(n)}원`;
@@ -27,7 +27,8 @@
   <ul class="levels num" aria-label="가격 눈금">
     {#each bar.marks as m (m.key)}<li>{m.label} {won(m.price)}</li>{/each}
   </ul>
-  {#if h.stop === null}<p class="hint">{STOP_PENDING_NOTE}</p>{/if}
+  {#if h.stop === null}<p class="hint">{stopOn ? STOP_PENDING_NOTE : STOP_OFF_NOTE}</p>{/if}
+  {#if timeExitDays !== null}<p class="hint">{timeExitText(h.heldDays, timeExitDays)}</p>{/if}
   <p class="hint">{PRICE_BASIS_NOTE}</p>
 </article>
 
@@ -95,6 +96,10 @@
   }
   .tick.stop {
     background: var(--down);
+  }
+  .tick.trail {
+    background: transparent;
+    border-left: 2px dashed var(--down);
   }
   .tick.add {
     background: var(--accent);

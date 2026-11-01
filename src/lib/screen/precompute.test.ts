@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry, newStrategy } from '../sim/defaults';
+import { patternEntryOf } from '../sim/patternBlock';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
-import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
+import { newCriteria } from './defaults';
+import { MissingPatternError, MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
 import { lastUsablePair, macroKnownFrom, rollingBeta } from './macro';
 import { DATES, FIN_BASE, lcg, mkFile, mkFileV2, mkFileV3, mkFileV4, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, withFin, withFlow, ymd } from './testData';
+
+it('resolveReboundEntry: 전략의 패턴 블록, 없으면 MissingPatternError', () => {
+  const c = newCriteria(0, null);
+  c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } };
+  const s = { ...newStrategy(0, null), id: 's1' };
+  expect(resolveReboundEntry(c, [s])).toEqual(defaultPatternEntry());
+  s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+  expect(() => resolveReboundEntry(c, [s])).toThrow(MissingPatternError);
+  expect(() => resolveReboundEntry(c, [])).toThrow(MissingStrategyError);
+});
 
 describe('tradingAxis', () => {
   it('지수 날짜 ∪ 종목 날짜를 YYYY-MM-DD 오름차순으로 낸다', () => {
@@ -72,7 +84,7 @@ describe('rebalanceDates', () => {
 
 describe('resolveReboundEntry', () => {
   const strategy = newStrategy(NOW, null);
-  strategy.entry.triggers.maCross = { on: true, period: 33 };
+  patternEntryOf(strategy)!.triggers.maCross = { on: true, period: 33 };
 
   it('반등 조건이 꺼져 있으면 null', () => {
     const c = offCriteria();
@@ -87,7 +99,26 @@ describe('resolveReboundEntry', () => {
     c.conditions.rebound.pattern = { from: 'custom', entry: custom };
     expect(resolveReboundEntry(c, [strategy])).toEqual(custom);
     c.conditions.rebound.pattern = { from: 'strategy', strategyId: strategy.id };
-    expect(resolveReboundEntry(c, [strategy])).toEqual(strategy.entry);
+    expect(resolveReboundEntry(c, [strategy])).toEqual(patternEntryOf(strategy));
+  });
+
+  it('뒤 묶음에 있는 반등 패턴을 찾는다', () => {
+    const c = offCriteria();
+    c.conditions.rebound.on = true;
+    c.conditions.rebound.pattern = { from: 'strategy', strategyId: strategy.id };
+    const moved = structuredClone(strategy);
+    moved.rules.buy.unshift({ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] });
+    expect(resolveReboundEntry(c, [moved])).toEqual(patternEntryOf(strategy));
+  });
+
+  it('전략에 반등 패턴이 없으면 MissingPatternError', () => {
+    const c = offCriteria();
+    c.conditions.rebound.on = true;
+    c.conditions.rebound.pattern = { from: 'strategy', strategyId: strategy.id };
+    const withoutPattern = structuredClone(strategy);
+    withoutPattern.rules.buy = [];
+    expect(() => resolveReboundEntry(c, [withoutPattern])).toThrow('반등 패턴에 고른 전략에 반등 패턴이 없어요');
+    expect(() => resolveReboundEntry(c, [withoutPattern])).toThrow(MissingPatternError);
   });
 
   it('가리키는 전략이 없으면 MissingStrategyError', () => {

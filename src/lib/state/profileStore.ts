@@ -17,6 +17,9 @@ export const profileKeys = {
   tokenIssuedAt: (id: string, provider: 'kis') => `p:${id}:tokenIssuedAt:${provider}`,
   recent: (id: string) => `p:${id}:recent`,
   strategies: (id: string) => `p:${id}:strategies`,
+  /** 전략 v2(전략 빌더 §8.2). 옛 키 strategies는 v1 백업으로 남기고 앱은 쓰지 않는다 */
+  strategySet: (id: string) => `p:${id}:strategySet`,
+  strategySetBase: (id: string) => `p:${id}:strategySetBase`,
   criteria: (id: string) => `p:${id}:criteria`,
   baskets: (id: string) => `p:${id}:baskets`,
 };

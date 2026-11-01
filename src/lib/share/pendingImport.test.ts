@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { memoryBacking } from '../state/testStorage';
-import { clearImport, IMPORT_KEY, IMPORT_TTL_MS, markImported, peekImport, stashImport, wasImported } from './pendingImport';
+import { clearImport, IMPORT_KEY, IMPORT_TTL_MS, importPart, markImported, peekImport, stashImport, wasImported } from './pendingImport';
 import { groupSnapshot } from './snapshot';
 import { NOW, simResultFixture, validationFixture } from './testFixtures';
 
@@ -59,7 +59,7 @@ describe('가져오기 대기 값', () => {
     stashImport(sim, NOW, store);
     const a = peekImport(NOW, store)!;
     expect(a.from).toBe('simResult');
-    expect(a.snapshot).toEqual({ kind: 'strategy', v: 1, title: sim.title, strategy: sim.strategy, capitalHidden: false });
+    expect(a.snapshot).toEqual({ kind: 'strategy', v: sim.v, title: sim.title, strategy: sim.strategy, capitalHidden: false });
     expect(store.getItem(IMPORT_KEY)!).not.toContain('"result"');
     const val = validationFixture({ capitalHidden: true });
     stashImport(val, NOW, store);
@@ -95,4 +95,10 @@ describe('가져오기 대기 값', () => {
     expect(wasImported('id-4', store)).toBe(false);
     expect(wasImported('id-x', throwing())).toBe(false);
   });
+});
+
+it('importPart: 시뮬레이션 결과는 v2 전략 스냅샷으로 바꾼다(§8.4)', () => {
+  const s = simResultFixture();
+  const p = importPart(s);
+  expect(p).toMatchObject({ kind: 'strategy', v: 2, title: s.title, capitalHidden: s.capitalHidden });
 });

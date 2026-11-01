@@ -1,3 +1,4 @@
+import { patternEntryOf } from '../../sim/patternBlock';
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
@@ -19,14 +20,14 @@ describe('rulesChanged', () => {
   it('깊은 값이 바뀌면 true', () => {
     const a = base();
     const b = structuredClone(a);
-    b.entry.decline.dropPct.value += 1;
+    patternEntryOf(b)!.decline.dropPct.value += 1;
     expect(rulesChanged(a, b)).toBe(true);
   });
 
   it('배열 길이·종목이 바뀌면 true', () => {
     const a = base();
     const b = structuredClone(a);
-    b.exit.takeProfit = [...b.exit.takeProfit, { pct: 50, sellPct: 100 }];
+    b.rules.sell.takeProfit.stages = [...b.rules.sell.takeProfit.stages, { pct: 50, sellPct: 100 }];
     expect(rulesChanged(a, b)).toBe(true);
     const c = structuredClone(a);
     c.universe = { kind: 'symbols', symbols: ['005930'] };

@@ -1,6 +1,8 @@
 // 저장된 선정 기준의 검증과 편집 화면 경고. sim/validate.ts와 같은 규칙: 틀린 값은 기본값으로 되돌리고 repaired를 켠다.
 import { kstDate, kstEpoch } from '../time/kst';
-import { ruleIssues, sanitizeEntry } from '../sim/validate';
+import { ruleIssues, type Issue as SimIssue } from '../sim/validate';
+import { patternEntryOf } from '../sim/patternBlock';
+import { sanitizeEntry } from '../sim/strategyV1';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, POOL_THEMES_MAX, TAKE_MAX, newCriteria } from './defaults';
 import type { Basket } from './baskets';
@@ -290,26 +292,31 @@ export function sanitizeCriteria(raw: unknown, now = Date.now()): { criteria: Se
 }
 
 const RULE_SECTIONS = ['entry', 'scaleIn', 'exit'];
-// 전략 편집 화면의 구역 번호(②)는 이 화면의 ②와 헷갈리므로 '전략 편집'으로 바꾼다
-const borrowed = (text: string): string => text.replace(/[①-⑨]에서/g, '전략 편집에서');
+// 전략 편집 화면의 구역 번호(②)는 이 화면의 ②와 헷갈리므로 '전략 편집'으로 바꾼다(반등 패턴 ②도)
+const borrowed = (text: string): string => text.replace(/(반등 패턴 )?[①-⑨]에서/g, '전략 편집에서');
 
 /**
- * 참조 전략에서 전략 편집 화면이 실행을 막는 매수·매도 규칙 오류(스펙 5장). 반등 패턴은 entry만 본다.
- * 종목 범위·기간·비용 등은 선정 기준 값으로 바뀌므로 보지 않는다. 지워진 전략은 건너뛴다.
+ * 참조 전략에서 전략 편집 화면이 실행을 막는 매수·매도 규칙 오류(스펙 5장, 전략 빌더 §7).
+ * 반등 패턴은 그 전략의 패턴 블록만 본다(블록이 없으면 막는다). 지워진 전략은 criteriaIssues가 알린다.
  */
 export function strategyRuleIssues(c: SelectionCriteria, strategies: Strategy[]): Issue[] {
   const out: Issue[] = [];
-  const blocking = (id: string, sections: string[]) => {
-    const s = strategies.find((x) => x.id === id);
-    return s ? ruleIssues(s).filter((i) => i.blocking && sections.includes(i.section)) : [];
-  };
   const p = c.conditions.rebound;
-  if (p.on && p.pattern.from === 'strategy')
-    for (const i of blocking(p.pattern.strategyId, ['entry']))
-      out.push({ section: 'conditions', text: `반등 패턴 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
-  if (c.trading.strategyId !== null)
-    for (const i of blocking(c.trading.strategyId, RULE_SECTIONS))
-      out.push({ section: 'trading', text: `매매 규칙 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
+  if (p.on && p.pattern.from === 'strategy') {
+    const id = p.pattern.strategyId;
+    const s = strategies.find((x) => x.id === id);
+    if (s && !patternEntryOf(s))
+      out.push({ section: 'conditions', text: '고른 전략에 반등 패턴이 없어요. 반등 패턴이 있는 전략을 고르거나 직접 정해 주세요', blocking: true });
+    else if (s)
+      for (const i of ruleIssues(s).filter((x) => x.blocking && x.pattern))
+        out.push({ section: 'conditions', text: `반등 패턴 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
+  }
+  if (c.trading.strategyId !== null) {
+    const s = strategies.find((x) => x.id === c.trading.strategyId);
+    if (s)
+      for (const i of ruleIssues(s).filter((x) => x.blocking && RULE_SECTIONS.includes(x.section)))
+        out.push({ section: 'trading', text: `매매 규칙 전략에 고칠 곳이 있어요: ${borrowed(i.text)}`, blocking: true });
+  }
   return out;
 }
 
@@ -393,4 +400,14 @@ export function criteriaIssues(
   if (!macroOn(macro) && !flowOn(c) && !finOn(c) && !Object.values(simple).some((x) => x.on))
     out.push({ section: 'conditions', text: '조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요', blocking: false });
   return out;
+}
+
+/**
+ * 전략 편집 화면의 막지 않는 경고(§7): 이 전략을 반등 패턴으로 쓰는 선정 기준이 있는데 패턴 블록이 없다.
+ * ruleIssues는 전략만 받아 기준 목록을 모르므로 편집 화면이 따로 불러 같은 구역 경고에 붙인다.
+ */
+export function patternRefIssues(s: Strategy, criteria: SelectionCriteria[]): SimIssue[] {
+  if (patternEntryOf(s)) return [];
+  const n = criteria.filter((c) => c.conditions.rebound.on && c.conditions.rebound.pattern.from === 'strategy' && c.conditions.rebound.pattern.strategyId === s.id).length;
+  return n === 0 ? [] : [{ section: 'entry', text: `이 전략을 반등 패턴으로 쓰는 선정 기준이 ${n}개 있어요. 반등 패턴 블록을 넣어야 그 기준을 실행할 수 있어요`, blocking: false }];
 }

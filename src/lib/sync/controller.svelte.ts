@@ -7,8 +7,10 @@ import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import { createSyncApi, type ApiFail, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
 import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
-import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
+import { APP_OUTDATED_TEXT, createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
+import { APP_OUTDATED_CODE } from './dto';
 import { appProfiles } from './local';
+import { migrateStrategies } from './migrate';
 import { openSyncStore, type ProfileSyncState, type SyncStore } from './store';
 import { checkVerifier, deriveVaultKey, makeVerifier, randomId, samePassphrase } from './keyCrypto';
 import { openKeyStore, type KeyStore, type KeySyncState } from './keyStore';
@@ -172,13 +174,15 @@ export const SHARE_TOO_LARGE_TEXT = '공유 내용이 너무 커요(100 KB). 기
 
 /** ctx: 공유 요청이면 'share'. 422·413 too-large를 공유 한도(100 KB) 문구로 보인다(설계 7절) */
 export const describeFail = (f: ApiFail, ctx: 'profile' | 'share' = 'profile'): string =>
-  f.kind === 'limit' && f.code === 'share-limit'
-    ? ERRORS['share-limit']
-    : f.kind === 'invalid' && f.code === 'too-large'
-      ? ctx === 'share'
-        ? SHARE_TOO_LARGE_TEXT
-        : ERRORS['too-large']
-      : (ERRORS[f.kind] ?? ERRORS.server);
+  f.kind === 'invalid' && f.code === APP_OUTDATED_CODE
+    ? APP_OUTDATED_TEXT
+    : f.kind === 'limit' && f.code === 'share-limit'
+      ? ERRORS['share-limit']
+      : f.kind === 'invalid' && f.code === 'too-large'
+        ? ctx === 'share'
+          ? SHARE_TOO_LARGE_TEXT
+          : ERRORS['too-large']
+        : (ERRORS[f.kind] ?? ERRORS.server);
 
 const SESSION_KEY = 'session';
 type SessionMeta = { id: string; email: string; provider?: SocialProvider; account?: string; display?: string };
@@ -718,6 +722,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           }),
         );
         await engine.init();
+        // 첫 주기 전에 옮기기 단계를 돈다(가짜 충돌 막기, §8.3). 주기와 겹치지 않게 exclusive 안에서.
+        await engine.exclusive(() => migrateStrategies({ storage: deps.storage, profiles: app.meta.profiles.map((p) => ({ id: p.id, name: p.name })), store: syncStore }));
         session = (await store.getMeta<SessionMeta>(SESSION_KEY)) ?? null;
         if (!session?.provider && auth && await store.getMeta<boolean>(REDIRECT_KEY)) {
           await store.deleteMeta(REDIRECT_KEY);

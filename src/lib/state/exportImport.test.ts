@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
-import { IMPORT_BAD_FORMAT, exportData, exportFileName, importData } from './exportImport';
+import { newStrategyV1, toV2 } from '../sim/strategyV1';
+import { patternEntryOf } from '../sim/patternBlock';
+import { EXPORT_FORMAT, IMPORT_BAD_FORMAT, IMPORT_BAD_VERSION, exportData, exportFileName, importData } from './exportImport';
 import { kstEpoch } from '../time/kst';
 import { loadStrategies } from '../sim/strategyStore';
-import { newCriteria } from '../screen/defaults';
+import { criteriaFixture as newCriteria } from '../share/testFixtures';
 import { loadCriteria } from '../screen/criteriaStore';
 import { loadBaskets, newBasket } from '../screen/baskets';
 import { loadRecent, loadSettings, loadStoredSecrets, loadWatchlists, profileKeys } from './profileStore';
@@ -47,7 +49,7 @@ describe('exportData', () => {
     const { st } = source();
     const out = exportData(st, 'p1', false);
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ format: 'gazua-export', schemaVersion: 1, profile: { name: '내 프로필' } });
+    expect(parsed).toMatchObject({ format: 'gazua-export', schemaVersion: 2, profile: { name: '내 프로필' } });
     expect(parsed.settings.provider).toBe('kis');
     expect(parsed.watchlists).toEqual(LISTS);
     expect(parsed.recent).toEqual(['000660', '005930']);
@@ -139,7 +141,7 @@ describe('importData', () => {
 
   it('rejects another schemaVersion', () => {
     const { st } = source();
-    const json = JSON.stringify({ ...JSON.parse(exportData(st, 'p1', false)), schemaVersion: 2 });
+    const json = JSON.stringify({ ...JSON.parse(exportData(st, 'p1', false)), schemaVersion: 3 });
     expect(importData(st, json)).toEqual({ ok: false, reason: '지원하지 않는 버전이에요' });
   });
 
@@ -243,13 +245,13 @@ describe('strategies in export files', () => {
 
   it('내보낸 JSON에 strategies가 있고 가져온 새 프로필에 같은 전략이 저장된다', () => {
     const { st, backing } = source();
-    seed(backing, profileKeys.strategies('p1'), { strategies: [strat] });
+    seed(backing, profileKeys.strategySet('p1'), { strategies: [strat] });
     const json = exportData(st, 'p1', false);
     expect(JSON.parse(json).strategies).toEqual([strat]);
     const res = importData(st, json);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!)).toEqual({ strategies: [strat] });
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(res.profileId)}`)!)).toEqual({ strategies: [strat] });
   });
 
   it('strategies가 없는 옛 파일도 가져오고 목록은 []', () => {
@@ -259,7 +261,7 @@ describe('strategies in export files', () => {
     const res = importData(st, JSON.stringify(parsed));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const raw = backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`);
+    const raw = backing.getItem(`gazua:v1:${profileKeys.strategySet(res.profileId)}`);
     expect(JSON.parse(raw!)).toEqual({ strategies: [] });
   });
 
@@ -271,26 +273,27 @@ describe('strategies in export files', () => {
     const res = importData(st, JSON.stringify(parsed));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!).strategies;
+    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(res.profileId)}`)!).strategies;
     expect(saved).toHaveLength(20);
     expect(new Set(saved.map((x: { id: string }) => x.id)).size).toBe(20);
     parsed.strategies = [strat, { ...strat }, { ...strat, id: 's2' }];
     const res2 = importData(st, JSON.stringify(parsed));
     if (!res2.ok) throw new Error('expected ok');
-    const saved2 = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res2.profileId)}`)!).strategies;
+    const saved2 = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(res2.profileId)}`)!).strategies;
     expect(saved2.map((x: { id: string }) => x.id)).toEqual(['s1', 's2']);
   });
 
   it('가져온 전략의 빈 id 항목은 버리고, 소수 이동평균 기간은 기본값으로 저장한다', () => {
     const { st, backing } = source();
     const parsed = JSON.parse(exportData(st, 'p1', false));
-    const bad = { ...strat, id: 's2', entry: { ...strat.entry, filter: { aboveMa: { on: true, period: 2.5 } } } };
+    const bad = structuredClone({ ...strat, id: 's2' });
+    patternEntryOf(bad)!.filter.aboveMa = { on: true, period: 2.5 };
     parsed.strategies = [{ ...strat, id: '' }, bad];
     const res = importData(st, JSON.stringify(parsed));
     if (!res.ok) throw new Error('expected ok');
-    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategies(res.profileId)}`)!).strategies;
+    const saved = JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(res.profileId)}`)!).strategies;
     expect(saved.map((x: { id: string }) => x.id)).toEqual(['s2']);
-    expect(saved[0].entry.filter.aboveMa).toEqual({ on: true, period: 60 });
+    expect(patternEntryOf(saved[0])!.filter.aboveMa).toEqual({ on: true, period: 60 });
   });
 
   it('그룹이 0개인 파일은 형식 오류', () => {
@@ -309,7 +312,7 @@ describe('strategies in export files', () => {
 });
 
 describe('importData — repaired flag', () => {
-  const strat = { ...newStrategy(1_700_000_000_000, 'g1', '전략'), id: 's1' };
+  const strat = { ...newStrategyV1(1_700_000_000_000, 'g1', '전략'), id: 's1' };
   const file = (extra: Record<string, unknown>) =>
     JSON.stringify({ format: 'gazua-export', schemaVersion: 1, profile: { name: '회사' }, settings: {}, watchlists: LISTS, ...extra });
 
@@ -336,7 +339,7 @@ describe('importData — repaired flag', () => {
     const res = importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 50 }])] }));
     expect(res).toMatchObject({ ok: true, repaired: true });
     if (!res.ok) return;
-    expect(loadStrategies(st, res.profileId)[0].exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    expect(loadStrategies(st, res.profileId)[0].rules.sell.takeProfit.stages).toEqual([{ pct: 15, sellPct: 100 }]);
     expect(importData(st, file({ strategies: [withTp([{ pct: 15, sellPct: 100 }])] }))).toMatchObject({ ok: true, repaired: false });
   });
 
@@ -481,5 +484,27 @@ describe('baskets in export files', () => {
     expect(res).toMatchObject({ ok: true, repaired: true });
     if (!res.ok) return;
     expect(loadBaskets(st, res.profileId)[0].symbols).toEqual(['005930']);
+  });
+});
+
+describe('내보내기 v2(§8.5)', () => {
+  it('schemaVersion 2로 내보내고, v1 파일은 전략을 옮겨 새 키에 쓴다', () => {
+    const backing = memoryBacking();
+    const st = createSafeStorage(backing);
+    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    const file = { format: EXPORT_FORMAT, schemaVersion: 1, profile: { name: '옛' }, settings: {}, watchlists: LISTS, recent: [], strategies: [v1] };
+    const r = importData(st, JSON.stringify(file), () => 0);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.repaired).toBe(false);
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(r.profileId)}`)!)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(profileKeys.strategySet(r.profileId), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(profileKeys.strategies(r.profileId), null)).toBeNull();
+    expect(loadStrategies(st, r.profileId)).toEqual([toV2(v1)]);
+    expect(JSON.parse(exportData(st, r.profileId, false)).schemaVersion).toBe(2);
+  });
+  it('알 수 없는 버전은 거절한다', () => {
+    const st = createSafeStorage(memoryBacking());
+    expect(importData(st, JSON.stringify({ format: EXPORT_FORMAT, schemaVersion: 3, settings: {} }))).toEqual({ ok: false, reason: IMPORT_BAD_VERSION });
   });
 });

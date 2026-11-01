@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { itemsOf } from '../../sheets/testApp';
 import { MAX_STRATEGIES, NAME_MAX, newStrategy } from './defaults';
-import { resolveSymbols, sanitizeStrategies, strategyIssues } from './validate';
+import { resolveSymbols, ruleIssues, strategyIssues } from './validate';
+import { newStrategyV1, sanitizeStrategiesV1 as sanitizeStrategies } from './strategyV1';
+import { patternEntryOf } from './patternBlock';
 
 const now = Date.parse('2026-10-12T03:00:00Z'); // KST 12:00
 const w = { groups: [{ id: 'g1', name: '반도체', items: itemsOf(['005930', '000660']) }] };
@@ -10,7 +12,7 @@ describe('newStrategy', () => {
   it('기본값은 어제 기준 3년, 그 밖은 스펙 기본값', () => {
     const s = newStrategy(now, 'g1');
     expect(s.period).toEqual({ from: '2023-10-11', to: '2026-10-11' });
-    expect(s.exit.takeProfit).toEqual([{ pct: 15, sellPct: 100 }]);
+    expect(s.rules.sell.takeProfit.stages).toEqual([{ pct: 15, sellPct: 100 }]);
     expect(s.universe).toEqual({ kind: 'group', groupId: 'g1' });
     expect(s.costs.feePct).toBe(0.015);
     expect(newStrategy(now, null).universe).toEqual({ kind: 'symbols', symbols: [] });
@@ -39,32 +41,33 @@ describe('strategyIssues', () => {
 
   it('트리거가 없으면 막는다', () => {
     const t = structuredClone(s);
-    t.entry.triggers.reboundDays.on = false;
-    t.entry.triggers.breakout.on = false;
+    patternEntryOf(t)!.triggers.reboundDays.on = false;
+    patternEntryOf(t)!.triggers.breakout.on = false;
     expect(strategyIssues(t, w)).toContainEqual({
       section: 'entry',
-      text: '사는 신호가 하나도 켜져 있지 않아요. ②에서 하나 이상 켜 주세요',
+      pattern: true,
+      text: '사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요',
       blocking: true,
     });
   });
 
   it('골든크로스는 짧은 이동평균이 긴 이동평균보다 짧아야 한다(켜져 있을 때만, 막지 않음)', () => {
-    const warn = { section: 'entry', text: '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요', blocking: false };
+    const warn = { section: 'entry', text: '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요', blocking: false, pattern: true };
     const t = structuredClone(s);
-    t.entry.triggers.goldenCross = { on: true, short: 5, long: 5 };
+    patternEntryOf(t)!.triggers.goldenCross = { on: true, short: 5, long: 5 };
     expect(strategyIssues(t, w)).toContainEqual(warn);
-    t.entry.triggers.goldenCross = { on: true, short: 30, long: 20 };
+    patternEntryOf(t)!.triggers.goldenCross = { on: true, short: 30, long: 20 };
     expect(strategyIssues(t, w)).toContainEqual(warn);
-    t.entry.triggers.goldenCross = { on: true, short: 5, long: 20 };
+    patternEntryOf(t)!.triggers.goldenCross = { on: true, short: 5, long: 20 };
     expect(strategyIssues(t, w)).not.toContainEqual(warn);
-    t.entry.triggers.goldenCross = { on: false, short: 5, long: 5 };
+    patternEntryOf(t)!.triggers.goldenCross = { on: false, short: 5, long: 5 };
     expect(strategyIssues(t, w)).not.toContainEqual(warn);
   });
 
   it('avgAlways + 분할 매수에서 간격이 손절폭 이상이면 경고만', () => {
     const t = structuredClone(s);
     t.scaleIn = { on: true, stepPct: 5, maxAdds: 2 };
-    t.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
+    t.rules.sell.stopLoss = { on: true, pct: 5, basis: 'avgAlways' };
     expect(strategyIssues(t, w)).toContainEqual({
       section: 'exit',
       text: '추가 매수보다 손절이 먼저 일어나요. 추가 매수 간격을 손절폭보다 작게 해 주세요',
@@ -76,7 +79,7 @@ describe('strategyIssues', () => {
 
   it('익절 단계가 오름차순이 아니면 막는다', () => {
     const t = structuredClone(s);
-    t.exit.takeProfit = [{ pct: 15, sellPct: 50 }, { pct: 10, sellPct: 100 }];
+    t.rules.sell.takeProfit.stages = [{ pct: 15, sellPct: 50 }, { pct: 10, sellPct: 100 }];
     expect(strategyIssues(t, w)).toContainEqual({
       section: 'exit',
       text: '익절 단계는 낮은 %부터 차례로 적어 주세요',
@@ -87,13 +90,13 @@ describe('strategyIssues', () => {
   it('마지막 전 단계들이 100% 이상 팔면 뒤 단계가 실행되지 않는다는 경고(막지 않음)', () => {
     const t = structuredClone(s);
     const dead = { section: 'exit', text: '마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요', blocking: false };
-    t.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
+    t.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 50 }, { pct: 30, sellPct: 100 }];
     expect(strategyIssues(t, w)).toContainEqual(dead);
-    t.exit.takeProfit = [{ pct: 10, sellPct: 100 }, { pct: 20, sellPct: 100 }];
+    t.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 100 }, { pct: 20, sellPct: 100 }];
     expect(strategyIssues(t, w)).toContainEqual(dead);
-    t.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 25 }, { pct: 30, sellPct: 100 }];
+    t.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 20, sellPct: 25 }, { pct: 30, sellPct: 100 }];
     expect(strategyIssues(t, w)).not.toContainEqual(dead);
-    t.exit.takeProfit = [{ pct: 10, sellPct: 100 }];
+    t.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 100 }];
     expect(strategyIssues(t, w)).not.toContainEqual(dead);
   });
 
@@ -116,13 +119,13 @@ describe('strategyIssues', () => {
 
   it('현금이 모자랄 수 있으면 경고', () => {
     const t = structuredClone(s);
-    t.capital.perBuyPct = 60; // 60 × 1 × 2 = 120
+    t.sizing.pct = 60; // 60 × 1 × 2 = 120
     expect(strategyIssues(t, w)).toContainEqual({
       section: 'capital',
       text: '모든 종목이 한꺼번에 사면 현금이 모자라요. 신호 일부를 건너뛸 수 있어요',
       blocking: false,
     });
-    t.capital.perBuyPct = 20; // 20 × 1 × 2 = 40
+    t.sizing.pct = 20; // 20 × 1 × 2 = 40
     expect(strategyIssues(t, w).map((i) => i.section)).not.toContain('capital');
     t.scaleIn = { on: true, stepPct: 3, maxAdds: 2 }; // 20 × 3 × 2 = 120
     expect(strategyIssues(t, w).map((i) => i.section)).toContain('capital');
@@ -130,7 +133,7 @@ describe('strategyIssues', () => {
 });
 
 describe('sanitizeStrategies', () => {
-  const s = newStrategy(now, 'g1');
+  const s = newStrategyV1(now, 'g1');
 
   it('깨진 항목만 빠지고 빠진 필드는 기본값', () => {
     const { strategies, repaired } = sanitizeStrategies({ strategies: [s, { id: 3 }, { ...s, id: 'x', costs: undefined }] });
@@ -191,7 +194,7 @@ describe('sanitizeStrategies', () => {
 });
 
 describe('sanitizeStrategies: 정수 칸과 id', () => {
-  const s = newStrategy(now, 'g1');
+  const s = newStrategyV1(now, 'g1');
 
   it('이동평균 기간 등 정수 칸에 소수가 오면 기본값으로 되돌리고 repaired (aboveMa 2.5는 NaN이 돼 거래가 0건이던 경로)', () => {
     const cases: [string, (x: any, v: number) => void, (x: any) => number][] = [
@@ -204,7 +207,7 @@ describe('sanitizeStrategies: 정수 칸과 id', () => {
       ['maxAdds', (x, v) => (x.scaleIn.maxAdds = v), (x) => x.scaleIn.maxAdds],
       ['capital.initial', (x, v) => (x.capital.initial = v), (x) => x.capital.initial],
     ];
-    const def = newStrategy(now, null);
+    const def = newStrategyV1(now, null);
     for (const [name, set, get] of cases) {
       const bad = structuredClone(s) as any;
       set(bad, 2.5);
@@ -220,7 +223,7 @@ describe('sanitizeStrategies: 정수 칸과 id', () => {
   });
 
   it('처음 자금은 1,000억 원(1e11)까지: 넘으면 기본값으로 되돌리고 repaired (그 위는 반올림 단위가 표현되지 않는다)', () => {
-    const def = newStrategy(now, null);
+    const def = newStrategyV1(now, null);
     for (const [v, ok] of [[1e11, true], [1e11 + 1, false], [1e13, false]] as const) {
       const t = structuredClone(s) as any;
       t.capital.initial = v;
@@ -240,8 +243,8 @@ describe('sanitizeStrategies: 정수 칸과 id', () => {
 });
 
 describe('sanitizeStrategies: 날짜와 기본값 생성', () => {
-  const s = newStrategy(now, 'g1');
-  const dp = newStrategy(now, null).period;
+  const s = newStrategyV1(now, 'g1');
+  const dp = newStrategyV1(now, null).period;
 
   it('불가능한 날짜는 기본 기간으로 되돌리고 repaired', () => {
     for (const bad of ['2026-02-30', '2026-99-99', '2026-00-10', '2026-04-31']) {
@@ -274,7 +277,7 @@ describe('sanitizeStrategies: 날짜와 기본값 생성', () => {
 });
 
 describe('sanitizeStrategies: 있는 값을 바꾸면 repaired', () => {
-  const s = newStrategy(now, 'g1');
+  const s = newStrategyV1(now, 'g1');
   const one = (mut: (x: any) => void) => {
     const t = structuredClone(s) as any;
     mut(t);
@@ -323,5 +326,52 @@ describe('sanitizeStrategies: 있는 값을 바꾸면 repaired', () => {
     expect(syms(nine.slice(0, 8)).repaired).toBe(false);
     expect(syms(['005930', '005930']).repaired).toBe(true);
     expect(syms(['005930', 5]).repaired).toBe(true);
+  });
+});
+
+
+describe('전략 빌더 경고(§11)', () => {
+  const base = () => newStrategy(0, null);
+  const texts = (s: ReturnType<typeof base>) => ruleIssues(s).map((i) => [i.section, i.blocking, i.text]);
+  it('매수 묶음 없음·빈 묶음·패턴 2개', () => {
+    const a = base();
+    a.rules.buy = [];
+    expect(texts(a)).toContainEqual(['entry', true, '사는 조건이 없어요. 조건을 하나 이상 넣어 주세요']);
+    const b = base();
+    b.rules.buy.push({ conds: [] });
+    expect(texts(b)).toContainEqual(['entry', true, '빈 묶음이 있어요. 조건을 넣거나 묶음을 지워 주세요']);
+    const c = base();
+    c.rules.buy.push(structuredClone(c.rules.buy[0]));
+    expect(texts(c)).toContainEqual(['entry', true, '반등 패턴은 하나만 넣을 수 있어요']);
+  });
+  it('이평 교차 짧은 ≥ 긴은 막지 않는 경고(매수·매도 각 구역)', () => {
+    const s = base();
+    s.rules.buy = [{ conds: [{ kind: 'maCross', short: 60, long: 20, dir: 'golden' }] }];
+    s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maCross', short: 20, long: 20, dir: 'dead' }] }] };
+    expect(texts(s)).toContainEqual(['entry', false, '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요']);
+    expect(texts(s)).toContainEqual(['exit', false, '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요']);
+  });
+  it('조건 매도 켰는데 묶음 없음·빈 묶음', () => {
+    const s = base();
+    s.rules.sell.signal = { on: true, groups: [] };
+    expect(texts(s)).toContainEqual(['exit', true, '조건 매도에 조건을 넣거나 꺼 주세요']);
+    s.rules.sell.signal.groups = [{ conds: [] }];
+    expect(texts(s)).toContainEqual(['exit', true, '빈 묶음이 있어요. 조건을 넣거나 묶음을 지워 주세요']);
+  });
+  it('트레일링 ≤ 추가 간격, 파는 규칙 없음', () => {
+    const s = base();
+    s.scaleIn = { on: true, stepPct: 10, maxAdds: 2 };
+    s.rules.sell.trailing = { on: true, pct: 8 };
+    expect(texts(s)).toContainEqual(['exit', false, '추가 매수보다 트레일링이 먼저 일어나요. 추가 매수 간격을 트레일링 폭보다 작게 해 주세요']);
+    const n = base();
+    n.rules.sell.takeProfit.on = false;
+    n.rules.sell.stopLoss.on = false;
+    expect(texts(n)).toContainEqual(['exit', false, '파는 규칙이 없어요. 기간 끝까지 들고 있어요']);
+  });
+  it('균등 배분 + 분할 매수는 자금 경고', () => {
+    const s = { ...base(), universe: { kind: 'symbols' as const, symbols: ['005930'] } };
+    s.sizing = { mode: 'equal', pct: 10 };
+    s.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+    expect(strategyIssues(s, { groups: [] } as never).map((i) => i.text)).toContain('균등 배분은 첫 매수에 몫을 다 써요. 추가 매수는 현금이 모자라 건너뛸 수 있어요');
   });
 });

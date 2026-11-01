@@ -40,6 +40,43 @@ describe('snapshotLines', () => {
     expect(snapshotLines(snap, names)[2]).toBe('기간: 2023.10.11 ~ 2026.10.11');
   });
 
+  it('전략은 매수·매도 조건과 자금 배분을 새 문구로 요약한다', () => {
+    const s = newStrategy(1, null);
+    s.sizing = { mode: 'equityPct', pct: 5 };
+    s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, level: 30, op: 'crossUp' }] }];
+    s.rules.sell.takeProfit.on = false;
+    s.rules.sell.stopLoss.on = false;
+    s.rules.sell.trailing = { on: true, pct: 10 };
+    const snap = strategySnapshot(s, { groups: [] }, { hideCapital: false });
+    expect(snapshotLines(snap).slice(3, 6)).toEqual([
+      '초기 자금: 10,000,000원 · 회당 총자산 5%',
+      '매수: RSI14 30 상향 돌파 · 분할 매수 끔',
+      '매도: 트레일링 −10%',
+    ]);
+  });
+
+  it('전략 카드·미리 보기의 매수·매도 요약은 40자로 자른다', () => {
+    const s = newStrategy(1, null);
+    s.rules.buy = [{ conds: [
+      { kind: 'rsi', period: 14, level: 30, op: 'crossUp' },
+      { kind: 'maPrice', period: 120, side: 'above' },
+      { kind: 'newHigh', days: 60 },
+      { kind: 'volume', days: 20, ratio: 2 },
+    ] }];
+    s.rules.sell.trailing = { on: true, pct: 10 };
+    s.rules.sell.timeExit = { on: true, days: 20 };
+    const snap = strategySnapshot(s, { groups: [] }, { hideCapital: true });
+    const buy = 'RSI14 30 상향 돌파 + 종가 120일선 위 + 60일 신고가 + 거래량 20일 평균 2배↑';
+    const sell = '익절 +15%에 전량 · 손절 −5% · 트레일링 −10% · 20일 청산';
+    const clipped = (text: string) => `${text.slice(0, 39)}…`;
+    expect(cardLines(snap)[1]).toBe(clipped(buy));
+    expect(snapshotLines(snap).slice(3, 6)).toEqual([
+      '초기 자금: 비공개 · 회당 처음 자금 10%',
+      `매수: ${clipped(buy)} · 분할 매수 끔`,
+      `매도: ${clipped(sell)}`,
+    ]);
+  });
+
   it.each([
     ['monthly', '매월'],
     ['quarterly', '매 분기'],
@@ -83,7 +120,7 @@ describe('새 종류의 요약', () => {
     const st = strategySnapshot(s, { groups: [] }, { hideCapital: true });
     const [a, b] = cardLines(st);
     expect(a).toBe('종목 1개 · 2023.10.11 ~ 2026.10.11');
-    expect(b).toMatch(/^하락 (\d+%|끔) · 익절 \d+%(\/\d+%)* · 손절 \d+(\.\d+)?%$/);
+    expect(b).toBe('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 B 돌파');
     const cr = criteriaSnapshot(newCriteria(1, null, '기준'), { baskets: [], strategies: [] }, { hideCapital: false });
     expect(cardLines(cr)[0]).toBe('KOSPI·KOSDAQ 상위 10개 · 매월 재선정');
     expect(cardLines(cmp, names)).toEqual(['종목 4개 · 1개월 등락률', 'SK하이닉스, 삼성전자, 035420']);

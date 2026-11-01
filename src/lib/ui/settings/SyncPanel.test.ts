@@ -9,6 +9,7 @@ import { buildProfileDoc } from '../../sync/profileDoc';
 import { createSafeStorage } from '../../state/storage';
 import { memoryBacking } from '../../state/testStorage';
 import SyncPanel from './SyncPanel.svelte';
+import { APP_OUTDATED_CODE } from '../../sync/dto';
 
 const STATUS: SyncStatus = { enabled: false, phase: 'off', pending: 0, conflicts: [], rejected: [], lastSyncAt: null, notices: [], volatile: false };
 
@@ -129,6 +130,21 @@ describe('SyncPanel', () => {
     expect(screen.getByText(/프로필 1개\(내 프로필\)를 올리고, 서버의 프로필\s+2개를/)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '켜기' }));
     expect(sync.setEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('옛 탭의 앱 갱신 거절 줄은 숨기고 이 앱의 안내와 다른 거절은 보인다', () => {
+    const notice = '앱을 새로 고쳐 주세요. 새 버전에서 만든 데이터가 있어요.';
+    const sync = fakeSync({
+      account: { provider: 'google', id: 'me@example.test', display: 'me@example.test' },
+      status: {
+        notices: [notice],
+        rejected: [{ profileId: 'old-tab', code: APP_OUTDATED_CODE }, { profileId: 'large', code: 'too-large' }],
+      },
+    });
+    render(SyncPanel, { app: app(), sync });
+    expect(screen.getByText(notice, { exact: false })).toBeTruthy();
+    expect(screen.queryByText(/서버가 받지 않았어요\(앱을 새로 고쳐 주세요\)/)).toBeNull();
+    expect(screen.getByText(/256 KiB 초과/)).toBeTruthy();
   });
 
   it('켜져 있으면 상태·대기 수와 지금 동기화·끄기·로그아웃을 보인다', async () => {

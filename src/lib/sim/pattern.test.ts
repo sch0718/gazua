@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { kstDate, kstEpoch } from '../time/kst';
-import { newStrategy } from './defaults';
+import { defaultPatternEntry } from './defaults';
 import { sma } from './indicators';
 import { createPatternTracker } from './pattern';
 import { bar, barsFromCloses, tradingDates } from './testBars';
-import type { Strategy } from './types';
+import type { PatternEntry } from './types';
 
-type Entry = Strategy['entry'];
+type Entry = PatternEntry;
 
-const entry: Entry = newStrategy(0, null).entry;
+const entry: Entry = defaultPatternEntry();
 const off: Entry['triggers'] = {
   reboundDays: { on: false, value: 3 },
   breakout: { on: false, level: 'B' },

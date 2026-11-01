@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { newStrategy } from '../../src/lib/sim/defaults';
 import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
 import { sanitizeStrategiesV2 } from '../../src/lib/sim/strategyV2';
-import { sanitizeStrategies } from '../../src/lib/sim/validate';
+import { newStrategyV1, sanitizeStrategiesV1, toV2 } from '../../src/lib/sim/strategyV1';
 import { compareSnapshot } from '../../src/lib/share/compact';
 import { simResultFixture, validationFixture } from '../../src/lib/share/testFixtures';
 import { groupSnapshot, strategySnapshot } from '../../src/lib/share/snapshot';
@@ -142,7 +141,7 @@ describe('공유 API', () => {
   it('전략 스냅샷도 서버 검증을 통과한다', async () => {
     const { create, read } = await setup();
     const d = doc();
-    const snap = strategySnapshot(d.strategies[0], d.watchlists, { hideCapital: true });
+    const snap = strategySnapshot(toV2(d.strategies[0]), d.watchlists, { hideCapital: true });
     const r = await create({ kind: 'strategy', snapshot: snap });
     expect(r.status).toBe(200);
     expect((await (await read(r.body.capability as string)).json()).snapshot).toEqual(snap);
@@ -214,10 +213,11 @@ describe('전략 공유 버전(전략 빌더 §8.4, PR①)', () => {
 
   it('v1 전략·시뮬레이션 공유(옛 앱)는 지금처럼 받고 원본 그대로 저장한다', async () => {
     const { h, create, read } = await setup();
-    const snapshot = strategySnapshot({ ...newStrategy(0, null, '눌림목'), universe: { kind: 'symbols', symbols: ['005930'] } }, { groups: [] }, { hideCapital: false, now: 0 });
-    const { id, ...strategy } = snapshot.strategy;
-    const v1 = { ...snapshot, strategy: { ...strategy, id } };
-    const cleaned = sanitizeStrategies({ strategies: [v1.strategy] }, h.clock.now).strategies[0];
+    const legacy = { ...newStrategyV1(0, null, '눌림목'), id: 'shared', updatedAt: 0, universe: { kind: 'symbols' as const, symbols: ['005930'] } };
+    const snapshot = strategySnapshot(toV2(legacy), { groups: [] }, { hideCapital: false, now: 0 });
+    const { id, ...strategy } = legacy;
+    const v1 = { ...snapshot, v: 1, strategy: { ...strategy, id } };
+    const cleaned = sanitizeStrategiesV1({ strategies: [v1.strategy] }, h.clock.now).strategies[0];
     expect(v1.strategy).toEqual(cleaned);
     expect(JSON.stringify(v1.strategy)).not.toBe(JSON.stringify(cleaned));
     const a = await create({ kind: 'strategy', snapshot: v1 });
@@ -226,9 +226,9 @@ describe('전략 공유 버전(전략 빌더 §8.4, PR①)', () => {
     expect(aBody).toBe(JSON.stringify(v1));
     expect((await j(await read(a.body.capability as string))).body.snapshot).toEqual(v1);
     const simSnapshot = simResultFixture();
-    const { id: simId, ...simStrategy } = simSnapshot.strategy;
-    const sim = { ...simSnapshot, strategy: { ...simStrategy, id: simId } };
-    const cleanedSim = sanitizeStrategies({ strategies: [sim.strategy] }, h.clock.now).strategies[0];
+    const { id: simId, ...simStrategy } = { ...newStrategyV1(0, null, simSnapshot.title), id: simSnapshot.strategy.id, updatedAt: 0, universe: simSnapshot.strategy.universe, benchmarks: simSnapshot.strategy.benchmarks };
+    const sim = { ...simSnapshot, v: 1, strategy: { ...simStrategy, id: simId } };
+    const cleanedSim = sanitizeStrategiesV1({ strategies: [sim.strategy] }, h.clock.now).strategies[0];
     expect(sim.strategy).toEqual(cleanedSim);
     expect(JSON.stringify(sim.strategy)).not.toBe(JSON.stringify(cleanedSim));
     const b = await create({ kind: 'simResult', snapshot: sim });

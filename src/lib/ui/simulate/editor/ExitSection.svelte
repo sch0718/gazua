@@ -1,19 +1,21 @@
 <script lang="ts">
-  // 매도: 익절 단계(최대 3), 손절폭·기준, 1단계 익절 뒤 손절선.
+  // 매도: 익절·손절·트레일링·기간 청산·조건 매도를 각각 켜고 끈다.
   import { MAX_TAKE_STAGES } from '../../../sim/defaults';
   import type { StopBasis, Strategy } from '../../../sim/types';
-  import { Segmented } from '@sch0718/ui-svelte';
+  import { Segmented, Toggle } from '@sch0718/ui-svelte';
   import { STOP_BASIS_LABEL } from '../simText';
+  import { defaultCond } from '../../../sim/strategyV2';
+  import CondGroupsEditor from './CondGroupsEditor.svelte';
   import NumberField from './NumberField.svelte';
 
   let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
-  const stages = $derived(s.exit.takeProfit);
+  const stages = $derived(s.rules.sell.takeProfit.stages);
   const uid = Math.random().toString(36).slice(2, 9);
   const BASIS_KEYS: StopBasis[] = ['avgAfterScaleIn', 'avgAlways', 'firstBuy'];
 
   function addStage() {
     update((x) => {
-      const tp = x.exit.takeProfit;
+      const tp = x.rules.sell.takeProfit.stages;
       if (tp.length >= MAX_TAKE_STAGES) return;
       const last = tp[tp.length - 1];
       // 이제 마지막이 아니니 남은 몫의 절반만 판다(앞 단계 합이 100 미만이어야 새 단계가 실행된다)
@@ -25,7 +27,7 @@
 
   function removeStage(i: number) {
     update((x) => {
-      const tp = x.exit.takeProfit;
+      const tp = x.rules.sell.takeProfit.stages;
       if (tp.length <= 1) return;
       tp.splice(i, 1);
       tp[tp.length - 1].sellPct = 100; // 마지막 단계는 나머지 전부
@@ -34,58 +36,112 @@
 </script>
 
 <p class="group-title">익절</p>
-{#each stages as st, i (i)}
-  {@const last = i === stages.length - 1}
-  <div class="stage" role="group" aria-labelledby="{uid}-st{i}">
-    <div class="stage-title">
-      <span id="{uid}-st{i}">{i + 1}단계</span>
-      {#if stages.length > 1}
-        <button type="button" class="x danger" aria-label="{i + 1}단계 삭제" onclick={() => removeStage(i)}>✕</button>
-      {/if}
+<Toggle id="{uid}-tp" label="익절 사용" checked={s.rules.sell.takeProfit.on} onchange={(v) => update((x) => (x.rules.sell.takeProfit.on = v))} />
+{#if s.rules.sell.takeProfit.on}
+  {#each stages as st, i (i)}
+    {@const last = i === stages.length - 1}
+    <div class="stage" role="group" aria-labelledby="{uid}-st{i}">
+      <div class="stage-title">
+        <span id="{uid}-st{i}">{i + 1}단계</span>
+        {#if stages.length > 1}
+          <button type="button" class="x danger" aria-label="{i + 1}단계 삭제" onclick={() => removeStage(i)}>✕</button>
+        {/if}
+      </div>
+      <div class="row">
+        <NumberField label="목표" namePrefixId="{uid}-st{i}" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.rules.sell.takeProfit.stages[i].pct = v))} />
+      </div>
+      <div class="row">
+        {#if last}
+          <span class="rest">파는 양</span><span class="rest-v">나머지 전부</span>
+        {:else}
+          <NumberField label="파는 양" namePrefixId="{uid}-st{i}" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.rules.sell.takeProfit.stages[i].sellPct = v))} />
+        {/if}
+      </div>
     </div>
-    <div class="row">
-      <NumberField label="목표" namePrefixId="{uid}-st{i}" value={st.pct} min={0.5} max={500} suffix="% 오르면" onchange={(v) => update((x) => (x.exit.takeProfit[i].pct = v))} />
-    </div>
-    <div class="row">
-      {#if last}
-        <span class="rest">파는 양</span><span class="rest-v">나머지 전부</span>
-      {:else}
-        <NumberField label="파는 양" namePrefixId="{uid}-st{i}" value={st.sellPct} min={1} max={100} suffix="%" onchange={(v) => update((x) => (x.exit.takeProfit[i].sellPct = v))} />
-      {/if}
-    </div>
-  </div>
-{/each}
-{#if stages.length < MAX_TAKE_STAGES}
-  <button type="button" class="act" onclick={addStage}>＋ 단계 추가</button>
+  {/each}
+  {#if stages.length < MAX_TAKE_STAGES}
+    <button type="button" class="act" onclick={addStage}>＋ 단계 추가</button>
+  {/if}
+  <p class="hint">파는 양은 처음 산 수량을 기준으로 한 비율이에요.</p>
+
+  <span class="seg-label">1단계 익절 뒤 손절선</span>
+  <Segmented
+    wide
+    onSurface
+    label="1단계 익절 뒤 손절선"
+    value={s.rules.sell.takeProfit.afterFirstTake}
+    onchange={(v) => update((x) => (x.rules.sell.takeProfit.afterFirstTake = v as 'keep' | 'breakeven'))}
+    options={[
+      { value: 'keep', label: '그대로' },
+      { value: 'breakeven', label: '본전으로 올리기' },
+    ]}
+  />
 {/if}
-<p class="hint">파는 양은 처음 산 수량을 기준으로 한 비율이에요.</p>
 
 <p class="group-title">손절</p>
+<Toggle id="{uid}-sl" label="손절 사용" checked={s.rules.sell.stopLoss.on} onchange={(v) => update((x) => (x.rules.sell.stopLoss.on = v))} />
+{#if s.rules.sell.stopLoss.on}
+  <div class="row">
+    <NumberField label="손절폭" value={s.rules.sell.stopLoss.pct} min={0.5} max={50} suffix="% 내리면" onchange={(v) => update((x) => (x.rules.sell.stopLoss.pct = v))} />
+  </div>
+  <span class="seg-label">손절 기준 가격</span>
+  <Segmented
+    wide
+    onSurface
+    label="손절 기준 가격"
+    value={s.rules.sell.stopLoss.basis}
+    onchange={(v) => update((x) => (x.rules.sell.stopLoss.basis = v as StopBasis))}
+    options={BASIS_KEYS.map((k) => ({ value: k, label: STOP_BASIS_LABEL[k] }))}
+  />
+  <p class="hint">평단 = 평균 매수가예요. 분할 매수를 끄면 세 기준이 같아요</p>
+{/if}
+
+<p class="group-title">트레일링 스톱</p>
 <div class="row">
-  <NumberField label="손절폭" value={s.exit.stopLoss.pct} min={0.5} max={50} suffix="% 내리면" onchange={(v) => update((x) => (x.exit.stopLoss.pct = v))} />
+  <NumberField
+    label="트레일링 스톱"
+    value={s.rules.sell.trailing.pct}
+    min={1}
+    max={50}
+    suffix="% 내려오면"
+    muted={!s.rules.sell.trailing.on}
+    toggle={{ checked: s.rules.sell.trailing.on, onchange: (v) => update((x) => (x.rules.sell.trailing.on = v)) }}
+    onchange={(v) => update((x) => (x.rules.sell.trailing.pct = v))}
+  />
 </div>
-<span class="seg-label">손절 기준 가격</span>
-<Segmented
-  wide
-  onSurface
-  label="손절 기준 가격"
-  value={s.exit.stopLoss.basis}
-  onchange={(v) => update((x) => (x.exit.stopLoss.basis = v as StopBasis))}
-  options={BASIS_KEYS.map((k) => ({ value: k, label: STOP_BASIS_LABEL[k] }))}
+<p class="hint">보유 중 가장 높은 종가에서 N% 내려오면 팔아요.</p>
+
+<p class="group-title">기간 청산</p>
+<div class="row">
+  <NumberField
+    label="기간 청산"
+    value={s.rules.sell.timeExit.days}
+    min={1}
+    max={250}
+    step={1}
+    suffix="거래일 지나면"
+    muted={!s.rules.sell.timeExit.on}
+    toggle={{ checked: s.rules.sell.timeExit.on, onchange: (v) => update((x) => (x.rules.sell.timeExit.on = v)) }}
+    onchange={(v) => update((x) => (x.rules.sell.timeExit.days = v))}
+  />
+</div>
+<p class="hint">기간 청산은 매수일을 1일째로, 거래정지일도 세요.</p>
+
+<p class="group-title">조건 매도</p>
+<Toggle
+  id="{uid}-sg"
+  label="조건 매도 사용"
+  checked={s.rules.sell.signal.on}
+  onchange={(v) =>
+    update((x) => {
+      x.rules.sell.signal.on = v;
+      if (v && x.rules.sell.signal.groups.length === 0) x.rules.sell.signal.groups.push({ conds: [{ ...defaultCond('maPrice'), side: 'below' }] });
+    })}
 />
-<p class="hint">평단 = 평균 매수가예요. 분할 매수를 끄면 세 기준이 같아요</p>
-<span class="seg-label">1단계 익절 뒤 손절선</span>
-<Segmented
-  wide
-  onSurface
-  label="1단계 익절 뒤 손절선"
-  value={s.exit.afterFirstTake}
-  onchange={(v) => update((x) => (x.exit.afterFirstTake = v as 'keep' | 'breakeven'))}
-  options={[
-    { value: 'keep', label: '그대로' },
-    { value: 'breakeven', label: '본전으로 올리기' },
-  ]}
-/>
+{#if s.rules.sell.signal.on}
+  <CondGroupsEditor groups={s.rules.sell.signal.groups} prefix="조건 매도 묶음" allowPattern={false} update={(fn) => update((x) => fn(x.rules.sell.signal.groups))} />
+{/if}
+<p class="hint">조건 매도·기간 청산은 종가에 판정해 다음 거래일 시가에 남은 수량을 모두 팔아요.</p>
 
 <style>
   .stage {

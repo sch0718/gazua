@@ -2,7 +2,8 @@
   // 전략 목록(스펙 7.2): 행 = 이름 · 한 줄 요약 · 마지막 수정일, 행 메뉴 = 복제·이름 바꾸기·삭제.
   import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
-  import { MAX_STRATEGIES, NAME_MAX, newStrategy } from '../../sim/defaults';
+  import { MAX_STRATEGIES, NAME_MAX } from '../../sim/defaults';
+  import { fromTemplate, TEMPLATES } from '../../sim/templates';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { kstDate } from '../../time/kst';
@@ -17,12 +18,19 @@
 
   const full = () => app.strategies.length >= MAX_STRATEGIES;
 
+  let picking = $state(false);
+
   function create() {
     if (full()) return showSnackbar(STRATEGY_CAP_MESSAGE);
+    picking = true;
+  }
+
+  function createFrom(t: (typeof TEMPLATES)[number]) {
+    picking = false;
     const ids = app.watchlists.groups.map((g) => g.id);
     const last = app.settings.lastGroupId;
     const groupId = last && ids.includes(last) ? last : (ids[0] ?? null);
-    const s = newStrategy(Date.now(), groupId, nextStrategyName(app.strategies));
+    const s = fromTemplate(t, Date.now(), groupId, nextStrategyName(app.strategies));
     app.setStrategies([...app.strategies, s]);
     app.navigate({ name: 'simulate', strategyId: s.id });
   }
@@ -166,7 +174,37 @@
   {/if}
 </Sheet>
 
+<Sheet open={picking} title="어떤 전략으로 시작할까요?" onclose={() => (picking = false)} returnFocus={() => listEl?.querySelector<HTMLElement>('[data-new-strategy]')}>
+  <ul class="templates">
+    {#each TEMPLATES as t (t.id)}
+      <li>
+        <button type="button" class="tpl" onclick={() => createFrom(t)}>
+          <b>{t.name}</b>
+          <span>{t.desc}</span>
+        </button>
+      </li>
+    {/each}
+  </ul>
+</Sheet>
+
 <style>
+  .templates {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tpl {
+    width: 100%;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+  }
   .list {
     max-width: 720px;
     padding: 4px var(--gutter) 48px;

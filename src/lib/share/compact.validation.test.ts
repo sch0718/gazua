@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newCriteria } from '../screen/defaults';
+import { criteriaFixture as newCriteria } from './testFixtures';
 import { jsonBytes } from '../sync/forbidden';
 import { validationResult } from '../ui/screen/resultFixture';
 import { AXIS_MAX } from './checkResult';

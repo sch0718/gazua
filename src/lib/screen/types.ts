@@ -1,4 +1,4 @@
-import type { Strategy } from '../sim/types';
+import type { PatternEntry } from '../sim/types';
 
 export type Market = 'KOSPI' | 'KOSDAQ';
 export type SecurityType = 'STOCK' | 'ETF';
@@ -40,7 +40,7 @@ export interface SelectionCriteria {
     rebound: {
       on: boolean;
       withinDays: number;
-      pattern: { from: 'strategy'; strategyId: string } | { from: 'custom'; entry: Strategy['entry'] };
+      pattern: { from: 'strategy'; strategyId: string } | { from: 'custom'; entry: PatternEntry };
     };
     macro: { betaDays: number; usdkrw: MacroSeriesCond; wti: MacroSeriesCond };
     flow: {

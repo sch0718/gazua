@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
-import { newStrategy } from './defaults';
+import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
 import { costOf, openPosition } from './position';
 import { simulate, simulateCore, walkBar, type WalkCtx } from './simulate';
 import { bar, tradingDates } from './testBars';
@@ -21,14 +21,14 @@ function candles(closes: number[], rest: O[] = [], skip: number[] = []): Candle[
   return all.flatMap(([o, h, l, c], i) => (skip.includes(i) ? [] : [bar(d(i), o, h, l, c)]));
 }
 
-function strat(over: (s: Strategy) => void = () => {}): Strategy {
-  const s = newStrategy(0, null);
+function strat(over: (s: StrategyV1) => void = () => {}): Strategy {
+  const s = newStrategyV1(0, null);
   s.capital = { initial: 10_000_000, perBuyPct: 10 };
   s.costs.feePct = 0;
   s.entry.triggers.breakout.on = false;
   s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
   over(s);
-  return s;
+  return toV2(s);
 }
 
 function input(s: Strategy, stocks: Candle[][], days?: string[]): SimInput {
@@ -229,7 +229,7 @@ describe('simulateCore', () => {
     expect(core.equity.map((e) => e.date)).toEqual(DATES.slice(9, 12));
     expect(core.perSymbolFirstDate).toEqual({ S0: d(9) });
     // 통계는 거래 기간만: 9·10·11일 하락 조건 만족
-    expect(core.patternStats.declineDays).toBe(3);
+    expect(core.patternStats!.declineDays).toBe(3);
   });
 
   it('open position at end: roundTrips 마지막 항목 close null, 매도 비용 없음', () => {
@@ -280,7 +280,8 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
       amount,
       feePct,
       taxPct: 0,
-      takeProfit: s.exit.takeProfit,
+      takeProfit: s.rules.sell.takeProfit.stages,
+      trailPct: 10,
       excluded: new Set(),
       trade: (t) => trades.push(t),
       skip: (reason, price) => skips.push({ reason, price }),
@@ -291,7 +292,7 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
 
   it('add skipped for cash still lets the stop below fire', () => {
     const s = strat((x) => (x.scaleIn = { on: true, stepPct: 3, maxAdds: 2 }));
-    const pos = openPosition(100, 10, s.scaleIn, s.exit);
+    const pos = openPosition(100, 10, s.scaleIn, s.rules.sell);
     const { c, trades, skips } = ctx(0, 1000, s);
     walkBar(pos, k(100, 105, 90, 100), c);
     expect(skips).toEqual([{ reason: '현금 부족', price: 97 }]);
@@ -304,7 +305,7 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
       x.scaleIn = { on: true, stepPct: 50, maxAdds: 1 };
       x.exit.stopLoss.basis = 'avgAfterScaleIn';
     });
-    const pos = openPosition(100, 5, s.scaleIn, s.exit);
+    const pos = openPosition(100, 5, s.scaleIn, s.rules.sell);
     const { c, trades } = ctx(500, 500, s);
     walkBar(pos, k(100, 100, 40, 40), c);
     expect(kinds(trades)).toEqual(['add@50x10', 'gapStop@50x15']);
@@ -317,7 +318,7 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
       x.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 50, sellPct: 100 }];
       x.exit.afterFirstTake = 'breakeven';
     });
-    const pos = openPosition(100, 10, s.scaleIn, s.exit);
+    const pos = openPosition(100, 10, s.scaleIn, s.rules.sell);
     const { c, trades } = ctx(0, 1000, s);
     walkBar(pos, k(100, 112, 98, 99), c);
     expect(kinds(trades)).toEqual(['take@110x5', 'stop@100x5']);
@@ -326,7 +327,7 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
 
   it('매수 비용은 한 번만 계산해 현금이 정확히 0이 된다', () => {
     const s = strat((x) => (x.scaleIn = { on: true, stepPct: 3, maxAdds: 1 }));
-    const pos = openPosition(100, 10, s.scaleIn, s.exit);
+    const pos = openPosition(100, 10, s.scaleIn, s.rules.sell);
     const cost = 9 * 97 * (1 + 10 / 100); // 1000 / (97 × 1.1) → 9주
     const { c, trades } = ctx(cost, 1000, s, 10);
     walkBar(pos, k(100, 100, 97, 98), c);
@@ -337,12 +338,12 @@ describe('walkBar (스펙 5.2 예시 표)', () => {
   it('시가 == 손절선이면 stop, 시가 < 손절선이면 gapStop', () => {
     const s = strat();
     const eq = ctx(0, 1000, s);
-    walkBar(openPosition(100, 10, s.scaleIn, s.exit), k(95, 96, 94, 95), eq.c);
+    walkBar(openPosition(100, 10, s.scaleIn, s.rules.sell), k(95, 96, 94, 95), eq.c);
     expect(eq.trades.map((t) => t.kind)).toEqual(['stop']);
     expect(eq.trades[0].price).toBe(95);
 
     const gap = ctx(0, 1000, s);
-    walkBar(openPosition(100, 10, s.scaleIn, s.exit), k(94, 96, 93, 95), gap.c);
+    walkBar(openPosition(100, 10, s.scaleIn, s.rules.sell), k(94, 96, 93, 95), gap.c);
     expect(gap.trades.map((t) => t.kind)).toEqual(['gapStop']);
   });
 });

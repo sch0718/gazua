@@ -50,6 +50,7 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
 
   // 편집 화면 → 실행
   const run = page.getByRole('button', { name: '시뮬레이션 실행' });
@@ -114,6 +115,7 @@ test('시뮬레이션 재생: ▶ → 날짜가 바뀜 → ⏸ → 타임라인 
   await loadExampleGroup(page);
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
 
   const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
@@ -166,6 +168,7 @@ test('시뮬레이션: 목록·편집·로딩·결과 어느 상태에서도 가
   await expectNoHorizontalScroll(page);
 
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   const run = page.getByRole('button', { name: '시뮬레이션 실행' });
   await expect(run).toBeVisible();
   await expectNoHorizontalScroll(page);
@@ -210,9 +213,10 @@ test('편집: 모든 구역을 펼쳐도 카드 밖으로 넘치지 않고, 숫�
   await loadExampleGroup(page);
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
 
-  for (const title of ['종목', '기간·자금', '매수', '분할 매수', '매도', '비교 기준', '비용']) {
+  for (const title of ['종목', '기간·자금', '매수 조건', '분할 매수', '매도', '비교 기준', '비용']) {
     const head = page.locator('button[aria-expanded]', { has: page.getByText(title, { exact: true }) });
     await head.click();
     await expect(head).toHaveAttribute('aria-expanded', 'true');
@@ -250,13 +254,14 @@ test('편집: 처음 자금 칸에 키보드로 들어와 바로 치면 값이 �
   await loadExampleGroup(page);
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   const head = page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) });
   await head.click();
 
   const cap = page.getByRole('textbox', { name: '처음 자금' });
   await expect(cap).toHaveValue('10,000,000');
-  // 다음 칸에서 Shift+Tab으로 들어온다(브라우저가 전체 선택) → 바로 친다
-  await page.getByRole('textbox', { name: '회당 매수 비중' }).focus();
+  // 다음 선택지에서 Shift+Tab으로 들어온다(브라우저가 전체 선택) → 바로 친다
+  await page.getByRole('radio', { name: '처음 자금', exact: true }).focus();
   await page.keyboard.press('Shift+Tab');
   await expect(cap).toBeFocused();
   await expect(cap).toHaveValue('10000000');
@@ -285,6 +290,7 @@ test('편집: 폭 320px에서도 처음 자금 칸(최댓값)이 줄 안에 맞�
   await loadExampleGroup(page);
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) }).click();
 
   const cap = page.getByRole('textbox', { name: '처음 자금' });
@@ -324,4 +330,21 @@ test('앱 바: 폰 폭에서 시뮬레이션 화면에는 상태 칩이 없고 �
   // 비교로 돌아오면 다시 있다
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
   await expect(chip).toHaveCount(1);
+});
+
+test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 확인 → 실행 → 결과·재생', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /골든크로스 추세/ }).click();
+  await page.getByRole('button', { name: /매수 조건/ }).click();
+  await expect(page.getByRole('group', { name: '매수 묶음 1', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^매도/ }).click();
+  await expect(page.getByRole('group', { name: '조건 매도 묶음 1', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
+  await expect(page.getByRole('slider', { name: '거래일' }).or(page.getByText(/매수 조건을 모두 만족한 날이 없|거래가 없/))).toBeVisible({ timeout: 30_000 });
 });

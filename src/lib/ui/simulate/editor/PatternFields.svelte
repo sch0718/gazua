@@ -1,24 +1,24 @@
 <script lang="ts">
-  // 매수: 하락 조건 2줄, 트리거 4줄, 필터 1줄(스펙 7.3). 줄마다 라벨 · 숫자 칸 · 오른쪽 토글(이름 `{라벨} 사용`).
-  import type { Strategy } from '../../../sim/types';
+  // 반등 패턴 블록: 하락 조건 2줄, 트리거 4줄, 필터 1줄. 전략 편집(매수 조건)과 선정 기준(직접 정하기)이 같이 쓴다.
+  import type { PatternEntry } from '../../../sim/types';
   import { Segmented } from '@sch0718/ui-svelte';
   import { Toggle } from '@sch0718/ui-svelte';
   import NumberField from './NumberField.svelte';
   import PatternHelp from './PatternHelp.svelte';
 
   let {
-    s,
+    entry,
     update,
     nf,
   }: {
-    s: Strategy;
-    update: (fn: (s: Strategy) => void) => void;
+    entry: PatternEntry;
+    update: (fn: (e: PatternEntry) => void) => void;
     /** 숫자 칸에 더 줄 속성(칸 이름 → keepInvalid·oninvalid 등). 선정 기준 화면이 틀린 값을 들고 있으려고 쓴다 */
     nf?: (key: string) => Record<string, unknown>;
   } = $props();
-  const d = $derived(s.entry.decline);
-  const t = $derived(s.entry.triggers);
-  const f = $derived(s.entry.filter.aboveMa);
+  const d = $derived(entry.decline);
+  const t = $derived(entry.triggers);
+  const f = $derived(entry.filter.aboveMa);
   const uid = Math.random().toString(36).slice(2, 9);
 </script>
 
@@ -32,8 +32,8 @@
     max={90}
     suffix="% 이상"
     muted={!d.dropPct.on}
-    toggle={{ checked: d.dropPct.on, onchange: (v) => update((x) => (x.entry.decline.dropPct.on = v)) }}
-    onchange={(v) => update((x) => (x.entry.decline.dropPct.value = v))}
+    toggle={{ checked: d.dropPct.on, onchange: (v) => update((e) => (e.decline.dropPct.on = v)) }}
+    onchange={(v) => update((e) => (e.decline.dropPct.value = v))}
   />
 </div>
 <div class="row">
@@ -45,8 +45,8 @@
     step={1}
     suffix="일 이상"
     muted={!d.days.on}
-    toggle={{ checked: d.days.on, onchange: (v) => update((x) => (x.entry.decline.days.on = v)) }}
-    onchange={(v) => update((x) => (x.entry.decline.days.value = v))}
+    toggle={{ checked: d.days.on, onchange: (v) => update((e) => (e.decline.days.on = v)) }}
+    onchange={(v) => update((e) => (e.decline.days.value = v))}
   />
 </div>
 
@@ -60,13 +60,13 @@
     step={1}
     suffix="일 이상"
     muted={!t.reboundDays.on}
-    toggle={{ checked: t.reboundDays.on, onchange: (v) => update((x) => (x.entry.triggers.reboundDays.on = v)) }}
-    onchange={(v) => update((x) => (x.entry.triggers.reboundDays.value = v))}
+    toggle={{ checked: t.reboundDays.on, onchange: (v) => update((e) => (e.triggers.reboundDays.on = v)) }}
+    onchange={(v) => update((e) => (e.triggers.reboundDays.value = v))}
   />
 </div>
 <div class="row">
   <label for="{uid}-bo">전 고점 돌파</label>
-  <Toggle id="{uid}-bo" label="전 고점 돌파 사용" checked={t.breakout.on} onchange={(v) => update((x) => (x.entry.triggers.breakout.on = v))} />
+  <Toggle id="{uid}-bo" label="전 고점 돌파 사용" checked={t.breakout.on} onchange={(v) => update((e) => (e.triggers.breakout.on = v))} />
 </div>
 <div class:muted={!t.breakout.on}>
   <Segmented
@@ -74,7 +74,7 @@
     onSurface
     label="전 고점"
     value={t.breakout.level}
-    onchange={(v) => update((x) => (x.entry.triggers.breakout.level = v as 'A' | 'B'))}
+    onchange={(v) => update((e) => (e.triggers.breakout.level = v as 'A' | 'B'))}
     options={[
       { value: 'A', label: 'A 하락 시작 전 고점' },
       { value: 'B', label: 'B 마지막 반등 고점' },
@@ -91,20 +91,20 @@
     step={1}
     suffix="일선"
     muted={!t.maCross.on}
-    toggle={{ checked: t.maCross.on, onchange: (v) => update((x) => (x.entry.triggers.maCross.on = v)) }}
-    onchange={(v) => update((x) => (x.entry.triggers.maCross.period = v))}
+    toggle={{ checked: t.maCross.on, onchange: (v) => update((e) => (e.triggers.maCross.on = v)) }}
+    onchange={(v) => update((e) => (e.triggers.maCross.period = v))}
   />
 </div>
 <div class="row">
   <label for="{uid}-gc">골든크로스</label>
-  <Toggle id="{uid}-gc" label="골든크로스 사용" checked={t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.on = v))} />
+  <Toggle id="{uid}-gc" label="골든크로스 사용" checked={t.goldenCross.on} onchange={(v) => update((e) => (e.triggers.goldenCross.on = v))} />
 </div>
 <div class="indent">
   <div class="row">
-    <NumberField label="짧은 이동평균" {...nf?.('short')} value={t.goldenCross.short} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.short = v))} />
+    <NumberField label="짧은 이동평균" {...nf?.('short')} value={t.goldenCross.short} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((e) => (e.triggers.goldenCross.short = v))} />
   </div>
   <div class="row">
-    <NumberField label="긴 이동평균" {...nf?.('long')} value={t.goldenCross.long} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((x) => (x.entry.triggers.goldenCross.long = v))} />
+    <NumberField label="긴 이동평균" {...nf?.('long')} value={t.goldenCross.long} min={2} max={250} step={1} suffix="일" muted={!t.goldenCross.on} onchange={(v) => update((e) => (e.triggers.goldenCross.long = v))} />
   </div>
 </div>
 
@@ -118,8 +118,8 @@
     step={1}
     suffix="일선"
     muted={!f.on}
-    toggle={{ checked: f.on, onchange: (v) => update((x) => (x.entry.filter.aboveMa.on = v)) }}
-    onchange={(v) => update((x) => (x.entry.filter.aboveMa.period = v))}
+    toggle={{ checked: f.on, onchange: (v) => update((e) => (e.filter.aboveMa.on = v)) }}
+    onchange={(v) => update((e) => (e.filter.aboveMa.period = v))}
   />
 </div>
 

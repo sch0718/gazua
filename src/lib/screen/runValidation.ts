@@ -10,7 +10,7 @@ import { holdSelection, type HoldSegment } from './holdSelection';
 import { rankFinOf } from './fin';
 import { lastKnown, trendAt } from './macro';
 import { beatCount, curveStats } from './metrics';
-import { MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
+import { MissingPatternError, MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
 import { betaMissingAt, finMissingAt, flowMissingAt, selectAt, type Selection } from './select';
 import type { MacroSeriesKey, Market, SelectionCriteria } from './types';
 import { strategyRuleIssues, usesFin, usesFlow } from './validate';
@@ -50,12 +50,13 @@ export interface ValidationResult {
   notes: ValidationNote[];
 }
 
-export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'invalid-strategy' | 'no-macro' | 'no-flow' | 'no-fin';
+export type ValidationErrorCode = 'no-rebalance' | 'invalid-number' | 'missing-strategy' | 'missing-pattern' | 'invalid-strategy' | 'no-macro' | 'no-flow' | 'no-fin';
 
 export const ERROR_TEXT: Record<ValidationErrorCode, string> = {
   'no-rebalance': '기간 안에 재선정일이 없어요',
   'invalid-number': '계산 중 잘못된 숫자가 나왔어요',
   'missing-strategy': '매매 규칙 전략이 지워졌어요',
+  'missing-pattern': '반등 패턴에 고른 전략에 반등 패턴이 없어요',
   'invalid-strategy': '매매 규칙 전략에 고칠 곳이 있어요',
   'no-macro': '이 데이터에는 환율·유가가 없어요',
   'no-flow': '이 데이터에는 투자자 매매동향이 없어요',
@@ -315,7 +316,7 @@ export function runValidation(
 const usesMarketCapFin = (c: SelectionCriteria): boolean =>
   c.conditions.fin.per.on || c.conditions.fin.pbr.on || (c.rank.by === 'fin' && (rankFinOf(c) === 'per' || rankFinOf(c) === 'pbr'));
 
-// ②: 참조 전략에서 매수·매도 규칙과 1회 매수 비율만 쓰고 나머지는 기준 값으로 바꾼다(스펙 6.3)
+// ②: 참조 전략에서 매수·매도 규칙과 배분만 쓰고 나머지는 기준 값으로 바꾼다(스펙 6.3)
 function runTrading(
   ref: Strategy,
   criteria: SelectionCriteria,
@@ -326,10 +327,13 @@ function runTrading(
   indexCandles: (id: Market) => Candle[] | null,
 ): NonNullable<ValidationResult['trading']> {
   const firstIndex = criteria.benchmarks.indices[0] ?? null;
+  // 균등 배분은 재선정마다 종목이 바뀌어 누적 종목 수로 나누면 금액이 너무 작아진다. 보유 곡선(holdSelection)과 맞춰 한 번에 뽑는 수로 나눈다(§7)
+  const sizing = ref.sizing.mode === 'equal' ? { mode: 'equityPct' as const, pct: 100 / criteria.rank.take } : { ...ref.sizing };
   const strategy: Strategy = {
     ...ref,
     period: { ...criteria.period },
-    capital: { initial: criteria.capital, perBuyPct: ref.capital.perBuyPct },
+    capital: { initial: criteria.capital },
+    sizing,
     costs: { feePct: criteria.costs.feePct },
     benchmarks: { index: firstIndex ?? 'KOSPI', symbol: null },
   };
@@ -402,6 +406,7 @@ export type WorkerErrorCode = ValidationErrorCode | 'no-data' | 'crash';
 export function errorCode(e: unknown): WorkerErrorCode {
   if (e instanceof ValidationError) return e.code;
   if (e instanceof MissingStrategyError) return 'missing-strategy';
+  if (e instanceof MissingPatternError) return 'missing-pattern';
   return 'crash';
 }
 

@@ -1,10 +1,15 @@
 <script lang="ts">
-  // 기간·자금: 시작일·종료일(KST), 처음 자금, 회당 매수 비중.
+  // 기간·자금: 시작일·종료일(KST), 처음 자금, 배분 방식.
   import { MAX_INITIAL } from '../../../sim/defaults';
-  import type { Strategy } from '../../../sim/types';
+  import { roundMoney } from '../../../sim/money';
+  import type { SizingMode, Strategy } from '../../../sim/types';
+  import { Segmented } from '@sch0718/ui-svelte';
+  import { money } from '../simText';
   import NumberField from './NumberField.svelte';
 
-  let { s, update }: { s: Strategy; update: (fn: (s: Strategy) => void) => void } = $props();
+  let { s, update, count }: { s: Strategy; update: (fn: (s: Strategy) => void) => void; count: number } = $props();
+
+  const SUFFIX: Record<Exclude<SizingMode, 'equal'>, string> = { fixed: '% (처음 자금 대비)', equityPct: '% (그날 총자산 대비)', cashPct: '% (남은 현금 대비)' };
 
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -34,11 +39,34 @@
 <div class="row">
   <NumberField label="처음 자금" value={s.capital.initial} min={1} max={MAX_INITIAL} step={1} suffix="원" format="won" onchange={(v) => update((x) => (x.capital.initial = v))} />
 </div>
-<div class="row">
-  <NumberField label="회당 매수 비중" value={s.capital.perBuyPct} min={1} max={100} suffix="% (처음 자금 대비)" onchange={(v) => update((x) => (x.capital.perBuyPct = v))} />
-</div>
+<span class="seg-label">배분 방식</span>
+<Segmented
+  wide
+  wrap
+  onSurface
+  label="배분 방식"
+  value={s.sizing.mode}
+  onchange={(v) => update((x) => (x.sizing.mode = v as SizingMode))}
+  options={[
+    { value: 'fixed', label: '처음 자금' },
+    { value: 'equityPct', label: '총자산' },
+    { value: 'cashPct', label: '남은 현금' },
+    { value: 'equal', label: '균등' },
+  ]}
+/>
+{#if s.sizing.mode === 'equal'}
+  <p class="hint">처음 자금 ÷ 종목 수(지금 {count}종목 → 회당 {money(count ? roundMoney(s.capital.initial / count) : 0)})</p>
+{:else}
+  <div class="row">
+    <NumberField label="회당 비율" value={s.sizing.pct} min={1} max={100} suffix={SUFFIX[s.sizing.mode]} onchange={(v) => update((x) => (x.sizing.pct = v))} />
+  </div>
+{/if}
 
 <style>
+  .seg-label {
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
   .dates {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

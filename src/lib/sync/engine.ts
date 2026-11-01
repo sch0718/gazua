@@ -4,21 +4,24 @@
 // - 삭제는 tombstone이다. 오래 오프라인이던 기기가 지운 프로필을 되살리지 못한다.
 // - 원격 적용은 같은 ID를 쓰고, 이 기기의 기존 프로필을 동의 없이 덮어쓰지 않는다.
 import type { ApiFail, SyncApi } from './api';
+import { toV2 } from '../sim/strategyV1';
 import { docName } from './profileDoc';
-import type { ProfileDocV1 } from './dto';
+import { APP_OUTDATED_CODE, PROFILE_DOC_VERSION, type ProfileDoc } from './dto';
 import { docHash } from './hash';
 import type { Conflict, OutboxOp, ProfileSyncState, SyncStore } from './store';
 
 /** 앱의 프로필 저장소. 원격 적용·삭제는 변경 알림을 내지 않는다(다시 올리지 않게). */
 export interface LocalProfiles {
   list(): { id: string; name: string }[];
-  read(id: string): ProfileDocV1;
+  read(id: string): ProfileDoc;
+  /** 옛 탭이 남긴 v1 확인 해시를 그 문서에서 옮긴 v2 해시로 앞당긴다. 실제 로컬 수정은 섞지 않는다. */
+  migrateSyncedHash?(id: string, hash: string): Promise<string | null>;
   /** 같은 ID에 쓴다. 없으면 추가한다. */
-  write(id: string, doc: ProfileDocV1): void;
+  write(id: string, doc: ProfileDoc): void;
   /** 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. */
   remove(id: string): void;
   /** 새 ID 프로필을 만든다(충돌 사본·복원). */
-  create(doc: ProfileDocV1): string;
+  create(doc: ProfileDoc): string;
   /** 쓴 것이 이 기기 저장소에 실제로 남는지(저장 실패로 메모리에만 반영 중이면 false). 없으면 늘 남는다고 본다. */
   durable?(): boolean;
 }
@@ -107,8 +110,10 @@ export function suffixed(name: string, suffix: string): string {
   return docName(`${[...docName(name)].slice(0, room).join('').trim()}${suffix}`);
 }
 const MAX_BACKOFF = 5 * 60 * 1000;
+/** 이 앱보다 높은 버전 문서를 만났을 때의 안내 */
+export const APP_OUTDATED_TEXT = '앱을 새로 고쳐 주세요. 새 버전에서 만든 데이터가 있어요.';
 /** 두 문서가 같은지(동기, 그 사이 다른 코드가 끼어들지 않는다). */
-const sameDoc = (a: ProfileDocV1, b: ProfileDocV1) => JSON.stringify(a) === JSON.stringify(b);
+const sameDoc = (a: ProfileDoc, b: ProfileDoc) => JSON.stringify(a) === JSON.stringify(b);
 /** 응답을 못 받은 업로드 중 지금 문서와 다른 것이 있나. 있으면 마지막 확인 해시만으로 "안 바뀜"이라 보면 안 된다. */
 const unackedOther = (ops: OutboxOp[], id: string, hash: string) => ops.some((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
 const BASE_BACKOFF = 5000;
@@ -184,7 +189,22 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
     await store.putState({ profileId, syncedRevision: revision, syncedHash: hash, ...extra });
   }
 
+  /** 받은 v1을 옮긴 해시를 구한다. 대기 중 실제 로컬 수정은 섞지 않는다. */
+  function migratedHash(doc: ProfileDoc): Promise<string> {
+    return docHash(doc.v === 1 ? { ...doc, v: 2, strategies: doc.strategies.map(toV2) } : doc);
+  }
+
   // ── 큐에 넣기 ──────────────────────────────────────────
+
+  async function profileState(id: string): Promise<ProfileSyncState | undefined> {
+    const st = await store.state(id);
+    if (!st || st.deleted) return st;
+    const hash = await local.migrateSyncedHash?.(id, st.syncedHash);
+    if (!hash || hash === st.syncedHash) return st;
+    const next = { ...st, syncedHash: hash };
+    await store.putState(next);
+    return next;
+  }
 
   async function enqueueChanged(): Promise<void> {
     const conflicts = new Set((await store.conflicts()).map((c) => c.profileId));
@@ -193,7 +213,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       if (conflicts.has(p.id)) continue;
       const doc = local.read(p.id);
       const hash = await docHash(doc);
-      const st = await store.state(p.id);
+      const st = await profileState(p.id);
       const unsent = ops.filter((o) => o.profileId === p.id && o.sentAt === undefined);
       // 응답을 못 받은 업로드가 다른 내용이면, 그것이 다시 보내져 서버가 바뀐다. 지금 문서가 확인된 것과 같아도 뒤에 다시 올려야 한다.
       const sentOther = ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
@@ -247,6 +267,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           });
         } else if (r.kind === 'invalid') {
           await store.putState({ ...(st ?? { profileId: op.profileId, syncedRevision: 0, syncedHash: '' }), rejectedHash: op.hash, rejectedCode: r.code });
+          if (r.code === APP_OUTDATED_CODE && !status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
         } else {
           return failed(r);
         }
@@ -279,7 +300,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const id = row.profileId;
       remoteIds.add(id);
       if (conflicts.has(id) || ops.some((o) => o.profileId === id && o.kind === 'delete')) continue;
-      const st = await store.state(id);
+      const st = await profileState(id);
 
       if (row.deletedAt !== null) {
         if (st?.deleted && st.syncedRevision >= row.revision) continue;
@@ -305,13 +326,23 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const got = await api.getProfile(id);
       if (!got.ok) {
         if (got.kind === 'gone' || got.kind === 'not-found') continue;
+        if (got.kind === 'invalid' && got.code === APP_OUTDATED_CODE) {
+          if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+          continue;
+        }
         return failed(got);
+      }
+      // 이 앱보다 높은 버전 문서는 쓰지 않는다(Worker가 막지만 한 번 더, §8.3).
+      if (typeof got.data.doc.v !== 'number' || got.data.doc.v > PROFILE_DOC_VERSION) {
+        if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+        continue;
       }
       const remoteHash = await docHash(got.data.doc);
       if (!localIds.has(id)) {
         local.write(id, got.data.doc);
         if (local.durable && !local.durable()) return 'error';
-        await setSynced(id, got.data.revision, remoteHash);
+        // v1을 옮긴 것만으로 올리지 않게 적용한 로컬 v2의 해시를 확인한다(§8.3).
+        await setSynced(id, got.data.revision, got.data.doc.v === 1 ? await docHash(local.read(id)) : remoteHash);
         continue;
       }
       const doc = local.read(id);
@@ -321,7 +352,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const sent = ops.find((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash === remoteHash);
       if (sent) {
         await store.deleteOp(sent.opId);
-        await setSynced(id, got.data.revision, remoteHash);
+        await setSynced(id, got.data.revision, got.data.doc.v === 1 ? await migratedHash(got.data.doc) : remoteHash);
         continue; // 로컬이 다르면 이어지는 보내기가 새 작업으로 올린다
       }
       if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash && !unackedOther(ops, id, localHash))) {
@@ -336,8 +367,10 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           local.write(id, got.data.doc);
           if (local.durable && !local.durable()) return 'error';
         }
+        // 대기 작업을 정리하는 동안 생긴 실제 수정을 확인 해시에 섞지 않는다.
+        const syncedHash = got.data.doc.v === 1 ? await docHash(local.read(id)) : remoteHash;
         await dropOps(id);
-        await setSynced(id, got.data.revision, remoteHash);
+        await setSynced(id, got.data.revision, syncedHash);
         continue;
       }
       await dropOps(id);
@@ -488,13 +521,13 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             }
             local.write(profileId, c.remote);
             if (unsaved()) return stop();
-            await setSynced(profileId, c.remoteRevision, remoteHash);
+            await setSynced(profileId, c.remoteRevision, c.remote.v === 1 ? await docHash(local.read(profileId)) : remoteHash);
           } else return;
         } else {
           if (choice === 'restore') {
             if (c.deletedAt !== null) {
               const r = await api.restoreProfile(profileId, uuid());
-              if (r.ok) await setSynced(profileId, r.data.revision, await docHash(r.data.doc));
+              if (r.ok) await setSynced(profileId, r.data.revision, await migratedHash(r.data.doc));
               else if (r.kind === 'gone' && r.deletedAt !== null) {
                 // 복구 기간은 지났지만 tombstone이 아직 있다: 같은 ID로는 되살릴 수 없으니 이 기기 것을 새 프로필로 남겨 올린다
                 const mine = local.list().some((p) => p.id === profileId) ? local.read(profileId) : c.local;

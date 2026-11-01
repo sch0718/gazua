@@ -236,10 +236,10 @@ export function condReason(c: Cond): string;                 // §4.6
 
 ### 4.4 손절·익절 끄기 (`Position`)
 
-- `openPosition(price, qty, scaleIn, sell, amount)`로 바꿔요. `sell`은 `rules.sell`, `amount`는 §6.1의 포지션 금액이에요.
+- `openPosition(price, qty, scaleIn, sell)`로 바꿔요. `sell`은 `rules.sell`이에요. 포지션 금액(§6.1)은 `Position`이 아니라 엔진의 종목 상태 `SymState.posAmount`에 둬요(구현 계획에서 정함, `Position` API를 덜 바꾸고 결과는 같아요).
 - `stopLoss.on = false`면 기본 손절가가 없어요(`null`). 다만 `afterFirstTake: 'breakeven'`은 익절 설정이라 1단계 익절 뒤 평단 손절이 살아요. 지금 `stopPrice()`의 `base === null ? avg()` 분기 그대로예요.
 - `takeProfit.on = false`면 `takeLevels()`가 빈 배열이에요.
-- 새 멤버 `trailPrice(): number | null`, `markClose(close: number): void`(peak 갱신), `readonly amount: number`.
+- 새 멤버 `trailPrice(): number | null`, `markClose(close: number): void`(peak 갱신).
 
 ### 4.5 동시 신호 우선순위
 
@@ -337,7 +337,7 @@ export function condReason(c: Cond): string;                 // §4.6
 | `cashPct` | roundMoney(그 순간 남은 현금 × pct / 100). 같은 시가에 앞 종목이 사면 줄어든 현금으로 계산해요 |
 | `equal` | roundMoney(initial / 종목 수). 종목 수는 엔진의 `input.stocks.length`(실제로 받은 종목) |
 
-- 금액은 포지션을 열 때 한 번 정해 포지션에 붙여요(`Position.amount`). 추가 매수(`walkBar`의 `ctx.amount`)도 그 금액을 써요. 지금은 늘 같은 금액이라 결과가 같아요.
+- 금액은 포지션을 열 때 한 번 정해 종목 상태에 붙여요(`SymState.posAmount`). 추가 매수(`walkBar`의 `ctx.amount`)도 그 금액을 써요. 지금은 늘 같은 금액이라 결과가 같아요.
 - 「그날 총자산」을 전 거래일 종가로 정한 이유: 시가 체결 전에는 오늘 종가를 몰라요. 같은 날 앞 종목 매수로 총자산이 바뀌지도 않아요.
 - `equal`의 종목 수는 받지 못한 종목을 빼요. 편집 화면 안내(§10.4)는 고른 종목 수로 보이니, 일부 종목을 받지 못하면 실제 금액이 안내보다 커져요. 결과 화면의 받지 못한 종목 안내가 이미 있어 따로 알리지 않아요.
 
@@ -404,16 +404,17 @@ export function condReason(c: Cond): string;                 // §4.6
 같은 키를 제자리에서 바꾸면 위험해요. 같은 브라우저의 옛 탭(같은 출처)이 바뀐 키를 읽어 기본값으로 채우고, 그대로 저장하거나 올릴 수 있어요. 그래서 v2는 **새 키**에 둬요.
 
 - 새 키: `p:<id>:strategySet`(`profileKeys.strategySet`). 저장소 키는 문서 필드가 아니지만, 혹시 섞여도 걸리지 않게 금지 키와 겹치지 않는 이름으로 골랐어요.
+- 파생 기록: `p:<id>:strategySetBase`(`profileKeys.strategySetBase`)에 `{ v1, v2 }`를 둬요. 각 목록의 키를 정렬한 JSON 지문이며, 동기화하지 않아요. 옮길 때 둘 다 기록하고, 새 탭 저장·v2 수신 때는 `v1`을 유지하고 `v2`만 갱신해요. `v1`에서 복원해 옮긴 목록과 비교하면 새 탭의 실제 수정도 구분할 수 있어요.
 - 옛 키 `p:<id>:strategies`는 새 앱이 **쓰지 않아요.** 옮긴 뒤 옛 키가 곧 백업이에요. 따로 백업 키를 만들지 않아요.
 - `loadStrategies`(`strategyStore.ts`)
-  1. 새 키가 있으면 v2 검증으로 읽어요.
+  1. 새 키가 있으면 v2 검증으로 읽어요. base가 없으면 현재 옛 목록(없으면 빈 목록)과 새 목록으로 base만 만들어요. base가 있고 옛 키만 달라졌으면 다시 옮겨요. 현재 v2가 `base.v2`와 같으면서 `base.v1`을 옮긴 목록과도 같을 때만 다시 옮겨 새 탭의 수정을 보존해요.
   2. 없으면 옛 키를 v1 검증 → `toV2`로 옮기고 `st.trySet(새 키, …)`로 써요. 쓰기에 실패하면 옮긴 값을 메모리로만 쓰고, 다음에 다시 옮겨요(옛 키가 그대로라 결과가 같아요).
   3. 옮기기는 「고침」이 아니라 배너(`reportCorrupt`)를 띄우지 않아요. v1 검증에서 실제로 고친 것이 있을 때만 띄워요.
 - `saveStrategies`·`app.svelte.ts`의 전략 쓰기(지금 `write(profileKeys.strategies(...))`)는 새 키에 써요.
 - `applyProfileDoc`(`src/lib/sync/profileDoc.ts`)
   - v2 문서: 새 키에 써요. 옛 키는 손대지 않아요.
   - v1 문서(아직 옮기지 않은 기기가 올린 서버 문서): 옛 키에 v1을 쓰고, 그 자리에서 `toV2`로 옮긴 결과를 새 키에도 써요. 지우기에 기대 다음 읽기를 기다리지 않아요. 그 사이 다른 코드가 새 키를 읽어 옛 내용을 보는 틈이 없어요.
-- `onStorage`(`app.svelte.ts`)의 동기화 키 목록에 새 키를 더해요. 옛 키는 v1 문서를 받을 때만 바뀌니 목록에 남겨 둬요.
+- `onStorage`(`app.svelte.ts`)는 새 키·옛 키·base 키의 변경을 받고 화면 전략도 다시 읽어요. `removeProfile`은 세 키를 모두 지워요.
 
 #### 옛 키를 쓰는 곳 전체 (16dd479, PR②에서 바꿈)
 
@@ -455,7 +456,7 @@ export function condReason(c: Cond): string;                 // §4.6
 - 「옮김 → 수정 → 재시작」 경우: 첫 시작에 `syncedHash`가 H2가 돼요. 사용자가 새 키를 고친 뒤 올리기 전에 앱을 닫았다 열어도, `syncedHash`(H2)가 H1이 아니라 앞당기지 않아요. 그래서 고친 내용이 「변경 있음」으로 남아 올라가요. H2를 새 키 내용으로 계산하면 이 수정이 「확인된 상태」로 잘못 쳐져 영영 올라가지 않아요.
 - 이러면 옮기기는 「확인된 상태」로 쳐요. 이 기기에 실제 수정이 없으면 서버의 새 리비전을 그대로 받아요.
 - 이 기기에서 확인되지 않은 수정이 있었으면(`syncedHash ≠ H1`) 앞당기지 않아요. 지금처럼 보내기·충돌 규칙을 따라요.
-- 서버가 아직 v1이면 다음 `enqueueChanged()`가 v2를 올려요. H2 ≠ 서버 해시라도 리비전이 같으니 충돌 없이 받아들여져요. 여러 기기가 같은 v1을 옮기면 같은 H2가 나와 서로 충돌하지 않아요.
+- 받기(`pull`)나 충돌 해결(`take-remote`·`keep-both`)로 v1 문서를 적용하면, 적용 뒤 `local.read(id)`가 돌려주는 옮긴 v2 문서의 해시를 `syncedHash`로 저장해요. 서버는 v1으로 남고 실제 로컬 수정이 있을 때만 다음 `enqueueChanged()`가 v2를 올려요. 옮기기만으로 옛 기기를 잠그거나 서버 리비전이 바뀌었을 때 가짜 충돌을 만들지 않아요.
 
 #### 지금 옛 앱이 실제로 하는 일 (코드 확인, 16dd479)
 
@@ -544,14 +545,17 @@ export function condReason(c: Cond): string;                 // §4.6
 
 #### 옛 탭에서 고친 것의 한계
 
-같은 브라우저에서 옛 탭과 새 탭이 함께 열려 있는 짧은 동안의 일이에요. 막지 않고 한계로 남겨요.
+같은 브라우저에서 옛 탭과 새 탭이 함께 열려 있는 짧은 동안의 일이에요. 두 탭이 모두 고친 전략을 합치지는 않아요.
 
 | 상황 | 결과 |
 |---|---|
-| 옮긴 뒤 옛 탭에서 전략을 고침 | 옛 키에만 써져요. 새 앱은 새 키가 있으면 옛 키를 읽지 않아 이 수정은 새 앱에 보이지 않아요 |
+| 옮긴 뒤 옛 탭에서 전략을 고침 | 옛 키에 써져요. 새 탭에서 고치지 않았으면 다시 옮기고, 새 탭에서도 고쳤으면 새 키를 유지해요 |
 | 위 수정을 옛 탭이 올림, 서버가 v2 | 422(§8.6). 서버는 그대로예요 |
-| 위 수정을 옛 탭이 올림, 서버가 아직 v1 | 옛 탭 수정은 새 탭의 다음 v2 올리기에 덮여요(서버 리비전 기록으로만 되찾을 수 있어요) |
-| 옛 탭을 새로 고침 | 새 앱이 돼요. 옛 키의 수정은 새 키가 이미 있어 쓰이지 않아요. 옛 키는 백업으로 남아요 |
+| 위 수정을 옛 탭이 올림, 서버가 아직 v1 | 새 탭에서 고치지 않았으면 다시 옮겨 보존해요. 둘 다 고쳤으면 새 탭 것이 이겨요 |
+| 옛 탭이 받은 것: 다른 기기의 v1 수정을 옛 키와 확인 해시에만 반영함 | 새 탭에서 고치지 않았으면 옛 키를 다시 옮겨 원격 수정을 보존해요. 둘 다 고쳤으면 새 탭 것이 이겨요 |
+| 옛 탭을 새로 고침 | 새 앱이 돼요. base가 있으면 같은 규칙으로 다시 옮기고, base가 없으면 현재 두 목록을 기록하고 새 키를 유지해요. 옛 키는 백업으로 남아요 |
+
+새 앱은 동기화할 때 옛 탭이 남긴 v1 확인 해시도 해당 v1에서 옮긴 v2 해시로 앞당겨요. `enqueueChanged`는 현재 문서의 해시가 이 확인 해시와 같은지로 로컬 수정을 판단해요. 옛 키의 v1 해시가 같다는 이유로 실제 수정의 올리기를 건너뛰지는 않아요.
 
 ### 8.7 PR 나누기와 배포 순서
 
@@ -588,7 +592,8 @@ export function condReason(c: Cond): string;                 // §4.6
 | 지금 | 모두 v1 | 그대로 | — | — |
 | PR① 배포 후 | 모두 v1, `doc_v = 1` | 그대로(요청 버전 1, 저장 버전 1이라 가리기·거절이 걸리지 않아요) | 옛 앱과 같아요 | — |
 | PR② 배포 후, 아무도 아직 안 엶 | v1 | 그대로 | 그대로 | — |
-| PR② 앱이 한 번 엶 | 그 프로필 v2, `doc_v = 2` | 그 프로필 받기 422, 올리기 422(§8.6) | 옛 앱과 같아요(버전 1 클라이언트). v2 공유 열기는 `unsupported` | v1은 받아 옮김, v2 주고받음 |
+| PR② 앱이 한 번 엶 | v1 그대로 | 그대로 | 그대로 | v1을 받아 옮기고 로컬 v2 해시를 확인 해시로 저장 |
+| PR② 앱에서 실제 로컬 수정 | 그 프로필 v2, `doc_v = 2` | 그 프로필 받기 422, 올리기 422(§8.6) | 옛 앱과 같아요(버전 1 클라이언트). v2 공유 열기는 `unsupported` | 수정한 v2를 올리고 v2 주고받음 |
 
 PR①만 배포된 상태에서 옛 앱이 전과 똑같이 도는지는 `profiles.test.ts`·`shares.test.ts`의 「쿼리 없음 + v1 문서」 경로 테스트로 확인해요(§12.4). 응답 모양이 바뀌지 않는지(409 본문 `doc` 포함, 200 본문)를 지금 테스트 그대로 통과시켜요.
 
@@ -727,7 +732,7 @@ export interface DayFrame {
 
 ### 12.2 지표 (`indicators.test.ts`, 새 파일)
 
-- `rsi`: 널리 쓰이는 14일 예시표(StockCharts의 44.34, 44.09, … 시작 표). 첫 값 70.53, 다음 66.32(소수 둘째 자리). 원본 표와 숫자 대조는 확인 필요(§14).
+- `rsi`: StockCharts의 14일 예시표(원본 넷째 자리 종가 44.3389, 44.0902, …). 첫 값 70.533, 다음 66.319(PR② 계획 검토에서 확인).
 - `rsi` 특수값: 계속 오름 → 100, 변화 없음 → 50, `start + n` 앞은 `null`.
 - `rsi` 시작점: 워밍업 길이만 다른 두 입력에서 기간 안 값이 같아요.
 - `volumeRatio`: 오늘 제외 평균, `v ≤ 0` 봉 제외, 오늘 0 → `null`, 창 안에 값 없음 → `null`.
@@ -782,7 +787,7 @@ export interface DayFrame {
 
 ## 14. 확인 필요
 
-1. RSI 예시표 숫자(70.53, 66.32)는 기억에 기댄 값이에요. 구현 때 원본 표와 대조해야 해요.
+1. ~~RSI 예시표 숫자~~ — 해소: 원본 넷째 자리 종가로 70.533·66.319를 확인했어요(PR② 계획 검토).
 2. 템플릿 숫자(§3.4)를 이대로 둘지.
 
 검토 1회차에서 답을 받은 항목(트레일링 기준, `equityPct` 기준, `runTrading`의 `equal`, 거래량 값 없음, RSI 시작점, 쿼리 자리, 422 코드, `Segmented` 줄바꿈, 옛 앱의 v2 공유 문구)은 본문에 반영했어요.
@@ -796,7 +801,7 @@ export interface DayFrame {
 | `src/lib/sim/types.ts` | ①(`Trade['kind']` 3종) ②(나머지) | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
 | `src/lib/sim/strategyV2.ts` | ① | 새 파일: `StrategyV2`, `sanitizeStrategiesV2` |
 | `src/lib/sim/strategyV1.ts` | ② | 새 파일: `StrategyV1`, `sanitizeStrategiesV1`(옮김), `toV2` |
-| `src/lib/sim/validate.ts` | ② | 꼬리 없는 `sanitizeStrategies` 없앰(호출처는 `…V1`·`…V2`로), `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
+| `src/lib/sim/validate.ts` | ② | 꼬리 없는 `sanitizeStrategies` 없앰(호출처는 `…V1`·`…V2`로), `sanitizeEntry`는 이름을 유지하고 `strategyV1.ts`로 옮김(Worker 경로 `sanitizeCriteria`가 씀), `ruleIssues`·`strategyIssues` |
 | `src/lib/sync/dto.ts` | ① | v1·v2 검사, `unsupported`, `APP_OUTDATED_CODE` |
 | `src/lib/share/snapshot.ts` | ①(create v1·v2, read v1만) ②(read 옮기기, v2 생성) | §8.4 |
 | `src/lib/share/checkResult.ts`, `resultEnums.ts`, `src/lib/ui/simulate/markers.ts` | ① | 새 체결 종류(`markers.ts`는 라벨·색) |
@@ -804,7 +809,7 @@ export interface DayFrame {
 | `sync-worker/src/shares.ts` | ①(테스트만) | 코드 변경 없음, v2 생성 테스트 |
 | `src/lib/sim/indicators.ts`, `src/lib/screen/precompute.ts` | ② | `rsi`·`volumeRatio`, `rollingMax` 이동 |
 | `src/lib/sim/rules.ts` | ② | 새 파일: 평가기, `rulesLookback`, `condReason` |
-| `src/lib/sim/position.ts` | ② | `sell`·`amount` 인자, 끄기, `trailPrice`·`markClose` |
+| `src/lib/sim/position.ts` | ② | `sell` 인자, 끄기, `trailPrice`·`markClose` |
 | `src/lib/sim/simulate.ts` | ② | 평가기, 예약 매도, `sellQty`, 트레일 floor, 배분, `dayFrame` 필드 |
 | `src/lib/sim/summary.ts` | ② | `nearMiss`가 `stats()` null 처리 |
 | `src/lib/sim/defaults.ts`, `templates.ts`(새) | ② | v2 기본값, `defaultPatternEntry`, 템플릿 |

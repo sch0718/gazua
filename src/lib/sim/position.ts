@@ -1,6 +1,9 @@
 import { roundMoney } from './money';
 import type { Strategy } from './types';
 
+/** 포지션이 쓰는 매도 규칙(rules.sell). 기간 청산·조건 매도는 엔진이 다룬다 */
+export type SellRules = Strategy['rules']['sell'];
+
 export interface Position {
   readonly qty: number;
   readonly initialQty: number;
@@ -15,6 +18,10 @@ export interface Position {
   stopPrice(): number | null;
   nextAddPrice(): number | null;
   takeLevels(): { stage: number; price: number; qty: number }[];
+  /** 다음 거래일 장중에 쓰는 트레일 가격(보유 중 최고 종가 × (1 − pct)). 꺼져 있으면 null */
+  trailPrice(): number | null;
+  /** 그날 종가로 트레일 기준가를 갱신한다 */
+  markClose(close: number): void;
 }
 
 /** q주의 총비용(수수료 포함, 0.0001원 단위). 매수 현금 차감과 같은 식 */
@@ -33,7 +40,7 @@ export function openPosition(
   price: number,
   qty: number,
   scaleIn: Strategy['scaleIn'],
-  exit: Strategy['exit'],
+  sell: SellRules,
 ): Position {
   if (!(qty > 0)) throw new Error('수량은 0보다 커야 합니다');
   let held = qty;
@@ -43,6 +50,7 @@ export function openPosition(
   let addCount = 0;
   let sold = false;
   let stages = 0;
+  let peak = price; // 트레일 기준가: 매수가와 보유 중 종가의 최댓값(추가 매수로 바뀌지 않는다)
 
   const avg = () => cost / bought;
   const scaleInDone = () => !scaleIn.on || addCount >= scaleIn.maxAdds || sold;
@@ -75,13 +83,16 @@ export function openPosition(
     },
 
     stopPrice() {
-      const { basis, pct } = exit.stopLoss;
+      const { on, basis, pct } = sell.stopLoss;
       const f = 1 - pct / 100;
-      let base: number | null;
-      if (basis === 'firstBuy') base = price * f;
-      else if (basis === 'avgAlways') base = avg() * f;
-      else base = scaleInDone() ? avg() * f : null;
-      if (stages >= 1 && exit.afterFirstTake === 'breakeven') {
+      let base: number | null = null;
+      if (on) {
+        if (basis === 'firstBuy') base = price * f;
+        else if (basis === 'avgAlways') base = avg() * f;
+        else base = scaleInDone() ? avg() * f : null;
+      }
+      // 본전 손절은 익절에 딸린 설정이라 손절을 꺼도 1단계 익절 뒤에는 산다(스펙 §4.4)
+      if (stages >= 1 && sell.takeProfit.afterFirstTake === 'breakeven') {
         return base === null ? avg() : Math.max(base, avg());
       }
       return base;
@@ -93,16 +104,26 @@ export function openPosition(
     },
 
     takeLevels() {
-      const n = exit.takeProfit.length;
+      if (!sell.takeProfit.on) return [];
+      const tp = sell.takeProfit.stages;
+      const n = tp.length;
       const a = avg();
       const out: { stage: number; price: number; qty: number }[] = [];
-      exit.takeProfit.forEach((t, i) => {
+      tp.forEach((t, i) => {
         const stage = i + 1;
         if (stage <= stages) return;
         const q = stage === n ? held : Math.min(held, Math.floor((bought * t.sellPct) / 100));
         out.push({ stage, price: a * (1 + t.pct / 100), qty: q });
       });
       return out;
+    },
+
+    trailPrice() {
+      return sell.trailing.on ? peak * (1 - sell.trailing.pct / 100) : null;
+    },
+
+    markClose(close) {
+      if (close > peak) peak = close;
     },
   };
 }

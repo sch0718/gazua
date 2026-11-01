@@ -64,8 +64,11 @@ test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위�
   await expectNoHorizontalScroll(page);
 
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   const run = page.getByRole('button', { name: '시뮬레이션 실행' });
   await expect(run).toBeVisible();
+  await page.getByRole('button', { name: /매수 조건/ }).click();
+  await page.getByRole('button', { name: /^매도/ }).click();
   await expectNoSeriousViolations(page, '전략 편집');
 
   await run.click();
@@ -86,8 +89,9 @@ test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위�
 async function openEditorSections(page: Page): Promise<void> {
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
-  for (const title of ['매수', '분할 매수', '매도']) {
+  for (const title of ['매수 조건', '분할 매수', '매도']) {
     const head = page.locator('button[aria-expanded]', { has: page.getByText(title, { exact: true }) });
     await head.click();
     await expect(head).toHaveAttribute('aria-expanded', 'true');
@@ -106,6 +110,7 @@ test('전략 편집 구역(매수·분할 매수·매도)을 펼친 상태에 �
 test('거래 차트 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
   await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
   const result = page.getByRole('region', { name: '시뮬레이션 결과' }).last();
   await expect(result.getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });

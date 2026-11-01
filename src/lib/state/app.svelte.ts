@@ -23,7 +23,7 @@ import {
   storageIssuedAtStore,
   storageTokenStore,
 } from './profileStore';
-import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
+import { assertStrategyCap, loadStrategies, saveStrategies } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
 import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
@@ -32,7 +32,7 @@ import { exportData, importData, type ImportResult } from './exportImport';
 import { HELP_PAGES } from '../help/content';
 import { hashFor, parseHash, type Route } from './routes';
 import { DEFAULT_PROFILE_NAME, META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
-import { SYNCED_SETTINGS, type ProfileDocV1 } from '../sync/dto';
+import { SYNCED_SETTINGS, type ProfileDoc } from '../sync/dto';
 import { applyProfileDoc } from '../sync/profileDoc';
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
 import { STORAGE_PREFIX, type SafeStorage } from './storage';
@@ -125,7 +125,7 @@ export interface App {
    * 동기화 전용: 원격 문서를 같은 프로필 ID에 쓴다(없으면 목록에 더한다). 기기 전용 설정·키·최근 종목은 그대로 둔다.
    * 지금 프로필이면 화면 상태를 다시 읽는다. 변경 알림(onSyncableChange)은 내지 않는다.
    */
-  applySyncedProfile(id: string, doc: ProfileDocV1): void;
+  applySyncedProfile(id: string, doc: ProfileDoc): void;
   /** 동기화 전용: 다른 기기에서 지운 프로필을 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. 변경 알림은 내지 않는다. */
   removeSyncedProfile(id: string): void;
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
@@ -635,6 +635,8 @@ export function createApp(deps: AppDeps): App {
     remove(profileKeys.secrets(id));
     remove(profileKeys.recent(id));
     remove(profileKeys.strategies(id));
+    remove(profileKeys.strategySet(id));
+    remove(profileKeys.strategySetBase(id));
     remove(profileKeys.criteria(id));
     remove(profileKeys.baskets(id));
     remove(profileKeys.tokenIssuedAt(id, 'kis'));
@@ -658,7 +660,7 @@ export function createApp(deps: AppDeps): App {
   function onStorage(e: StorageEvent) {
     const id = activeId();
     // 다른 탭(동기화 적용 포함)이 이 프로필의 동기화 대상을 바꿨으면 다시 읽는다. 오래된 화면 상태로 덮어쓰지 않게.
-    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.criteria(id), profileKeys.baskets(id)];
+    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.strategySet(id), profileKeys.strategySetBase(id), profileKeys.criteria(id), profileKeys.baskets(id)];
     if (e.key !== null && synced.some((k) => e.key === STORAGE_PREFIX + k)) {
       reloadSynced();
       return;
@@ -832,7 +834,8 @@ export function createApp(deps: AppDeps): App {
     setStrategies(list) {
       assertStrategyCap(list);
       strategies = list;
-      write(profileKeys.strategies(activeId()), { strategies: list });
+      saveStrategies(storage, activeId(), list);
+      storageTick++;
       syncable('changed', activeId());
     },
 

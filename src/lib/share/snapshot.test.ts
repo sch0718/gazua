@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { newCriteria } from '../screen/defaults';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { criteriaFixture as newCriteria } from './testFixtures';
 import { MAX_SYMBOLS, newStrategy } from '../sim/defaults';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
-import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV2 } from '../sim/strategyV2';
+import { newStrategyV1, toV2, type StrategyV1 } from '../sim/strategyV1';
+import { patternEntryOf } from '../sim/patternBlock';
 import type { Watchlists } from '../state/schema';
 import { MAX_ITEMS } from '../state/watchlist';
 import {
@@ -14,6 +16,10 @@ import {
   SHARE_MAX_BYTES,
   shareTitle,
   strategySnapshot,
+  type CheckMode,
+  type ShareSnapshot,
+  type SimResultSnapshot,
+  type StrategySnapshot,
 } from './snapshot';
 import { compareSnapshot } from './compact';
 import { SIM_SYMBOLS_MAX } from './checkResult';
@@ -83,12 +89,12 @@ describe('공유 스냅샷', () => {
 
   it('선정 기준: 바구니·반등 전략·실행 전략 참조를 스냅샷 안에서 끝낸다', () => {
     const { strategy, basket, criteria, ids } = allIds();
-    strategy.entry.decline.dropPct.value = 33;
+    patternEntryOf(strategy)!.decline.dropPct.value = 33;
     criteria.capital = 555_000_000;
     const s = criteriaSnapshot(criteria, { baskets: [basket], strategies: [strategy] }, { hideCapital: true, now: NOW });
     expect(s.baskets).toEqual([{ id: 'b0', name: '관찰', symbols: ['035420', '035720'] }]);
     expect(s.criteria.pool.baskets).toEqual(['b0']);
-    expect(s.criteria.conditions.rebound.pattern).toEqual({ from: 'custom', entry: strategy.entry });
+    expect(s.criteria.conditions.rebound.pattern).toEqual({ from: 'custom', entry: patternEntryOf(strategy) });
     expect(s.criteria.trading).toEqual({ strategyId: null });
     const json = JSON.stringify(s);
     for (const id of ids) expect(json).not.toContain(id);
@@ -163,7 +169,7 @@ describe('검사 모드·종목 코드·제목 길이', () => {
     const s = newStrategy(NOW, null, '저장된 전략');
     s.universe = { kind: 'symbols', symbols: ['../x'] };
     s.benchmarks.symbol = 'abcdef';
-    expect(sanitizeStrategies({ strategies: [s] }, NOW)).toEqual({ strategies: [s], repaired: false });
+    expect(sanitizeStrategiesV2({ strategies: [s] }, NOW)).toEqual({ strategies: [s], repaired: false });
   });
 
   it('ETN이 든 묶음은 거절한다(앱 묶음은 6자리만)', () => {
@@ -297,6 +303,46 @@ describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
     return { ...f, v: 2, strategy: { ...v2Strategy(f.title, (f.strategy.universe as { symbols: string[] }).symbols), benchmarks: f.strategy.benchmarks } };
   };
 
+  it.each([1, 2] as const)('create: v%i 원본의 반환 타입은 v1·v2 합집합이고 read는 v2다', (v) => {
+    type OriginalSnapshot = ShareSnapshot
+      | (Omit<StrategySnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 })
+      | (Omit<SimResultSnapshot, 'v' | 'strategy'> & { v: 1; strategy: StrategyV1 });
+    const sim = simResultFixture();
+    const legacy = { ...newStrategyV1(NOW, null, sim.title), id: 'shared', updatedAt: 0, universe: sim.strategy.universe, benchmarks: sim.strategy.benchmarks };
+    const strategy = v === 1 ? legacy : sim.strategy;
+    const raws = [
+      { kind: 'strategy', v, title: sim.title, strategy, capitalHidden: false },
+      { ...sim, v, strategy },
+    ];
+    for (const raw of raws) {
+      const created = checkShareSnapshot(raw, raw.kind, NOW, 'create');
+      const defaulted = checkShareSnapshot(raw, raw.kind, NOW);
+      const withoutNow = checkShareSnapshot(raw, raw.kind);
+      expectTypeOf(created).toEqualTypeOf<typeof defaulted>();
+      expectTypeOf(created).toEqualTypeOf<typeof withoutNow>();
+      for (const r of [created, defaulted, withoutNow]) {
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+          expectTypeOf(r.snapshot).toEqualTypeOf<OriginalSnapshot>();
+          expect(r.snapshot).toBe(raw);
+        }
+      }
+      const read = checkShareSnapshot(raw, raw.kind, NOW, 'read');
+      expect(read.ok).toBe(true);
+      if (read.ok) {
+        expectTypeOf(read.snapshot).toEqualTypeOf<ShareSnapshot>();
+        if (read.snapshot.kind === 'strategy' || read.snapshot.kind === 'simResult') {
+          expectTypeOf(read.snapshot.v).toEqualTypeOf<2>();
+          expect(read.snapshot.v).toBe(2);
+          expect(read.snapshot.strategy).toEqual(v === 1 ? toV2(legacy) : sim.strategy);
+        }
+      }
+      const mode: CheckMode = v === 1 ? 'create' : 'read';
+      const dynamic = checkShareSnapshot(raw, raw.kind, NOW, mode);
+      if (dynamic.ok) expectTypeOf(dynamic.snapshot).toEqualTypeOf<OriginalSnapshot>();
+    }
+  });
+
   it('create: v2 전략 공유를 받고 원본을 돌려준다', () => {
     const raw = strategyV2Snap();
     const r = checkShareSnapshot(raw, 'strategy', NOW, 'create');
@@ -312,17 +358,34 @@ describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
   });
 
   it('create: v1 전략 공유는 지금처럼 받는다', () => {
-    const raw = strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW });
+    const raw = { kind: 'strategy', v: 1, title: '눌림목', strategy: { ...newStrategyV1(NOW, null, '눌림목'), id: 'shared', updatedAt: 0, universe: { kind: 'symbols', symbols: ['005930'] } }, capitalHidden: false };
     expect(checkShareSnapshot(raw, 'strategy', NOW, 'create')).toMatchObject({ ok: true });
   });
 
-  it('read: v2는 unsupported(PR① 앱은 v1만 그린다), v1은 v1 그대로', () => {
-    expect(checkShareSnapshot(strategyV2Snap(), 'strategy', NOW, 'read')).toMatchObject({ ok: false, code: 'unsupported', path: 'v' });
-    expect(checkShareSnapshot(simResultV2Snap(), 'simResult', FIX_NOW, 'read')).toMatchObject({ ok: false, code: 'unsupported', path: 'v' });
-    const v1 = strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW });
+  it('read: v2는 받고, v1은 v2로 옮겨 v: 2로 돌려준다(§8.4)', () => {
+    expect(checkShareSnapshot(strategyV2Snap(), 'strategy', NOW, 'read')).toMatchObject({ ok: true });
+    expect(checkShareSnapshot(simResultV2Snap(), 'simResult', FIX_NOW, 'read')).toMatchObject({ ok: true });
+    const v1 = { kind: 'strategy', v: 1, title: '눌림목', strategy: { ...newStrategyV1(NOW, null, '눌림목'), id: 'shared', updatedAt: 0, universe: { kind: 'symbols' as const, symbols: ['005930'] } }, capitalHidden: false };
     const r = checkShareSnapshot(v1, 'strategy', NOW, 'read');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.snapshot.v).toBe(1);
+    if (r.ok && r.snapshot.kind === 'strategy') {
+      expect(r.snapshot.v).toBe(2);
+      expect(r.snapshot.strategy).toEqual(toV2(v1.strategy));
+    }
+  });
+
+  it('read: v1 시뮬레이션 공유는 결과를 유지하고 전략만 v2로 옮긴다', () => {
+    const f = simResultFixture();
+    const legacy = { ...newStrategyV1(NOW, null, f.title), id: 'shared', updatedAt: 0, universe: f.strategy.universe, benchmarks: f.strategy.benchmarks };
+    const raw = { ...f, v: 1, strategy: legacy };
+    const r = checkShareSnapshot(raw, 'simResult', NOW, 'read');
+    expect(r).toEqual({ ok: true, snapshot: { ...raw, v: 2, strategy: toV2(legacy) } });
+    expect(raw.v).toBe(1);
+    expect(raw.strategy).not.toHaveProperty('rules');
+  });
+
+  it('strategySnapshot은 v: 2로 만든다', () => {
+    expect(strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW }).v).toBe(2);
   });
 
   it('create: v3는 unsupported, v2 전략에 고칠 값이 있으면 invalid', () => {

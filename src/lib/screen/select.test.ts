@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { FinSeries, MarketDataFile, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry } from '../sim/defaults';
 import { precompute, rebalanceDates, tradingAxis } from './precompute';
 import { addDays } from '../time/kst';
 import type { Basket } from './baskets';
@@ -467,7 +467,7 @@ describe('selectAt: 미래 정보 누설 방지', () => {
     ['vsMa', (c) => (c.conditions.vsMa = { on: true, period: 20, side: 'above' })],
     ['fromHigh', (c) => (c.conditions.fromHigh = { on: true, minPct: 10, maxPct: 40 })],
     ['volatility', (c) => (c.conditions.volatility = { on: true, days: 20, maxPct: 2 })],
-    ['rebound', (c) => (c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'custom', entry: newStrategy(NOW, null).entry } })],
+    ['rebound', (c) => (c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'custom', entry: defaultPatternEntry() } })],
     ...(['marketCap', 'tradingValue', 'return', 'lowVolatility'] as const).map(
       (b): [string, (c: SelectionCriteria) => void] => [`rank ${b}`, (c) => ((c.rank.by = b), (c.rank.take = 5))],
     ),

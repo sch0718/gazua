@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MarketDataFile, MarketDataFileV1, MarketDataFileV2, MarketDataFileV3, MarketDataFileV4 } from '../marketData/format';
 import { newStrategy } from '../sim/defaults';
+import { patternEntryOf } from '../sim/patternBlock';
 import { roundMoney } from '../sim/money';
 import { simulate } from '../sim/simulate';
-import type { SimResult, Strategy } from '../sim/types';
+import type { PatternEntry, SimResult, Strategy } from '../sim/types';
 import { addDays } from '../time/kst';
 import { newCriteria } from './defaults';
-import { rebalanceDates, tradingAxis } from './precompute';
-import { errorCode, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
+import { MissingPatternError, rebalanceDates, tradingAxis } from './precompute';
+import { errorCode, ERROR_TEXT, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
 import type { Basket } from './baskets';
 import { macroKnownFrom } from './macro';
 import { NOW } from './testData';
@@ -41,6 +42,27 @@ const DATES = rebalanceDates(tradingAxis(fixture), { from: '2025-10-16', to: '20
 
 afterEach(() => vi.mocked(simulate).mockClear());
 
+it('errorCode: 패턴 블록 없음은 missing-pattern', () => {
+  expect(errorCode(new MissingPatternError())).toBe('missing-pattern');
+  expect(ERROR_TEXT['missing-pattern']).toBe('반등 패턴에 고른 전략에 반등 패턴이 없어요');
+});
+
+it('② 균등 배분은 누적 종목 수 대신 한 번에 고르는 수로 총자산을 나눈다', () => {
+  const s = newStrategy(NOW, null);
+  s.sizing = { mode: 'equal', pct: 10 };
+  const c = crit((c) => {
+    c.trading.strategyId = s.id;
+    c.rank.take = 4;
+    c.rank.by = 'return';
+  });
+  const equal = run(c, [s]);
+  expect(new Set(equal.rebalances.flatMap((r) => r.picked.map((p) => p.symbol))).size).toBeGreaterThan(4);
+  expect(equal.trading!.trades).toBeGreaterThan(0);
+  expect(s.sizing).toEqual({ mode: 'equal', pct: 10 });
+  s.sizing = { mode: 'equityPct', pct: 25 };
+  expect(equal.trading).toEqual(run(c, [s]).trading);
+});
+
 describe('runValidation', () => {
   it('결과 모양: 재선정·오늘 선별·①·지수·비교 종목·시장별·해석 메모', () => {
     const r = run(crit());
@@ -68,7 +90,8 @@ describe('runValidation', () => {
 
   it('②는 기준의 자본·수수료로 돈다: 전략 100만 원·0%여도 첫 자산 1,000만 원, 첫 매수에 0.015% 수수료', () => {
     const s = newStrategy(NOW, null);
-    s.capital = { initial: 1_000_000, perBuyPct: 10 };
+    s.capital = { initial: 1_000_000 };
+    s.sizing.pct = 10;
     s.costs.feePct = 0;
     s.benchmarks = { index: 'KOSDAQ', symbol: '091160' };
     s.period = { from: '2020-01-01', to: '2020-12-31' };
@@ -76,11 +99,12 @@ describe('runValidation', () => {
     const r = run(c, [s]);
 
     const call = vi.mocked(simulate).mock.calls[0][0];
-    expect(call.strategy.capital).toEqual({ initial: 10_000_000, perBuyPct: 10 });
+    expect(call.strategy.capital).toEqual({ initial: 10_000_000 });
+    expect(call.strategy.sizing).toEqual(s.sizing);
     expect(call.strategy.costs.feePct).toBe(0.015);
     expect(call.strategy.period).toEqual(c.period);
     expect(call.strategy.benchmarks).toEqual({ index: 'KOSPI', symbol: null });
-    expect(call.strategy.entry).toEqual(s.entry);
+    expect(patternEntryOf(call.strategy)).toEqual(patternEntryOf(s)!);
     expect(call.days).toEqual(r.axis);
     // 한 번이라도 뽑힌 종목 전부, 창은 뽑힌 구간들
     const picked = new Set(r.rebalances.flatMap((x) => x.picked.map((p) => p.symbol)));
@@ -129,7 +153,7 @@ describe('runValidation', () => {
 
   it("반등 패턴이 'strategy'면 그 전략의 entry로 미리 계산한다(반등 일수를 바꾸면 선별이 바뀐다)", () => {
     const s = newStrategy(NOW, null);
-    const withPattern = (from: 'strategy' | 'custom', entry: Strategy['entry']) =>
+    const withPattern = (from: 'strategy' | 'custom', entry: PatternEntry) =>
       crit((c) => {
         c.conditions.rebound = {
           on: true,
@@ -137,13 +161,13 @@ describe('runValidation', () => {
           pattern: from === 'strategy' ? { from, strategyId: s.id } : { from, entry },
         };
       });
-    const a = run(withPattern('strategy', s.entry), [s]);
-    expect(a.rebalances).toEqual(run(withPattern('custom', s.entry)).rebalances);
+    const a = run(withPattern('strategy', patternEntryOf(s)!), [s]);
+    expect(a.rebalances).toEqual(run(withPattern('custom', patternEntryOf(s)!)).rebalances);
     expect(a.rebalances.some((x) => x.passed > 0)).toBe(true);
 
     const s2 = structuredClone(s);
-    s2.entry.triggers.reboundDays.value = 1;
-    const b = run(withPattern('strategy', s.entry), [s2]);
+    patternEntryOf(s2)!.triggers.reboundDays.value = 1;
+    const b = run(withPattern('strategy', patternEntryOf(s)!), [s2]);
     expect(b.rebalances).not.toEqual(a.rebalances);
   });
 
@@ -206,8 +230,8 @@ describe('runValidation', () => {
 
   // PR #11 리뷰 W2: 전략 편집 화면이 막는 오류 전략으로는 ②를 돌리지 않는다
   it.each([
-    ['매수 신호가 모두 꺼진 전략', (s: Strategy) => Object.values(s.entry.triggers).forEach((t) => (t.on = false))],
-    ['익절 단계가 역순인 전략', (s: Strategy) => (s.exit.takeProfit = [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }])],
+    ['매수 신호가 모두 꺼진 전략', (s: Strategy) => Object.values(patternEntryOf(s)!.triggers).forEach((t) => (t.on = false))],
+    ['익절 단계가 역순인 전략', (s: Strategy) => (s.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }])],
   ])("② %s이면 invalid-strategy 오류이고 simulate를 부르지 않는다", (_name, patch) => {
     const s = { ...newStrategy(NOW, null), id: 's1' };
     patch(s);
@@ -225,7 +249,7 @@ describe('runValidation', () => {
 
   it('반등 패턴 전략의 매수 신호가 모두 꺼져 있어도 invalid-strategy', () => {
     const s = { ...newStrategy(NOW, null), id: 's1' };
-    Object.values(s.entry.triggers).forEach((t) => (t.on = false));
+    Object.values(patternEntryOf(s)!.triggers).forEach((t) => (t.on = false));
     const c = crit((c) => (c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } }));
     expect(() => run(c, [s])).toThrow(expect.objectContaining({ code: 'invalid-strategy' }));
   });

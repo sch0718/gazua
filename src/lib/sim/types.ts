@@ -1,36 +1,12 @@
 import type { Candle } from '../data/metrics';
+import type { StrategyV2 } from './strategyV2';
+export type { Cond, CondGroup, PatternEntry, SizingMode } from './strategyV2';
+export type { StrategyV1 } from './strategyV1';
 
 export type StopBasis = 'avgAfterScaleIn' | 'avgAlways' | 'firstBuy';
 
-export interface Strategy {
-  id: string;
-  name: string; // 30자 이내
-  updatedAt: number;
-  universe: { kind: 'group'; groupId: string } | { kind: 'symbols'; symbols: string[] }; // 최대 8종목
-  period: { from: string; to: string }; // KST YYYY-MM-DD, 양끝 포함
-  capital: { initial: number; perBuyPct: number };
-  entry: {
-    decline: {
-      dropPct: { on: boolean; value: number };
-      days: { on: boolean; value: number };
-    };
-    triggers: {
-      reboundDays: { on: boolean; value: number };
-      breakout: { on: boolean; level: 'A' | 'B' };
-      maCross: { on: boolean; period: number };
-      goldenCross: { on: boolean; short: number; long: number };
-    };
-    filter: { aboveMa: { on: boolean; period: number } };
-  };
-  scaleIn: { on: boolean; stepPct: number; maxAdds: number };
-  exit: {
-    takeProfit: { pct: number; sellPct: number }[]; // 1~3단계, 마지막 단계 sellPct = 100
-    stopLoss: { pct: number; basis: StopBasis };
-    afterFirstTake: 'keep' | 'breakeven';
-  };
-  benchmarks: { index: 'KOSPI' | 'KOSDAQ'; symbol: string | null };
-  costs: { feePct: number }; // 매수·매도 각각
-}
+/** 앱 전략(v2, 전략 빌더 스펙 §3). 옛 형식은 StrategyV1(strategyV1.ts)이고 읽을 때 toV2로 옮긴다 */
+export type Strategy = StrategyV2;
 
 export interface PatternSnapshot {
   a: number;
@@ -112,9 +88,11 @@ export interface HoldingFrame {
   value: number; // roundMoney(qty × close), equity 계산과 같은 값
   pnlPct: number; // (close / avgPrice − 1) × 100
   stop: number | null; // Position.stopPrice()
+  trail: number | null; // Position.trailPrice(), 다음 거래일 트레일 가격. 꺼지면 null
   nextAdd: number | null; // Position.nextAddPrice(), 그날 건너뛴 가격이어도 그대로
   takes: { stage: number; price: number }[]; // Position.takeLevels() 중 qty > 0
   openDate: string; // 이번 포지션의 첫 매수일
+  heldDays: number; // 시장 축 보유 거래일, 매수일 = 1(기간 청산과 같은 셈)
 }
 
 export interface DayFrame {
@@ -123,4 +101,5 @@ export interface DayFrame {
   value: number; // equity[i].strategy와 같음
   holdings: HoldingFrame[]; // 그룹 순서, 보유 중인 종목만
   pending: { symbol: string; reason: string }[]; // 그날 종가 신호 → 다음 거래일 시가 매수 예약
+  pendingSells: { symbol: string; reason: string }[]; // 그날 종가 → 다음 거래일 시가 매도 예약(조건 매도·기간 청산)
 }

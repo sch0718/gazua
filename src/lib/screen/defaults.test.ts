@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry } from '../sim/defaults';
 import { kstEpoch } from '../time/kst';
 import { BENCH_MAX, MAX_CRITERIA, TAKE_MAX, newCriteria } from './defaults';
 
@@ -20,7 +20,7 @@ describe('newCriteria', () => {
       vsMa: { on: false, period: 60, side: 'above' },
       fromHigh: { on: false, minPct: 20, maxPct: 50 },
       volatility: { on: false, days: 20, maxPct: 3 },
-      rebound: { on: true, withinDays: 10, pattern: { from: 'custom', entry: newStrategy(NOW, null).entry } },
+      rebound: { on: true, withinDays: 10, pattern: { from: 'custom', entry: defaultPatternEntry() } },
       macro: {
         betaDays: 120,
         usdkrw: { beta: { on: false, min: 0.3, max: 5 }, trend: { on: false, lookback: 20, thresholdPct: 3, minAbsBeta: 0.3, whenFlat: 'pass' } },

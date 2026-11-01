@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../sim/defaults';
+import { patternEntryOf } from '../sim/patternBlock';
 import { kstEpoch } from '../time/kst';
 import { MAX_BASKETS } from './baskets';
 import { newCriteria, POOL_THEMES_MAX } from './defaults';
 import type { SelectionCriteria } from './types';
-import { criteriaIssues, finOn, flowOn, sanitizeCriteria, usesFin, usesFlow } from './validate';
+import { criteriaIssues, finOn, flowOn, patternRefIssues, sanitizeCriteria, strategyRuleIssues, usesFin, usesFlow } from './validate';
 
 const NOW = kstEpoch('2026-10-16', '12:00:00');
 const RANGE = { from: '2021-03-02', to: '2026-10-15' };
@@ -14,6 +15,30 @@ const run = (patch: (c: Record<string, any>) => void) => {
   patch(c);
   return sanitizeCriteria({ criteria: [c] }, NOW);
 };
+
+describe('반등 패턴 전략(§7)', () => {
+  const crit = (strategyId: string) => {
+    const c = newCriteria(0, null);
+    c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId } };
+    return c;
+  };
+  it('패턴 블록이 없는 전략을 고르면 막는 경고', () => {
+    const s = { ...newStrategy(0, null), id: 's1' };
+    s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+    expect(strategyRuleIssues(crit('s1'), [s])).toEqual([
+      { section: 'conditions', text: '고른 전략에 반등 패턴이 없어요. 반등 패턴이 있는 전략을 고르거나 직접 정해 주세요', blocking: true },
+    ]);
+  });
+  it('패턴 블록의 막는 경고만 빌려 온다(매도 경고는 아님)', () => {
+    const s = { ...newStrategy(0, null), id: 's1' };
+    const e = s.rules.buy[0].conds[0];
+    if (e.kind === 'pattern') e.entry.triggers = { ...e.entry.triggers, reboundDays: { on: false, value: 3 }, breakout: { on: false, level: 'B' } };
+    s.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }];
+    const out = strategyRuleIssues(crit('s1'), [s]);
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe('반등 패턴 전략에 고칠 곳이 있어요: 사는 신호가 하나도 켜져 있지 않아요. 전략 편집에서 하나 이상 켜 주세요');
+  });
+});
 
 describe('sanitizeCriteria', () => {
   it('정상 값은 그대로이고 repaired false', () => {
@@ -235,14 +260,14 @@ describe('criteriaIssues', () => {
   // PR #11 리뷰 W2: 전략 편집 화면이 실행을 막는 오류 전략은 ②·반등 패턴에서도 막는다
   const noSignals = () => {
     const s = { ...newStrategy(NOW, null), id: 's1' };
-    for (const t of Object.values(s.entry.triggers)) t.on = false;
+    for (const t of Object.values(patternEntryOf(s)!.triggers)) t.on = false;
     return s;
   };
-  const badTakeProfit = () => ({
-    ...newStrategy(NOW, null),
-    id: 's1',
-    exit: { ...newStrategy(NOW, null).exit, takeProfit: [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }] },
-  });
+  const badTakeProfit = () => {
+    const s = { ...newStrategy(NOW, null), id: 's1' };
+    s.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 5, sellPct: 100 }];
+    return s;
+  };
 
   it('② 전략의 매수 신호가 모두 꺼져 있으면 blocking(전략 편집 문구를 붙여서)', () => {
     const c = withRef((x) => (x.trading.strategyId = 's1'));
@@ -783,4 +808,16 @@ describe('재무 조건: finOn·usesFin·criteriaIssues', () => {
     c.conditions.fin.profitable.on = true;
     expect(criteriaIssues(c, [], info(true))).toEqual([]);
   });
+});
+
+
+it('patternRefIssues: 반등 패턴으로 참조되는데 패턴 블록이 없으면 막지 않는 경고', () => {
+  const s = { ...newStrategy(0, null), id: 's1' };
+  const c = newCriteria(0, null);
+  c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } };
+  expect(patternRefIssues(s, [c])).toEqual([]);
+  s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+  expect(patternRefIssues(s, [c, c])).toEqual([
+    { section: 'entry', text: '이 전략을 반등 패턴으로 쓰는 선정 기준이 2개 있어요. 반등 패턴 블록을 넣어야 그 기준을 실행할 수 있어요', blocking: false },
+  ]);
 });

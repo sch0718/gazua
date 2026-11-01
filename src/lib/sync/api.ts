@@ -9,7 +9,7 @@ import {
   type SessionClient,
 } from '@sch0718/firebase-session/client';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
-import type { ProfileDocV1 } from './dto';
+import { PROFILE_DOC_VERSION, type ProfileDoc } from './dto';
 import type { RekeyBody, Sealed } from './keyWire';
 
 export type { Credentials, DeviceSession };
@@ -22,7 +22,7 @@ type GazuaFail =
       ok: false;
       kind: 'conflict';
       revision: number;
-      doc: ProfileDocV1 | null;
+      doc: ProfileDoc | null;
       /** 409의 error: conflict·vault-exists·no-vault·vault-changed·not-deleted */
       code?: string;
       vaultRevision?: number | null;
@@ -49,7 +49,7 @@ function mapStatus(status: number, body: Record<string, unknown>): GazuaFail | u
       ok: false,
       kind: 'conflict',
       revision: Number(body.revision ?? 0),
-      doc: (body.doc as ProfileDocV1 | undefined) ?? null,
+      doc: (body.doc as ProfileDoc | undefined) ?? null,
       ...(typeof body.error === 'string' && { code: body.error }),
       ...('vaultRevision' in body && { vaultRevision: typeof body.vaultRevision === 'number' ? body.vaultRevision : null }),
       ...(typeof body.deleted === 'boolean' && { deleted: body.deleted }),
@@ -100,12 +100,12 @@ export interface SyncApi {
   listSessions(): Promise<ApiResult<{ sessions: DeviceSession[] }>>;
   revokeSession(id: string | 'others'): Promise<ApiResult<{ revoked: number }>>;
   listProfiles(): Promise<ApiResult<{ profiles: IndexRow[] }>>;
-  getProfile(id: string): Promise<ApiResult<{ revision: number; doc: ProfileDocV1 }>>;
-  putProfile(id: string, body: { opId: string; expectedRevision: number; doc: ProfileDocV1 }): Promise<ApiResult<{ revision: number }>>;
+  getProfile(id: string): Promise<ApiResult<{ revision: number; doc: ProfileDoc }>>;
+  putProfile(id: string, body: { opId: string; expectedRevision: number; doc: ProfileDoc }): Promise<ApiResult<{ revision: number }>>;
   deleteProfile(id: string, body: { opId: string; expectedRevision: number }): Promise<ApiResult<{ revision: number; deletedAt: number; purgeAt: number }>>;
-  restoreProfile(id: string, opId: string): Promise<ApiResult<{ revision: number; doc: ProfileDocV1 }>>;
+  restoreProfile(id: string, opId: string): Promise<ApiResult<{ revision: number; doc: ProfileDoc }>>;
   listRevisions(id: string): Promise<ApiResult<{ revisions: { revision: number; createdAt: number; deleted: boolean }[] }>>;
-  getRevision(id: string, rev: number): Promise<ApiResult<{ revision: number; doc: ProfileDocV1 }>>;
+  getRevision(id: string, rev: number): Promise<ApiResult<{ revision: number; doc: ProfileDoc }>>;
   createShare(body: { sourceProfileId: string; kind: ShareKind; snapshot: ShareSnapshot; ttlDays: number }): Promise<ApiResult<{ id: string; capability: string; expiresAt: number }>>;
   listShares(): Promise<ApiResult<{ shares: ShareRow[] }>>;
   revokeShare(id: string): Promise<ApiResult<{ revoked: boolean }>>;
@@ -139,6 +139,7 @@ export function createSyncApi(
   });
   const send = c.send;
   const enc = encodeURIComponent;
+  const docQuery = `?docVersion=${PROFILE_DOC_VERSION}`;
   return {
     createSession: c.createSession,
     createSocialSession: c.createSocialSession,
@@ -147,13 +148,13 @@ export function createSyncApi(
     listSessions: c.listSessions,
     revokeSession: c.revokeSession,
     listProfiles: () => send('GET', '/v1/profiles'),
-    getProfile: (id) => send('GET', `/v1/profiles/${enc(id)}`),
-    putProfile: (id, body) => send('PUT', `/v1/profiles/${enc(id)}`, { body }),
-    deleteProfile: (id, body) => send('DELETE', `/v1/profiles/${enc(id)}`, { body }),
+    getProfile: (id) => send('GET', `/v1/profiles/${enc(id)}${docQuery}`),
+    putProfile: (id, body) => send('PUT', `/v1/profiles/${enc(id)}${docQuery}`, { body }),
+    deleteProfile: (id, body) => send('DELETE', `/v1/profiles/${enc(id)}${docQuery}`, { body }),
     restoreProfile: (id, opId) =>
-      send('POST', `/v1/profiles/${enc(id)}/restore`, { body: { opId } }),
+      send('POST', `/v1/profiles/${enc(id)}/restore${docQuery}`, { body: { opId } }),
     listRevisions: (id) => send('GET', `/v1/profiles/${enc(id)}/revisions`),
-    getRevision: (id, rev) => send('GET', `/v1/profiles/${enc(id)}/revisions/${rev}`),
+    getRevision: (id, rev) => send('GET', `/v1/profiles/${enc(id)}/revisions/${rev}${docQuery}`),
     createShare: (body) => send('POST', '/v1/shares', { body }),
     listShares: () => send('GET', '/v1/shares'),
     revokeShare: (id) => send('DELETE', `/v1/shares/${enc(id)}`),

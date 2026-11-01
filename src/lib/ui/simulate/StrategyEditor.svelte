@@ -3,17 +3,18 @@
   // 전략 편집(스펙 7.3): 접힌 7개 구역 + 맨 아래 실행 버튼. 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다.
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { UniverseItem } from '../../data/universe';
+  import { patternRefIssues } from '../../screen/validate';
   import { NAME_MAX } from '../../sim/defaults';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
-  import { strategyIssues, type Issue } from '../../sim/validate';
+  import { resolveSymbols, strategyIssues, type Issue } from '../../sim/validate';
   import type { App } from '../../state/app.svelte';
   import { sharedUniverse } from '../../../sheets/universeSource';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import BenchmarkSection from './editor/BenchmarkSection.svelte';
   import CostSection from './editor/CostSection.svelte';
   import EditorSection from './editor/EditorSection.svelte';
-  import EntrySection from './editor/EntrySection.svelte';
+  import BuyRulesSection from './editor/BuyRulesSection.svelte';
   import ExitSection from './editor/ExitSection.svelte';
   import PeriodSection from './editor/PeriodSection.svelte';
   import ScaleInSection from './editor/ScaleInSection.svelte';
@@ -45,7 +46,7 @@
   const SECTIONS: { key: Key; title: string }[] = [
     { key: 'universe', title: '종목' },
     { key: 'period', title: '기간·자금' },
-    { key: 'entry', title: '매수' },
+    { key: 'entry', title: '매수 조건' },
     { key: 'scaleIn', title: '분할 매수' },
     { key: 'exit', title: '매도' },
     { key: 'benchmarks', title: '비교 기준' },
@@ -120,7 +121,7 @@
 
   const names = $derived(universe ? Object.fromEntries(universe.map((u) => [u.s, u.n])) : {});
   const benchName = $derived(draft.benchmarks.symbol ? (names[draft.benchmarks.symbol] ?? null) : null);
-  const issues = $derived(strategyIssues(draft, app.watchlists));
+  const issues = $derived([...strategyIssues(draft, app.watchlists), ...patternRefIssues(draft, app.criteria)]);
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
 
   // 분할 매수를 켜면 추가 매수가 자금 부족의 원인이므로 자금 경고를 분할 매수 구역에도 보인다(id는 겹치지 않게).
@@ -227,9 +228,9 @@
       {#if key === 'universe'}
         <UniverseSection {app} s={draft} {update} {names} {loadItems} />
       {:else if key === 'period'}
-        <PeriodSection s={draft} {update} />
+        <PeriodSection s={draft} {update} count={resolveSymbols(draft, app.watchlists).length} />
       {:else if key === 'entry'}
-        <EntrySection s={draft} {update} />
+        <BuyRulesSection s={draft} {update} />
       {:else if key === 'scaleIn'}
         <ScaleInSection s={draft} {update} />
       {:else if key === 'exit'}
