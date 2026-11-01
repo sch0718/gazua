@@ -139,7 +139,7 @@
     })}
 />
 {#if s.rules.sell.signal.on}
-  <CondGroupsEditor groups={s.rules.sell.signal.groups} prefix="매도 묶음" allowPattern={false} update={(fn) => update((x) => fn(x.rules.sell.signal.groups))} />
+  <CondGroupsEditor groups={s.rules.sell.signal.groups} prefix="조건 매도 묶음" allowPattern={false} update={(fn) => update((x) => fn(x.rules.sell.signal.groups))} />
 {/if}
 <p class="hint">조건 매도·기간 청산은 종가에 판정해 다음 거래일 시가에 남은 수량을 모두 팔아요.</p>
 

@@ -16,7 +16,7 @@
   }: {
     group: CondGroup;
     index: number;
-    /** `매수 묶음` · `매도 묶음` */
+    /** `매수 묶음` · `조건 매도 묶음` */
     prefix: string;
     allowPattern: boolean;
     patternTaken: boolean;
@@ -27,6 +27,12 @@
   const rows: CondRow[] = $state([]);
   let addBtn: HTMLButtonElement;
   const full = $derived(group.conds.length >= MAX_CONDS);
+
+  // 묶음을 더하거나 지운 뒤 첫 조건으로, 조건이 없으면 추가 버튼으로 포커스.
+  export function focusFirstCond() {
+    if (group.conds.length) rows[0]?.focusKind();
+    else addBtn?.focus();
+  }
 
   async function addCond() {
     if (full) return;
@@ -50,7 +56,7 @@
 <section class="group" role="group" aria-label="{prefix} {index + 1}">
   <div class="g-head">
     <span class="g-title">{prefix} {index + 1} · 모두 만족</span>
-    <button type="button" class="link" onclick={onremove}>묶음 지우기</button>
+    <button type="button" class="link" aria-label="{prefix} {index + 1} 지우기" onclick={onremove}>묶음 지우기</button>
   </div>
   {#each group.conds as cond, ci (ci)}
     <CondRow

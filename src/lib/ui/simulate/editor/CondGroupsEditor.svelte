@@ -14,31 +14,38 @@
 
   const full = $derived(groups.length >= MAX_GROUPS);
   const patternTaken = $derived(groups.some((g) => g.conds.some((c) => c.kind === 'pattern')));
-  let root: HTMLElement;
+  const cards: CondGroupCard[] = $state([]);
+  let addBtn: HTMLButtonElement;
 
   async function addGroup() {
     if (full) return;
     update((gs) => void gs.push({ conds: [defaultCond('maPrice')] }));
     await tick();
-    const selects = root.querySelectorAll<HTMLSelectElement>('select[aria-label$=" 종류"]');
-    selects[selects.length - 1]?.focus();
+    cards[groups.length - 1]?.focusFirstCond();
+  }
+  async function removeGroup(gi: number) {
+    update((gs) => void gs.splice(gi, 1));
+    await tick();
+    if (groups.length) cards[Math.max(0, gi - 1)]?.focusFirstCond();
+    else addBtn?.focus();
   }
 </script>
 
-<div class="groups" bind:this={root}>
+<div class="groups">
   {#each groups as group, gi (gi)}
     {#if gi > 0}<p class="or" aria-hidden="true">또는</p>{/if}
     <CondGroupCard
+      bind:this={cards[gi]}
       {group}
       index={gi}
       {prefix}
       {allowPattern}
       {patternTaken}
       update={(fn) => update((gs) => fn(gs[gi]))}
-      onremove={() => update((gs) => void gs.splice(gi, 1))}
+      onremove={() => removeGroup(gi)}
     />
   {/each}
-  <button type="button" class="act" disabled={full} onclick={addGroup}>＋ 또는 묶음</button>
+  <button type="button" class="act" bind:this={addBtn} disabled={full} onclick={addGroup}>＋ 또는 묶음</button>
   {#if full}<p class="hint">묶음은 {MAX_GROUPS}개까지예요</p>{/if}
 </div>
 

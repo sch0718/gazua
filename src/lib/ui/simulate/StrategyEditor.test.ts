@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UniverseItem } from '../../data/universe';
 import { MAX_STRATEGIES, newStrategy } from '../../sim/defaults';
 import { patternEntryOf } from '../../sim/patternBlock';
 import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
+import { defaultCond } from '../../sim/strategyV2';
 import type { Strategy } from '../../sim/types';
 import type { App } from '../../state/app.svelte';
 import { kstEpoch } from '../../time/kst';
@@ -470,7 +471,7 @@ describe('PatternHelp', () => {
 });
 
 describe('편집 행 (설정 .row 패턴)', () => {
-  const field = (name: string) => screen.getByRole('textbox', { name }).closest('.field') as HTMLElement;
+  const field = (name: string) => screen.getByRole('textbox', { name: `매수 묶음 1의 조건 1 ${name}` }).closest('.field') as HTMLElement;
 
   it('라벨을 누르면 같은 줄의 토글이 바뀐다', async () => {
     const { app } = setup();
@@ -547,7 +548,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(field('짧은 이동평균').classList.contains('muted')).toBe(true);
     expect(field('긴 이동평균').classList.contains('muted')).toBe(true);
     expect(screen.getByRole('radiogroup', { name: '전 고점' }).closest('.muted')).toBeTruthy();
-    const days = screen.getByRole('textbox', { name: '고점 뒤 지난 거래일' }) as HTMLInputElement;
+    const days = screen.getByRole('textbox', { name: '매수 묶음 1의 조건 1 고점 뒤 지난 거래일' }) as HTMLInputElement;
     expect(days.disabled).toBe(false);
     await fireEvent.input(days, { target: { value: '12' } });
     await settle();
@@ -677,7 +678,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
   it('정수 칸에 소수를 적으면 정수로 적어 주세요', async () => {
     const { app } = setup();
     await openSection('매수 조건');
-    await fireEvent.input(screen.getByRole('textbox', { name: '저점 뒤 연속 상승' }), { target: { value: '3.5' } });
+    await fireEvent.input(screen.getByRole('textbox', { name: '매수 묶음 1의 조건 1 저점 뒤 연속 상승' }), { target: { value: '3.5' } });
     expect(screen.getByText('정수로 적어 주세요')).toBeTruthy();
     await settle();
     expect(patternEntryOf(saved(app))!.triggers.reboundDays.value).toBe(3);
@@ -887,6 +888,113 @@ describe('매수 조건 묶음(§10.2)', () => {
   });
 });
 
+describe('W1 조건 묶음 접근성', () => {
+  it.each([
+    ['maPrice', ['이동평균'], '종가가'],
+    ['maCross', ['짧은 이동평균', '긴 이동평균'], '교차'],
+    ['rsi', ['RSI 기간', '기준'], 'RSI가 기준'],
+    ['volume', ['평균 기간', '거래량'], null],
+    ['change', ['기간', '등락률'], '등락률이'],
+    ['fromHigh', ['고점 기간', '하락폭'], null],
+    ['newHigh', ['신고가 기간'], null],
+    ['pattern', ['고점 대비 하락폭', '고점 뒤 지난 거래일', '저점 뒤 연속 상승', '이동평균선 돌파', '짧은 이동평균', '긴 이동평균', '종가가 이동평균선 위'], null],
+  ] as const)('%s 칸 이름은 줄 제목과 칸 라벨을 함께 읽는다', async (kind, fields, selectLabel) => {
+    setup((s) => {
+      s.rules.buy = [{ conds: [defaultCond('maPrice'), defaultCond(kind)] }];
+    });
+    await openSection('매수 조건');
+    const title = '매수 묶음 1의 조건 2';
+    const row = within(screen.getByRole('group', { name: title }));
+    for (const field of fields) expect(row.getByRole('textbox', { name: `${title} ${field}` })).toBeTruthy();
+    for (const field of ['종류', ...(selectLabel ? [selectLabel] : [])]) {
+      const select = row.getByRole('combobox', { name: `${title} ${field}` });
+      const ids = select.getAttribute('aria-labelledby')?.split(' ');
+      expect(ids).toHaveLength(2);
+      expect(ids?.map((id) => document.getElementById(id)?.textContent)).toEqual([title, field]);
+    }
+  });
+
+  it('매수·조건 매도의 같은 칸을 구분하고 줄 제목 id가 겹치지 않는다', async () => {
+    setup((s) => {
+      s.rules.buy = Array.from({ length: 2 }, () => ({ conds: [defaultCond('maPrice')] }));
+      s.rules.sell.signal = { on: true, groups: [{ conds: [defaultCond('maPrice')] }] };
+    });
+    await openSection('매수 조건');
+    await openSection('매도');
+    const ids = ['매수 묶음 1', '매수 묶음 2', '조건 매도 묶음 1'].map((prefix) => {
+      expect(screen.getByRole('button', { name: `${prefix} 지우기` })).toBeTruthy();
+      const field = screen.getByRole('textbox', { name: `${prefix}의 조건 1 이동평균` });
+      const id = field.getAttribute('aria-labelledby')!.split(' ')[0];
+      expect(document.getElementById(id)?.textContent).toBe(`${prefix}의 조건 1`);
+      return id;
+    });
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  for (const side of ['buy', 'sell'] as const) {
+    const prefix = side === 'buy' ? '매수 묶음' : '조건 매도 묶음';
+    const section = side === 'buy' ? '매수 조건' : '매도';
+    it.each([
+      [3, 1, 0],
+      [3, 2, 1],
+      [2, 0, 0],
+      [1, 0, null],
+    ])(`${prefix} %i개 중 %i번 묶음을 지우면 앞 묶음·새 첫 묶음·추가 버튼으로 포커스를 옮긴다`, async (count, removed, target) => {
+      const { app } = setup((s) => {
+        const groups = Array.from({ length: count }, () => ({ conds: [defaultCond('maPrice'), defaultCond('rsi')] }));
+        if (side === 'buy') s.rules.buy = groups;
+        else s.rules.sell.signal = { on: true, groups };
+      });
+      await openSection(section);
+      const button = screen.getByRole('button', { name: `${prefix} ${removed + 1} 지우기` });
+      button.focus();
+      await fireEvent.click(button);
+      await tick();
+      expect(document.activeElement).toBe(target === null
+        ? screen.getByRole('button', { name: '＋ 또는 묶음' })
+        : screen.getByRole('combobox', { name: `${prefix} ${target + 1}의 조건 1 종류` }));
+      await settle();
+      expect(side === 'buy' ? saved(app).rules.buy : saved(app).rules.sell.signal.groups).toHaveLength(count - 1);
+    });
+
+    it.each([[3, 1], [3, 2], [2, 0], [1, 0], [5, 0]])(`${prefix}의 조건 %i개 중 %i번 조건을 지우면 앞 조건이나 같은 묶음의 추가 버튼으로 포커스를 옮긴다`, async (count, removed) => {
+      setup((s) => {
+        const groups = [{ conds: Array.from({ length: count }, () => defaultCond('maPrice')) }];
+        if (side === 'buy') s.rules.buy = groups;
+        else s.rules.sell.signal = { on: true, groups };
+      });
+      await openSection(section);
+      const button = screen.getByRole('button', { name: `${prefix} 1의 조건 ${removed + 1} 지우기` });
+      button.focus();
+      await fireEvent.click(button);
+      await tick();
+      expect(document.activeElement).toBe(removed > 0
+        ? screen.getByRole('combobox', { name: `${prefix} 1의 조건 ${removed} 종류` })
+        : within(screen.getByRole('group', { name: `${prefix} 1` })).getByRole('button', { name: '＋ 조건' }));
+    });
+  }
+
+  it('앞 묶음이 비어 있으면 그 묶음의 조건 추가 버튼으로 포커스를 옮긴다', async () => {
+    setup((s) => {
+      s.rules.buy = [{ conds: [] }, { conds: [defaultCond('maPrice')] }];
+    });
+    await openSection('매수 조건');
+    const button = screen.getByRole('button', { name: '매수 묶음 2 지우기' });
+    button.focus();
+    await fireEvent.click(button);
+    await tick();
+    expect(document.activeElement).toBe(within(screen.getByRole('group', { name: '매수 묶음 1' })).getByRole('button', { name: '＋ 조건' }));
+  });
+
+  it('새 묶음을 더하면 첫 조건의 종류 선택으로 포커스를 옮긴다', async () => {
+    setup();
+    await openSection('매수 조건');
+    await fireEvent.click(screen.getByRole('button', { name: '＋ 또는 묶음' }));
+    await tick();
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '매수 묶음 2의 조건 1 종류' }));
+  });
+});
+
 describe('매도 토글·배분(§10.3·§10.4)', () => {
   it('트레일링·기간 청산·조건 매도를 켜고 손절을 끈다', async () => {
     const { app } = setup();
@@ -899,7 +1007,7 @@ describe('매도 토글·배분(§10.3·§10.4)', () => {
     const sell = saved(app).rules.sell;
     expect([sell.stopLoss.on, sell.trailing.on, sell.timeExit.on, sell.signal.on]).toEqual([false, true, true, true]);
     expect(sell.signal.groups).toEqual([{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }]);
-    expect(screen.getByRole('group', { name: '매도 묶음 1' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: '조건 매도 묶음 1' })).toBeTruthy();
   });
   it('매도·기간·자금 구역을 펼쳐도 axe 위반이 없다', async () => {
     const { view } = setup((s) => (s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }] }));

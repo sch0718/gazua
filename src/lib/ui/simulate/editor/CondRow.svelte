@@ -16,7 +16,7 @@
     onremove,
   }: {
     cond: Cond;
-    /** `매수 묶음 1의 조건 2` — 종류 선택·지우기 버튼 이름의 앞부분(매수·매도 묶음이 한 화면에 있어도 겹치지 않게) */
+    /** `매수 묶음 1의 조건 2` — 칸·지우기 버튼 이름의 앞부분 */
     label: string;
     allowPattern: boolean;
     /** 다른 줄이 반등 패턴을 쓰고 있으면 true(이 줄 선택지에서 막는다) */
@@ -26,6 +26,7 @@
     onremove: () => void;
   } = $props();
 
+  const titleId = $props.id();
   let kindEl: HTMLSelectElement;
   /** 새 줄을 더한 뒤 종류 선택으로 포커스 */
   export function focusKind() {
@@ -38,11 +39,13 @@
 </script>
 
 <div class="cond" role="group" aria-label={label}>
+  <span id={titleId} class="sr-only">{label}</span>
   <div class="head">
+    <span id="{titleId}-kind" class="sr-only">종류</span>
     <select
       class="pick"
       bind:this={kindEl}
-      aria-label="{label} 종류"
+      aria-labelledby="{titleId} {titleId}-kind"
       value={cond.kind}
       onchange={(e) => {
         const kind = e.currentTarget.value as Cond['kind'];
@@ -58,46 +61,46 @@
     <button type="button" class="x danger" aria-label="{label} 지우기" onclick={onremove}>✕</button>
   </div>
   {#if cond.kind === 'maPrice'}
-    <div class="row"><NumberField label="이동평균" value={cond.period} min={2} max={250} step={1} suffix="일선" onchange={(v) => set('maPrice', (c) => (c.period = v))} /></div>
-    <label class="sel"><span>종가가</span>
-      <select class="pick" value={cond.side} onchange={(e) => set('maPrice', (c) => (c.side = e.currentTarget.value as 'above' | 'below'))}>
+    <div class="row"><NumberField namePrefixId={titleId} label="이동평균" value={cond.period} min={2} max={250} step={1} suffix="일선" onchange={(v) => set('maPrice', (c) => (c.period = v))} /></div>
+    <label class="sel"><span id="{titleId}-side">종가가</span>
+      <select class="pick" aria-labelledby="{titleId} {titleId}-side" value={cond.side} onchange={(e) => set('maPrice', (c) => (c.side = e.currentTarget.value as 'above' | 'below'))}>
         <option value="above">위</option><option value="below">아래</option>
       </select>
     </label>
   {:else if cond.kind === 'maCross'}
-    <div class="row"><NumberField label="짧은 이동평균" value={cond.short} min={2} max={250} step={1} suffix="일" onchange={(v) => set('maCross', (c) => (c.short = v))} /></div>
-    <div class="row"><NumberField label="긴 이동평균" value={cond.long} min={2} max={250} step={1} suffix="일" onchange={(v) => set('maCross', (c) => (c.long = v))} /></div>
-    <label class="sel"><span>교차</span>
-      <select class="pick" value={cond.dir} onchange={(e) => set('maCross', (c) => (c.dir = e.currentTarget.value as 'golden' | 'dead'))}>
+    <div class="row"><NumberField namePrefixId={titleId} label="짧은 이동평균" value={cond.short} min={2} max={250} step={1} suffix="일" onchange={(v) => set('maCross', (c) => (c.short = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="긴 이동평균" value={cond.long} min={2} max={250} step={1} suffix="일" onchange={(v) => set('maCross', (c) => (c.long = v))} /></div>
+    <label class="sel"><span id="{titleId}-dir">교차</span>
+      <select class="pick" aria-labelledby="{titleId} {titleId}-dir" value={cond.dir} onchange={(e) => set('maCross', (c) => (c.dir = e.currentTarget.value as 'golden' | 'dead'))}>
         <option value="golden">골든크로스</option><option value="dead">데드크로스</option>
       </select>
     </label>
   {:else if cond.kind === 'rsi'}
-    <div class="row"><NumberField label="RSI 기간" value={cond.period} min={2} max={50} step={1} suffix="일" onchange={(v) => set('rsi', (c) => (c.period = v))} /></div>
-    <div class="row"><NumberField label="기준" value={cond.level} min={1} max={99} onchange={(v) => set('rsi', (c) => (c.level = v))} /></div>
-    <label class="sel"><span>RSI가 기준</span>
-      <select class="pick" value={cond.op} onchange={(e) => set('rsi', (c) => (c.op = e.currentTarget.value as typeof c.op))}>
+    <div class="row"><NumberField namePrefixId={titleId} label="RSI 기간" value={cond.period} min={2} max={50} step={1} suffix="일" onchange={(v) => set('rsi', (c) => (c.period = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="기준" value={cond.level} min={1} max={99} onchange={(v) => set('rsi', (c) => (c.level = v))} /></div>
+    <label class="sel"><span id="{titleId}-op">RSI가 기준</span>
+      <select class="pick" aria-labelledby="{titleId} {titleId}-op" value={cond.op} onchange={(e) => set('rsi', (c) => (c.op = e.currentTarget.value as typeof c.op))}>
         <option value="above">위</option><option value="below">아래</option><option value="crossUp">상향 돌파</option><option value="crossDown">하향 돌파</option>
       </select>
     </label>
   {:else if cond.kind === 'volume'}
-    <div class="row"><NumberField label="평균 기간" value={cond.days} min={2} max={120} step={1} suffix="일" onchange={(v) => set('volume', (c) => (c.days = v))} /></div>
-    <div class="row"><NumberField label="거래량" value={cond.ratio} min={1} max={20} suffix="배 이상" onchange={(v) => set('volume', (c) => (c.ratio = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="평균 기간" value={cond.days} min={2} max={120} step={1} suffix="일" onchange={(v) => set('volume', (c) => (c.days = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="거래량" value={cond.ratio} min={1} max={20} suffix="배 이상" onchange={(v) => set('volume', (c) => (c.ratio = v))} /></div>
   {:else if cond.kind === 'change'}
-    <div class="row"><NumberField label="기간" value={cond.days} min={1} max={250} step={1} suffix="일" onchange={(v) => set('change', (c) => (c.days = v))} /></div>
-    <div class="row"><NumberField label="등락률" value={cond.pct} min={-90} max={500} suffix="%" onchange={(v) => set('change', (c) => (c.pct = v))} /></div>
-    <label class="sel"><span>등락률이</span>
-      <select class="pick" value={cond.op} onchange={(e) => set('change', (c) => (c.op = e.currentTarget.value as 'above' | 'below'))}>
+    <div class="row"><NumberField namePrefixId={titleId} label="기간" value={cond.days} min={1} max={250} step={1} suffix="일" onchange={(v) => set('change', (c) => (c.days = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="등락률" value={cond.pct} min={-90} max={500} suffix="%" onchange={(v) => set('change', (c) => (c.pct = v))} /></div>
+    <label class="sel"><span id="{titleId}-op">등락률이</span>
+      <select class="pick" aria-labelledby="{titleId} {titleId}-op" value={cond.op} onchange={(e) => set('change', (c) => (c.op = e.currentTarget.value as 'above' | 'below'))}>
         <option value="above">이상</option><option value="below">이하</option>
       </select>
     </label>
   {:else if cond.kind === 'fromHigh'}
-    <div class="row"><NumberField label="고점 기간" value={cond.days} min={2} max={250} step={1} suffix="일" onchange={(v) => set('fromHigh', (c) => (c.days = v))} /></div>
-    <div class="row"><NumberField label="하락폭" value={cond.pct} min={1} max={90} suffix="% 이상" onchange={(v) => set('fromHigh', (c) => (c.pct = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="고점 기간" value={cond.days} min={2} max={250} step={1} suffix="일" onchange={(v) => set('fromHigh', (c) => (c.days = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="하락폭" value={cond.pct} min={1} max={90} suffix="% 이상" onchange={(v) => set('fromHigh', (c) => (c.pct = v))} /></div>
   {:else if cond.kind === 'newHigh'}
-    <div class="row"><NumberField label="신고가 기간" value={cond.days} min={2} max={250} step={1} suffix="일" onchange={(v) => set('newHigh', (c) => (c.days = v))} /></div>
+    <div class="row"><NumberField namePrefixId={titleId} label="신고가 기간" value={cond.days} min={2} max={250} step={1} suffix="일" onchange={(v) => set('newHigh', (c) => (c.days = v))} /></div>
   {:else}
-    <PatternFields entry={cond.entry} update={(fn) => set('pattern', (c) => fn(c.entry))} />
+    <PatternFields entry={cond.entry} nf={() => ({ namePrefixId: titleId })} update={(fn) => set('pattern', (c) => fn(c.entry))} />
   {/if}
 </div>
 
