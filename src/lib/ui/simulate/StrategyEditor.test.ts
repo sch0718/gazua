@@ -1025,4 +1025,13 @@ describe('매도 토글·배분(§10.3·§10.4)', () => {
     expect(screen.queryByLabelText('회당 비율')).toBeNull();
     expect(screen.getByText(/처음 자금 ÷ 종목 수/)).toBeTruthy();
   });
+  it.each([[19_998.99999, 2], [29_999, 3]])('균등 안내 금액을 엔진처럼 소수 넷째 자리까지 반올림한다 (%s원 ÷ %s종목)', async (initial, count) => {
+    setup((s) => {
+      s.capital.initial = initial;
+      s.universe = { kind: 'symbols', symbols: UNIVERSE.slice(0, count).map((u) => u.s) };
+      s.sizing.mode = 'equal';
+    });
+    await openSection('기간·자금');
+    expect(screen.getByText(/처음 자금 ÷ 종목 수/).textContent).toBe(`처음 자금 ÷ 종목 수(지금 ${count}종목 → 회당 10,000원)`);
+  });
 });

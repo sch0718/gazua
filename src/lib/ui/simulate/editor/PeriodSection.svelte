@@ -1,6 +1,7 @@
 <script lang="ts">
   // 기간·자금: 시작일·종료일(KST), 처음 자금, 배분 방식.
   import { MAX_INITIAL } from '../../../sim/defaults';
+  import { roundMoney } from '../../../sim/money';
   import type { SizingMode, Strategy } from '../../../sim/types';
   import { Segmented } from '@sch0718/ui-svelte';
   import { money } from '../simText';
@@ -54,7 +55,7 @@
   ]}
 />
 {#if s.sizing.mode === 'equal'}
-  <p class="hint">처음 자금 ÷ 종목 수(지금 {count}종목 → 회당 {money(count ? Math.round(s.capital.initial / count) : 0)})</p>
+  <p class="hint">처음 자금 ÷ 종목 수(지금 {count}종목 → 회당 {money(count ? roundMoney(s.capital.initial / count) : 0)})</p>
 {:else}
   <div class="row">
     <NumberField label="회당 비율" value={s.sizing.pct} min={1} max={100} suffix={SUFFIX[s.sizing.mode]} onchange={(v) => update((x) => (x.sizing.pct = v))} />
