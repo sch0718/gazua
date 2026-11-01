@@ -174,6 +174,23 @@ describe('두 기기 왕복(설계 7.7)', () => {
     expect(b.app.secrets?.kis).toEqual(KIS_B);
   });
 
+  it('A가 켠 rev 1 행을 키 상태가 빈 B가 켜면 PUT 없이 conflict이고 서버 암호문은 그대로', async () => {
+    const s = testServer();
+    const { b, id } = await pair(s);
+    await setKeys(b, { kis: KIS_B, toss: TOSS_B, proxyToken: 'FAKE-proxy-B' });
+    await unlock(b);
+    await b.keyStore.clear(); // 프로필 동기화 상태는 두고 키 상태만 빈 기기를 만든다.
+    expect(await state(b, id)).toBeUndefined();
+    const before = keyRows(s);
+    expect(before).toEqual([expect.objectContaining({ revision: 1, ciphertext: expect.any(String) })]);
+    const requestCount = s.requests.length;
+
+    expect(await enable(b)).toEqual({ ok: true, notes: [] });
+    expect(await state(b, id)).toMatchObject({ active: true, revision: 0, notice: 'conflict', remoteRevision: 1 });
+    expect(s.requests.slice(requestCount).filter((r) => r.method === 'PUT')).toEqual([]);
+    expect(keyRows(s)).toEqual(before);
+  });
+
   it('A·B 둘 다 고치면 늦은 쪽이 conflict → 「이 기기 키 올리기」 또는 「서버 키 받기」', async () => {
     const s = testServer();
     const { a, b, id } = await pair(s);
@@ -192,7 +209,9 @@ describe('두 기기 왕복(설계 7.7)', () => {
     // 다시 충돌을 만들어 서버 키 받기
     await setKeys(a, { kis: KIS_A, proxyToken: 'FAKE-proxy-A' });
     await setKeys(b, { kis: KIS_B, toss: TOSS_B, proxyToken: 'FAKE-proxy-B' });
-    await a.engine.exclusive(() => a.keys.uploadLocal(id));
+    await a.engine.keysNow();
+    expect((await state(a, id))?.notice).toBe('conflict');
+    expect(await a.engine.exclusive(() => a.keys.uploadLocal(id))).toEqual({ ok: true, notes: [] });
     await b.engine.keysNow();
     expect((await state(b, id))?.notice).toBe('conflict');
     expect((await receive(b)).ok).toBe(true);
@@ -218,6 +237,7 @@ describe('두 기기 왕복(설계 7.7)', () => {
     await a.engine.exclusive(() => a.keys.setProviders(id, ['kis']));
     await a.engine.keysNow();
     await b.engine.keysNow();
+    expect((await state(b, id))?.notice).toBe('newer');
     expect(await receive(b)).toEqual({ ok: true, notes: [KEY_TEXT.sameKeys, KEY_TEXT.dropped('toss')] });
     expect(b.app.secrets?.toss).toEqual(TOSS_A);
   });
@@ -245,7 +265,7 @@ describe('두 기기 왕복(설계 7.7)', () => {
     await unlock(b);
     await receive(b);
     const before = keyRows(s);
-    await a.engine.exclusive(() => a.keys.disable(id));
+    expect(await a.engine.exclusive(() => a.keys.disable(id))).toEqual({ ok: true, notes: [] });
     await b.engine.keysNow();
     expect((await state(b, id))?.notice).toBe('removed');
     restoreKeyRows(s, before);
@@ -318,7 +338,7 @@ describe('두 기기 왕복(설계 7.7)', () => {
     restoreKeyRows(s, r3.map((r) => ({ ...r, revision: 2, vault_revision: 2 })));
     await a.engine.keysNow();
     await unlock(a, PASS2);
-    await a.engine.exclusive(() => a.keys.disable(id));
+    expect(await a.engine.exclusive(() => a.keys.disable(id))).toEqual({ ok: true, notes: [] });
     await b.engine.keysNow();
     expect(await state(b, id)).toMatchObject({ active: false, notice: 'removed' });
   });
@@ -381,15 +401,18 @@ describe('두 기기 왕복(설계 7.7)', () => {
     const s = testServer();
     const { a, b, id } = await pair(s);
     await unlock(b);
+    expect(await receive(b)).toEqual({ ok: true, notes: [KEY_TEXT.received] });
+    const before = (await state(b, id))!;
+    expect(before).toMatchObject({ notice: null, revision: 1, syncedContentId: keyRows(s)[0].content_id });
     const salt = randomId();
     const nextKey = await deriveVaultKey(PASS2, salt, KEY_ITER);
     expect(await a.engine.exclusive(() => a.keys.rekey({ key: nextKey, salt }))).toEqual({ ok: true, notes: [] });
     await b.engine.keysNow();
     expect(b.vault.key).toBeNull();
     expect(await b.keyStore.getMeta('keyNotice')).toBe('vault-changed');
-    expect((await state(b, id))?.notice).toBe('available');
+    expect(await state(b, id)).toMatchObject({ notice: null, revision: before.revision, syncedContentId: before.syncedContentId });
     await unlock(b, PASS2);
-    expect((await receive(b)).ok).toBe(true);
+    expect(await receive(b)).toEqual({ ok: true, notes: [KEY_TEXT.sameKeys] });
     expect(b.app.secrets?.kis).toEqual(KIS_A);
   });
 
@@ -458,9 +481,15 @@ describe('공유 경로 누출 고정(설계 7.6)', () => {
       vault.verifier_nonce,
       vault.verifier_ciphertext,
     ];
+    for (const n of needles) {
+      expect(typeof n).toBe('string');
+      expect(n.length).toBeGreaterThanOrEqual(16);
+    }
     const clean = (where: string, text: string) => {
       for (const n of needles) expect(text.includes(n), `${where}에 비밀 조각`).toBe(false);
     };
+
+    clean('exportData(false)', a.app.exportData(false));
 
     const group = a.app.watchlists.groups[0];
     const snaps: ShareSnapshot[] = [
