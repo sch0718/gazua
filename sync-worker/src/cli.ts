@@ -1,7 +1,7 @@
 // 읽기 전용 CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 읽기 전용 허용 목록.
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
 import { base64url, errorBody, HttpError, json, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
-import type { SyncDeps, SyncEnv } from './env';
+import { DAY, type SyncDeps, type SyncEnv } from './env';
 import type { AuthContext } from './session';
 
 export const CLI_GRANT_TTL = 10 * 60 * 1000;
@@ -11,6 +11,9 @@ export const IP_WINDOW_MS = 10 * 60 * 1000;
 export const PENDING_LIMIT = 50;
 export const CLI_LABEL_MAX = 64;
 export const GEO_MAX = 64;
+export const TOKEN_TTL = 90 * DAY;
+export const INTERVAL_STEP_MS = 5000;
+export const INTERVAL_CAP_MS = 60_000;
 export const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 const USER_CODE_RE = /^[BCDFGHJKLMNPQRSTVWXZ]{8}$/;
 
@@ -115,15 +118,64 @@ export async function createDevice(req: Request, env: SyncEnv, deps: SyncDeps, b
   throw new Error('cli: user code collision');
 }
 
+/**
+ * 기기 코드를 폴링한다. 승인된 코드는 조건부 UPDATE와 EXISTS 조건 INSERT를 한 batch로 처리한다.
+ * consumed_token_hash를 다시 읽어 내 해시일 때만 토큰을 돌려줘 겹친 폴링 중 하나만 받도록 한다.
+ */
+export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Promise<{ token: string; tokenId: string; expiresAt: number }> {
+  const b = isRecord(body) ? body : {};
+  if (typeof b.deviceCode !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.deviceCode)) throw new HttpError(422, 'invalid', { path: 'deviceCode' });
+  const now = deps.now();
+  const g = await env.DB.prepare(
+    `SELECT id, status, user_id AS userId, label, interval_ms AS intervalMs, expires_at AS expiresAt FROM cli_grants WHERE device_hash = ?`,
+  )
+    .bind(await sha256Hex(b.deviceCode))
+    .first<{ id: string; status: string; userId: string | null; label: string; intervalMs: number; expiresAt: number }>();
+  if (!g) throw new HttpError(404, 'unknown-device');
+  if (g.status === 'consumed' || g.expiresAt <= now) throw new HttpError(410, 'expired');
+  if (g.status === 'denied') throw new HttpError(403, 'denied');
+
+  if (g.status === 'pending') {
+    // 간격이 지났으면 last_polled_at을 지금으로. 바뀐 행이 0이면 너무 빠른 폴링이다.
+    const r = await env.DB.prepare(
+      `UPDATE cli_grants SET last_polled_at = ? WHERE id = ? AND status = 'pending' AND (last_polled_at IS NULL OR last_polled_at + interval_ms <= ?)`,
+    )
+      .bind(now, g.id, now)
+      .run();
+    if (r.meta.changes > 0) throw new HttpError(400, 'pending');
+    const grow = g.intervalMs < INTERVAL_CAP_MS;
+    if (grow) await env.DB.prepare('UPDATE cli_grants SET interval_ms = interval_ms + ? WHERE id = ? AND interval_ms < ?').bind(INTERVAL_STEP_MS, g.id, INTERVAL_CAP_MS).run();
+    throw new HttpError(400, 'slow_down', { interval: (g.intervalMs + (grow ? INTERVAL_STEP_MS : 0)) / 1000 });
+  }
+
+  const token = `gzc_${base64url(deps.random(32))}`;
+  const hash = await sha256Hex(token);
+  const tokenId = deps.uuid();
+  const expiresAt = now + TOKEN_TTL;
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE cli_grants SET status = 'consumed', consumed_token_hash = ? WHERE id = ? AND status = 'approved' AND consumed_token_hash IS NULL AND expires_at > ?`,
+    ).bind(hash, g.id, now),
+    env.DB.prepare(
+      `INSERT INTO cli_tokens (id, token_hash, user_id, label, scope, created_at, last_used_at, expires_at, revoked_at)
+       SELECT ?, ?, ?, ?, 'read', ?, ?, ?, NULL WHERE EXISTS (SELECT 1 FROM cli_grants WHERE id = ? AND consumed_token_hash = ?)`,
+    ).bind(tokenId, hash, g.userId, g.label, now, now, expiresAt, g.id, hash),
+  ]);
+  const mine = await env.DB.prepare('SELECT consumed_token_hash AS hash FROM cli_grants WHERE id = ?').bind(g.id).first<{ hash: string | null }>();
+  if (mine?.hash !== hash) throw new HttpError(410, 'expired');
+  return { token, tokenId, expiresAt };
+}
+
 /** Origin 없는 요청 중 CLI 분기로 받을 것이면 로그에 남길 패턴, 아니면 null */
 export function cliEntry(req: Request, url: URL): string | null {
   if (req.method === 'POST' && url.pathname === '/v1/cli/device') return '/v1/cli/device';
+  if (req.method === 'POST' && url.pathname === '/v1/cli/token') return '/v1/cli/token';
   return null;
 }
 
 export async function handleCli(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
-  void url;
-  return createDevice(req, env, deps, await readJson(req, 4096));
+  if (req.method === 'POST' && url.pathname === '/v1/cli/device') return createDevice(req, env, deps, await readJson(req, 4096));
+  return json(200, await pollToken(env, deps, await readJson(req, 4096)));
 }
 
 /**

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { harness, ORIGIN, type Harness } from '../test/harness';
-import { IP_LIMIT, normalizeIp, PENDING_LIMIT } from './cli';
+import { IP_LIMIT, normalizeIp, PENDING_LIMIT, TOKEN_TTL } from './cli';
 
 const j = async (r: Response) => ({ status: r.status, body: (await r.json()) as Record<string, any> });
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -21,6 +21,7 @@ function cliCall(
 const device = (h: Harness, ip = '203.0.113.5', label = 'gazua@mac', cf?: { country?: string; city?: string }) =>
   cliCall(h, 'POST', '/v1/cli/device', { body: { label }, ip, cf });
 const rows = (h: Harness, sql: string) => h.env.DB.raw.prepare(sql).all() as Record<string, any>[];
+const poll = (h: Harness, deviceCode: string) => cliCall(h, 'POST', '/v1/cli/token', { body: { deviceCode } });
 
 const columns = (h: ReturnType<typeof harness>, table: string) =>
   (h.env.DB.raw.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
@@ -259,5 +260,131 @@ describe('POST /v1/cli/approve', () => {
     const d = (await j(await device(h))).body;
     expect((await h.call('POST', '/v1/cli/approve', { body: { userCode: d.userCode, approve: true } })).status).toBe(401);
     expect(rows(h, 'SELECT status FROM cli_grants')).toEqual([{ status: 'pending' }]);
+  });
+});
+
+describe('POST /v1/cli/token', () => {
+  async function approved(h: Harness) {
+    const me = await h.login();
+    const d = (await j(await device(h))).body;
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true });
+    return { me, d };
+  }
+
+  it('흐름: device → pending → 조회 → 승인 → 토큰 한 번 → 다시 410', async () => {
+    const h = harness();
+    const me = await h.login();
+    const d = (await j(await device(h))).body;
+    expect(await j(await poll(h, d.deviceCode))).toMatchObject({ status: 400, body: { error: 'pending' } });
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode }); // 조회: 상태 그대로
+    h.clock.now += 5000;
+    expect((await j(await poll(h, d.deviceCode))).body.error).toBe('pending');
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true });
+    const t = await j(await poll(h, d.deviceCode));
+    expect(t.status).toBe(200);
+    expect(t.body.token).toMatch(/^gzc_[A-Za-z0-9_-]{43}$/);
+    expect(t.body.expiresAt).toBe(h.clock.now + TOKEN_TTL);
+    expect(typeof t.body.tokenId).toBe('string');
+    const [tok] = rows(h, 'SELECT * FROM cli_tokens');
+    expect(tok).toMatchObject({ id: t.body.tokenId, token_hash: sha(t.body.token), label: 'gazua@mac', scope: 'read', revoked_at: null, last_used_at: h.clock.now });
+    expect(JSON.stringify(rows(h, 'SELECT * FROM cli_tokens'))).not.toContain(t.body.token);
+    expect(JSON.stringify(rows(h, 'SELECT * FROM cli_grants'))).not.toContain(t.body.token);
+    expect(await j(await poll(h, d.deviceCode))).toMatchObject({ status: 410, body: { error: 'expired' } });
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(1);
+    expect(h.logs.join('\n')).not.toContain(t.body.token);
+  });
+
+  it('거절하면 403 denied', async () => {
+    const h = harness();
+    const me = await h.login();
+    const d = (await j(await device(h))).body;
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: false });
+    expect(await j(await poll(h, d.deviceCode))).toMatchObject({ status: 403, body: { error: 'denied' } });
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(0);
+  });
+
+  it('모르는 기기 코드는 404 unknown-device, 모양이 틀리면 422', async () => {
+    const h = harness();
+    expect(await j(await poll(h, 'A'.repeat(43)))).toMatchObject({ status: 404, body: { error: 'unknown-device' } });
+    expect((await j(await poll(h, 'short'))).status).toBe(422);
+    expect((await j(await cliCall(h, 'POST', '/v1/cli/token', { body: {} }))).status).toBe(422);
+  });
+
+  it('10분이 지나면 410 expired(승인 전·승인 뒤 모두), approve는 422', async () => {
+    const h = harness();
+    const me = await h.login();
+    const a = (await j(await device(h, '203.0.113.5'))).body;
+    const b = (await j(await device(h, '203.0.113.6'))).body;
+    await me.as('POST', '/v1/cli/approve', { userCode: b.userCode, approve: true });
+    h.clock.now += 600_000;
+    expect((await j(await poll(h, a.deviceCode))).status).toBe(410);
+    expect((await j(await poll(h, b.deviceCode))).status).toBe(410);
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(0);
+    expect((await me.as('POST', '/v1/cli/approve', { userCode: a.userCode, approve: true })).status).toBe(422);
+  });
+
+  it('간격 안의 두 번째 폴링은 400 slow_down이고 저장 간격이 5초 늘어난다', async () => {
+    const h = harness();
+    const d = (await j(await device(h))).body;
+    expect((await j(await poll(h, d.deviceCode))).body.error).toBe('pending');
+    const slow = await j(await poll(h, d.deviceCode));
+    expect(slow).toMatchObject({ status: 400, body: { error: 'slow_down', interval: 10 } });
+    expect(rows(h, 'SELECT interval_ms FROM cli_grants')).toEqual([{ interval_ms: 10_000 }]);
+    h.clock.now += 5000; // 늘어난 간격(10초) 전이라 아직 빠르다
+    expect((await j(await poll(h, d.deviceCode))).body.error).toBe('slow_down');
+    h.clock.now += 20_000;
+    expect((await j(await poll(h, d.deviceCode))).body.error).toBe('pending');
+  });
+
+  it('interval_ms가 60000 이상이면 slow_down만 답하고 간격은 그대로', async () => {
+    const h = harness();
+    const d = (await j(await device(h))).body;
+    h.env.DB.raw.prepare('UPDATE cli_grants SET interval_ms = 60000').run();
+    await poll(h, d.deviceCode);
+    const slow = await j(await poll(h, d.deviceCode));
+    expect(slow).toMatchObject({ status: 400, body: { error: 'slow_down', interval: 60 } });
+    expect(rows(h, 'SELECT interval_ms FROM cli_grants')).toEqual([{ interval_ms: 60_000 }]);
+    h.env.DB.raw.prepare('UPDATE cli_grants SET interval_ms = 57000').run();
+    h.clock.now += 100_000;
+    await poll(h, d.deviceCode);
+    await poll(h, d.deviceCode);
+    expect(rows(h, 'SELECT interval_ms FROM cli_grants')).toEqual([{ interval_ms: 62_000 }]);
+  });
+
+  it('겹친 폴링 둘 중 하나만 토큰을 받고 cli_tokens 행은 1개, 다른 하나는 410', async () => {
+    const h = harness();
+    const { d } = await approved(h);
+    // 첫 폴링이 batch를 실행하기 직전에 두 번째 폴링을 끝까지 끼워 넣는다(둘 다 approved 상태를 읽은 뒤)
+    const realBatch = h.env.DB.batch.bind(h.env.DB);
+    let second: Promise<Response> | null = null;
+    h.env.DB.batch = async (statements) => {
+      if (second === null) {
+        second = poll(h, d.deviceCode);
+        await second;
+      }
+      return realBatch(statements);
+    };
+    const first = await poll(h, d.deviceCode);
+    const results = [await j(first), await j(await second!)];
+    expect(results.map((r) => r.status).sort()).toEqual([200, 410]);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(1);
+    const winner = results.find((r) => r.status === 200)!.body;
+    expect(rows(h, 'SELECT token_hash FROM cli_tokens')[0].token_hash).toBe(sha(winner.token));
+    expect(rows(h, 'SELECT consumed_token_hash, status FROM cli_grants')).toEqual([{ consumed_token_hash: sha(winner.token), status: 'consumed' }]);
+  });
+
+  it('읽은 뒤 batch 직전에 만료되면 토큰을 만들지 않는다(UPDATE의 만료 조건)', async () => {
+    const h = harness();
+    const { d } = await approved(h);
+    const realBatch = h.env.DB.batch.bind(h.env.DB);
+    h.env.DB.batch = async (statements) => {
+      // pollToken이 grant를 읽은 뒤 batch가 실행되기 전에 만료 시각이 지금이 됐다고 본다(expires_at > now가 거짓)
+      h.env.DB.raw.prepare('UPDATE cli_grants SET expires_at = ?').run(h.clock.now);
+      return realBatch(statements);
+    };
+    expect(await j(await poll(h, d.deviceCode))).toMatchObject({ status: 410, body: { error: 'expired' } });
+    expect(rows(h, 'SELECT count(*) AS n FROM cli_tokens')[0].n).toBe(0);
+    expect(rows(h, 'SELECT status, consumed_token_hash FROM cli_grants')).toEqual([{ status: 'approved', consumed_token_hash: null }]);
   });
 });
