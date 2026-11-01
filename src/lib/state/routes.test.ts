@@ -87,3 +87,17 @@ describe('shared route', () => {
   });
 });
 
+
+
+describe('settings routes', () => {
+  it('#/settings/sync는 동기화 구역으로 연다', () => {
+    expect(parseHash('#/settings/sync')).toEqual({ name: 'settings', section: 'sync' });
+    expect(parseHash('#/settings/sync/')).toEqual({ name: 'settings', section: 'sync' });
+    expect(parseHash('#/settings')).toEqual({ name: 'settings' });
+    expect(parseHash('#/settings/other')).toBeNull();
+  });
+  it('hashFor는 section이 있어도 #/settings를 낸다', () => {
+    expect(hashFor({ name: 'settings', section: 'sync' })).toBe('#/settings');
+    expect(hashFor({ name: 'settings' })).toBe('#/settings');
+  });
+});

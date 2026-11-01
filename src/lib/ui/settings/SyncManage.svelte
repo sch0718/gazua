@@ -2,7 +2,7 @@
   // 설정 › 동기화의 관리 목록: 로그인한 기기(철회), 삭제한 프로필(30일 복구), 지금 프로필의 과거 버전(새 프로필로 복원), 내 공유(철회).
   // 펼칠 때만 서버에서 읽는다(무료 할당량 절약).
   import type { App } from '../../state/app.svelte';
-  import type { DeviceSession, IndexRow, ShareRow } from '../../sync/api';
+  import type { CliTokenRow, DeviceSession, IndexRow, ShareRow } from '../../sync/api';
   import type { SyncController } from '../../sync/controller.svelte';
   import { kindLabel } from '../../share/kinds';
   import { showSnackbar } from '@sch0718/ui-svelte';
@@ -10,6 +10,7 @@
   let { app, sync, confirmFn = (m: string) => window.confirm(m) }: { app: App; sync: SyncController; confirmFn?: (m: string) => boolean } = $props();
 
   let devices = $state<DeviceSession[] | null>(null);
+  let cli = $state<CliTokenRow[] | 'outdated' | null>(null);
   let deleted = $state<IndexRow[] | null>(null);
   let revisions = $state<{ revision: number; createdAt: number; deleted: boolean }[] | null>(null);
   let shares = $state<ShareRow[] | null>(null);
@@ -17,7 +18,11 @@
   const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const nowMs = () => Date.now();
 
-  const loadDevices = async () => (devices = await sync.sessions());
+  const loadDevices = async () => {
+    devices = await sync.sessions();
+    const r = await sync.cliTokens();
+    cli = r.ok ? r.tokens : r.reason === 'outdated' ? 'outdated' : null;
+  };
   const loadDeleted = async () => (deleted = (await sync.remoteProfiles())?.filter((p) => p.deletedAt !== null) ?? null);
   // 과거 버전 목록은 불러온 프로필에 묶는다. 프로필을 바꾸면 그 프로필 것으로 다시 읽는다(다른 프로필에서 복원하지 않게).
   let revisionsFor = $state<string | null>(null);
@@ -51,6 +56,10 @@
     if (!confirmFn('이 기기를 뺀 모든 기기를 로그아웃할까요?')) return;
     if (await sync.revokeSession('others')) await loadDevices();
   }
+  async function revokeCli(t: CliTokenRow) {
+    if (!confirmFn(`「${t.label}」 CLI 연결을 끊을까요? 그 CLI는 다시 로그인해야 읽을 수 있어요.`)) return;
+    if (await sync.cliRevoke(t.id)) await loadDevices();
+  }
   async function restore(p: IndexRow) {
     if (await sync.restoreDeleted(p.profileId)) {
       showSnackbar('프로필을 복구했어요');
@@ -83,7 +92,25 @@
           </li>
         {/each}
       </ul>
-      {#if devices.length > 1}<button type="button" class="btn" onclick={revokeOthers}>다른 기기 모두 로그아웃</button>{/if}
+      {#if devices.length > 1}
+        <button type="button" class="btn" onclick={revokeOthers}>다른 기기 모두 로그아웃</button>
+        <p class="muted">CLI 연결은 따로 끊어요</p>
+      {/if}
+      <p class="group"><b>CLI</b></p>
+      {#if cli === 'outdated'}
+        <p class="muted">서버 업데이트가 필요해요</p>
+      {:else if cli !== null && cli.length === 0}
+        <p class="muted">연결한 CLI가 없어요.</p>
+      {:else if cli !== null}
+        <ul>
+          {#each cli as t (t.id)}
+            <li>
+              <span><b>{t.label}</b> <small>읽기 전용 CLI</small><br /><small>마지막 사용 {fmt(t.lastUsedAt)} · {fmt(t.expiresAt)}에 만료</small></span>
+              <button type="button" class="btn" aria-label="{t.label} CLI 연결 끊기" onclick={() => revokeCli(t)}>연결 끊기</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </details>
 
@@ -147,6 +174,11 @@
 </div>
 
 <style>
+  .group {
+    padding-top: 8px;
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
   .manage {
     display: flex;
     flex-direction: column;

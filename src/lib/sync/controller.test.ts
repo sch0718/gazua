@@ -315,6 +315,31 @@ describe('SyncController', () => {
     expect(sync.account).toEqual({ provider: 'google', id: ME, display: ME });
     expect((await store.getMeta<{ id: string }>('session'))?.id).toBe(fresh?.id);
   });
+  it('CLI 연결: 조회·승인·목록·끊기와 실패 사유', async () => {
+    const s = testServer();
+    const { sync } = await setup(s);
+    await sync.signIn();
+    const dev = (await (await s.h.call('POST', '/v1/cli/device', { origin: null, token: null, body: { label: 'gazua@mac' }, headers: { 'CF-Connecting-IP': '203.0.113.5' }, cf: { country: 'KR', city: 'Seoul' } })).json()) as { userCode: string; deviceCode: string };
+    expect(await sync.cliApprove(dev.userCode)).toEqual({ ok: true, info: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: 'KR · Seoul' } });
+    expect(await sync.cliApprove('ZZZZ-ZZZZ')).toEqual({ ok: false, reason: 'invalid-code' });
+    expect(sync.error).toBeNull();
+    expect((await sync.cliApprove(dev.userCode, true)).ok).toBe(true);
+    const tok = (await (await s.h.call('POST', '/v1/cli/token', { origin: null, token: null, body: { deviceCode: dev.deviceCode } })).json()) as { tokenId: string };
+    expect(await sync.cliTokens()).toMatchObject({ ok: true, tokens: [{ id: tok.tokenId, label: 'gazua@mac' }] });
+    expect(await sync.cliRevoke(tok.tokenId)).toBe(true);
+    expect(await sync.cliTokens()).toEqual({ ok: true, tokens: [] });
+  });
+  it('CLI 경로가 없는 옛 Worker는 outdated로 알린다', async () => {
+    const s = testServer();
+    const real = s.fetch;
+    s.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+      new URL(new Request(input, init).url).pathname.startsWith('/v1/cli/') ? new Response('{"error":"not-found"}', { status: 404 }) : real(input, init)) as typeof fetch;
+    const { sync } = await setup(s);
+    await sync.signIn();
+    expect(await sync.cliApprove('BCDF-GHJK')).toEqual({ ok: false, reason: 'outdated' });
+    expect(await sync.cliTokens()).toEqual({ ok: false, reason: 'outdated' });
+  });
+
 });
 
 describe('describeFail', () => {

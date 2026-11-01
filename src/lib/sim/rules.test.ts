@@ -91,6 +91,21 @@ describe('조건 판정(§5.2)', () => {
   });
 });
 
+describe('signal의 group(맞은 묶음 번호)', () => {
+  const c = closes([10, 10, 10, 12, 8, 10]);
+  it('처음 맞은 묶음이 1부터 센 번호로 온다', () => {
+    const groups: CondGroup[] = [{ conds: [{ kind: 'maPrice', period: 3, side: 'below' }] }, { conds: [{ kind: 'maPrice', period: 3, side: 'above' }] }];
+    const ev = createRuleEvaluator(c, groups, 0);
+    expect(ev.signal(3)).toEqual({ reason: '종가 3일선 위', group: 2 });
+    expect(ev.signal(4)).toEqual({ reason: '종가 3일선 아래', group: 1 });
+    expect(ev.signal(0)).toBeNull();
+  });
+  it('빈 묶음은 건너뛰되 번호는 묶음 위치 그대로다', () => {
+    const groups: CondGroup[] = [{ conds: [] }, { conds: [{ kind: 'maPrice', period: 3, side: 'above' }] }];
+    expect(createRuleEvaluator(c, groups, 0).signal(3)).toEqual({ reason: '종가 3일선 위', group: 2 });
+  });
+});
+
 describe('묶음', () => {
   const c = closes([10, 10, 10, 12, 13, 14], [1, 1, 1, 5, 1, 1]);
   it('묶음 안 AND: 하나라도 틀리면 불만족', () => {
@@ -123,7 +138,7 @@ describe('패턴 블록 = 기존 추적기', () => {
     for (let i = 0; i < candles.length; i++) {
       const a = ev.signal(i);
       const b = tr.signal(i);
-      expect(a).toEqual(b ? { reason: b.reason, snapshot: b.snapshot } : null);
+      expect(a).toEqual(b ? { reason: b.reason, snapshot: b.snapshot, group: 1 } : null);
       ev.update(i);
       tr.update(i);
       if (i % 37 === 0) {
@@ -136,7 +151,7 @@ describe('패턴 블록 = 기존 추적기', () => {
   it('패턴 블록이 없으면 stats()는 null이고 스냅샷이 없다', () => {
     const ev = createRuleEvaluator(closes([1, 2, 3, 4]), one({ kind: 'maPrice', period: 2, side: 'above' }), 0);
     expect(ev.stats()).toBeNull();
-    expect(ev.signal(3)).toEqual({ reason: '종가 2일선 위' });
+    expect(ev.signal(3)).toEqual({ reason: '종가 2일선 위', group: 1 });
   });
 });
 

@@ -5,7 +5,7 @@ describe('테스트용 D1', () => {
   it('마이그레이션으로 표를 만든다', async () => {
     const db = createTestD1();
     const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all<{ name: string }>();
-    expect(results.map((r) => r.name)).toEqual(['key_blobs', 'key_guard', 'key_vault', 'profile_index', 'profiles', 'revisions', 'sessions', 'shares', 'users']);
+    expect(results.map((r) => r.name)).toEqual(['cli_grants', 'cli_tokens', 'key_blobs', 'key_guard', 'key_vault', 'profile_index', 'profiles', 'revisions', 'sessions', 'shares', 'users']);
   });
 
   it('batch는 하나가 실패하면 전부 되돌린다', async () => {
