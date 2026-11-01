@@ -219,10 +219,11 @@ Cloudflare Workers Rate Limiting 바인딩 대신 D1로 세요. 무료 계정에
 
 - **CLI용 토스 키를 따로 써요.** 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 받아요. 앱과 같은 키를 쓰면 한쪽이 토큰을 새로 받을 때 다른 쪽 토큰이 무효가 될 수 있어요(앱은 이를 `token-contended`로 다뤄요, `src/lib/providers/toss.ts`). README에 이 경고와 콘솔 안내를 적어요. 콘솔에서 앱을 여러 개 만들 수 있는지는 확인 필요예요(§13).
 - **같은 기기의 CLI 병렬 실행**: AI 도구가 명령을 동시에 여러 개 돌릴 수 있어요. 공급자에 파일 잠금 `TokenLock`을 넘겨 토큰 발급을 한 번에 하나로 묶어요.
-  - 잠금 파일: `~/.config/gazua/<provider>.lock`(`kis.lock`·`toss.lock`). 안에 `{ pid, nonce, createdAt }`을 써요. `fs.open(path, 'wx')`(`O_EXCL`)로 만들고, 이미 있으면 200ms마다 다시 시도해요.
-  - 오래된 잠금: 파일 시각이 70초보다 오래됐고(KIS 발급 1분 제한보다 길게) 파일 안 pid가 `process.kill(pid, 0)`으로 살아 있지 않을 때만 회수해요. pid가 살아 있으면 70초가 지나도 지우지 않아요. 전체 대기 상한도 70초이고, 넘으면 `token-contended`예요.
-  - 회수 절차(회수 전용 잠금으로 직렬화): `open(lock + '.break', 'wx')`로 회수 잠금을 얻은 실행만 잠금 파일을 **다시 읽어 아까 본 것과 nonce가 같을 때만** `unlink`하고, 회수 잠금을 지운 뒤 `open(lock, 'wx')`를 다시 시도해요. 회수 잠금을 못 얻으면(다른 회수자가 있으면) 지우지 않고 잠시 뒤 다시 봐요. 회수 잠금 자체가 10초보다 오래되면 죽은 회수자의 것으로 보고 같은 규칙으로 정리해요. 새 잠금 경로를 `rename`으로 비우지 않으므로 새로 만든 남의 잠금을 지우지 않아요.
+  - 잠금 파일: `~/.config/gazua/<provider>.lock`(`kis.lock`·`toss.lock`). 안에 `{ pid, hostname, nonce, createdAt }`을 써요. `fs.open(path, 'wx')`(`O_EXCL`)로 만들고, 이미 있으면 200ms마다 다시 시도해요.
+  - 회수: 파일 시스템에는 원자적인 「비교 후 삭제」가 없어서 회수 잠금(`.break`)과 시간 기준 회수는 두지 않아요(둘 다 새 경합을 만들어요). 잠금을 읽어 **같은 `hostname`이고 `process.kill(pid, 0)`이 ESRCH(프로세스 없음)일 때만** 회수해요. 지우기 직전에 다시 읽어 nonce가 같으면 `unlink`하고 `open('wx')`를 다시 시도해요. pid가 살아 있거나(EPERM 포함) 다른 host이거나 내용이 깨졌으면 회수하지 않고 기다려요.
+  - 대기 상한은 30초예요. 넘으면 오류 코드 `token-busy`로 실패해요(§6.6).
   - 해제: 잠금 파일을 읽어 자기 `nonce`일 때만 `unlink`해요(그 사이 남의 잠금으로 바뀌었으면 그대로 둬요).
+  - 한계: 두 회수자가 같은 죽은 잠금을 동시에 보면, 한쪽이 지운 뒤 새로 만든 잠금을 다른 쪽이 (다시 읽기와 `unlink` 사이에) 지울 수 있는 아주 좁은 틈이 남아요. 그 결과는 토큰을 한 번 더 발급하는 것뿐이고, 토스는 `token-revoked`, KIS는 재시도로 복구돼요. 데이터 손실은 없어요.
   - 잠금 안에서 토큰 저장소(`tokens-<공급자>.json`)를 다시 읽으니, 앞 실행이 받은 토큰을 뒤 실행이 그대로 써요. KIS 1분 발급 제한은 같은 파일의 `issuedAt`으로, 토스 재발급 간격(60초)도 `issuedAt`을 파일에 두어 실행을 넘어 지켜요.
   - `createTossProvider`는 이미 `tokenLock`을 받아요. `createKisProvider`에는 선택 인자 `tokenLock`을 더해 `createTokenManager`의 다섯 번째 인자로 넘기고, `createTossProvider`에는 선택 인자 `issuedAt`(`IssuedAtStore`)을 더해 네 번째 인자로 넘겨요(§6.2). 앱은 둘 다 넘기지 않아 그대로예요.
 
@@ -360,7 +361,7 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 - `TokenStore`·`IssuedAtStore`(`src/lib/providers/types.ts`) 구현이 이 파일을 읽고 써요. 쓰기는 임시 파일 → rename으로 해요. 읽을 때마다 디렉터리·파일 권한이 넓으면 `warnings`를 붙여요(`auth.json`, 토큰 파일, 주문 캐시 모두).
 - `TokenStore.load()`는 메모리에 담지 않고 매번 파일을 읽어요(잠금 안 다시 읽기를 위해, `src/lib/providers/auth.ts`의 `usableStored()` 참고).
 - 동기화 서버 주소: `gazua login --server <주소>` 또는 `GAZUA_SYNC_URL`이 먼저, 없으면 빌드 때 esbuild `define`으로 넣은 기본값(빌드 환경의 `VITE_SYNC_API_URL`, 앱이 `src/lib/sync/config.ts`에서 읽는 값과 같음). 로그인한 뒤에는 `auth.json`의 `server`를 써요. 이 `define`은 `import.meta.env` 전체가 아니라 상수 하나만 바꿔요.
-- 잠금 파일 `kis.lock`·`toss.lock`(과 회수 전용 `.break`, §4.2)과 주문 캐시 `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`(§7.2)도 같은 디렉터리·권한이에요.
+- 잠금 파일 `kis.lock`·`toss.lock`(§4.2)과 주문 캐시 `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`(§7.2)도 같은 디렉터리·권한이에요.
 
 ### 6.6 오류 코드
 
@@ -381,6 +382,7 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 | `no-credentials` | 필요한 증권사 키 환경변수가 없음 |
 | `provider-unsupported` | 그 공급자로 안 되는 명령(예: KIS로 `holdings`) |
 | `path-blocked` | 허용 목록 밖 증권사 경로(버그 방어) |
+| `token-busy` | 같은 기기의 다른 CLI 실행이 쥔 토큰 잠금을 30초 안에 얻지 못함(§4.2) |
 | `ip-not-allowed`·`invalid-credentials`·`token-throttled`·`token-contended`·`upstream`·`timeout` | 공급자 `ApiError` 코드를 그대로 |
 | `app-outdated` | 서버 문서가 이 CLI보다 높은 버전(422 `앱을 새로 고쳐 주세요`) → CLI 업데이트 |
 | `internal` | 그 밖 |
@@ -477,7 +479,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 | 항목 | 계산 | 모르면 |
 |---|---|---|
 | 평단·수량 | `account.holdings()`의 `avgPrice`·`quantity`(§6.2) | `avgPrice`가 없으면 가격 판정을 `unknown` |
-| 첫 매수일 | `account.closedOrders()` → `normalizeOrders` → 날짜순으로 수량을 더하고 빼며, 수량이 0에서 양수가 된 마지막 날. 끝 수량이 지금 보유 수량과 다르면 이력이 모자란 것 | `unknown` |
+| 첫 매수일 | `account.closedOrders()` → `normalizeOrders`로 거른 뒤 **실제 체결 시각순**(`filledAt ?? orderedAt`)으로 다시 정렬해(`normalizeOrders`는 같은 날 매수를 먼저 둬서 같은 날 전량 매도 후 재매수를 거꾸로 읽는다) 수량을 더하고 빼며, 수량이 0에서 양수가 된 마지막 날. 끝 수량이 지금 보유 수량과 다르면 이력이 모자란 것 | `unknown` |
 
 - 주문 이력은 파일 캐시(`orders-<keyHash>-<accountSeq 해시 앞 8자>.json`, 600)에 둬요. 앱의 `src/lib/perf/orderCache.ts`처럼 `{ orders, syncedAt, syncedThrough }`를 두고, 다음에는 `syncedThrough`의 7일 전부터만 받아 합쳐요(같은 `orderId`는 새 것으로). `keyHash`는 토스 client ID 해시이고, `accountSeq`의 SHA-256 앞 8자를 파일 이름에 더해 계좌가 바뀌면 다른 파일이 돼요. 원문 `accountSeq`는 파일 이름에도 내용에도 쓰지 않아요.
 | 손절 가격 | `stopLoss.on`이면 기준에 따라: `avgAlways`·`avgAfterScaleIn` = 평단 × (1 − pct), `firstBuy` = 첫 매수 체결가 × (1 − pct) | `firstBuy`인데 첫 매수가를 모르면 `unknown` |
@@ -534,7 +536,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 - `direct.ts`: 토스 `POST /api/v1/orders`·KIS 주문 TR 경로·없는 경로는 fetch 없이 `path-blocked`. 허용 경로는 `UPSTREAM` 주소로 보냄.
 - `output.ts`: 키·토큰·`accountSeq`가 들어간 객체·오류 메시지가 `[숨김]`으로 나옴. 표준 출력이 JSON 한 줄.
 - `config.ts`: 파일 권한 600·디렉터리 700, 넓은 권한 경고, rename 쓰기.
-- `fileLock.ts`(회수 잠금·nonce): 오래된 잠금 회수자 셋과 신규 획득자 하나가 겹쳐도 보유자는 하나, 회수자가 다시 읽었을 때 nonce가 달라졌으면 지우지 않음, 해제는 자기 nonce일 때만, 오래된 회수 잠금 정리. 그 밖에: 두 잠금이 겹치면 하나씩, 70초 넘고 pid가 죽은 잠금은 회수 잠금을 얻어 지우고 들어감, pid가 살아 있으면 70초가 지나도 지우지 않음, 대기 상한에서 `token-contended`. 잠금 안에서 다른 실행이 저장한 토큰을 다시 읽어 발급하지 않음.
+- `fileLock.ts`: 두 잠금이 겹치면 하나씩, 같은 host의 죽은 pid(ESRCH) 잠금은 회수(지우기 직전 nonce 재확인), 살아 있는 pid 잠금은 회수하지 않고 대기 상한(30초) 뒤 `token-busy`, 다른 host 잠금과 깨진 잠금은 회수 안 함, 해제는 자기 nonce일 때만. 잠금 안에서 다른 실행이 저장한 토큰을 다시 읽어 발급하지 않음. 회수 경합 재현 테스트는 두지 않아요(§4.2 한계).
 - 토큰 파일: 공급자별 파일, 두 공급자 동시 갱신에도 서로의 항목이 남음. 토큰·주문 캐시 읽기에도 644 파일·755 디렉터리 경고. 토스 `issuedAt`: 재시작한 실행의 캐시 토큰이 거절돼도 1분 안이면 `token-contended`. 환경변수 키·접근 토큰이 성공·인자 오류·표준 오류 출력에서 `[숨김]`.
 - `orderCache.ts`: 처음 전체 받기, 다음에는 `syncedThrough` 7일 전부터만 받아 합침, `accountSeq`가 파일에 없음.
 - `logout`: 서버 철회 호출 뒤 파일 삭제, 서버 실패여도 파일 삭제와 `warnings`. 401 `cli-token-revoked`·`cli-token-expired`는 성공(`warnings` 없음)으로 보고 파일만 삭제.

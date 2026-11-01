@@ -43,16 +43,16 @@
 - CLI 토큰 인증 순서: 토큰 모양(정규식) 아니면 401 `cli-token` → `cli_tokens`를 `token_hash`로 찾아 없음·철회는 401 `cli-token-revoked`, 만료는 401 `cli-token-expired` → 사용자 허용 목록(`users.firebase_sub`가 `kakao:`·`naver:`로 시작하면 `parseAccountList(env.ALLOWED_ACCOUNTS)`, 아니면 `users.email`이 `parseAllowList(env.ALLOWED_EMAILS)`)에 없으면 403 `not-allowed` → 허용 목록(위) 밖이면 403 `cli-scope` → `last_used_at` 갱신 → 핸들러.
 - 토큰 한 번만 주기: 승인된 기기 코드를 폴링하면 새 토큰 `T`/해시 `H`로 batch(`UPDATE cli_grants SET status='consumed', consumed_token_hash=? WHERE id=? AND status='approved' AND consumed_token_hash IS NULL AND expires_at>?` + `INSERT INTO cli_tokens … SELECT … WHERE EXISTS (SELECT 1 FROM cli_grants WHERE id=? AND consumed_token_hash=?)`) 뒤 `consumed_token_hash`를 다시 읽어 `H`와 같을 때만 `T`를 돌려준다. 다르면 410 `expired`. `consumed`·만료 뒤 폴링은 410 `expired`.
 - 「다른 기기 모두 로그아웃」(`DELETE /v1/sessions?others=1`)은 CLI 토큰을 지우지 않는다. CLI 토큰 목록·철회는 앱 화면에서 따로 한다.
-- 저장 경로: `~/.config/gazua/`(`XDG_CONFIG_HOME`이 있으면 `$XDG_CONFIG_HOME/gazua/`). 디렉터리 권한 700, 파일 600, 읽을 때 더 넓으면 `warnings`로 경고(`auth.json`·토큰 파일·주문 캐시를 읽을 때 모두, Windows는 검사 생략). 파일: `auth.json`(`{ v:1, server, token, tokenId, label, expiresAt }`), `tokens-kis.json`·`tokens-toss.json`(공급자마다 하나: `{ v:1, keyHash, accessToken, expiresAt, issuedAt }`, `keyHash` = 키 앞 값 SHA-256 앞 16자. 각자의 공급자 잠금 안에서만 갱신), `kis.lock`·`toss.lock`(과 회수 전용 `<name>.lock.break`), `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`. 쓰기는 임시 파일 → rename. 원문 `accountSeq`는 파일 이름에도 내용에도 쓰지 않는다.
+- 저장 경로: `~/.config/gazua/`(`XDG_CONFIG_HOME`이 있으면 `$XDG_CONFIG_HOME/gazua/`). 디렉터리 권한 700, 파일 600, 읽을 때 더 넓으면 `warnings`로 경고(`auth.json`·토큰 파일·주문 캐시를 읽을 때 모두, Windows는 검사 생략). 파일: `auth.json`(`{ v:1, server, token, tokenId, label, expiresAt }`), `tokens-kis.json`·`tokens-toss.json`(공급자마다 하나: `{ v:1, keyHash, accessToken, expiresAt, issuedAt }`, `keyHash` = 키 앞 값 SHA-256 앞 16자. 각자의 공급자 잠금 안에서만 갱신), `kis.lock`·`toss.lock`, `orders-<keyHash>-<accountSeq 해시 앞 8자>.json`. 쓰기는 임시 파일 → rename. 원문 `accountSeq`는 파일 이름에도 내용에도 쓰지 않는다.
 - 환경변수 이름: `KIS_APP_KEY`·`KIS_APP_SECRET`, `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`, `GAZUA_SYNC_URL`, `XDG_CONFIG_HOME`, 빌드 때 `VITE_SYNC_API_URL`(esbuild `define`으로 상수 `__GAZUA_DEFAULT_SERVER__` 하나만 넣는다. `import.meta.env` 전체는 정의하지 않는다), Worker 시크릿 `CLI_IP_SALT`. 옵션: `--profile <이름|ID>`, `--pretty`, `--verbose`, `--env-file <경로>`, `--provider kis|toss`, `--label`, `--server`, `--strategy <이름|ID>`, `--today`, `--from`, `--to`, `--raw`.
 - 서버 주소 우선순위: `--server` > `GAZUA_SYNC_URL` > 빌드 기본값. 로그인한 뒤에는 `auth.json`의 `server`. `https`만(로컬 개발 `localhost`·`127.0.0.1`·`[::1]`의 `http`만 예외).
-- 토큰 잠금(`TokenLock`): 파일 `~/.config/gazua/<provider>.lock`, 내용 `{ pid, nonce, createdAt }`, `open(path,'wx')`(`O_EXCL`)로 만들고 이미 있으면 200ms마다 재시도. 오래된 잠금(파일 시각 70초 초과 + pid가 `process.kill(pid, 0)`으로 살아 있지 않음)은 「회수 전용 잠금」 `<provider>.lock.break`(역시 `wx`)을 얻은 실행만 지운다: 잠금 파일을 **다시 읽어 아까 본 것과 nonce가 같을 때만** `unlink` → 회수 잠금 삭제 → 다시 `wx`. 회수 잠금 자체가 10초보다 오래되면 같은 규칙으로 정리. 새 잠금 경로를 rename으로 비우지 않는다. 해제는 자기 nonce일 때만 `unlink`. pid가 살아 있으면 70초가 지나도 지우지 않는다. 전체 대기 상한 70초, 넘으면 `token-contended`. 잠금 안에서 토큰 파일을 다시 읽는다(`TokenStore.load()`는 메모리에 담지 않고 매번 읽는다). 토스에도 `IssuedAtStore`(파일)를 연결해 재발급 간격(60초)을 실행을 넘어 지킨다.
+- 토큰 잠금(`TokenLock`): 파일 `~/.config/gazua/<provider>.lock`, 내용 `{ pid, hostname, nonce, createdAt }`, `open(path,'wx')`(`O_EXCL`)로 만들고 이미 있으면 200ms마다 재시도. **회수 잠금(`.break`)과 시간 기준 회수는 없다**(파일 시스템에 원자적 「비교 후 삭제」가 없어 새 경합을 만든다). 잠금을 읽어 **같은 hostname이고 `process.kill(pid, 0)`이 ESRCH(프로세스 없음)일 때만** 회수: 지우기 직전에 다시 읽어 nonce가 같으면 `unlink` 후 `wx` 재시도. pid가 살아 있거나(EPERM 포함) 다른 host이거나 내용이 깨졌으면 회수하지 않고 기다린다. 해제는 자기 nonce일 때만 `unlink`. 전체 대기 상한 30초, 넘으면 `token-busy`. 남는 좁은 경합(두 회수자가 같은 죽은 잠금을 동시에 볼 때)의 결과는 토큰을 한 번 더 발급하는 것뿐이고 토스 `token-revoked`·KIS 재시도로 복구된다. 잠금 안에서 토큰 파일을 다시 읽는다(`TokenStore.load()`는 메모리에 담지 않고 매번 읽는다). 토스에도 `IssuedAtStore`(파일)를 연결해 재발급 간격(60초)을 실행을 넘어 지킨다.
 - 토스 키 분리: 앱과 같은 토스 키를 쓰면 한쪽이 토큰을 새로 받을 때 다른 쪽 토큰이 무효가 된다. CLI용 토스 앱(다른 client ID·secret)을 따로 만들게 README에 경고한다.
 - 증권사 허용 목록: 증권사 호출 전에 `proxy/src/allowlist.ts`의 `isAllowed(provider, path, method)`(쿼리를 뺀 경로)로 막고, 어긋나면 `ApiError('path-blocked')`. 주소는 `UPSTREAM[provider]`.
 - venue 마감: `KRX` 15:30 KST, 통합(`UNIFIED`, NXT 포함) 20:00 KST. venue는 `loadSimData`와 같은 규칙(공급자 `venues`가 비었거나 `KRX`를 포함하면 `KRX`, 아니면 첫 venue). 토스는 `venues: ['UNIFIED']`라 늘 20:00. 기준 봉: `--today`가 없거나 마감 전이면 어제까지(`addDays(kstDate(now), -1)`), `--today`이고 마감 뒤이며 오늘이 거래일이면 오늘까지. 휴장일(`getTradingDays`의 `isOpen: false`)이면 오늘 포함 안 함.
 - 출력: 표준 출력에는 JSON 한 줄(`--pretty`면 들여쓰기), 진행 안내는 표준 오류(`--verbose`일 때만, 로그인 안내는 항상). 성공 `{ "ok": true, "data": … }`, 실패 `{ "ok": false, "error": { "code", "message" }, "data"?: … }`, 경고가 있으면 최상위 `warnings: string[]`. 종료 코드: 성공 0, `ok: false` 1, 인자 오류(`invalid-args`) 2.
 - 비밀값 출력 금지: 출력 직전에 키 이름이 `SECRET_KEYS`(`appKey`·`appSecret`·`clientId`·`clientSecret`·`accessToken`·`refreshToken`·`token`·`proxyToken`·`accountSeq`·`deviceCode`·`secrets`, 대소문자 무시)이면 값을 `"[숨김]"`으로 바꾸고, 문자열 값에 지금 실행의 비밀값(환경변수 키, CLI 토큰, 접근 토큰, `accountSeq`)이 들어 있으면 그 부분을 `[숨김]`으로 바꾼다(6자 미만 값은 문자열 치환에서 제외). 오류 메시지도 같은 거르기를 거친다. 동기화의 `FORBIDDEN_KEYS`(`src/lib/sync/forbidden.ts`)는 쓰지 않는다.
-- CLI 오류 코드(`message`는 사람이 읽는 한국어 한 줄, 비밀값 없음): `invalid-args`(종료 2)·`not-logged-in`·`cli-token-revoked`·`cli-token-expired`·`cli-scope`·`not-allowed`·`server-outdated`(CLI 경로 404, Origin 없는 요청을 막는 옛 Worker의 403 `origin`)·`login-expired`·`login-denied`·`rate-limited`·`network`(공급자 `ApiError`의 `proxy-unreachable`·`offline`도 여기로)·`profile-required`(`data.profiles`)·`profile-not-found`·`strategy-not-found`·`ambiguous-strategy`(`data.matches`)·`no-credentials`·`provider-unsupported`·`path-blocked`·`ip-not-allowed`·`invalid-credentials`·`token-throttled`·`token-contended`·`upstream`·`timeout`(이 여섯은 공급자 `ApiError` 코드 그대로)·`app-outdated`(서버 문서가 이 CLI보다 높은 버전, 422 `앱을 새로 고쳐 주세요`)·`internal`.
+- CLI 오류 코드(`message`는 사람이 읽는 한국어 한 줄, 비밀값 없음): `invalid-args`(종료 2)·`not-logged-in`·`cli-token-revoked`·`cli-token-expired`·`cli-scope`·`not-allowed`·`server-outdated`(CLI 경로 404, Origin 없는 요청을 막는 옛 Worker의 403 `origin`)·`login-expired`·`login-denied`·`rate-limited`·`network`(공급자 `ApiError`의 `proxy-unreachable`·`offline`도 여기로)·`profile-required`(`data.profiles`)·`profile-not-found`·`strategy-not-found`·`ambiguous-strategy`(`data.matches`)·`no-credentials`·`provider-unsupported`·`path-blocked`·`ip-not-allowed`·`invalid-credentials`·`token-throttled`·`token-contended`·`upstream`·`timeout`(이 여섯은 공급자 `ApiError` 코드 그대로)·`token-busy`(같은 기기의 다른 CLI 실행이 쥔 토큰 잠금을 30초 안에 못 얻음)·`app-outdated`(서버 문서가 이 CLI보다 높은 버전, 422 `앱을 새로 고쳐 주세요`)·`internal`.
 - 읽기 전용은 세 곳에서 따로 지킨다: 서버 허용 목록(위), 증권사 `isAllowed`, CLI 명령 목록(쓰기·주문 명령 없음).
 - 앱 문구는 해요체, 커밋 메시지는 한국어(`feat(scope): …함`). 커밋마다 이 저장소 관례의 `Co-Authored-By:` 줄을 끝에 붙인다(`git log -3`로 확인).
 - 검증 명령(전체): 루트 `corepack pnpm test`, `corepack pnpm check`; `cd sync-worker && npx vitest run && npx tsc -p tsconfig.json --noEmit`; CLI는 `corepack pnpm --filter gazua-cli test`, `corepack pnpm --filter gazua-cli check`, `corepack pnpm --filter gazua-cli build`.
@@ -2664,7 +2664,7 @@ git commit -m "feat(cli): 공급자에 urlFor·tokenLock·avgPrice를, 평가기
 
 **Files:**
 - Modify: `pnpm-workspace.yaml`(`- 'cli'` 더하기), `pnpm-lock.yaml`(설치가 갱신)
-- Create: `cli/package.json`, `cli/tsconfig.json`, `cli/vitest.config.ts`, `cli/build.mjs`
+- Create: `cli/package.json`, `cli/tsconfig.json`, `cli/vitest.config.ts`, `cli/build.mjs`, `cli/build.d.mts`
 - Create: `cli/src/main.ts`, `cli/src/args.ts`, `cli/src/context.ts`, `cli/src/output.ts`, `cli/src/errors.ts`, `cli/src/config.ts`, `cli/src/testing.ts`
 - Create(테스트): `cli/src/output.test.ts`, `cli/src/errors.test.ts`, `cli/src/config.test.ts`, `cli/src/main.test.ts`, `cli/src/bundle.test.ts`
 
@@ -3131,30 +3131,41 @@ describe('run', () => {
 `cli/src/bundle.test.ts`:
 
 ```ts
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { bundle, FORBIDDEN } from '../build.mjs';
+import { cleanupDirs, tempDir } from './testing';
 
-const cliDir = fileURLToPath(new URL('..', import.meta.url));
-const dist = join(cliDir, 'dist', 'gazua.mjs');
+afterEach(cleanupDirs);
+/** 테스트마다 따로 임시 출력 경로에 빌드한다(병렬 실행되는 다른 테스트와 dist/gazua.mjs를 덮어쓰지 않게) */
+const build = (env: Record<string, string | undefined> = {}) => bundle(join(tempDir(), 'gazua.mjs'), env);
 
-describe('번들(dist/gazua.mjs)', () => {
-  it('빌드되고 브라우저 전용 문자열이 없다', { timeout: 60_000 }, () => {
-    execFileSync(process.execPath, ['build.mjs'], { cwd: cliDir });
-    const text = readFileSync(dist, 'utf8');
+describe('번들', () => {
+  it('빌드되고 브라우저 전용 문자열이 없다', { timeout: 60_000 }, async () => {
+    const out = await build();
+    const text = readFileSync(out, 'utf8');
     expect(text.startsWith('#!/usr/bin/env node')).toBe(true);
-    for (const s of ['import.meta.env', 'window.', 'navigator.locks']) expect(text, s).not.toContain(s);
-    expect(statSync(dist).mode & 0o111).not.toBe(0);
+    expect(FORBIDDEN).toEqual(['import.meta.env', 'window.', 'navigator.locks']);
+    for (const s of FORBIDDEN) expect(text, s).not.toContain(s);
+    if (process.platform !== 'win32') expect(statSync(out).mode & 0o111).not.toBe(0);
   });
 
-  it('실행하면 JSON 한 줄을 내고 종료 코드를 지킨다', { timeout: 60_000 }, () => {
-    const r = spawnSync(process.execPath, [dist, 'bogus'], { encoding: 'utf8' });
+  it('실행하면 JSON 한 줄을 내고 종료 코드를 지킨다', { timeout: 60_000 }, async () => {
+    const r = spawnSync(process.execPath, [await build(), 'bogus'], { encoding: 'utf8' });
     expect(r.status).toBe(2);
     expect(JSON.parse(r.stdout)).toMatchObject({ ok: false, error: { code: 'invalid-args' } });
   });
 });
+```
+
+`cli/build.d.mts`(`build.mjs`의 타입. 테스트가 `../build.mjs`를 가져올 수 있게):
+
+```ts
+export const FORBIDDEN: string[];
+export function findForbidden(text: string): string[];
+export function bundle(outfile?: string, env?: Record<string, string | undefined>): Promise<string>;
 ```
 
 - [ ] **Step 3: 실패 확인**
@@ -3193,6 +3204,7 @@ export const MESSAGES = {
   'invalid-credentials': '증권사 키가 맞지 않아요',
   'token-throttled': '증권사 토큰 발급 제한에 걸렸어요. 1분 뒤 다시 시도해 주세요',
   'token-contended': '다른 실행이나 앱이 같은 키로 토큰을 쓰고 있어요. 토스는 CLI용 앱 키를 따로 쓰세요',
+  'token-busy': '다른 gazua 실행이 토큰을 받는 중이에요. 잠시 뒤 다시 시도해 주세요',
   upstream: '증권사 응답에 문제가 있어요',
   timeout: '증권사 응답이 늦어요',
   'app-outdated': '서버 문서가 이 CLI보다 새로워요. CLI를 업데이트해 주세요',
@@ -3857,6 +3869,8 @@ describe('응답 → 오류 코드', () => {
   it('profile(id)가 404 not-found면 profile-not-found, token의 410·403 denied·404 unknown-device', async () => {
     expect(await codeOf(client({ status: 404, body: { error: 'not-found' } }).c.profile('x'))).toBe('profile-not-found');
     expect(await codeOf(client({ status: 410, body: { error: 'expired' } }, null).c.token('d'))).toBe('login-expired');
+    expect(await codeOf(client({ status: 410, body: { error: 'gone' } }).c.profile('p1'))).toBe('profile-not-found'); // 목록을 본 뒤 다른 기기에서 지운 프로필
+    expect(await codeOf(client({ status: 410, body: { error: 'gone' } }).c.profiles())).toBe('internal');
     expect(await codeOf(client({ status: 403, body: { error: 'denied' } }, null).c.token('d'))).toBe('login-denied');
     expect(await codeOf(client({ status: 404, body: { error: 'unknown-device' } }, null).c.token('d'))).toBe('login-expired');
   });
@@ -3872,18 +3886,16 @@ describe('응답 → 오류 코드', () => {
 `cli/src/commands/login.test.ts`:
 
 ```ts
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { bundle } from '../../build.mjs';
 import { authPath, readAuth, writeAuth } from '../config';
 import { COMMANDS, run } from '../main';
-import { cleanupDirs, fakeFetch, makeIo, type FakeCall, type FakeReply } from '../testing';
+import { cleanupDirs, fakeFetch, makeIo, tempDir, type FakeCall, type FakeReply } from '../testing';
 
 afterEach(cleanupDirs);
 
-const cliDir = fileURLToPath(new URL('../..', import.meta.url));
 const GRANT = { deviceCode: 'D'.repeat(43), userCode: 'BCDF-GHJK', verifyUrl: 'https://app.example/#/settings/sync', interval: 5, expiresIn: 600 };
 const TOKEN = `gzc_${'T'.repeat(43)}`;
 
@@ -3982,13 +3994,13 @@ describe('gazua login', () => {
 });
 
 describe('빌드에 넣은 기본 서버 주소', () => {
-  it('VITE_SYNC_API_URL이 번들에 상수로 들어가고(끝 슬래시는 뗀다), 없으면 빈 문자열이다', { timeout: 60_000 }, () => {
-    const dist = join(cliDir, 'dist', 'gazua.mjs');
-    execFileSync(process.execPath, ['build.mjs'], { cwd: cliDir, env: { ...process.env, VITE_SYNC_API_URL: 'https://sync.example.test/' } });
-    expect(readFileSync(dist, 'utf8')).toContain('https://sync.example.test');
-    expect(readFileSync(dist, 'utf8')).not.toContain('https://sync.example.test/"');
-    execFileSync(process.execPath, ['build.mjs'], { cwd: cliDir, env: { ...process.env, VITE_SYNC_API_URL: '' } });
-    expect(readFileSync(dist, 'utf8')).not.toContain('https://sync.example.test');
+  it('VITE_SYNC_API_URL이 번들에 상수로 들어가고(끝 슬래시는 뗀다), 없으면 빈 문자열이다', { timeout: 60_000 }, async () => {
+    const withUrl = await bundle(join(tempDir(), 'gazua.mjs'), { VITE_SYNC_API_URL: 'https://sync.example.test/' }); // 테스트마다 따로 임시 경로
+    const text = readFileSync(withUrl, 'utf8');
+    expect(text).toContain('https://sync.example.test');
+    expect(text).not.toContain('https://sync.example.test/"');
+    const without = await bundle(join(tempDir(), 'gazua.mjs'), { VITE_SYNC_API_URL: '' });
+    expect(readFileSync(without, 'utf8')).not.toContain('https://sync.example.test');
   });
 });
 
@@ -4096,7 +4108,8 @@ function failFrom(status: number, body: Body, where: Where): CliError {
     if (where === 'token' && code === 'unknown-device') return new CliError('login-expired');
     return new CliError('server-outdated');
   }
-  if (status === 410) return new CliError('login-expired');
+  // 410: 기기 코드 폴링의 expired만 로그인 만료. 삭제된 프로필 조회의 410 gone은 프로필을 못 찾는 것
+  if (status === 410) return where === 'token' ? new CliError('login-expired') : where === 'profile' ? new CliError('profile-not-found') : internal(`서버 오류예요(HTTP ${status})`);
   if (status === 422) return code === APP_OUTDATED_CODE ? new CliError('app-outdated') : internal(`서버가 요청을 받지 않았어요(${code || '422'})`);
   if (status === 429) return new CliError('rate-limited');
   if (status === 503 && code === 'cli-disabled') return new CliError('server-outdated');
@@ -4750,10 +4763,10 @@ git commit -m "feat(cli): profiles·watchlists·strategies 명령과 프로필·
   // direct.ts
   export function createDirectClient(fetchImpl?: typeof fetch): ProxyClient;     // 허용 목록 밖은 fetch 없이 ApiError('path-blocked')
   // fileLock.ts
-  export const LOCK_STALE_MS = 70_000; export const LOCK_WAIT_MS = 70_000; export const LOCK_RETRY_MS = 200; export const BREAK_STALE_MS = 10_000;
-  export interface FileLockOptions { dir: string; name: 'kis' | 'toss'; pid?: number; isAlive?: (pid: number) => boolean; staleMs?: number; waitMs?: number; retryMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number }
-  export function pidAlive(pid: number): boolean;
-  export function createFileLock(o: FileLockOptions): TokenLock;         // 잠금 파일 { pid, nonce, createdAt }, 오래된 잠금은 <name>.lock.break를 얻은 실행만 nonce 재확인 뒤 unlink, 해제는 자기 nonce일 때만
+  export const LOCK_RETRY_MS = 200; export const LOCK_WAIT_MS = 30_000;
+  export interface FileLockOptions { dir: string; name: 'kis' | 'toss'; pid?: number; hostname?: () => string; isGone?: (pid: number) => boolean; waitMs?: number; retryMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number; beforeUnlink?: () => Promise<void> }
+  export function processGone(pid: number): boolean;                      // process.kill(pid, 0)이 ESRCH일 때만 true
+  export function createFileLock(o: FileLockOptions): TokenLock;           // 잠금 { pid, hostname, nonce, createdAt }. 같은 host + pid ESRCH인 잠금만 회수(지우기 직전 nonce 재확인). 시간 기준 회수·회수 잠금 없음. 해제는 자기 nonce일 때만. 대기 상한 30초 뒤 CliError('token-busy')
   // tokenFiles.ts
   export function keyHashOf(id: string): string;                                  // SHA-256 hex 앞 16자
   export interface StoreHooks { onSecret?: (accessToken: string) => void; warn?: (message: string) => void }   // 접근 토큰 등록, 권한 경고
@@ -4829,170 +4842,117 @@ describe('createDirectClient: 프록시와 같은 허용 목록', () => {
 `cli/src/fileLock.test.ts`:
 
 ```ts
-import { existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ApiError } from '../../src/lib/providers/errors';
-import { BREAK_STALE_MS, createFileLock, LOCK_RETRY_MS, LOCK_STALE_MS, LOCK_WAIT_MS } from './fileLock';
+import { CliError } from './errors';
+import { createFileLock, LOCK_RETRY_MS, LOCK_WAIT_MS, processGone } from './fileLock';
 import { cleanupDirs, tempDir } from './testing';
 
 afterEach(cleanupDirs);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const lockPath = (dir: string) => join(dir, 'toss.lock');
-const body = (dir: string) => JSON.parse(readFileSync(lockPath(dir), 'utf8')) as { pid: number; nonce: string; createdAt: number };
-const age = (path: string, ageMs: number) => {
-  const t = (Date.now() - ageMs) / 1000;
-  utimesSync(path, t, t);
-};
-const writeLock = (dir: string, pid: unknown, nonce: string, ageMs = 0) => {
-  writeFileSync(lockPath(dir), JSON.stringify({ pid, nonce, createdAt: 0 }));
-  age(lockPath(dir), ageMs);
-};
-const contended = (e: unknown) => e instanceof ApiError && e.code === 'token-contended';
-
-/** 겹쳐 실행된 수를 센다 */
-function tracker() {
-  let active = 0;
-  let max = 0;
-  let ran = 0;
-  return {
-    job: (ms = 30) => async () => {
-      active++;
-      ran++;
-      max = Math.max(max, active);
-      await wait(ms);
-      active--;
-    },
-    get max() {
-      return max;
-    },
-    get ran() {
-      return ran;
-    },
-  };
-}
+const body = (dir: string) => JSON.parse(readFileSync(lockPath(dir), 'utf8')) as { pid: number; hostname: string; nonce: string; createdAt: number };
+const writeLock = (dir: string, o: { pid: unknown; hostname?: string; nonce?: string }) =>
+  writeFileSync(lockPath(dir), JSON.stringify({ pid: o.pid, hostname: o.hostname ?? 'host-a', nonce: o.nonce ?? 'old', createdAt: 0 }));
+const busy = (e: unknown) => e instanceof CliError && e.code === 'token-busy';
+const base = { name: 'toss' as const, hostname: () => 'host-a', retryMs: 10 };
 
 describe('상수', () => {
-  it('70초 · 70초 · 200ms · 회수 잠금 10초', () => {
-    expect([LOCK_STALE_MS, LOCK_WAIT_MS, LOCK_RETRY_MS, BREAK_STALE_MS]).toEqual([70_000, 70_000, 200, 10_000]);
+  it('재시도 200ms, 대기 상한 30초', () => {
+    expect([LOCK_RETRY_MS, LOCK_WAIT_MS]).toEqual([200, 30_000]);
+  });
+});
+
+describe('processGone', () => {
+  it('없는 pid(ESRCH)만 true, 살아 있는 pid(자기 자신)는 false', () => {
+    expect(processGone(process.pid)).toBe(false);
+    expect(processGone(2_147_483_646)).toBe(true);
   });
 });
 
 describe('createFileLock', () => {
-  const fast = { staleMs: 60, waitMs: 400, retryMs: 10 };
-
-  it('겹치면 하나씩 실행하고 끝나면 잠금 파일이 없다(안에 pid·nonce·시각이 있다)', async () => {
+  it('겹치면 하나씩 실행하고 끝나면 잠금 파일이 없다(안에 pid·hostname·nonce·시각이 있다)', async () => {
     const dir = tempDir();
-    const t = tracker();
+    let active = 0;
+    let max = 0;
     let seen: ReturnType<typeof body> | null = null;
-    const a = createFileLock({ dir, name: 'toss', staleMs: 60_000, waitMs: 5000, retryMs: 10 });
-    const b = createFileLock({ dir, name: 'toss', staleMs: 60_000, waitMs: 5000, retryMs: 10 });
-    await Promise.all([
-      a(async () => {
-        seen ??= body(dir);
-        await t.job()();
-      }),
-      b(async () => {
-        seen ??= body(dir);
-        await t.job()();
-      }),
-    ]);
-    expect(t.max).toBe(1);
-    expect(t.ran).toBe(2);
-    expect(seen).toMatchObject({ pid: process.pid, nonce: expect.stringMatching(/^[0-9a-f]{16}$/), createdAt: expect.any(Number) });
+    const job = async () => {
+      active++;
+      max = Math.max(max, active);
+      seen ??= body(dir);
+      await wait(30);
+      active--;
+    };
+    const mk = () => createFileLock({ dir, ...base, waitMs: 5000, hostname: () => 'host-a' });
+    await Promise.all([mk()(job), mk()(job), mk()(job)]);
+    expect(max).toBe(1);
+    expect(seen).toMatchObject({ pid: process.pid, hostname: 'host-a', nonce: expect.stringMatching(/^[0-9a-f]{16}$/), createdAt: expect.any(Number) });
     expect(existsSync(lockPath(dir))).toBe(false);
   });
 
   it('fn이 던져도 잠금을 푼다', async () => {
     const dir = tempDir();
-    await expect(createFileLock({ dir, name: 'toss' })(async () => Promise.reject(new Error('x')))).rejects.toThrow('x');
+    await expect(createFileLock({ dir, ...base })(async () => Promise.reject(new Error('x')))).rejects.toThrow('x');
     expect(existsSync(lockPath(dir))).toBe(false);
   });
 
   it('해제는 자기 nonce일 때만 지운다: 그 사이 남의 잠금으로 바뀌었으면 그대로 둔다', async () => {
     const dir = tempDir();
-    await createFileLock({ dir, name: 'toss' })(async () => {
-      writeFileSync(lockPath(dir), JSON.stringify({ pid: 4242, nonce: 'someone-else', createdAt: 1 }));
+    await createFileLock({ dir, ...base })(async () => {
+      writeLock(dir, { pid: 4242, nonce: 'someone-else' });
     });
     expect(body(dir).nonce).toBe('someone-else');
   });
 
-  it('70초 넘고 pid가 죽은 잠금은 회수 잠금으로 직렬화해 지우고 들어간다(회수 잠금 파일은 남지 않는다)', async () => {
+  it('같은 host에서 pid가 없는(ESRCH) 잠금만 회수한다: 다시 읽어 nonce가 같으면 지우고 들어간다', async () => {
     const dir = tempDir();
-    writeLock(dir, 999_999_999, 'old', 120_000);
-    const lock = createFileLock({ dir, name: 'toss', isAlive: () => false, ...fast });
-    expect(await lock(async () => 'ran')).toBe('ran');
+    writeLock(dir, { pid: 2_147_483_646 });
+    expect(await createFileLock({ dir, ...base, waitMs: 1000 })(async () => 'ran')).toBe('ran');
     expect(existsSync(lockPath(dir))).toBe(false);
-    expect(existsSync(`${lockPath(dir)}.break`)).toBe(false);
   });
 
-  it('깨진 내용(pid 없음)의 오래된 잠금도 죽은 것으로 본다', async () => {
+  it('깨진 내용의 잠금은 회수하지 않는다(누구 것인지 모른다) → 대기 상한 뒤 token-busy', async () => {
     const dir = tempDir();
     writeFileSync(lockPath(dir), '{');
-    age(lockPath(dir), 120_000);
-    expect(await createFileLock({ dir, name: 'toss', isAlive: () => true, ...fast })(async () => 'ran')).toBe('ran');
+    await expect(createFileLock({ dir, ...base, waitMs: 100 })(async () => 'never')).rejects.toSatisfy(busy);
+    expect(readFileSync(lockPath(dir), 'utf8')).toBe('{');
   });
 
-  it('오래된 잠금을 회수하려는 셋과 신규 획득자 하나가 겹쳐도 보유자는 늘 하나다', async () => {
+  it('pid가 살아 있으면 얼마나 오래됐든 회수하지 않고, 대기 상한 뒤 token-busy', async () => {
     const dir = tempDir();
-    writeLock(dir, 999_999_999, 'old', 120_000);
-    const t = tracker();
-    const mk = () => createFileLock({ dir, name: 'toss', isAlive: () => false, staleMs: 5000, waitMs: 5000, retryMs: 3 });
-    const fresh = wait(8).then(() => mk()(t.job(20)));
-    await Promise.all([mk()(t.job(20)), mk()(t.job(20)), mk()(t.job(20)), fresh]);
-    expect(t.ran).toBe(4);
-    expect(t.max).toBe(1);
-    expect(existsSync(lockPath(dir))).toBe(false);
+    writeLock(dir, { pid: process.pid });
+    const started = Date.now();
+    await expect(createFileLock({ dir, ...base, waitMs: 300 })(async () => 'never')).rejects.toSatisfy(busy);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    expect(body(dir)).toMatchObject({ pid: process.pid, nonce: 'old' });
   });
 
-  it('회수자가 다시 읽었을 때 nonce가 달라졌으면(그 사이 남이 새로 만들었으면) 지우지 않는다', async () => {
+  it('다른 host의 잠금은 pid가 없어 보여도 회수하지 않는다', async () => {
     const dir = tempDir();
-    writeLock(dir, 999_999_999, 'old', 120_000);
+    writeLock(dir, { pid: 2_147_483_646, hostname: 'other-host' });
+    await expect(createFileLock({ dir, ...base, waitMs: 100 })(async () => 'never')).rejects.toSatisfy(busy);
+    expect(body(dir)).toMatchObject({ hostname: 'other-host', nonce: 'old' });
+  });
+
+  it('회수 직전에 다시 읽어 nonce가 달라졌으면(그 사이 남이 새로 만들었으면) 지우지 않는다', async () => {
+    const dir = tempDir();
+    writeLock(dir, { pid: 2_147_483_646 });
     const lock = createFileLock({
       dir,
-      name: 'toss',
-      isAlive: (pid) => pid === 4242,
-      ...fast,
-      // 회수 잠금을 얻은 직후, 다른 실행이 낡은 잠금을 치우고 새 잠금을 만든 상황
-      onBreak: async () => {
-        rmSync(lockPath(dir), { force: true });
-        writeFileSync(lockPath(dir), JSON.stringify({ pid: 4242, nonce: 'new', createdAt: Date.now() }));
-      },
+      ...base,
+      waitMs: 150,
+      // 처음 읽은 뒤, 지우기 직전에 다른 실행이 낡은 잠금을 치우고 새 잠금(살아 있는 pid)을 만든 상황
+      beforeUnlink: async () => writeLock(dir, { pid: process.pid, nonce: 'new' }),
     });
-    await expect(lock(async () => 'never')).rejects.toSatisfy(contended);
-    expect(body(dir)).toMatchObject({ pid: 4242, nonce: 'new' });
-    expect(existsSync(`${lockPath(dir)}.break`)).toBe(false);
-  });
-
-  it('오래된 회수 잠금(죽은 회수자)은 정리하고 이어 간다', async () => {
-    const dir = tempDir();
-    writeLock(dir, 999_999_999, 'old', 120_000);
-    writeFileSync(`${lockPath(dir)}.break`, JSON.stringify({ pid: 999_999_998, nonce: 'dead-breaker', createdAt: 0 }));
-    age(`${lockPath(dir)}.break`, BREAK_STALE_MS + 5000);
-    expect(await createFileLock({ dir, name: 'toss', isAlive: () => false, staleMs: 60, waitMs: 2000, retryMs: 10 })(async () => 'ran')).toBe('ran');
-  });
-
-  it('pid가 살아 있으면 오래돼도 지우지 않고 대기 상한에서 token-contended', async () => {
-    const dir = tempDir();
-    writeLock(dir, 4242, 'old', 120_000);
-    const started = Date.now();
-    await expect(createFileLock({ dir, name: 'toss', isAlive: (pid) => pid === 4242, ...fast })(async () => 'never')).rejects.toSatisfy(contended);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(350);
-    expect(body(dir)).toMatchObject({ pid: 4242, nonce: 'old' });
-  });
-
-  it('아직 오래되지 않은 잠금은 죽은 pid여도 가져오지 않는다', async () => {
-    const dir = tempDir();
-    writeLock(dir, 999_999_999, 'old', 0);
-    const lock = createFileLock({ dir, name: 'toss', isAlive: () => false, staleMs: 60_000, waitMs: 150, retryMs: 10 });
-    await expect(lock(async () => 'never')).rejects.toSatisfy(contended);
-    expect(body(dir).nonce).toBe('old');
+    await expect(lock(async () => 'never')).rejects.toSatisfy(busy);
+    expect(body(dir)).toMatchObject({ pid: process.pid, nonce: 'new' });
   });
 
   it('kis와 toss는 서로 다른 잠금 파일을 쓴다', async () => {
     const dir = tempDir();
-    const kis = createFileLock({ dir, name: 'kis', staleMs: 60_000, waitMs: 100, retryMs: 10 });
-    const toss = createFileLock({ dir, name: 'toss', staleMs: 60_000, waitMs: 100, retryMs: 10 });
+    const kis = createFileLock({ dir, ...base, name: 'kis', waitMs: 100 });
+    const toss = createFileLock({ dir, ...base, waitMs: 100 });
     expect(await kis(async () => toss(async () => existsSync(join(dir, 'kis.lock')) && existsSync(join(dir, 'toss.lock'))))).toBe(true);
   });
 });
@@ -5409,26 +5369,25 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 
 ```ts
 // 같은 기기에서 CLI를 병렬로 돌릴 때 토큰 발급을 한 번에 하나로 묶는 파일 잠금(스펙 §4.2).
-// 잠금 파일(<name>.lock)에는 { pid, nonce, createdAt }을 쓰고 open(path, 'wx')(O_EXCL)로 만든다. 이미 있으면 200ms마다 다시 시도한다.
-// 오래된 잠금은 「회수 전용 잠금」(<name>.lock.break, 역시 'wx')을 얻은 한 실행만 지운다. 회수자는 잠금 파일을 다시 읽어
-// 처음 본 것과 같은 잠금(같은 nonce)일 때만 unlink하고, 새 잠금 경로를 rename으로 비우는 일은 하지 않는다.
-// 해제도 자기 nonce일 때만 unlink한다.
+// 잠금 파일(<name>.lock)에는 { pid, hostname, nonce, createdAt }을 쓰고 open(path, 'wx')(O_EXCL)로 만든다. 이미 있으면 200ms마다 다시 시도한다.
+// 파일 시스템에는 원자적인 「비교 후 삭제」가 없어서 회수 잠금이나 시간 기준 회수를 두지 않는다(둘 다 새 경합을 만든다).
+// 회수는 같은 host이고 pid가 존재하지 않는(ESRCH) 잠금만, 지우기 직전에 다시 읽어 nonce가 같을 때 한다. 살아 있는 pid나 다른 host의 잠금은 기다린다.
+// 해제는 자기 nonce일 때만 unlink한다. 남는 한계(두 회수자가 같은 죽은 잠금을 동시에 볼 때)는 스펙 §4.2에 적었다.
 import { randomBytes } from 'node:crypto';
-import { open, readFile, rm, stat } from 'node:fs/promises';
+import { open, readFile, rm } from 'node:fs/promises';
+import { hostname as osHostname } from 'node:os';
 import { join } from 'node:path';
-import { ApiError } from '../../src/lib/providers/errors';
 import type { TokenLock } from '../../src/lib/providers/types';
 import { ensureDir } from './config';
+import { CliError } from './errors';
 
-/** KIS 발급 1분 제한보다 길게 */
-export const LOCK_STALE_MS = 70_000;
-export const LOCK_WAIT_MS = 70_000;
 export const LOCK_RETRY_MS = 200;
-/** 회수 잠금은 짧게만 쥔다. 이보다 오래된 것은 죽은 회수자의 것으로 보고 치운다 */
-export const BREAK_STALE_MS = 10_000;
+/** 이 시간 안에 잠금을 얻지 못하면 token-busy */
+export const LOCK_WAIT_MS = 30_000;
 
 interface LockBody {
   pid: number;
+  hostname: string;
   nonce: string;
   createdAt: number;
 }
@@ -5437,24 +5396,24 @@ export interface FileLockOptions {
   dir: string;
   name: 'kis' | 'toss';
   pid?: number;
-  isAlive?: (pid: number) => boolean;
-  staleMs?: number;
+  hostname?: () => string;
+  /** pid가 존재하지 않으면 true(기본: process.kill(pid, 0)이 ESRCH) */
+  isGone?: (pid: number) => boolean;
   waitMs?: number;
   retryMs?: number;
-  breakStaleMs?: number;
   sleep?: (ms: number) => Promise<void>;
-  /** 대기 상한 계산용 시계(잠금 파일의 시각은 늘 실제 시계) */
   now?: () => number;
-  /** 테스트용: 회수 잠금을 얻은 직후, 잠금 파일을 다시 읽기 전에 불린다 */
-  onBreak?: () => Promise<void>;
+  /** 테스트용: 회수하려고 처음 읽은 뒤, 지우기 직전에 다시 읽기 전에 불린다 */
+  beforeUnlink?: () => Promise<void>;
 }
 
-export function pidAlive(pid: number): boolean {
+/** 프로세스가 없으면(ESRCH) true. 있거나 권한이 없으면(EPERM) false */
+export function processGone(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
+    return false;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'; // 있지만 권한이 없는 프로세스
+    return (e as NodeJS.ErrnoException).code === 'ESRCH';
   }
 }
 
@@ -5463,7 +5422,7 @@ const code = (e: unknown) => (e as NodeJS.ErrnoException).code;
 async function readBody(path: string): Promise<LockBody | null> {
   try {
     const b = JSON.parse(await readFile(path, 'utf8')) as Partial<LockBody>;
-    return typeof b.pid === 'number' && typeof b.nonce === 'string' ? (b as LockBody) : null;
+    return typeof b.pid === 'number' && typeof b.hostname === 'string' && typeof b.nonce === 'string' ? (b as LockBody) : null;
   } catch {
     return null; // 없거나 깨진 잠금
   }
@@ -5471,22 +5430,20 @@ async function readBody(path: string): Promise<LockBody | null> {
 
 export function createFileLock(o: FileLockOptions): TokenLock {
   const path = join(o.dir, `${o.name}.lock`);
-  const breakPath = `${path}.break`;
   const pid = o.pid ?? process.pid;
-  const isAlive = o.isAlive ?? pidAlive;
-  const staleMs = o.staleMs ?? LOCK_STALE_MS;
+  const host = o.hostname ?? osHostname;
+  const isGone = o.isGone ?? processGone;
   const waitMs = o.waitMs ?? LOCK_WAIT_MS;
   const retryMs = o.retryMs ?? LOCK_RETRY_MS;
-  const breakStaleMs = o.breakStaleMs ?? BREAK_STALE_MS;
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = o.now ?? Date.now;
 
   /** 'wx'로 만들고 내용을 쓴다. 이미 있으면 false */
-  async function create(p: string, nonce: string): Promise<boolean> {
+  async function create(nonce: string): Promise<boolean> {
     try {
-      const fh = await open(p, 'wx', 0o600);
+      const fh = await open(path, 'wx', 0o600);
       try {
-        await fh.writeFile(JSON.stringify({ pid, nonce, createdAt: Date.now() } satisfies LockBody));
+        await fh.writeFile(JSON.stringify({ pid, hostname: host(), nonce, createdAt: Date.now() } satisfies LockBody));
       } finally {
         await fh.close();
       }
@@ -5497,49 +5454,15 @@ export function createFileLock(o: FileLockOptions): TokenLock {
     }
   }
 
-  /** 자기 nonce일 때만 지운다(그 사이 남의 잠금으로 바뀌었으면 건드리지 않는다) */
-  async function releaseIfMine(p: string, nonce: string): Promise<void> {
-    if ((await readBody(p))?.nonce === nonce) await rm(p, { force: true });
-  }
-
-  /** 오래된 회수 잠금(죽은 회수자)을 치운다. 지우기 직전에 다시 읽어 같은 것일 때만 */
-  async function clearStaleBreak(): Promise<void> {
-    const st = await stat(breakPath).catch(() => null);
-    if (!st || Date.now() - st.mtimeMs <= breakStaleMs) return;
-    const seen = await readBody(breakPath);
-    const again = await stat(breakPath).catch(() => null);
-    if (again && again.ino === st.ino && again.mtimeMs === st.mtimeMs && (await readBody(breakPath))?.nonce === seen?.nonce) await rm(breakPath, { force: true });
-  }
-
-  /**
-   * 파일 시각이 staleMs보다 오래됐고 주인 pid가 살아 있지 않은 잠금이면 회수 잠금을 얻은 쪽만 지운다.
-   * 반환 true = 잠금이 없어졌거나 치웠으니 바로 다시 만들어 보라는 뜻.
-   */
-  async function reclaimStale(): Promise<boolean> {
-    let seenStat;
-    try {
-      seenStat = await stat(path);
-    } catch (e) {
-      if (code(e) === 'ENOENT') return true;
-      throw e;
-    }
-    if (Date.now() - seenStat.mtimeMs <= staleMs) return false;
+  /** 같은 host이고 pid가 없는 잠금이면 지운다(지우기 직전에 다시 읽어 같은 nonce일 때만). 지웠거나 이미 없으면 true */
+  async function reclaimIfDead(): Promise<boolean> {
     const seen = await readBody(path);
-    if (seen && isAlive(seen.pid)) return false;
-    const breakNonce = randomBytes(8).toString('hex');
-    if (!(await create(breakPath, breakNonce))) {
-      await clearStaleBreak();
-      return false; // 다른 회수자가 하고 있다. 잠시 뒤 다시 본다
-    }
-    try {
-      await o.onBreak?.();
-      // 회수 잠금을 쥔 채 다시 읽는다. 처음 본 것과 같은 잠금일 때만 지운다(그 사이 남이 새로 만들었으면 그대로 둔다)
-      const again = await readBody(path);
-      const st = await stat(path).catch(() => null);
-      if (st && st.ino === seenStat.ino && st.mtimeMs === seenStat.mtimeMs && again?.nonce === seen?.nonce) await rm(path, { force: true });
-    } finally {
-      await releaseIfMine(breakPath, breakNonce);
-    }
+    if (seen === null) return false; // 깨졌거나 없다. 없는 경우는 다음 반복의 create가 처리한다
+    if (seen.hostname !== host() || !isGone(seen.pid)) return false;
+    await o.beforeUnlink?.();
+    const again = await readBody(path);
+    if (again?.nonce !== seen.nonce) return false; // 그 사이 남이 새로 만들었다. 건드리지 않는다
+    await rm(path, { force: true });
     return true;
   }
 
@@ -5547,9 +5470,9 @@ export function createFileLock(o: FileLockOptions): TokenLock {
     ensureDir(o.dir);
     const started = now();
     for (;;) {
-      if (await create(path, nonce)) return;
-      if (await reclaimStale()) continue;
-      if (now() - started >= waitMs) throw new ApiError('token-contended');
+      if (await create(nonce)) return;
+      if (await reclaimIfDead()) continue;
+      if (now() - started >= waitMs) throw new CliError('token-busy');
       await sleep(retryMs);
     }
   }
@@ -5560,7 +5483,7 @@ export function createFileLock(o: FileLockOptions): TokenLock {
     try {
       return await fn();
     } finally {
-      await releaseIfMine(path, nonce);
+      if ((await readBody(path))?.nonce === nonce) await rm(path, { force: true }); // 자기 nonce일 때만
     }
   };
 }
@@ -5848,6 +5771,7 @@ git commit -m "feat(cli): 증권사 직접 호출(허용 목록·파일 토큰 �
   export interface Judge { match: boolean; reason?: string; group?: number }
   export function evaluateAt(candles: Candle[], groups: CondGroup[], idx: number): Judge;       // firstDayIdx = idx, 앞 봉부터 signal→update
   export function matchesHolding(strategySymbol: string, code: string): boolean;                // s === code || s === 'Q' + code
+  export function tradesInFillOrder(orders: AccountOrder[]): Trade[];                          // normalizeOrders 결과를 실제 체결 시각순(filledAt ?? orderedAt)으로 다시 정렬
   export function firstBuyOf(trades: Trade[], quantity: number): { date: string; price: number } | null;
   export type Tri = boolean | 'unknown';
   export interface HoldingJudgement { symbol: string; quantity: number; avgPrice: number | null; close: number; firstBuyDate: string | null;
@@ -5881,12 +5805,13 @@ import type { Venue } from '../../src/lib/market/tradable';
 import type { Trade } from '../../src/lib/perf/types';
 import type { AccountOrder, AccountSource, CandleQuery, MarketDataProvider } from '../../src/lib/providers/types';
 import { ApiError } from '../../src/lib/providers/errors';
+import { normalizeOrders } from '../../src/lib/perf/ledger';
 import { createRuleEvaluator } from '../../src/lib/sim/rules';
 import { barsFromCloses, tradingDates } from '../../src/lib/sim/testBars';
 import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
 import type { Cond, CondGroup, Strategy } from '../../src/lib/sim/types';
 import { addDays, kstDate, kstEpoch, kstWeekday } from '../../src/lib/time/kst';
-import { CLOSE_MINUTE, evaluateAt, firstBuyOf, judgeHolding, matchesHolding, NOTES, pickVenue, runSignals, usableCandles, warmFrom, windowEnd } from './signals';
+import { CLOSE_MINUTE, evaluateAt, firstBuyOf, judgeHolding, matchesHolding, NOTES, pickVenue, runSignals, tradesInFillOrder, usableCandles, warmFrom, windowEnd } from './signals';
 
 const MA_ABOVE: Cond = { kind: 'maPrice', period: 3, side: 'above' };
 const MA_BELOW: Cond = { kind: 'maPrice', period: 3, side: 'below' };
@@ -6013,6 +5938,19 @@ describe('보유 종목 매칭과 첫 매수', () => {
     expect(firstBuyOf([t('BUY', '2026-08-03', 10, 100), t('SELL', '2026-08-10', 10), t('BUY', '2026-09-02', 5, 110), t('BUY', '2026-09-03', 5, 120)], 10)).toEqual({ date: '2026-09-02', price: 110 });
     expect(firstBuyOf([t('BUY', '2026-09-02', 10, 110), t('BUY', '2026-09-03', 5, 120)], 15)).toEqual({ date: '2026-09-02', price: 110 });
     expect(firstBuyOf([t('BUY', '2026-09-02', 10, 110), t('SELL', '2026-09-05', 3)], 7)).toEqual({ date: '2026-09-02', price: 110 });
+  });
+
+  it('같은 날 전량 매도 후 재매수: 체결 시각순으로 읽어 재매수 시점이 첫 매수가 된다', () => {
+    const o = (orderId: string, side: 'BUY' | 'SELL', filledAt: string, quantity: number, price: number): AccountOrder => ({ orderId, symbol: '005930', side, status: 'FILLED', currency: 'KRW', orderedAt: filledAt, filledAt, quantity, price, amount: quantity * price, commission: 0, tax: 0 });
+    const orders = [
+      o('o1', 'BUY', '2026-10-01T09:30:00+09:00', 10, 68000),
+      o('o2', 'SELL', '2026-10-30T09:00:00+09:00', 10, 71000),
+      o('o3', 'BUY', '2026-10-30T10:00:00+09:00', 10, 70000),
+    ];
+    expect(tradesInFillOrder(orders).map((t) => t.orderId)).toEqual(['o1', 'o2', 'o3']);
+    expect(firstBuyOf(tradesInFillOrder(orders), 10)).toEqual({ date: '2026-10-30', price: 70000 });
+    // normalizeOrders만 쓰면 같은 날 매수가 먼저라 첫 매수일이 10-01로 남는다(회귀 확인)
+    expect(firstBuyOf(normalizeOrders(orders).trades, 10)).toEqual({ date: '2026-10-01', price: 68000 });
   });
 
   it('이력이 모자라면(끝 수량이 보유 수량과 다르면) null', () => {
@@ -6244,6 +6182,17 @@ describe('runSignals', () => {
         const out = await runSignals({ provider: p, strategy: strat(), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => [old] });
         expect(out.holdings?.[0].trail).toEqual({ price: null, hit: 'unknown' });
       });
+    });
+
+    it('같은 날 전량 매도 후 재매수한 종목은 재매수일이 첫 매수일이다', async () => {
+      const provider = stub({ candles: { '005930': candles }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 70000 }]) });
+      const orders = [
+        order({ orderId: 'a1' }),
+        order({ orderId: 'a2', side: 'SELL', orderedAt: '2026-10-29T09:00:00+09:00', filledAt: '2026-10-29T09:00:05+09:00', price: 71000, amount: 710000 }),
+        order({ orderId: 'a3', orderedAt: '2026-10-29T10:00:00+09:00', filledAt: '2026-10-29T10:00:05+09:00', price: 70000, amount: 700000 }),
+      ];
+      const out = await runSignals({ provider, strategy: strat((s) => (s.rules.sell.stopLoss.basis = 'firstBuy')), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => orders });
+      expect(out.holdings?.[0]).toMatchObject({ firstBuyDate: '2026-10-29', stop: { price: 65100, hit: false } }); // 재매수가 70,000 × 0.93
     });
 
     it('ETN은 전략의 Q코드와 토스의 6자리 코드를 같은 종목으로 본다', async () => {
@@ -6589,6 +6538,15 @@ export function evaluateAt(candles: Candle[], groups: CondGroup[], idx: number):
 /** 전략 종목 s와 토스 코드 code: 토스 ETN 코드는 Q 없는 6자리로 온다 */
 export const matchesHolding = (strategySymbol: string, code: string): boolean => strategySymbol === code || strategySymbol === `Q${code}`;
 
+/**
+ * 보유 구간 복원용 체결 목록: normalizeOrders로 걸러(KRW·중복) 낸 뒤 실제 체결 시각순으로 다시 정렬한다.
+ * normalizeOrders는 같은 날 매수를 매도보다 먼저 두므로 「같은 날 전량 매도 후 재매수」를 거꾸로 읽는다.
+ */
+export function tradesInFillOrder(orders: AccountOrder[]): Trade[] {
+  const at = new Map(orders.map((o) => [o.orderId, Date.parse(o.filledAt ?? o.orderedAt) || Date.parse(o.orderedAt) || 0]));
+  return normalizeOrders(orders).trades.sort((a, b) => (at.get(a.orderId) ?? 0) - (at.get(b.orderId) ?? 0) || a.orderId.localeCompare(b.orderId));
+}
+
 /** 수량이 0에서 양수가 된 마지막 날과 그날의 첫 매수 체결가. 끝 수량이 보유 수량과 다르면 이력이 모자란 것이라 null */
 export function firstBuyOf(trades: Trade[], quantity: number): { date: string; price: number } | null {
   let qty = 0;
@@ -6769,7 +6727,7 @@ export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
     });
     holdings = [];
     if (matched.length > 0) {
-      const { trades } = normalizeOrders(await d.loadOrders());
+      const trades = tradesInFillOrder(await d.loadOrders());
       for (const { s, h } of matched) {
         const b = bases.get(s)!;
         const first = firstBuyOf(trades.filter((t) => matchesHolding(s, t.symbol)), h.quantity);
@@ -7305,6 +7263,7 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 | `provider-unsupported` | 그 공급자로 안 되는 명령(예: KIS로 `holdings`) |
 | `path-blocked` | 허용 목록 밖 증권사 경로(버그 방어) |
 | `ip-not-allowed`, `invalid-credentials`, `token-throttled`, `token-contended`, `upstream`, `timeout` | 증권사 오류 그대로 |
+| `token-busy` | 같은 기기의 다른 gazua 실행이 쥔 토큰 잠금을 30초 안에 얻지 못함 |
 | `app-outdated` | 서버 문서가 이 CLI보다 새로움 → CLI 업데이트 |
 | `internal` | 그 밖 |
 
@@ -7316,7 +7275,7 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 |---|---|
 | `auth.json` | 서버 주소와 CLI 토큰 |
 | `tokens-kis.json`, `tokens-toss.json` | 증권사 접근 토큰 캐시(공급자마다 하나, 키 해시·발급 시각 포함, 키 원문 없음) |
-| `kis.lock`, `toss.lock` (+ `.break`) | 토큰 발급 잠금 |
+| `kis.lock`, `toss.lock` | 토큰 발급 잠금 |
 | `orders-<키 해시>-<계좌 해시>.json` | 토스 주문 이력 캐시(`signals`의 첫 매수일 계산용) |
 
 ## 배포 순서 (관리자)
