@@ -183,7 +183,7 @@
       const r = await sync.keys.commitReceive(lp);
       if (!r.ok && r.message === KEY_TEXT.wrongLockPass) {
         lockPass = '';
-        if (sheet === null) open('lockpass');
+        if (sheet !== 'lockpass') open('lockpass');
         return fail('lock', KEY_TEXT.wrongLockPass);
       }
       if (!r.ok) return afterFail(r, { kind: 'receive' });

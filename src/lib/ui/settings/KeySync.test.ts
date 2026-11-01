@@ -339,6 +339,22 @@ describe('KeySync', () => {
     expect(keys.commitReceive).toHaveBeenCalledWith('FAKE-lock-pass');
   });
 
+  it('받기: 동기화 암호 시트에서 잠금 암호가 틀리면 잠금 암호 시트로 바뀌어 잠금 암호만 다시 넣을 수 있다', async () => {
+    const commitReceive = vi.fn(async () => ({ ok: false as const, message: KEY_TEXT.wrongLockPass }));
+    const keys = fakeKeys({ vault: VAULT, remembered: false, states: [row({ notice: 'newer', remoteRevision: 2 })] }, { commitReceive });
+    await setup({ keys, keyLock: true });
+    await fireEvent.click(button('받기'));
+    await fireEvent.input(await screen.findByLabelText('동기화 암호'), { target: { value: 'FAKE-sync-pass' } });
+    await fireEvent.input(screen.getByLabelText('이 기기 잠금 암호'), { target: { value: 'FAKE-wrong' } });
+    await fireEvent.click(button('확인'));
+    expect((await screen.findByRole('alert')).textContent).toBe(KEY_TEXT.wrongLockPass);
+    expect(screen.queryByLabelText('동기화 암호')).toBeNull();
+    await fireEvent.input(screen.getByLabelText('이 기기 잠금 암호'), { target: { value: 'FAKE-right' } });
+    await fireEvent.click(button('확인'));
+    await waitFor(() => expect(commitReceive).toHaveBeenCalledTimes(2));
+    expect(commitReceive).toHaveBeenLastCalledWith('FAKE-right');
+  });
+
   it('받기: 잠금 암호 시트를 취소하면 컨트롤러가 쥔 풀린 키를 버린다', async () => {
     const keys = fakeKeys(
       { vault: VAULT, remembered: true, states: [row({ notice: 'newer', remoteRevision: 2 })] },

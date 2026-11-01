@@ -287,6 +287,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       void engine?.keysNow().then(refreshKeys);
     }, deps.keyDebounceMs ?? KEY_DEBOUNCE_MS);
   }
+  /** 키 변경을 이 기기에 기록하지 못했을 때의 안내(다음에 기록이 성공하면 지운다) */
+  let keyRecordProblem: string | null = null;
   async function refreshKeys() {
     const sequence = ++keyRefreshSequence;
     const ks = keyStore;
@@ -306,7 +308,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         vault: v,
         accountNotice: notice ?? null,
         states,
-        problem: keySync?.problem() ?? null,
+        problem: keySync?.problem() ?? keyRecordProblem,
         remembered: !!v && !!vaultKey && vaultKey.vaultId === v.vaultId && vaultKey.salt === v.salt && vaultKey.vaultRevision === v.vaultRevision,
         persistent: ks.persistent,
         uploaded: synced.filter((s) => s.syncedRevision > 0 && !s.deleted).map((s) => s.profileId),
@@ -787,10 +789,16 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       const ks = keyStore;
       if (!ks) return;
       void (async () => {
-        // 행이 없거나 꺼졌거나 고르지 않은 공급자만 바뀌었으면 bumpSeq가 무시한다(5.6-1)
-        await ks.bumpSeq(e.profileId, e.providers);
-        const st = await ks.state(e.profileId);
-        if (st?.active && st.localSeq > st.uploadedSeq) scheduleKeys();
+        try {
+          // 행이 없거나 꺼졌거나 고르지 않은 공급자만 바뀌었으면 bumpSeq가 무시한다(5.6-1)
+          await ks.bumpSeq(e.profileId, e.providers);
+          const st = await ks.state(e.profileId);
+          keyRecordProblem = null;
+          if (st?.active && st.localSeq > st.uploadedSeq) scheduleKeys();
+        } catch {
+          // 기록 실패는 업로드 대상에서 빠지므로 조용히 넘기지 않고 키 영역에 알린다.
+          keyRecordProblem = '키 변경을 이 기기에 기록하지 못했어요. 새로 고친 뒤 다시 시도해 주세요';
+        }
         await refreshKeys();
       })();
     },
