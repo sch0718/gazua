@@ -1,0 +1,257 @@
+{
+  "kind": "simResult",
+  "v": 1,
+  "title": "눌림목",
+  "strategy": {
+    "id": "shared",
+    "name": "눌림목",
+    "updatedAt": 0,
+    "universe": {
+      "kind": "symbols",
+      "symbols": [
+        "005930",
+        "000660",
+        "Q500023"
+      ]
+    },
+    "period": {
+      "from": "2023-10-28",
+      "to": "2026-10-28"
+    },
+    "capital": {
+      "initial": 10000000,
+      "perBuyPct": 10
+    },
+    "entry": {
+      "decline": {
+        "dropPct": {
+          "on": true,
+          "value": 10
+        },
+        "days": {
+          "on": false,
+          "value": 10
+        }
+      },
+      "triggers": {
+        "reboundDays": {
+          "on": true,
+          "value": 3
+        },
+        "breakout": {
+          "on": true,
+          "level": "B"
+        },
+        "maCross": {
+          "on": false,
+          "period": 20
+        },
+        "goldenCross": {
+          "on": false,
+          "short": 5,
+          "long": 20
+        }
+      },
+      "filter": {
+        "aboveMa": {
+          "on": false,
+          "period": 60
+        }
+      }
+    },
+    "scaleIn": {
+      "on": false,
+      "stepPct": 3,
+      "maxAdds": 2
+    },
+    "exit": {
+      "takeProfit": [
+        {
+          "pct": 15,
+          "sellPct": 100
+        }
+      ],
+      "stopLoss": {
+        "pct": 5,
+        "basis": "avgAfterScaleIn"
+      },
+      "afterFirstTake": "keep"
+    },
+    "benchmarks": {
+      "index": "KOSPI",
+      "symbol": "069500"
+    },
+    "costs": {
+      "feePct": 0.015
+    }
+  },
+  "capitalHidden": false,
+  "run": {
+    "from": "2024-01-02",
+    "to": "2024-01-12",
+    "source": "KRX 일봉",
+    "demo": false,
+    "fetchedAt": 1793242800000
+  },
+  "result": {
+    "axis": {
+      "start": "2024-01-02",
+      "offsets": [
+        0,
+        1,
+        2,
+        7,
+        10
+      ]
+    },
+    "sampled": null,
+    "curves": {
+      "strategy": [
+        0,
+        1.5,
+        -2.25,
+        3,
+        4.1
+      ],
+      "hold": [
+        0,
+        0.5,
+        1,
+        1.5,
+        2
+      ],
+      "index": [
+        0,
+        null,
+        0.3,
+        0.4,
+        0.5
+      ],
+      "benchmark": null
+    },
+    "summary": {
+      "totalReturnPct": 4.1,
+      "cagrPct": 100.12,
+      "mddPct": -3.69,
+      "winRatePct": 50,
+      "wins": 1,
+      "losses": 1,
+      "avgWinPct": 15,
+      "avgLossPct": -5.6,
+      "roundTrips": 2,
+      "openPositions": 0,
+      "avgHoldDays": 12.5,
+      "avgCashPct": 62.31,
+      "skippedSignals": 3,
+      "vsHoldPp": 2.1,
+      "vsIndexPp": 3.6,
+      "vsBenchmarkPp": null
+    },
+    "benchmarks": {
+      "holdReturnPct": 2,
+      "indexReturnPct": 0.5,
+      "benchmarkReturnPct": null
+    },
+    "indexFailed": null,
+    "benchmarkFailed": true,
+    "symbols": [
+      "005930",
+      "000660",
+      "Q500023"
+    ],
+    "trades": [
+      [
+        1,
+        0,
+        "buy",
+        null,
+        70000,
+        14,
+        "B 돌파",
+        null
+      ],
+      [
+        2,
+        1,
+        "buy",
+        null,
+        132400,
+        12,
+        "3일 연속 상승",
+        null
+      ],
+      [
+        7,
+        1,
+        "stop",
+        null,
+        125000,
+        12,
+        "손절",
+        -5.6
+      ],
+      [
+        10,
+        0,
+        "take",
+        1,
+        80500,
+        14,
+        "1단계 익절 100%",
+        15
+      ]
+    ],
+    "perSymbol": [
+      [
+        0,
+        141000,
+        1.41,
+        1,
+        0
+      ],
+      [
+        1,
+        -88000,
+        -0.88,
+        1,
+        0
+      ]
+    ],
+    "skipped": {
+      "counts": [
+        [
+          "현금 부족",
+          1
+        ],
+        [
+          "1주가 1회 금액보다 비쌈",
+          2
+        ]
+      ],
+      "rows": [
+        [
+          2,
+          1,
+          1
+        ],
+        [
+          7,
+          1,
+          1
+        ],
+        [
+          8,
+          0,
+          0
+        ]
+      ]
+    },
+    "nearMiss": null,
+    "failed": [
+      {
+        "symbol": "Q500023",
+        "reason": "기간 안에 데이터가 없어요"
+      }
+    ]
+  }
+}
