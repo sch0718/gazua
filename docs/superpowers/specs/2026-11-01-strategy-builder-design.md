@@ -2,7 +2,7 @@
 
 > 2026-11-01 · 로드맵 최우선 1의 A(전략 빌더). B(재생, [`2026-11-01-simulation-replay-design.md`](2026-11-01-simulation-replay-design.md))가 끝난 main(16dd479) 위에서 해요. PR은 둘로 나눠요. PR① 서버 호환, PR② 엔진·화면·옮기기예요(§8.7). 구현 계획은 Task 단위로 잘게 나눠요(§15).
 >
-> 개정: 2026-11-01 검토 1회차 반영(PR 분리, 새 저장 키, 옮기기 해시 앞당김, Worker 원자 검사, 확인 필요 답).
+> 개정: 2026-11-01 검토 1회차 반영(PR 분리, 새 저장 키, 옮기기 해시 앞당김, Worker 원자 검사, 확인 필요 답). 같은 날 검토 2회차 반영(PR①의 read 모드, H2 정의, 키 사용처 표, Worker 공용 경로 계약).
 
 ## 1. 목표
 
@@ -118,7 +118,9 @@ export interface Strategy {
 }
 ```
 
-- 옛 타입은 `StrategyV1`로 이름을 바꿔 `src/lib/sim/strategyV1.ts`에 둬요. v1 읽기 검증(`sanitizeStrategiesV1`, 지금 `sanitizeOne` 그대로)과 옮기기 함수(`toV2`)도 같은 파일에 둬요.
+- 이름과 PR(§8.7)
+  - PR①은 새 이름만 더해요. v2 타입은 `StrategyV2`, v2 검증은 `sanitizeStrategiesV2`(새 `src/lib/sim/strategyV2.ts`)예요. 앱의 `Strategy`(v1)와 `sanitizeStrategies` 호출은 손대지 않아요.
+  - PR②에서 이름을 바꾸고 호출을 옮겨요. `Strategy`가 v2를 가리키고, 옛 타입은 `StrategyV1`, 옛 검증은 `sanitizeStrategiesV1`(지금 `sanitizeOne` 그대로)로 `src/lib/sim/strategyV1.ts`에 가요. 옮기기 함수 `toV2`도 이 파일에 둬요. 동작은 바꾸지 않고 이름·자리만 바꿔요(§8.7의 공용 경로 계약).
 - `afterFirstTake`는 익절에 딸린 설정이라 `takeProfit` 안으로 옮겨요.
 - 묶음·조건에는 id를 두지 않아요. 순서(배열 위치)가 곧 이름이에요. 이유는 두 가지예요.
   - 공유 검사가 스냅샷 안의 UUID 모양 문자열을 거절해요(`checkShareSnapshot`의 `UUID_RE`).
@@ -199,7 +201,7 @@ export function condReason(c: Cond): string;                 // §4.6
 - `firstDayIdx`는 그 종목 배열에서 기간 첫날(`days[0]` 이상인 첫 봉)의 인덱스예요. RSI 시작점에 써요(§5.1).
 - 만들 때 종목마다 필요한 지표 배열을 한 번 계산해요(같은 기간이면 공유).
 - 패턴 블록은 기존 `createPatternTracker(candles, entry)`를 그대로 감싸요. 판정·상태·통계를 바꾸지 않아요.
-- 묶음 판정: 묶음 안 조건을 앞에서부터 보고, 하나라도 틀리면 다음 묶음으로 가요. 패턴 블록의 `signal(i)`은 상태를 바꾸지 않으니 순서가 결과를 바꾸지 않아요.
+- 묶음 판정: 묶음 안 조건을 앞에서부터 보고, 하나라도 틀리면 다음 묶음으로 가요. 그래서 패턴 블록의 `signal(i)`이 불리지 않는 날도 있어요. 그래도 괜찮은 이유는 `signal(i)`이 상태를 바꾸지 않고, 상태는 `update(i)`가 매일 빠짐없이 갱신하기 때문이에요. 묶음·조건 순서는 사유(처음 맞은 묶음)만 정하고 매수 여부는 바꾸지 않아요.
 - 패턴 블록이 맞으면 `snapshot`을 같이 돌려줘요. 매수 체결 줄은 `snapshot`이 있을 때만 `pattern` 키를 넣어요(`...(snapshot && { pattern: snapshot })`). 없을 때 `pattern: undefined`를 넣지 않아요. 골든 테스트의 `toStrictEqual`이 `undefined` 키를 구분해요.
 - 매도용으로 `rules.sell.signal.groups`에도 평가기를 하나 더 만들어요. 매도 평가기에는 패턴 블록이 없어서 `update`·`reset`은 아무것도 하지 않아요.
 
@@ -367,6 +369,7 @@ export function condReason(c: Cond): string;                 // §4.6
   - 블록이 있으면 그 블록에서 나온 막는 경고만 빌려 와요. `ruleIssues`의 경고에 `pattern: true` 표시를 달아 고를 수 있게 해요.
   - 매매 규칙(②): 지금처럼 막는 경고 전부(`RULE_SECTIONS`).
 - 전략 편집 화면은 막지 않아요. 선정 기준이 참조하는 전략에서 패턴 블록을 빼면 「이 전략을 반등 패턴으로 쓰는 선정 기준이 N개 있어요」라는 막지 않는 경고를 「매수 조건」 구역에 보여요. 전략은 그대로 실행돼요.
+  - `ruleIssues(s)`는 전략만 받으니 이 경고를 만들 수 없어요. 편집 화면(`StrategyEditor.svelte`)이 `app.criteria`를 받아 새 함수 `patternRefIssues(s, criteria)`(`src/lib/screen/validate.ts`)로 따로 계산해 같은 구역 경고 목록에 붙여요.
 - `runTrading`(`src/lib/screen/runValidation.ts`)의 덮어쓰기
   - `capital: { initial: criteria.capital }`, `period`·`costs`·`benchmarks`는 지금처럼 기준 값.
   - `rules`·`scaleIn`은 참조 전략 그대로.
@@ -409,8 +412,26 @@ export function condReason(c: Cond): string;                 // §4.6
 - `saveStrategies`·`app.svelte.ts`의 전략 쓰기(지금 `write(profileKeys.strategies(...))`)는 새 키에 써요.
 - `applyProfileDoc`(`src/lib/sync/profileDoc.ts`)
   - v2 문서: 새 키에 써요. 옛 키는 손대지 않아요.
-  - v1 문서(아직 옮기지 않은 기기가 올린 서버 문서): 옛 키에 쓰고 새 키를 지워요. 다음 읽기가 다시 옮겨요.
+  - v1 문서(아직 옮기지 않은 기기가 올린 서버 문서): 옛 키에 v1을 쓰고, 그 자리에서 `toV2`로 옮긴 결과를 새 키에도 써요. 지우기에 기대 다음 읽기를 기다리지 않아요. 그 사이 다른 코드가 새 키를 읽어 옛 내용을 보는 틈이 없어요.
 - `onStorage`(`app.svelte.ts`)의 동기화 키 목록에 새 키를 더해요. 옛 키는 v1 문서를 받을 때만 바뀌니 목록에 남겨 둬요.
+
+#### 옛 키를 쓰는 곳 전체 (16dd479, PR②에서 바꿈)
+
+| 곳 | 지금 | PR② |
+|---|---|---|
+| `src/lib/sim/strategyStore.ts:10` `loadStrategies` | 옛 키 읽기 | 새 키 읽기, 없으면 옛 키를 옮겨 새 키에 `trySet` |
+| `src/lib/sim/strategyStore.ts:29` `saveStrategies` | 옛 키 쓰기 | 새 키 쓰기 |
+| `src/lib/state/app.svelte.ts:328` | `loadStrategies` | 그대로(안에서 새 키) |
+| `src/lib/state/app.svelte.ts:637` `removeProfile` | 옛 키 지움 | 옛 키·새 키 모두 지움 |
+| `src/lib/state/app.svelte.ts:661` `onStorage` | 옛 키 감시 | 옛 키·새 키 모두 감시 |
+| `src/lib/state/app.svelte.ts:835` 전략 목록 쓰기 | 옛 키 `write` | 새 키 `write` |
+| `src/lib/state/exportImport.ts:91` 내보내기 | `loadStrategies` | 그대로(새 키) |
+| `src/lib/state/exportImport.ts:153` 가져오기 | 옛 키 `st.set` | **새 키**에 v2로 써요(v1 파일이면 `toV2` 뒤). 옛 키는 쓰지 않아요 |
+| `src/lib/sync/profileDoc.ts:24` `buildProfileDoc` | `loadStrategies` | 그대로(새 키) |
+| `src/lib/sync/profileDoc.ts:38` `applyProfileDoc` | 옛 키 `st.set` | 위 규칙(v2 → 새 키, v1 → 옛 키 + 새 키) |
+| `src/lib/state/profileStore.ts:19` `profileKeys` | `strategies` | `strategySet` 더함 |
+
+구현 때 `profileKeys.strategies`를 다시 검색해 이 표 밖의 사용처가 없는지 확인해요.
 - `removeProfile`에서 새 키도 지워요. `profileKeys`에 `strategySet`을 더해요.
 - 내보내기·동기화 문서는 새 키만 읽어요.
 
@@ -425,10 +446,13 @@ export function condReason(c: Cond): string;                 // §4.6
 
 옮기기만 해도 로컬 문서 해시가 v1 문서 해시 H1에서 v2 문서 해시 H2로 바뀌어요. 그대로 두면 다른 기기가 그사이 서버를 고쳤을 때, 이 기기는 아무것도 안 고쳤는데 `pull()`이 「로컬도 바뀜」으로 보고 충돌 사본을 만들어요(`engine.ts`의 `syncedHash === localHash` 비교).
 
-- 동기화 엔진이 첫 주기를 돌기 **전에** 옮기기 단계를 둬요(`src/lib/sync/migrate.ts`, 컨트롤러 시작 시).
-  1. 프로필마다 `loadStrategies`로 옮겨 새 키를 채워요.
-  2. 옮기기 전 문서(옛 키로 만든 v1 문서)의 해시 H1과 옮긴 뒤 v2 문서 해시 H2를 구해요.
-  3. `store.state(id).syncedHash === H1`이면 `syncedHash`를 H2로 바꿔요. `syncedRevision`은 그대로예요.
+- 동기화 엔진이 첫 주기를 돌기 **전에** 옮기기 단계를 둬요(`src/lib/sync/migrate.ts`, 컨트롤러 시작 시). 엔진 주기와 겹치지 않게 `engine.exclusive()` 안에서 돌려요.
+  1. 프로필마다 `loadStrategies`로 새 키를 채워요(이미 있으면 그대로).
+  2. H1 = 옛 키 전략으로 만든 v1 문서의 해시예요.
+  3. H2 = 옛 키 전략을 `toV2`해 `buildProfileDoc`과 같은 방식으로 만든 v2 문서의 해시예요. **새 키 내용은 쓰지 않아요.** 그래서 옮긴 뒤 사용자가 고친 내용이 H2에 섞이지 않아요.
+  4. 조건은 하나예요. `store.state(id).syncedHash === H1`이면 `syncedHash`를 H2로 바꿔요. `syncedRevision`은 그대로예요.
+- 멱등이에요. 한 번 앞당기면 `syncedHash`가 더는 H1이 아니라 다시 돌아도 아무것도 안 해요. 앱을 다시 시작할 때마다 돌려도 돼요.
+- 「옮김 → 수정 → 재시작」 경우: 첫 시작에 `syncedHash`가 H2가 돼요. 사용자가 새 키를 고친 뒤 올리기 전에 앱을 닫았다 열어도, `syncedHash`(H2)가 H1이 아니라 앞당기지 않아요. 그래서 고친 내용이 「변경 있음」으로 남아 올라가요. H2를 새 키 내용으로 계산하면 이 수정이 「확인된 상태」로 잘못 쳐져 영영 올라가지 않아요.
 - 이러면 옮기기는 「확인된 상태」로 쳐요. 이 기기에 실제 수정이 없으면 서버의 새 리비전을 그대로 받아요.
 - 이 기기에서 확인되지 않은 수정이 있었으면(`syncedHash ≠ H1`) 앞당기지 않아요. 지금처럼 보내기·충돌 규칙을 따라요.
 - 서버가 아직 v1이면 다음 `enqueueChanged()`가 v2를 올려요. H2 ≠ 서버 해시라도 리비전이 같으니 충돌 없이 받아들여져요. 여러 기기가 같은 v1을 옮기면 같은 H2가 나와 서로 충돌하지 않아요.
@@ -445,14 +469,20 @@ export function condReason(c: Cond): string;                 // §4.6
 
 1. **요청 버전**: 새 앱은 프로필 요청에 쿼리 `docVersion=2`를 붙여요. 붙이는 자리는 `src/lib/sync/api.ts`의 프로필 요청들(`getProfile`·`getRevision`·`restoreProfile`·`putProfile`·`deleteProfile`)이에요. 헤더가 아니라 쿼리라 CORS 허용 헤더(`sync-worker/src/cors.ts`의 `ALLOWED_HEADERS`)를 바꾸지 않아요.
    - Worker 파싱: 없으면 1. 1 이상의 정수가 아니면 422 `invalid`(path `docVersion`).
-2. **저장 버전 열**: `profile_index`에 `doc_v INTEGER NOT NULL DEFAULT 1` 열을 더해요(`sync-worker/migrations/0004_doc_version.sql`). PUT·복원 때 같은 배치에서 갱신해요. 본문을 파싱하지 않고 비교할 수 있어요.
+2. **저장 버전 열**: `profile_index`에 버전 열을 더해요. 본문을 파싱하지 않고 비교할 수 있어요.
+   - `sync-worker/migrations/0004_doc_version.sql`: `ALTER TABLE profile_index ADD COLUMN doc_v INTEGER NOT NULL DEFAULT 1;` 지금 행은 모두 v1 문서라 기본값 1이 맞아요.
+   - 새로 만들기: `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at, doc_v) VALUES (?, ?, 1, ?, ?, ?)`.
+   - 갱신: `UPDATE profile_index SET revision = ?, last_op_id = ?, updated_at = ?, doc_v = ? WHERE user_id = ? AND profile_id = ? AND revision = ? AND deleted_at IS NULL AND doc_v <= ?`. 마지막 `?`는 들어온 문서의 `v`예요.
+   - 복원(삭제 취소)은 본문을 바꾸지 않으니 `doc_v`도 그대로예요.
+   - 쿼리 파싱: 지금 `sync-worker/src/handler.ts`의 경로 표는 경로 조각만 넘겨요. 프로필 경로 처리기에 `new URL(req.url).searchParams`의 `docVersion`을 넘기도록 고쳐요.
 3. **PUT 순서**: `checkProfileDoc` → `replayed()` → 버전 조건부 갱신.
    - `replayed()`를 버전 검사 앞에 둬요. 이미 반영된 같은 opId를 다시 보내면 처음 결과를 돌려줘요. 응답을 못 받은 기기가 재전송했다가 422를 받아 `rejectedHash`가 남는 일을 막아요.
-   - 갱신은 조건부 `UPDATE profile_index … WHERE … AND revision = ? AND doc_v <= ?`(들어온 `v`) 한 문장이에요. 검사와 갱신 사이에 다른 기기가 v2를 올려도 원자적으로 막혀요. 새로 만들기(`expectedRevision 0`)는 `doc_v`를 함께 넣어요.
+   - 갱신은 위의 조건부 `UPDATE` 한 문장이에요. 검사와 갱신 사이에 다른 기기가 v2를 올려도 원자적으로 막혀요.
    - 반영되지 않았으면 지금 `rejected()`가 머리를 다시 읽어요. `doc_v`가 들어온 `v`보다 크면 422(아래 코드), 아니면 지금처럼 409·410이에요.
 4. **본문을 돌려주는 응답**: 저장된 `doc_v`가 요청 버전보다 크면
    - `getProfile`·`getRevision`(그 리비전 본문의 `v`)·`restoreProfile`은 422로 답해요. `restoreProfile`은 **바꾸기 전에** 검사해서, 거절할 때는 아무것도 바꾸지 않아요.
    - 409 충돌 응답(`rejected()`, `deleteProfile`의 `h?.lastOpId === opId` 분기)은 `doc`을 빼요(`null`).
+   - 삭제된 프로필: 지금처럼 삭제 판정(410 `gone`)이 버전 검사보다 먼저예요. 410은 본문을 주지 않아 옛 앱에 v2가 새지 않아요. 본문을 돌려주는 복원(`restoreProfile`)만 버전을 봐요. 저장 버전이 2인 삭제 프로필을 옛 앱이 복원하려 하면 422예요. 옛 앱이 v2 프로필을 되살려 v1으로 덮는 길을 막으려는 의도예요.
 - 422 코드: 한국어 문장 `앱을 새로 고쳐 주세요`를 써요(상수 `APP_OUTDATED_CODE`, `dto.ts`).
   - 이유: 옛 앱 `SyncPanel.svelte`는 거절 코드를 괄호에 날것으로 보여요(「…서버가 받지 않았어요(코드). 줄이면 다시 보내요.」). 영문 코드 `app-outdated`보다 「(앱을 새로 고쳐 주세요)」가 사용자에게 뜻이 통해요.
   - 새 앱은 이 코드를 비교해 자기 문구로 바꿔 보여요. 코드는 JSON 본문의 문자열이라 한국어여도 전송에 문제가 없어요.
@@ -470,6 +500,8 @@ export function condReason(c: Cond): string;                 // §4.6
 
 #### 새 앱의 남은 처리
 
+- 옛 탭이 남긴 거절 기록: 동기화 상태(IndexedDB)는 같은 출처의 탭끼리 같이 써요. 옛 탭이 `rejectedCode = APP_OUTDATED_CODE`를 남기면 새 앱이 그 「앱을 새로 고쳐 주세요」를 자기 일처럼 보이게 돼요. 새 앱은 옮기기 단계에서 이 코드의 `rejectedHash`·`rejectedCode`를 지우고, 설정 화면에도 이 코드는 보이지 않아요. 지우면 지금 문서로 다시 판단해 필요하면 v2로 올려요.
+
 - IndexedDB에 남은 v1 충돌 사본: 충돌을 고르면 `applyProfileDoc`이 v1을 옛 키에 쓰고 다시 옮겨요.
 - 미전송 v1 작업: `enqueueChanged()`가 지금도 해시가 다른 미전송 작업을 지우고 새 문서를 넣어요.
 - 보냈지만 응답을 못 받은 v1 작업: 다시 보내요. 이미 반영된 opId면 `replayed()`가 처음 결과를, 서버가 그사이 v2가 됐으면 422를 돌려줘요.
@@ -480,8 +512,10 @@ export function condReason(c: Cond): string;                 // §4.6
 - `checkShareSnapshot`
   - `strategy`·`simResult`는 `v` 1·2를 받아요. 알려진 것보다 높은 `v`는 `unsupported`(`ShareError`에 이미 있음)예요.
   - **create 모드**: 옮기지 않고 받은 **원본**을 돌려줘요. Worker(`shares.ts`)는 `checked.snapshot`을 저장하니, 옛 앱이 만든 v1 공유는 v1 그대로 저장돼요.
-  - **read 모드**: `checkStrategyPart`가 v1 검증 뒤 `toV2`로 옮기고, 스냅샷 `v`도 2로 바꿔 돌려줘요. 화면 코드는 늘 v2만 봐요.
-- `pendingImport.ts`의 `importPart`는 `v: 1`을 박지 않고 받은 스냅샷의 `v`를 따라가요(`strategy`는 read 결과라 2, `criteria`는 1).
+  - **read 모드, PR①**: v1은 지금처럼 v1으로 돌려줘요. v2는 `unsupported`로 거절해요. PR① 앱의 화면은 v1 전략만 그릴 줄 알아서예요. PR② 배포 뒤에도 남은 PR① 탭이 v2 공유를 잘못 그리지 않아요.
+  - **read 모드, PR②**: `checkStrategyPart`가 v1 검증 뒤 `toV2`로 옮기고, 스냅샷 `v`도 2로 바꿔 돌려줘요. 화면 코드는 늘 v2만 봐요.
+  - Worker는 create 모드만 써요. 공개 읽기(`readShare`)는 저장된 스냅샷을 검사 없이 돌려줘요. 그래서 read 모드를 PR②에서 바꿔도 Worker 동작은 바뀌지 않아요.
+- `pendingImport.ts`의 `importPart`는 `v: 1`을 박지 않고 받은 스냅샷의 `v`를 따라가요(PR②에서 `strategy`는 read 결과라 2, `criteria`는 1).
 - 새 앱은 늘 v2로 만들어요. 서버에 있는 v1 공유 링크는 새 앱에서 옮겨 열려요.
 - 옛 앱이 v2 공유를 열면 `raw.v !== SHARE_VERSION`으로 거절돼요. 문구는 옛 앱 것이라 바꿀 수 없어요. 한계로 남겨요.
 - 결과 검사(`checkResult.ts`): `TRADE_KINDS`·`SELL_KINDS`(`resultEnums.ts`)에 새 3종을 더해요. 새 종류는 `stage`가 `null`, `pnlPct`가 있어야 해요. `resultEnums.test.ts`의 타입 대조도 같이 고쳐요.
@@ -502,22 +536,42 @@ export function condReason(c: Cond): string;                 // §4.6
 | v2 내보내기 파일 | 「지원하지 않는 버전이에요」 |
 | 같은 브라우저의 새 탭이 옮김 | 옛 키 `p:<id>:strategies`를 건드리지 않아 옛 탭은 v1 그대로 읽어요 |
 
+#### 옛 탭에서 고친 것의 한계
+
+같은 브라우저에서 옛 탭과 새 탭이 함께 열려 있는 짧은 동안의 일이에요. 막지 않고 한계로 남겨요.
+
+| 상황 | 결과 |
+|---|---|
+| 옮긴 뒤 옛 탭에서 전략을 고침 | 옛 키에만 써져요. 새 앱은 새 키가 있으면 옛 키를 읽지 않아 이 수정은 새 앱에 보이지 않아요 |
+| 위 수정을 옛 탭이 올림, 서버가 v2 | 422(§8.6). 서버는 그대로예요 |
+| 위 수정을 옛 탭이 올림, 서버가 아직 v1 | 받아들여져요. 새 앱이 그 v1 문서를 받으면 `applyProfileDoc`이 새 키를 그 내용으로 바꿔요. 새 앱에서 아직 올리지 않은 수정이 있었으면 지금 충돌 규칙(로컬도 바뀜 → 충돌 사본)을 따라요 |
+| 옛 탭을 새로 고침 | 새 앱이 돼요. 옛 키의 수정은 새 키가 이미 있어 쓰이지 않아요. 옛 키는 백업으로 남아요 |
+
 ### 8.7 PR 나누기와 배포 순서
 
 #### PR① 서버 호환
 
 - 범위
-  - `src/lib/sim/types.ts`(v2 타입만 더함, 앱은 아직 v1 사용), `src/lib/sim/strategyV1.ts`(옛 검증·`toV2`), v2 검증 함수.
-  - `src/lib/sync/dto.ts`: `checkProfileDoc` v1·v2, `unsupported`, 원본 반환 명시, `APP_OUTDATED_CODE`.
-  - `src/lib/share/snapshot.ts`·`checkResult.ts`·`resultEnums.ts`: v1·v2 수용, create 원본·read 옮기기, 새 체결 종류.
-  - `sync-worker/src/profiles.ts`·`shares.ts`·`migrations/0004_doc_version.sql`: `docVersion`, `doc_v`, 원자적 다운그레이드 거절, 본문 응답 가리기, `replayed()` 순서.
+  - 새 파일 `src/lib/sim/strategyV2.ts`: `StrategyV2` 타입과 `sanitizeStrategiesV2`. 새 이름만 더하고, 앱이 부르는 `Strategy`·`sanitizeStrategies`는 손대지 않아요.
+  - `src/lib/sync/dto.ts`: `checkProfileDoc`이 `v`로 갈라요. `v: 1`이면 지금 `sanitizeStrategies`(v1), `v: 2`면 `sanitizeStrategiesV2`. 그보다 높으면 `unsupported`. 원본 반환 명시, `APP_OUTDATED_CODE`.
+  - `src/lib/share/snapshot.ts`: create 모드는 `strategy`·`simResult`의 v1(지금 검증)·v2(`sanitizeStrategiesV2`)를 받고 원본을 돌려줘요. read 모드는 v1만 받고 v2는 `unsupported`예요(§8.4).
+  - `checkResult.ts`·`resultEnums.ts`: 새 체결 종류 3종.
+  - `sync-worker/src/profiles.ts`·`handler.ts`·`migrations/0004_doc_version.sql`: `docVersion`, `doc_v`, 원자적 다운그레이드 거절, 본문 응답 가리기, `replayed()` 순서. `shares.ts`는 같은 `checkShareSnapshot`을 부르니 코드 변경 없이 v2를 받아요.
+- Worker가 부르는 함수는 PR①에서 정해져요: 프로필 PUT은 `checkProfileDoc`, 공유 생성은 `checkShareSnapshot(…, 'create')`. 둘 다 안에서 v1·v2를 판정해요.
 - 앱은 여전히 v1만 만들고 `docVersion`을 보내지 않아요. 그래서 Worker에게는 PR① 앱도 「버전 1 클라이언트」예요.
-- 병합 → Worker 배포(마이그레이션 포함) → 앱 배포.
+- 배포 순서: 병합 → `pnpm --filter sync-worker migrate:remote`(`wrangler d1 migrations apply gazua-sync --remote`) → `deploy`(`wrangler deploy`) → 앱 배포. 마이그레이션을 먼저 해야 새 코드의 `doc_v` 쿼리가 실패하지 않아요. 패키지 이름 `sync-worker`는 `pnpm-workspace.yaml`·`sync-worker/package.json`에서 확인했어요.
 
 #### PR② 엔진·화면·옮기기
 
-- 엔진(§4~6), 저장소 새 키·옮기기(§8.2), 옮기기 단계·해시 앞당김(§8.3), `docVersion=2`, 공유·내보내기 v2 생성, 선정 기준(§7), 편집 화면(§10), 재생 표시(§9).
+- 엔진(§4~6), 이름 교체·호출 전환(§3.1), 저장소 새 키·옮기기(§8.2), 옮기기 단계·해시 앞당김(§8.3), `docVersion=2`, 공유 read 옮기기, 공유·내보내기 v2 생성, 선정 기준(§7), 편집 화면(§10), 재생 표시(§9).
 - PR① Worker 배포를 확인한 뒤 병합·배포해요.
+
+#### Worker 공용 경로 계약
+
+- PR②는 Worker가 함께 쓰는 경로의 **동작**을 바꾸지 않아요. 대상: `src/lib/sync/dto.ts`, `src/lib/share/snapshot.ts`의 검사(create 모드), `sanitizeStrategiesV2`, `checkResult.ts`, `resultEnums.ts`, `src/lib/sync/forbidden.ts`, `sanitizeCriteria`(`src/lib/screen/validate.ts`).
+- 이름 바꾸기·파일 옮기기(예: `sanitizeStrategies` → `sanitizeStrategiesV1`)는 동작이 같으면 괜찮아요.
+- 동작을 바꿔야 하면 그 부분만 PR①-b로 떼어 먼저 병합·Worker 배포해요. 앱이 Worker보다 앞서는 일이 없게요.
+- PR②에 계약 테스트를 둬요: 지금 앱이 만든 v2 프로필 문서(`buildProfileDoc`)와 v2 공유(`strategySnapshot`·`simResult` 스냅샷)가 `checkProfileDoc`·`checkShareSnapshot(…, 'create')`을 통과해요. 템플릿 3개와 묶음·조건을 다 채운 전략으로 돌려요.
 
 #### 단계별 동작
 
@@ -526,7 +580,7 @@ export function condReason(c: Cond): string;                 // §4.6
 | 지금 | 모두 v1 | 그대로 | — | — |
 | PR① 배포 후 | 모두 v1, `doc_v = 1` | 그대로(요청 버전 1, 저장 버전 1이라 가리기·거절이 걸리지 않아요) | 옛 앱과 같아요 | — |
 | PR② 배포 후, 아무도 아직 안 엶 | v1 | 그대로 | 그대로 | — |
-| PR② 앱이 한 번 엶 | 그 프로필 v2, `doc_v = 2` | 그 프로필 받기 422, 올리기 422(§8.6) | 옛 앱과 같아요(버전 1 클라이언트) | v1은 받아 옮김, v2 주고받음 |
+| PR② 앱이 한 번 엶 | 그 프로필 v2, `doc_v = 2` | 그 프로필 받기 422, 올리기 422(§8.6) | 옛 앱과 같아요(버전 1 클라이언트). v2 공유 열기는 `unsupported` | v1은 받아 옮김, v2 주고받음 |
 
 PR①만 배포된 상태에서 옛 앱이 전과 똑같이 도는지는 `profiles.test.ts`·`shares.test.ts`의 「쿼리 없음 + v1 문서」 경로 테스트로 확인해요(§12.4). 응답 모양이 바뀌지 않는지(409 본문 `doc` 포함, 200 본문)를 지금 테스트 그대로 통과시켜요.
 
@@ -648,7 +702,7 @@ export interface DayFrame {
 | `avgAlways` 손절 ≤ 추가 간격 | exit | 아니요 | 손절이 켜져 있을 때만 |
 | 트레일링 % ≤ 추가 간격(분할 매수 켬) | exit | 아니요 | 추가 매수보다 트레일링이 먼저 일어나요. 추가 매수 간격을 트레일링 폭보다 작게 해 주세요 |
 | 파는 규칙이 하나도 없음 | exit | 아니요 | 파는 규칙이 없어요. 기간 끝까지 들고 있어요 |
-| 선정 기준이 반등 패턴으로 참조하는데 패턴 블록 없음 | entry | 아니요 | §7 |
+| 선정 기준이 반등 패턴으로 참조하는데 패턴 블록 없음 | entry | 아니요 | §7(`patternRefIssues`, `ruleIssues` 밖) |
 | 자금 | capital | 아니요 | §6.3 |
 
 - `Issue`에 선택 필드 `pattern?: true`를 더해 패턴 블록에서 나온 경고를 표시해요(§7).
@@ -689,15 +743,18 @@ export interface DayFrame {
 - `toV2`: 필드 표(§8.1)대로, 결정적(두 번 옮겨도 같음), `sanitizeStrategiesV1` 고침 여부 전달.
 - `strategyStore`: 옛 키만 있음 → 새 키에 옮김·옛 키 그대로·배너 없음, `trySet` 실패 → 메모리로만, 새 키 있으면 옛 키 무시.
 - `applyProfileDoc`: v2 → 새 키만, v1 → 옛 키 쓰고 새 키 지움. `onStorage`가 새 키 변경을 받음. `removeProfile`이 새 키를 지움.
-- 옮기기 단계: `syncedHash === H1`이면 H2로 앞당기고 리비전 그대로, 다른 기기가 서버를 고친 뒤 받아도 충돌 없음. `syncedHash ≠ H1`이면 앞당기지 않음.
+- 옮기기 단계: `syncedHash === H1`이면 H2로 앞당기고 리비전 그대로, 다른 기기가 서버를 고친 뒤 받아도 충돌 없음. `syncedHash ≠ H1`이면 앞당기지 않음. 두 번 돌려도 같음(멱등). 「옮김 → 새 키 수정 → 재시작 → 수정이 올라감」. 옛 탭이 남긴 `APP_OUTDATED_CODE` 거절 기록을 지움.
+- `applyProfileDoc`(v1): 옛 키에 v1, 새 키에 `toV2` 결과가 바로 있음. 가져오기(v1 파일): 새 키에만 씀.
+- 계약 테스트: §8.7(지금 앱이 만든 v2 문서·공유가 Worker 검사를 통과).
 - 동기화: v1·v2 `checkProfileDoc` 통과, 원본 반환, v2에 v1 전략 섞이면 거절, 높은 `v`는 `unsupported`, 금지 키·깊이 검사 통과(조건 20개짜리 전략), `roundtrip.test.ts`에 v2 왕복.
 - Worker(`sync-worker/src/profiles.test.ts`)
   - 쿼리 없음 + v1 문서: 지금 응답 그대로(PR① 무변화 확인).
-  - 쿼리 없음 + 저장 v2: GET·리비전·복원 422(복원은 바뀌지 않음), 409·`deleteProfile` 409에 `doc: null`.
+  - 쿼리 없음 + 저장 v2: GET·리비전·복원 422(복원은 바뀌지 않음), 409·`deleteProfile` 409에 `doc: null`, 삭제된 프로필 GET은 410(버전 검사 전).
+  - 새로 만들기·갱신이 `doc_v`를 기록함, 마이그레이션 뒤 기존 행 `doc_v = 1`.
   - v1 PUT onto v2 → 422, 검사와 갱신 사이 v2가 올라온 경우도 422(조건부 UPDATE).
   - 반영된 같은 opId 재전송 → 처음 결과.
   - `docVersion` 형식 오류 → 422 `invalid`.
-- 공유(`snapshot.test.ts`·`shares.test.ts`): create는 원본 저장(v1 그대로), read는 v1 → v2(`v: 2`), 높은 `v` → `unsupported`, 새 체결 종류 결과 검사, `criteriaSnapshot`의 패턴 블록 복사, UUID 없음, `importPart`가 `v`를 따라감.
+- 공유(`snapshot.test.ts`·`shares.test.ts`): create는 원본 저장(v1 그대로), PR① read는 v1 그대로·v2 `unsupported`, PR② read는 v1 → v2(`v: 2`), 높은 `v` → `unsupported`, 새 체결 종류 결과 검사, `criteriaSnapshot`의 패턴 블록 복사, UUID 없음, `importPart`가 `v`를 따라감.
 - 내보내기: v1 파일 가져오기 → v2 전략, v2 왕복.
 - 선정 기준: `resolveReboundEntry`(두 오류), 경고 두 문구, `runTrading`의 `equal` → `equityPct` 100/take.
 
@@ -728,12 +785,15 @@ export interface DayFrame {
 
 | 파일 | PR | 변경 |
 |---|---|---|
-| `src/lib/sim/types.ts` | ①(타입 추가) ②(사용) | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
-| `src/lib/sim/strategyV1.ts` | ① | 새 파일: `StrategyV1`, `sanitizeStrategiesV1`, `toV2` |
-| `src/lib/sim/validate.ts` | ①(v2 검증) ②(경고) | v2 `sanitizeStrategies`, `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
+| `src/lib/sim/types.ts` | ② | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
+| `src/lib/sim/strategyV2.ts` | ① | 새 파일: `StrategyV2`, `sanitizeStrategiesV2` |
+| `src/lib/sim/strategyV1.ts` | ② | 새 파일: `StrategyV1`, `sanitizeStrategiesV1`(옮김), `toV2` |
+| `src/lib/sim/validate.ts` | ② | `sanitizeStrategies`가 v2를 가리킴, `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
 | `src/lib/sync/dto.ts` | ① | v1·v2 검사, `unsupported`, `APP_OUTDATED_CODE` |
-| `src/lib/share/snapshot.ts`, `checkResult.ts`, `resultEnums.ts` | ① | §8.4 |
-| `sync-worker/src/profiles.ts`, `shares.ts`, `migrations/0004_doc_version.sql` | ① | §8.3, §8.4 |
+| `src/lib/share/snapshot.ts` | ①(create v1·v2, read v1만) ②(read 옮기기, v2 생성) | §8.4 |
+| `src/lib/share/checkResult.ts`, `resultEnums.ts` | ① | 새 체결 종류 |
+| `sync-worker/src/profiles.ts`, `handler.ts`, `migrations/0004_doc_version.sql` | ① | §8.3 |
+| `sync-worker/src/shares.ts` | ①(테스트만) | 코드 변경 없음, v2 생성 테스트 |
 | `src/lib/sim/indicators.ts`, `src/lib/screen/precompute.ts` | ② | `rsi`·`volumeRatio`, `rollingMax` 이동 |
 | `src/lib/sim/rules.ts` | ② | 새 파일: 평가기, `rulesLookback`, `condReason` |
 | `src/lib/sim/position.ts` | ② | `sell`·`amount` 인자, 끄기, `trailPrice`·`markClose` |
@@ -743,7 +803,7 @@ export interface DayFrame {
 | `src/lib/sim/strategyStore.ts`, `src/lib/state/profileStore.ts`, `src/lib/state/app.svelte.ts` | ② | 새 키 `strategySet`, 옮기기, `onStorage`·`removeProfile`·전략 쓰기 |
 | `src/lib/sim/loadSimData.ts` | ② | `rulesLookback` |
 | `src/lib/sim/testInputs.ts`, `simulate.test.ts` | ② | v1 → `toV2` 도우미 |
-| `src/lib/screen/validate.ts`, `runValidation.ts`, `types.ts`, `defaults.ts` | ② | §7 |
+| `src/lib/screen/validate.ts`, `runValidation.ts`, `types.ts`, `defaults.ts` | ② | §7, `patternRefIssues` |
 | `src/lib/sync/profileDoc.ts`, `api.ts`, `controller.svelte.ts`, `migrate.ts`(새) | ② | v2 문서·키 분기, `docVersion=2`, 문구, 옮기기 단계·해시 앞당김 |
 | `src/lib/share/shareText.ts`, `pendingImport.ts` | ② | §10.6, `importPart` 버전 |
 | `src/lib/state/exportImport.ts` | ② | §8.5 |
@@ -757,15 +817,15 @@ export interface DayFrame {
 
 **PR①**
 
-1. `StrategyV1`·`sanitizeStrategiesV1`·`toV2`와 단위 테스트.
-2. v2 타입·v2 검증 함수(앱은 아직 v1 사용).
-3. `checkProfileDoc` v1·v2·`unsupported`·원본 반환.
-4. `checkShareSnapshot` create 원본·read 옮기기, 새 체결 종류.
-5. Worker: `doc_v` 마이그레이션, `docVersion` 파싱, PUT 순서·조건부 갱신, 본문 응답 가리기. 「쿼리 없음 + v1」 무변화 테스트.
+1. `strategyV2.ts`: `StrategyV2`·`sanitizeStrategiesV2`와 단위 테스트(앱 호출은 그대로).
+2. `checkProfileDoc` v1·v2 갈래·`unsupported`·원본 반환.
+3. 새 체결 종류(`resultEnums`·`checkResult`).
+4. `checkShareSnapshot`: create는 v1·v2 원본, read는 v1 그대로·v2 `unsupported`.
+5. Worker: `0004` 마이그레이션, `handler.ts` 쿼리 전달, `docVersion` 파싱, PUT 순서·조건부 갱신, 본문 응답 가리기, 삭제·복원 규칙. 「쿼리 없음 + v1」 무변화 테스트.
 
 **PR②**
 
-6. `testInputs`·`simulate.test.ts`를 v1 → `toV2` 도우미로, 엔진이 v2 필드를 읽게. 골든 그대로.
+6. 이름 교체(`Strategy` = v2, `strategyV1.ts`로 옮김, `toV2`)와 계약 테스트. `testInputs`·`simulate.test.ts`를 v1 → `toV2` 도우미로, 엔진이 v2 필드를 읽게. 골든 그대로.
 7. 지표(`rsi`·`volumeRatio`·`rollingMax` 이동) + 테스트.
 8. 평가기(`rules.ts`) + 패턴 블록 동일성 → `simulateCore` 연결. 골든 그대로.
 9. `Position` 끄기·트레일, `walkBar` floor. 골든 그대로.
@@ -773,8 +833,8 @@ export interface DayFrame {
 11. 배분 4종, `nearMiss`.
 12. `rulesLookback` → `loadSimData`.
 13. 결과 형식: 재생 프레임·화면.
-14. 저장소 새 키·옮기기, `applyProfileDoc`·`onStorage`·`removeProfile`.
-15. 옮기기 단계·해시 앞당김, `docVersion=2`, 동기화 문구, 공유·내보내기 v2 생성.
+14. 저장소 새 키·옮기기, 옛 키 사용처 표(§8.2) 전부, `applyProfileDoc`·가져오기.
+15. 옮기기 단계·해시 앞당김(`engine.exclusive()`), 옛 거절 기록 정리, `docVersion=2`, 동기화 문구, 공유 read 옮기기·v2 생성, 내보내기 v2.
 16. 선정 기준 연동(§7).
 17. 편집 화면: `PatternFields` 분리 → 매수 조건 → 매도 → 배분 → 템플릿 → 요약 문구.
 18. e2e·axe, 도움말 정리.
