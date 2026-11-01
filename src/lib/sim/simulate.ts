@@ -2,7 +2,7 @@ import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { roundMoney } from './money';
 import { createRuleEvaluator, type RuleEvaluator } from './rules';
-import { costOf, maxShares, openPosition, type Position, type PositionExit } from './position';
+import { costOf, maxShares, openPosition, type Position } from './position';
 import { sellTaxPct, settlementDate } from './tax';
 import { holdCurve, indexCurve, singleCurve } from './benchmarks';
 import { nearMiss, retPct, summarize } from './summary';
@@ -24,18 +24,34 @@ export interface SimOptions {
   timeline?: boolean;
 }
 
-/** 한 종목의 하루 장중 경로에 필요한 것 */
-export interface WalkCtx {
+/** 한 종목을 파는 데 필요한 것(장중 경로·시가 예약 매도 공용) */
+export interface SellCtx {
   date: string;
   symbol: string;
   wallet: { cash: number };
-  amount: number; // 1회 매수 금액
   feePct: number;
   taxPct: number; // 그날 매도세 %
+  trade(t: Trade): void;
+}
+
+/** qty주를 price에 판다. 수수료·세금·현금 반영·체결 줄 모양을 한곳에서 정한다 */
+export function sellQty(pos: Position, qty: number, price: number, kind: Trade['kind'], reason: string, ctx: SellCtx, stage?: number): void {
+  const gross = roundMoney(qty * price);
+  const fee = roundMoney((gross * ctx.feePct) / 100);
+  const tax = roundMoney((gross * ctx.taxPct) / 100);
+  const pnlPct = (price / pos.avgPrice - 1) * 100;
+  pos.sell(qty, stage);
+  ctx.wallet.cash = roundMoney(ctx.wallet.cash + roundMoney(gross - fee - tax));
+  ctx.trade({ date: ctx.date, symbol: ctx.symbol, kind, ...(stage !== undefined && { stage }), price, qty, fee, tax, reason, pnlPct });
+}
+
+/** 한 종목의 하루 장중 경로에 필요한 것 */
+export interface WalkCtx extends SellCtx {
+  amount: number; // 1회 매수 금액(포지션을 열 때 정한 값)
   takeProfit: Strategy['rules']['sell']['takeProfit']['stages'];
+  trailPct: number; // 트레일링 사유 문구용
   excluded: Set<number>; // 그날 건너뛴 추가 매수 가격
   canBuy?: boolean; // false면 추가 매수를 하지 않는다(선정 기간 밖). 없으면 true
-  trade(t: Trade): void;
   skip(reason: Skip['reason'], addPrice: number): void;
 }
 
@@ -49,22 +65,14 @@ export function sizeBuy(amount: number, price: number, feePct: number, cash: num
   return { qty, cost, fee: roundMoney(cost - qty * price) };
 }
 
-/** 시가 → 저가 → 고가 → 종가를 가격 커서 하나로 지나가며 손절·추가 매수·익절을 체결한다(스펙 5.2). */
+/** 시가 → 저가 → 고가 → 종가를 가격 커서 하나로 지나가며 손절·트레일링·추가 매수·익절을 체결한다(스펙 5.2, 전략 빌더 §4.3). */
 export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
   const { date, symbol, feePct } = ctx;
   const single = ctx.takeProfit.length === 1;
+  const trailReason = (gap: boolean) => `트레일링 −${ctx.trailPct}%${gap ? '(갭)' : ''}`;
 
-  const sell = (qty: number, price: number, kind: Trade['kind'], stage?: number) => {
-    const gross = roundMoney(qty * price);
-    const fee = roundMoney((gross * feePct) / 100);
-    const tax = roundMoney((gross * ctx.taxPct) / 100);
-    const pnlPct = (price / pos.avgPrice - 1) * 100;
-    const reason =
-      stage === undefined ? '손절' : single ? '익절' : `${stage}단계 익절 ${ctx.takeProfit[stage - 1].sellPct}%`;
-    pos.sell(qty, stage);
-    ctx.wallet.cash = roundMoney(ctx.wallet.cash + roundMoney(gross - fee - tax));
-    ctx.trade({ date, symbol, kind, ...(stage !== undefined && { stage }), price, qty, fee, tax, reason, pnlPct });
-  };
+  const sell = (qty: number, price: number, kind: Trade['kind'], stage?: number, reason?: string) =>
+    sellQty(pos, qty, price, kind, reason ?? (stage === undefined ? '손절' : single ? '익절' : `${stage}단계 익절 ${ctx.takeProfit[stage - 1].sellPct}%`), ctx, stage);
 
   const add = (level: number, price: number) => {
     const sized = sizeBuy(ctx.amount, price, feePct, ctx.wallet.cash);
@@ -86,14 +94,20 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
   let cur = bar.o;
   for (const to of [bar.l, bar.h, bar.c]) {
     while (pos.qty > 0) {
+      // 내려갈 때 지키는 선: 손절가와 트레일 가격 중 높은 것. 같으면 손절이다
       const stop = pos.stopPrice();
+      const trail = pos.trailPrice();
+      const trailWins = trail !== null && (stop === null || trail > stop);
+      const floor = trailWins ? trail : stop;
       const next = pos.nextAddPrice();
       const addAt = next !== null && !ctx.excluded.has(next) ? next : null;
       const takes = pos.takeLevels().filter((t) => t.qty > 0);
 
-      // 1. 이미 지나친 가격은 커서에: 손절 → 추가 매수 → 익절(낮은 단계부터)
-      if (stop !== null && stop >= cur) {
-        sell(pos.qty, cur, stop > cur ? 'gapStop' : 'stop');
+      // 1. 이미 지나친 가격은 커서에: 손절·트레일 → 추가 매수 → 익절(낮은 단계부터)
+      if (floor !== null && floor >= cur) {
+        const gap = floor > cur;
+        if (trailWins) sell(pos.qty, cur, 'trail', undefined, trailReason(gap));
+        else sell(pos.qty, cur, gap ? 'gapStop' : 'stop');
         continue;
       }
       if (addAt !== null && addAt >= cur) {
@@ -107,12 +121,13 @@ export function walkBar(pos: Position, bar: Candle, ctx: WalkCtx): void {
       }
 
       if (to < cur) {
-        // 2. 내려감: 구간 안의 가장 높은 손절·추가 매수, 같으면 손절
-        const s = stop !== null && stop >= to ? stop : null;
+        // 2. 내려감: 구간 안의 가장 높은 손절·트레일·추가 매수, 같으면 손절·트레일
+        const s = floor !== null && floor >= to ? floor : null;
         const a = addAt !== null && addAt >= to ? addAt : null;
         if (s !== null && (a === null || s >= a)) {
           cur = s;
-          sell(pos.qty, s, 'stop');
+          if (trailWins) sell(pos.qty, s, 'trail', undefined, trailReason(false));
+          else sell(pos.qty, s, 'stop');
           continue;
         }
         if (a !== null) {
@@ -180,13 +195,6 @@ function dayFrame(date: string, cash: number, value: number, syms: SymState[]): 
   }
   return { date, cash, value, holdings, pending };
 }
-
-/** rules.sell → 포지션이 쓰는 익절·손절(on 플래그는 Task 6에서 쓴다) */
-const exitOf = (sell: Strategy['rules']['sell']): PositionExit => ({
-  takeProfit: sell.takeProfit.stages,
-  stopLoss: { pct: sell.stopLoss.pct, basis: sell.stopLoss.basis },
-  afterFirstTake: sell.takeProfit.afterFirstTake,
-});
 
 export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult {
   const { strategy: s, days } = input;
@@ -262,7 +270,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         skipped.push({ date, symbol: st.stock.symbol, reason: '선정 기간이 아니에요' });
         continue;
       }
-      st.pos = openPosition(price, sized.qty, s.scaleIn, exitOf(s.rules.sell));
+      st.pos = openPosition(price, sized.qty, s.scaleIn, s.rules.sell);
       st.posAmount = posAmount;
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
@@ -285,6 +293,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         feePct,
         taxPct: sellTaxPct(settle, market, isEtf),
         takeProfit: s.rules.sell.takeProfit.stages,
+        trailPct: s.rules.sell.trailing.pct,
         excluded: new Set(),
         canBuy: inWindows(st.stock.buyWindows, date),
         trade: (t) => record(st, t),
@@ -316,6 +325,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         }
         st.tracker.update(i);
         if (closed.has(st)) st.tracker.reset(i);
+        if (st.pos) st.pos.markClose(st.stock.candles[i].c); // 트레일 기준가는 종가로(스펙 §4.3)
         st.lastClose = st.stock.candles[i].c;
       }
       if (st.pos) held = roundMoney(held + roundMoney(st.pos.qty * st.lastClose!)); // 봉 없는 날은 마지막 종가

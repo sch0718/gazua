@@ -49,3 +49,53 @@ describe('자금 배분(§6)', () => {
     expect(add.qty * add.price).toBeGreaterThan(first.qty * first.price * 0.9);
   });
 });
+
+const kinds = (r: ReturnType<typeof simulate>) => r.trades.map((t) => `${t.kind}@${+t.price.toFixed(2)}`);
+
+describe('손절·익절 끄기와 트레일링(§4.3·§4.4)', () => {
+  // 인덱스 9 시가 86 매수 → 10 종가 100(기준가 100, 트레일 90)
+  const up: Ohlc = [86, 100, 86, 100];
+  const noTake = (edit: (s: Strategy) => void = () => {}) =>
+    v2((s) => {
+      s.rules.sell.takeProfit.on = false;
+      s.rules.sell.trailing = { on: true, pct: 10 };
+      edit(s);
+    });
+
+  it('보유 중 최고 종가에서 N% 내려오면 그 가격에 판다', () => {
+    const r = simulate(input(noTake(), [[[86, 86, 86, 86], up, [99, 99, 89, 89], ...flat([89, 89])]]));
+    expect(kinds(r)).toEqual(['buy@86', 'trail@90']);
+    expect(r.trades[1].reason).toBe('트레일링 −10%');
+  });
+  it('시가가 트레일 아래로 갭이면 시가에 팔고 사유에 (갭)', () => {
+    const r = simulate(input(noTake(), [[[86, 86, 86, 86], up, [85, 85, 85, 85], ...flat([85, 85])]]));
+    expect(kinds(r)).toEqual(['buy@86', 'trail@85']);
+    expect(r.trades[1].reason).toBe('트레일링 −10%(갭)');
+  });
+  it('손절가 = 트레일 가격이면 손절', () => {
+    const s = noTake((x) => (x.rules.sell.stopLoss = { on: true, pct: 10, basis: 'firstBuy' }));
+    const r = simulate(input(s, [[[86, 86, 86, 86], [80, 80, 70, 75], ...flat([75, 75])]]));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy', 'stop']);
+  });
+  it('손절을 끄면 크게 떨어져도 팔지 않는다', () => {
+    const s = v2((x) => {
+      x.rules.sell.takeProfit.on = false;
+      x.rules.sell.stopLoss.on = false;
+    });
+    const r = simulate(input(s, [[[86, 86, 40, 43], ...flat([43, 43, 43])]]));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy']);
+  });
+  it('익절을 끄면 크게 올라도 팔지 않는다', () => {
+    const s = v2((x) => (x.rules.sell.takeProfit.on = false));
+    const r = simulate(input(s, [[[86, 200, 86, 190], ...flat([190, 190, 190])]]));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy']);
+  });
+  it('손절을 꺼도 1단계 익절 뒤 본전 손절은 산다', () => {
+    const s = v2((x) => {
+      x.rules.sell.stopLoss.on = false;
+      x.rules.sell.takeProfit = { on: true, stages: [{ pct: 5, sellPct: 50 }, { pct: 50, sellPct: 100 }], afterFirstTake: 'breakeven' };
+    });
+    const r = simulate(input(s, [[[86, 91, 86, 90], [90, 90, 80, 82], ...flat([82, 82])]]));
+    expect(r.trades.map((t) => t.kind)).toEqual(['buy', 'take', 'stop']);
+  });
+});
