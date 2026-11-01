@@ -352,8 +352,10 @@ describe('프로필 단위 판정(5.4)', () => {
       if (block === 'no-key') t.forgetKey();
       if (block === 'other-profile') t.app.meta.activeProfileId = 'p2';
       if (block === 'locked') t.app.locked = true;
+      t.raw.getKeyBlob.mockClear();
       await t.ks.step();
       expect((await t.store.state('p1'))?.notice, block).not.toBe('conflict');
+      expect(t.raw.getKeyBlob, block).not.toHaveBeenCalled();
     }
   });
 
@@ -967,7 +969,7 @@ describe('앞 Task 검토 회귀', () => {
     expect(await t.store.state('p1')).toMatchObject({ active: false, notice: 'removed', providers: ['kis'] });
   });
 
-  it.each(['session', 'list', 'store', 'get', 'put'] as const)('step의 예상 밖 %s 예외는 던지지 않고 error를 반환하며 다음 호출은 복구된다', async (source) => {
+  it.each(['session', 'list', 'store', 'get', 'put'] as const)('step의 예상 밖 %s 예외는 키 문구만 남기고 idle을 반환하며 다음 호출은 복구된다', async (source) => {
     const t = setup();
     await enabled(t);
     const error = new Error('FAKE-unexpected-failure');
@@ -982,7 +984,7 @@ describe('앞 Task 검토 회귀', () => {
         t.raw.getKeyBlob.mockRejectedValueOnce(error);
       } else t.raw.putKeyBlob.mockRejectedValueOnce(error);
     }
-    await expect(t.ks.step()).resolves.toBe('error');
+    await expect(t.ks.step()).resolves.toBe('idle');
     expect(t.ks.problem()).toBe(KEY_TEXT.server);
     await expect(t.ks.step()).resolves.toBe('idle');
   });
@@ -1008,5 +1010,121 @@ describe('앞 Task 검토 회귀', () => {
     expect(t.srv.calls).toEqual([]);
     expect(t.app.applySyncedSecrets).not.toHaveBeenCalled();
     expect(await t.store.state('p1')).toEqual(before);
+  });
+});
+
+
+describe('Task 8 검토 1회차 회귀', () => {
+  it.each([
+    { seen: 0, same: false },
+    { seen: 1, same: false },
+    { seen: 0, same: true },
+    { seen: 1, same: true },
+  ])('켜기 목록에 살아 있는 행이 있으면 덮지 않는다(seen=$seen, same=$same)', async ({ seen, same }) => {
+    const t = setup();
+    t.remember();
+    t.secrets.set('p1', { kis: KIS_A });
+    if (seen) await t.store.markSeen('p1', seen);
+    const cid = await serverBlob(t.srv, 'p1', 1, { v: 1, kis: same ? KIS_A : KIS_B });
+    const serverBefore = structuredClone(t.srv.rows.get('p1'));
+    expect(await t.ks.enable('p1', ['kis'])).toEqual({ ok: true, notes: [] });
+    expect(t.raw.putKeyBlob).not.toHaveBeenCalled();
+    expect(t.srv.rows.get('p1')).toEqual(serverBefore);
+    const st = (await t.store.state('p1'))!;
+    if (same) {
+      expect(st).toMatchObject({ active: true, revision: 1, syncedContentId: cid, seenRevision: 1, notice: null });
+      expect(st.localSeq).toBe(st.uploadedSeq);
+    } else {
+      expect(st).toMatchObject({ active: true, revision: 0, notice: 'conflict', remoteRevision: 1 });
+      expect(st.localSeq).toBeGreaterThan(st.uploadedSeq);
+    }
+    await t.ks.step();
+    expect(t.raw.putKeyBlob).not.toHaveBeenCalled();
+    expect((await t.store.state('p1'))?.notice).toBe(same ? null : 'conflict');
+    expect(t.srv.rows.get('p1')).toEqual(serverBefore);
+  });
+
+  it.each(['synced', 'dirty', 'available'] as const)('이미 켜진 $0 행의 켜기는 상태를 보존하고 다시 판정한다', async (state) => {
+    const t = setup();
+    if (state === 'available') {
+      t.remember();
+      await serverBlob(t.srv, 'p1', 1, { v: 1, kis: KIS_B });
+      await t.ks.step();
+    } else {
+      await enabled(t);
+      if (state === 'dirty') await t.store.bumpSeq('p1');
+    }
+    t.secrets.set('p1', { kis: KIS_C });
+    const before = await t.store.state('p1');
+    const serverBefore = structuredClone(t.srv.rows.get('p1'));
+    t.raw.putKeyBlob.mockClear();
+    expect(await t.ks.enable('p1', ['kis'])).toEqual({ ok: false, message: null, recheck: true });
+    expect(t.raw.putKeyBlob).not.toHaveBeenCalled();
+    expect(await t.store.state('p1')).toEqual(before);
+    expect(t.srv.rows.get('p1')).toEqual(serverBefore);
+  });
+
+  it.each(['rollback', 'deleted', 'absent'] as const)('꺼진 행을 켤 때 $0은 본 번호보다 크게 올린다', async (state) => {
+    const t = setup();
+    t.remember();
+    t.secrets.set('p1', { kis: KIS_A });
+    await t.store.markSeen('p1', 5);
+    if (state === 'rollback') await serverBlob(t.srv, 'p1', 3, { v: 1, kis: KIS_B });
+    if (state === 'deleted') t.srv.rows.set('p1', { revision: 6, vaultRevision: 1, contentId: null, nonce: null, ciphertext: null });
+    expect(await t.ks.enable('p1', ['kis'])).toEqual({ ok: true, notes: [] });
+    expect(t.raw.putKeyBlob).toHaveBeenCalledTimes(1);
+    expect(t.raw.putKeyBlob.mock.calls[0][1]).toMatchObject({
+      expectedRevision: state === 'rollback' ? 3 : state === 'deleted' ? 6 : 0,
+      newRevision: state === 'deleted' ? 7 : 6,
+    });
+    expect(await openServer(t.srv, 'p1')).toEqual({ v: 1, kis: KIS_A });
+  });
+
+  it.each(['absent', 'inactive'] as const)('끄기는 $0 상태를 다시 켜거나 서버 키를 지우지 않는다', async (state) => {
+    const t = setup();
+    await serverBlob(t.srv, 'p1', 1, { v: 1, kis: KIS_B });
+    if (state === 'inactive') {
+      await t.store.markSeen('p1', 1);
+      await t.store.setActive('p1', { active: false, notice: 'removed' });
+    }
+    const before = await t.store.state('p1');
+    const serverBefore = structuredClone(t.srv.rows.get('p1'));
+    expect(await t.ks.disable('p1')).toEqual({ ok: false, message: null, recheck: true });
+    expect(t.raw.deleteKeyBlob).not.toHaveBeenCalled();
+    expect(await t.store.state('p1')).toEqual(before);
+    expect(t.srv.rows.get('p1')).toEqual(serverBefore);
+  });
+
+  it.each(['local-absent', 'list-absent', 'gone'] as const)('조용히 끄는 $0 경로는 앞 알림과 remoteRevision도 지운다', async (source) => {
+    const t = setup();
+    await enabled(t);
+    await t.store.setNotice('p1', 'conflict', 1);
+    if (source === 'local-absent') t.app.meta.profiles = [{ id: 'p2' }];
+    if (source === 'list-absent') t.srv.rows.delete('p1');
+    if (source === 'gone') {
+      await t.store.bumpSeq('p1');
+      t.raw.putKeyBlob.mockResolvedValueOnce({ ok: false, kind: 'gone', deletedAt: 1, purgeAt: 2 });
+    }
+    expect(await t.ks.step()).toBe('idle');
+    const st = (await t.store.state('p1'))!;
+    expect(st).toMatchObject({ active: false, notice: null, seenRevision: 1 });
+    expect(st).not.toHaveProperty('remoteRevision');
+    expect(t.ks.problem()).toBeNull();
+  });
+
+  it.each(['offline', 'bad-value', 'bad-response'] as const)('걸러낸 행 문구가 앞선 $0 문구를 덮지 않는다', async (source) => {
+    const t = setup();
+    await enabled(t);
+    await t.store.bumpSeq('p1');
+    const row = t.srv.rows.get('p1')!;
+    t.srv.bad = { keyVault: head, keyBlobs: [
+      { profileId: 'p1', revision: row.revision, contentId: row.contentId, vaultRevision: 1, deleted: false, updatedAt: 1 },
+      { profileId: 'p2', revision: -1 },
+    ] };
+    if (source === 'offline') t.raw.putKeyBlob.mockResolvedValueOnce(OFF);
+    if (source === 'bad-value') t.secrets.set('p1', { kis: { ...KIS_A, appKey: 'FAKE invalid key' } });
+    if (source === 'bad-response') t.raw.putKeyBlob.mockResolvedValueOnce({ ok: true, data: { revision: -1, updatedAt: 1 } });
+    expect(await t.ks.step()).toBe('idle');
+    expect(t.ks.problem()).toBe(source === 'offline' ? KEY_TEXT.offline : source === 'bad-value' ? KEY_TEXT.badValue : KEY_TEXT.badResponse);
   });
 });

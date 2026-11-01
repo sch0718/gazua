@@ -12,12 +12,12 @@ import {
   checkBlobRows,
   checkKeyPlain,
   checkVaultHead,
+  isRevision,
   KEY_ITER,
   KEY_KDF,
   KEY_PROVIDERS,
   keyPlainProviders,
   NEW_REVISION_MAX,
-  REVISION_LIMIT,
   type BlobRows,
   type KeyPlainV1,
   type KeyProvider,
@@ -216,8 +216,6 @@ const ctxOf = (k: VaultKey, profileId: string, b: { revision: number; contentId:
 });
 const nameOf = (e: unknown) => (e instanceof Error ? e.name : '');
 
-// keyWire.ts의 isRevision은 비공개다. 같은 상한·규칙을 성공 응답과 409에도 적용한다.
-const isRevision = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v < REVISION_LIMIT;
 const badConflict = (f: ApiFail): boolean =>
   f.kind === 'conflict' &&
   (!isRevision(f.revision) || (f.vaultRevision !== undefined && !(f.code === 'no-vault' && f.vaultRevision === null) && !isRevision(f.vaultRevision)));
@@ -307,14 +305,14 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
     const skipped = new Set(rows.skippedIds);
     // 다른 기기의 삭제를 pull이 적용한 프로필: 켜진 행을 끈다(removeSyncedProfile은 삭제 알림을 내지 않는다)
     for (const st of await store.states())
-      if (st.active && !local.has(st.profileId) && !skipped.has(st.profileId)) await store.setActive(st.profileId, { active: false });
+      if (st.active && !local.has(st.profileId) && !skipped.has(st.profileId)) await store.setActive(st.profileId, { active: false, notice: null });
     for (const id of localIds) {
       if (skipped.has(id)) continue; // 모양이 틀린 행: 이번 단계는 건드리지 않는다
       const row = byId.get(id);
       const st = await store.state(id);
       if (!row) {
         // 목록에 없음: 알리지 않고 켜진 행만 끈다. 프로필 ID를 읽지 못한 행이 있으면 그것일 수 있어 이번에는 두지 않는다
-        if (st?.active && !rows.unknownSkipped) await store.setActive(id, { active: false });
+        if (st?.active && !rows.unknownSkipped) await store.setActive(id, { active: false, notice: null });
         continue;
       }
       if (row.deleted) await deletedRow(id, row.revision);
@@ -386,6 +384,8 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
     const st = await store.state(id);
     if (!st?.active) return 'unknown';
     const seq = st.localSeq;
+    const local = app.syncableSecrets(id);
+    if (!local) return 'unknown';
     const got = await api.getKeyBlob(id);
     if (!got.ok) {
       loginFail(got);
@@ -400,8 +400,6 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
     } catch {
       return 'unknown';
     }
-    const local = app.syncableSecrets(id);
-    if (!local) return 'unknown';
     if (!samePlain(plain, plainFor(st.providers, local))) return 'differs';
     if (!(await store.state(id))?.active) return 'unknown';
     await store.markSynced(id, { revision: blob.revision, contentId: blob.contentId, uploadedSeq: seq, notice: null });
@@ -450,7 +448,7 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
     if (badConflict(f)) return (problem = KEY_TEXT.badResponse);
     if (loginFail(f)) return null;
     if (f.kind === 'gone') {
-      await store.setActive(id, { active: false });
+      await store.setActive(id, { active: false, notice: null });
       return null;
     }
     if (f.kind === 'conflict' && f.code === 'no-vault') {
@@ -469,6 +467,16 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
     return t;
   }
   const isBlobConflict = (f: ApiFail): f is Extract<ApiFail, { kind: 'conflict' }> => f.kind === 'conflict' && (f.code ?? 'conflict') === 'conflict';
+
+  /** 다른 기기가 먼저 켠 살아 있는 행: 목록에서 보거나 PUT이 409여도 같은 판정이다. */
+  async function enableConflict(id: string, revision: number, key: VaultKey): Promise<KeyResult> {
+    if ((await sameAsServer(id, { revision }, key)) === 'same') return done;
+    if (!(await store.state(id))?.active) return fail(null, { recheck: true });
+    // 이 기기 키를 올릴 변경으로 남기고 고르게 한다.
+    await store.bumpSeq(id);
+    await store.setNotice(id, 'conflict', revision);
+    return done;
+  }
 
   const ks: KeySync = {
     async step() {
@@ -497,13 +505,13 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
         await accountStep(got.head);
         await store.setMeta('keySupport', true);
         if (got.head) await profilesStep(got.head, got.rows);
-        if (got.rows.skippedIds.length > 0 || got.rows.unknownSkipped) problem = KEY_TEXT.badRow;
+        if (got.rows.skippedIds.length > 0 || got.rows.unknownSkipped) problem ??= KEY_TEXT.badRow;
         // 블롭 요청·자동 올리기의 로그인 실패도 돌려 엔진의 push를 멈춘다(onAuthFailure는 이미 불렀다).
         return loginPhase ?? 'idle';
       } catch {
-        // 엔진 run에는 finally가 없다. 예상 밖 예외도 던지거나 정상 idle로 숨기지 않는다.
+        // 키 단계의 실패는 키 영역에 남기고 프로필 push를 계속한다(5.3).
         problem = KEY_TEXT.server;
-        return loginPhase ?? 'error';
+        return loginPhase ?? 'idle';
       }
     },
 
@@ -551,9 +559,14 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
         forget();
         return fail(got.head ? KEY_TEXT.vaultChanged : KEY_TEXT.noVault, { needsPass: !!got.head });
       }
-      const r = got.rows.rows.find((x) => x.profileId === id)?.revision ?? 0;
+      const row = got.rows.rows.find((x) => x.profileId === id);
+      const st = await store.state(id);
+      if (st?.active) return fail(null, { recheck: true });
       // 상태 행을 먼저 켠다: 이때부터 다른 탭의 bumpSeq가 무시되지 않는다(5.5-3-1)
       await store.activate(id, { providers, notice: null });
+      // 이미 살아 있는 서버 키를 조용히 덮지 않는다. 되감기는 본 번호보다 크게 다시 올린다.
+      if (row && !row.deleted && row.revision >= (st?.seenRevision ?? 0)) return enableConflict(id, row.revision, key);
+      const r = row?.revision ?? 0;
       let out = await upload(id, r, key, providers);
       // 목록을 받은 뒤 다른 기기가 꺼서 삭제 표시가 됐다: 켜기는 이 기기 키를 새로 올리겠다는 뜻이라 그 리비전 기준으로 한 번 더(5.5-3)
       if (out.kind === 'fail' && isBlobConflict(out.fail) && out.fail.deleted) out = await upload(id, out.fail.revision, key, providers);
@@ -561,12 +574,7 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
       if (!(await store.state(id))?.active) return fail(null, { recheck: true });
       if (out.kind === 'ok') return done;
       if (out.kind === 'fail' && isBlobConflict(out.fail) && !out.fail.deleted) {
-        if ((await sameAsServer(id, { revision: out.fail.revision }, key)) === 'same') return done;
-        if (!(await store.state(id))?.active) return fail(null, { recheck: true });
-        // 다른 기기가 그사이 켰다: 이 기기 키를 올릴 변경으로 남기고 고르게 한다
-        await store.bumpSeq(id);
-        await store.setNotice(id, 'conflict', out.fail.revision);
-        return done;
+        return enableConflict(id, out.fail.revision, key);
       }
       await store.setActive(id, { active: false, notice: null });
       if (out.kind === 'missing') return fail(KEY_TEXT.missingKey(out.provider));
@@ -713,6 +721,7 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
       const lost = await sessionLost();
       if (lost) return lost;
       if (id !== app.meta.activeProfileId) return fail(KEY_TEXT.otherProfile);
+      if (!(await store.state(id))?.active) return fail(null, { recheck: true });
       await store.setActive(id, { active: true, offPending: true });
       const r = await api.deleteKeyBlob(id);
       if (!r.ok) {

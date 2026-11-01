@@ -107,7 +107,7 @@ export function isBase64(v: unknown, len: { exact?: number; min?: number; max?: 
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isRevision = (v: unknown, min = 0): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v < REVISION_LIMIT;
+export const isRevision = (v: unknown, min = 0): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v < REVISION_LIMIT;
 const isTime = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const join = (path: string, k: string) => (path ? `${path}.${k}` : k);
 
