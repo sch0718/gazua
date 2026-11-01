@@ -1,6 +1,8 @@
 # 읽기 전용 CLI 설계
 
 > 2026-11-01 · 로드맵 최우선 2(「AI가 쓰는 가즈아 CLI」)의 단계 A(`docs/roadmap.md` §최우선 2). main f5377a2 위에서 해요. 한 PR로 내요. 주문·MCP는 다음 단계예요.
+>
+> 개정: 2026-11-01 검토 1회차 반영(CLI용 토스 키 분리·파일 잠금, 토큰 한 번만 원자 처리, 승인 화면 경로, venue별 마감 시각, 자기 토큰 철회, 확인 필요 답).
 
 ## 1. 목표
 
@@ -16,9 +18,9 @@ AI 도구(터미널 에이전트)가 가즈아 데이터를 읽고 계산하게 
 | 항목 | 결정 |
 |---|---|
 | 로그인 | 기기 코드 방식. CLI가 코드를 보이고, 사용자가 앱(설정 › 동기화·공유)에서 승인 |
-| 서버 권한 | CLI 토큰은 읽기 전용. `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`만 통과 |
+| 서버 권한 | CLI 토큰은 읽기 전용. `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회 `DELETE /v1/cli/token`만 통과 |
 | 토큰 수명 | 90일 고정, 앱에서 철회 |
-| 증권사 키 | 환경변수(`KIS_APP_KEY`·`KIS_APP_SECRET`, `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`), `--env-file` |
+| 증권사 키 | 환경변수(`KIS_APP_KEY`·`KIS_APP_SECRET`, `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`), `--env-file`. **토스는 CLI용 앱을 따로 만들어 다른 client ID·secret을 써요**(§4.2) |
 | 증권사 호출 | 프록시 없이 직접. 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로 차단 |
 | 패키지 | `cli/` 워크스페이스, Node ≥ 22, esbuild 단일 번들, bin `gazua` |
 | 출력 | 모든 명령 JSON. `{ ok: true, data }` / `{ ok: false, error: { code, message } }` |
@@ -66,11 +68,13 @@ CREATE TABLE cli_grants (
   device_hash TEXT NOT NULL UNIQUE,   -- 기기 코드의 SHA-256 hex
   user_code TEXT NOT NULL UNIQUE,     -- 사람이 치는 코드(정규화한 8자, 하이픈 없음)
   label TEXT NOT NULL,                -- CLI가 보낸 이름(예: 'gazua@macbook'), 64자
-  ip_hash TEXT NOT NULL,              -- 요청 IP의 SHA-256 hex(횟수 제한용, 원 IP는 두지 않음)
+  ip_hash TEXT NOT NULL,              -- 요청 IP의 HMAC-SHA256 hex(시크릿 CLI_IP_SALT, IPv6는 /64로 줄인 뒤). 횟수 제한용, 원 IP는 두지 않음
   status TEXT NOT NULL,               -- 'pending' | 'approved' | 'denied' | 'consumed'
   user_id TEXT REFERENCES users(id),  -- 승인한 사용자
   interval_ms INTEGER NOT NULL,       -- 폴링 간격(slow_down이면 늘린다)
   last_polled_at INTEGER,
+  consumed_token_hash TEXT,           -- 폴링이 토큰을 만들 때 그 토큰의 해시(한 번만 주기, §3.2)
+  geo TEXT,                           -- 요청 위치 '국가 · 도시'(request.cf, 승인 화면용). 없으면 NULL
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL         -- created_at + 10분
 );
@@ -108,11 +112,19 @@ CREATE INDEX cli_tokens_user ON cli_tokens(user_id);
 | `DELETE /v1/cli/tokens/:id` | 앱 세션 | — | `{ revoked: true }` | 404 `not-found`(내 것이 아님 포함) |
 | `GET /v1/profiles` | CLI 토큰 | — | 지금과 같음 | 401·403(§3.3) |
 | `GET /v1/profiles/:id?docVersion=2` | CLI 토큰 | — | 지금과 같음(`doc_v` 규칙 그대로) | 401·403·422(지금과 같음) |
+| `DELETE /v1/cli/token` | CLI 토큰 | — | `{ revoked: true }`(요청에 쓴 그 토큰만 철회) | 401 |
 
-- `verifyUrl`은 `ALLOWED_ORIGINS`의 첫 출처 + `/settings/sync`예요. 실제 앱 경로는 확인 필요(§13).
+- `verifyUrl`은 `${ALLOWED_ORIGINS의 첫 출처}/#/settings/sync`예요. 앱 경로는 해시 라우터(`src/lib/state/routes.ts`)라 `parseHash`·`hashFor`에 `#/settings/sync`(설정 화면을 열고 동기화·공유 구역으로 스크롤, `CLI 연결` 칸에 초점)를 더해요(§5.3).
 - 승인 화면이 코드를 보낼 때 `approve: false`면 `status = 'denied'`로 바꿔요. 다음 폴링이 403 `denied`를 받아요.
+- `POST /v1/cli/approve`의 조회 응답은 `{ label, createdAt, geo }`예요. `geo`는 기기 코드를 만들 때의 `request.cf.country`·`request.cf.city`(Cloudflare가 붙여 주는 값)를 `'KR · Seoul'`처럼 저장한 것이고, 없으면 `null`이에요.
 - `pending`·`slow_down`은 OAuth 2.0 기기 인가(RFC 8628)의 이름을 따랐어요. CLI는 `slow_down`이면 간격을 5초 늘려요. 서버도 `interval_ms`를 5초 늘려 저장해요.
-- `POST /v1/cli/token`이 승인된 기기 코드를 받으면 그때 토큰을 만들어 `cli_tokens`에 해시를 넣고, 같은 batch에서 `cli_grants.status = 'consumed'`로 바꿔요. 조건부 UPDATE(`WHERE status = 'approved'`)라 동시 폴링 둘 중 하나만 토큰을 받아요. 원문 토큰은 이 응답 한 번만 나가요.
+- `POST /v1/cli/token`이 승인된 기기 코드를 받으면 그때 토큰을 만들어요. 겹친 폴링 둘 중 **하나만** 토큰을 받게 세 단계로 해요.
+  1. 새 토큰 `T`와 해시 `H`를 만들고 한 batch로 보내요.
+     - `UPDATE cli_grants SET status = 'consumed', consumed_token_hash = ? WHERE id = ? AND status = 'approved' AND consumed_token_hash IS NULL`(`H`)
+     - `INSERT INTO cli_tokens (…) SELECT … WHERE EXISTS (SELECT 1 FROM cli_grants WHERE id = ? AND consumed_token_hash = ?)`(`H`)
+  2. 응답 전에 `cli_grants.consumed_token_hash`를 다시 읽어 `H`와 같을 때만 `T`를 돌려줘요.
+  3. 다르면(다른 폴링이 먼저 가져감) 410 `expired`로 답해요. 이 폴링의 `INSERT`는 `EXISTS`가 거짓이라 행이 생기지 않아요.
+  원문 토큰은 이 응답 한 번만 나가요.
 - 만료(`expires_at <= now`)면 410 `expired`. `consumed` 뒤 다시 오면 410 `expired`로 답해요(토큰을 다시 주지 않아요).
 - CLI 토큰 목록·철회는 세션 목록과 따로예요. 기존 `DELETE /v1/sessions?others=1`(「다른 기기 모두 로그아웃」)은 **CLI 토큰을 지우지 않아요.** 세션 표는 패키지(`@sch0718/firebase-session`)가 가진 표라 섞지 않고, CLI는 앱 화면에서 따로 철회해요(§5).
 
@@ -129,14 +141,25 @@ CREATE INDEX cli_tokens_user ON cli_tokens(user_id);
    - 토큰 모양(`^gzc_[A-Za-z0-9_-]{43}$`)이 아니면 401 `cli-token`.
    - `cli_tokens`를 `token_hash`로 찾아요. 없음·철회·만료면 401 `cli-token-revoked`·`cli-token-expired`.
    - 사용자가 아직 허용 목록에 있는지 봐요(§3.4). 아니면 403 `not-allowed`.
-   - **허용 목록(읽기 전용 강제)**: 메서드·경로가 `GET /v1/profiles` 또는 `GET /v1/profiles/:id`이고 쿼리 `docVersion=2`가 있을 때만 통과해요. 그 밖(쓰기·키 금고·공유·세션·리비전·CLI 관리 경로 포함)은 403 `cli-scope`예요. 라우터를 타기 **전에** 검사해서, 앞으로 경로를 더해도 실수로 열리지 않게 해요.
+   - **허용 목록(읽기 전용 강제)**: 라우터를 타기 **전에** 아래 셋 중 하나와 정확히 맞을 때만 통과해요. 그 밖(쓰기·키 금고·공유·세션·리비전·CLI 관리 경로, `HEAD`, 끝 슬래시 포함)은 403 `cli-scope`예요. 앞으로 경로를 더해도 실수로 열리지 않아요.
+
+     | 메서드 | 경로(정규식, 라우터와 같은 모양) | 쿼리 |
+     |---|---|---|
+     | `GET` | `^/v1/profiles$` | 아무것도 보지 않음 |
+     | `GET` | `^/v1/profiles/([^/]+)$` | `docVersion`이 정확히 `2` |
+     | `DELETE` | `^/v1/cli/token$` | 없음 |
+
+     메서드는 `req.method === 'GET'`처럼 정확히 비교해요(`HEAD`를 `GET`으로 보지 않아요). `/v1/profiles/`(끝 슬래시)·`/v1/profiles/a/revisions`는 정규식에 맞지 않아 거절돼요.
    - 통과하면 `AuthContext`(`{ userId, … }`)를 만들어 기존 `listProfiles`·`getProfile`을 그대로 불러요.
    - `last_used_at`은 하루에 한 번만 갱신해요(세션 `TOUCH_INTERVAL`처럼 쓰기를 아껴요).
 5. CORS 허용 헤더(`cors.ts`)는 바꾸지 않아요. CLI는 브라우저가 아니라 preflight가 없어요. 브라우저가 `Origin` 없이 `Authorization: Gazua-CLI`를 보낼 수는 없어요(교차 출처 fetch는 늘 `Origin`을 붙여요).
 
 ### 3.4 허용 목록 다시 보기
 
-세션 인증은 요청마다 허용 이메일(`ALLOWED_EMAILS`)·소셜 계정(`ALLOWED_ACCOUNTS`)을 다시 봐요(패키지 `authenticate`). CLI 토큰도 같은 정책을 따라요. `users` 표의 `email`·`firebase_sub`로 판정하는데, 소셜 사용자를 `users` 표에서 어떻게 구분하는지(세션 표의 `identity`만 있는지)는 확인 필요예요(§13). 구현은 패키지에 판정 도우미가 있으면 그것을 쓰고, 없으면 승인 시점에 쓴 `identity`를 `cli_tokens`에 함께 저장해 요청마다 같은 목록과 비교해요.
+세션 인증은 요청마다 허용 이메일(`ALLOWED_EMAILS`)·소셜 계정(`ALLOWED_ACCOUNTS`)을 다시 봐요(패키지 `authenticate`). CLI 토큰도 같은 정책을 따라요.
+
+- 패키지는 소셜 사용자도 `users.firebase_sub`에 `identity`(예: `kakao:…`·`naver:…`)를 넣어요(`saveSession`의 `INSERT INTO users (id, firebase_sub, …)`).
+- 그래서 `users.firebase_sub`가 `kakao:`·`naver:`로 시작하면 `parseAccountList(env.ALLOWED_ACCOUNTS)`에 있는지, 아니면 `users.email`이 `parseAllowList(env.ALLOWED_EMAILS)`에 있는지 봐요. 두 함수 모두 `@sch0718/firebase-session/worker`가 내보내요.
 
 ### 3.5 횟수 제한
 
@@ -146,9 +169,11 @@ Cloudflare Workers Rate Limiting 바인딩 대신 D1로 세요. 무료 계정에
 |---|---|---|
 | `POST /v1/cli/device` | 같은 `ip_hash`로 최근 10분 5건, 전체 `pending` 50건 | 429 `rate-limited`, `Retry-After` |
 | `POST /v1/cli/token` | 같은 기기 코드 `last_polled_at + interval_ms` 전이면 | 400 `slow_down`(간격 +5초) |
+
+- `pending` 폴링은 쓰기를 아끼려고 `last_polled_at`을 매번 쓰지 않아요. 조건부 UPDATE 한 문장으로 「간격이 지났으면 `last_polled_at`을 지금으로」를 하고, 바뀐 행이 0이면 `slow_down`이에요(`UPDATE … SET last_polled_at = ? WHERE id = ? AND (last_polled_at IS NULL OR last_polled_at + interval_ms <= ?)`). 정상 간격 폴링은 한 번에 1행을 써요.
 | `POST /v1/cli/approve` | 앱 세션이 필요하고 허용된 사용자만이라 따로 세지 않아요 | — |
 
-- IP는 `CF-Connecting-IP` 헤더예요. 원 IP는 저장하지 않고 해시만 둬요.
+- IP는 `CF-Connecting-IP` 헤더예요. IPv6는 앞 64비트(/64)로 줄여요(한 기기가 주소를 바꿔 가며 피하지 못하게). 원 IP는 저장하지 않고 시크릿 `CLI_IP_SALT`(wrangler secret)로 HMAC-SHA256한 값만 둬요. 시크릿이 없으면 `/v1/cli/device`는 503 `cli-disabled`예요. grant 행은 하루 뒤 지워져(§3.6) IP 해시도 함께 사라져요.
 - 넣기 문장 안에서 다시 세요(공유 50개 한도와 같은 방식, `shares.ts`의 `INSERT … SELECT … WHERE (SELECT count(*) …) < ?`). 겹친 요청 둘이 함께 지나가지 않아요.
 
 ### 3.6 정리 (`purge.ts`)
@@ -163,7 +188,7 @@ Cloudflare Workers Rate Limiting 바인딩 대신 D1로 세요. 무료 계정에
 |---|---|---|
 | Workers 요청 | 하루 10만 | 로그인 1회 = 기기 1 + 폴링 최대 120(5초 × 10분) + 승인 1. 명령 1회 = 프로필 목록 1 + 문서 N |
 | D1 읽기 | 하루 500만 행 | 토큰 확인 1행/요청 |
-| D1 쓰기 | 하루 10만 행 | 로그인 1회 ≈ 3~5행, `last_used_at`은 하루 1번 |
+| D1 쓰기 | 하루 10만 행 | 로그인 1회 ≈ 기기 1 + 폴링 최대 120(정상 간격일 때 폴링마다 1) + 승인 1 + 토큰 2 ≈ 125행. 명령은 `last_used_at` 하루 1번 |
 
 숫자는 Cloudflare 공개 요금표 기준이에요. 배포 전 계정 화면에서 다시 봐요(확인 필요, §13).
 
@@ -180,8 +205,18 @@ Cloudflare Workers Rate Limiting 바인딩 대신 D1로 세요. 무료 계정에
 | 프롬프트 주입(AI가 읽은 문서·웹이 CLI를 조종) | CLI에 쓰기·주문 명령이 없어요. 서버도 읽기만 허용. 증권사 호출도 허용 목록만 | 읽은 데이터(종목·전략 이름)를 AI가 다른 곳에 보낼 수 있어요. CLI 출력에 비밀값이 없게 하는 것까지가 이 PR의 범위예요 |
 | 주문 경로 | 증권사 호출 전에 `isAllowed`(프록시와 같은 목록)로 막아요(§6.3). 주문 TR·경로는 목록에 없어요 | 허용 목록을 넓히는 실수. 목록 테스트가 주문 경로를 막는지 확인해요(§8) |
 | 증권사 키 노출 | 환경변수로만 받고 파일에 쓰지 않아요. 접근 토큰 캐시만 600 파일에 둬요 | 사용자 셸 환경·`.env` 파일 관리는 사용자 몫이에요 |
+| 앱과 CLI의 토스 토큰 다툼 | 토스는 같은 앱(client ID)으로 새 토큰을 받으면 앞 토큰이 무효가 될 수 있어요. CLI용 앱을 따로 만들어 다른 키를 쓰게 해요(§4.2) | 같은 키를 쓰면 앱과 CLI가 서로의 토큰을 무효로 만들어요 |
 
-### 4.2 출력하지 않는 값
+### 4.2 토스 키 분리와 토큰 잠금
+
+- **CLI용 토스 키를 따로 써요.** 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 받아요. 앱과 같은 키를 쓰면 한쪽이 토큰을 새로 받을 때 다른 쪽 토큰이 무효가 될 수 있어요(앱은 이를 `token-contended`로 다뤄요, `src/lib/providers/toss.ts`). README에 이 경고와 콘솔 안내를 적어요. 콘솔에서 앱을 여러 개 만들 수 있는지는 확인 필요예요(§13).
+- **같은 기기의 CLI 병렬 실행**: AI 도구가 명령을 동시에 여러 개 돌릴 수 있어요. 공급자에 파일 잠금 `TokenLock`을 넘겨 토큰 발급을 한 번에 하나로 묶어요.
+  - 잠금 파일: `~/.config/gazua/<provider>.lock`(`kis.lock`·`toss.lock`). `fs.open(path, 'wx')`(`O_EXCL`)로 만들고 안에 pid·시각을 써요. 이미 있으면 200ms마다 다시 시도해요.
+  - 오래된 잠금: 파일 시각이 70초보다 오래면(KIS 발급 1분 제한보다 길게) 지우고 다시 시도해요. 전체 대기 상한도 70초이고, 넘으면 `token-contended`예요.
+  - 잠금 안에서 토큰 저장소(`tokens.json`)를 다시 읽으니, 앞 실행이 받은 토큰을 뒤 실행이 그대로 써요. KIS 1분 발급 제한도 같은 파일의 `issuedAt`으로 지켜요.
+  - `createTossProvider`는 이미 `tokenLock`을 받아요. `createKisProvider`에는 선택 인자 `tokenLock`을 더해 `createTokenManager`의 다섯 번째 인자로 넘겨요(§6.2).
+
+### 4.3 출력하지 않는 값
 
 증권사 키(appKey·appSecret·clientId·clientSecret), 접근 토큰, CLI 토큰, 기기 코드, 토스 `accountSeq`(`x-tossinvest-account`). 출력 직전에 한 번 더 걸러요(§6.4).
 
@@ -199,9 +234,9 @@ CLI 연결
 
 1. 코드를 넣고 확인을 누르면 `POST /v1/cli/approve`를 `approve: true`로 바로 보내지 않고, 먼저 확인 대화상자를 열어요.
    - 「읽기 전용 접근을 허락할까요?」
-   - 「`gazua@macbook`에서 요청했어요. 관심 그룹·전략을 읽을 수 있고, 바꾸거나 주문할 수는 없어요. 직접 실행한 명령에서 나온 코드만 승인하세요.」
+   - 「`gazua@macbook`에서 요청했어요(KR · Seoul, 2분 전). 관심 그룹·전략을 읽을 수 있고, 바꾸거나 주문할 수는 없어요. 직접 실행한 명령에서 나온 코드만 승인하세요.」 위치(`geo`)가 없으면 괄호 안은 시각만 보여요.
    - [허락] [거절]
-   - CLI 이름은 승인 전에 보여야 해서, 승인 API를 두 단계로 나눠요: `POST /v1/cli/approve`에 `{ userCode }`만 보내면 `{ label, createdAt }`을 돌려주고 상태는 바꾸지 않아요. `approve: true`/`false`를 함께 보내야 상태를 바꿔요.
+   - CLI 이름은 승인 전에 보여야 해서, 승인 API를 두 단계로 나눠요: `POST /v1/cli/approve`에 `{ userCode }`만 보내면 `{ label, createdAt, geo }`를 돌려주고 상태는 바꾸지 않아요. `approve: true`/`false`를 함께 보내야 상태를 바꿔요.
 2. 허락하면 「연결했어요. 터미널로 돌아가세요」.
 3. 실패 문구
    - 422 `invalid-code`: 「코드가 맞지 않거나 시간이 지났어요. `gazua login`을 다시 실행해 주세요」
@@ -221,6 +256,7 @@ CLI 연결
 - `src/lib/sync/api.ts`: `cliApprove(userCode, approve?)`, `cliTokens()`, `cliRevoke(id)`.
 - `src/lib/sync/controller.svelte.ts`: 같은 이름의 `guarded` 래퍼.
 - 문구는 해요체. 실패 코드 → 문구 표는 `CliConnect.svelte` 안에 둬요.
+- `src/lib/state/routes.ts`: `parseHash`가 `#/settings/sync`를 `{ name: 'settings', section: 'sync' }`로, `hashFor`가 그 반대로. 설정 화면은 `section: 'sync'`이면 동기화·공유 구역으로 스크롤하고 「CLI 코드」 칸에 초점을 줘요. `Route` 타입의 `settings`에 선택 필드 `section?: 'sync'`를 더해요.
 
 ## 6. CLI 구조 (`cli/`)
 
@@ -234,6 +270,8 @@ CLI 연결
 | `cli/src/output.ts` | `ok(data)`·`fail(code, message)`, 비밀값 거르기(§6.4) |
 | `cli/src/errors.ts` | `CliError(code, message)`, 오류 코드 표(§6.6) |
 | `cli/src/config.ts` | `~/.config/gazua/` 경로, 파일 읽기·쓰기(권한 600·700) |
+| `cli/src/fileLock.ts` | 파일 잠금 `TokenLock`(§4.2) |
+| `cli/src/orderCache.ts` | 토스 주문 이력 파일 캐시(§7.2) |
 | `cli/src/env.ts` | 환경변수·`--env-file`(`process.loadEnvFile`) |
 | `cli/src/syncClient.ts` | 동기화 API(`/v1/cli/*`, `/v1/profiles`). `Authorization: Gazua-CLI` |
 | `cli/src/direct.ts` | 증권사 직접 호출용 `ProxyClient`(§6.3) |
@@ -255,6 +293,7 @@ CLI 연결
 |---|---|---|
 | `src/lib/providers/http.ts` | `ProxyClientConfig`에 선택 인자 `urlFor?: (provider, path) => string`. 없으면 지금처럼 `${baseUrl}/${provider}${path}` | CLI가 같은 클라이언트(시간 제한·오류 분류·`retry-after`)로 증권사 원 주소를 부르게 |
 | `src/lib/providers/types.ts`, `toss.ts` | `AccountHolding`에 `avgPrice?: number`(토스 `averagePurchasePrice`) | 보유 기준 매도 판정(§7.2). 지금 보유 응답 고정값(`toss.import.test.ts:55`)에 이 필드가 있어요 |
+| `src/lib/providers/kis.ts` | `KisDeps.tokenLock?: TokenLock` → `createTokenManager(…, deps.issuedAt, deps.tokenLock)` | CLI 병렬 실행의 발급 묶기(§4.2). 앱은 넘기지 않아 그대로 |
 
 앱 동작은 바뀌지 않아요.
 
@@ -309,7 +348,8 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 
 - `keyHash`: 키 앞 값(appKey·clientId)의 SHA-256 앞 16자. 키를 바꾸면 캐시를 버려요.
 - `TokenStore`·`IssuedAtStore`(`src/lib/providers/types.ts`) 구현이 이 파일을 읽고 써요. 쓰기는 임시 파일 → rename으로 해요.
-- 동기화 서버 주소: `GAZUA_SYNC_URL` 환경변수, 없으면 빌드 때 넣은 기본값(앱의 동기화 주소). 기본값을 어디서 가져올지는 확인 필요(§13).
+- 동기화 서버 주소: `gazua login --server <주소>` 또는 `GAZUA_SYNC_URL`이 먼저, 없으면 빌드 때 esbuild `define`으로 넣은 기본값(빌드 환경의 `VITE_SYNC_API_URL`, 앱이 `src/lib/sync/config.ts`에서 읽는 값과 같음). 로그인한 뒤에는 `auth.json`의 `server`를 써요. 이 `define`은 `import.meta.env` 전체가 아니라 상수 하나만 바꿔요.
+- 잠금 파일 `kis.lock`·`toss.lock`(§4.2)과 주문 캐시 `orders-<keyHash>.json`(§7.2)도 같은 디렉터리·권한이에요.
 
 ### 6.6 오류 코드
 
@@ -323,7 +363,7 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 | `server-outdated` | CLI 경로가 404(옛 Worker) |
 | `login-expired`·`login-denied` | 기기 코드 만료·거절 |
 | `rate-limited` | 서버·증권사 429 |
-| `network` | 연결 실패·시간 초과 |
+| `network` | 연결 실패. 공급자 `ApiError`의 `proxy-unreachable`·`offline`도 여기로(CLI는 프록시를 쓰지 않아 이 이름이 맞지 않아요) |
 | `profile-required` | 프로필이 여럿인데 `--profile`이 없음(`data.profiles`에 목록) |
 | `profile-not-found`·`strategy-not-found` | 이름·ID로 못 찾음 |
 | `ambiguous-strategy` | 같은 이름 전략이 여럿(`data.matches`에 ID 목록) |
@@ -342,8 +382,8 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 
 | 명령 | 하는 일 | 동기화 | 증권사 |
 |---|---|---|---|
-| `gazua login [--label <이름>]` | 기기 코드 흐름(§6.8) | ○ | |
-| `gazua logout` | `auth.json` 지움. 서버 토큰은 앱에서 끊어요 | | |
+| `gazua login [--label <이름>] [--server <주소>]` | 기기 코드 흐름(§6.8) | ○ | |
+| `gazua logout` | `DELETE /v1/cli/token`으로 서버 토큰을 끊고 `auth.json`을 지워요. 서버에 닿지 않아도 파일은 지우고 `warnings`에 「서버 연결은 앱에서 끊어 주세요」 | ○ | |
 | `gazua profiles` | 프로필 목록(ID·이름·리비전·그룹·전략 수) | ○ | |
 | `gazua watchlists` | 그룹·종목 | ○ | |
 | `gazua strategies` | 전략 목록과 규칙 요약 | ○ | |
@@ -382,7 +422,7 @@ export function createDirectClient(fetchImpl: typeof fetch = fetch): ProxyClient
 {"ok":false,"error":{"code":"profile-required","message":"프로필이 여럿이에요. --profile로 골라 주세요"},"data":{"profiles":[{"id":"9b1c…","name":"내 프로필"}]}}
 ```
 
-- 문자열 요약(`buy`·`sell`·`sizing`)은 앱의 `buyRulesSummary`·`sellRulesSummary`·`sizingText`(`src/lib/ui/simulate/simText.ts`)와 같은 문구예요. `simText.ts`가 화면 모듈을 끌어오면(`../format` 등 DOM 의존) 문구 함수만 순수 모듈로 옮기는 작은 정리가 필요해요(확인 필요, §13). 원 규칙(`rules`)은 `--raw`로 함께 내요.
+- 문자열 요약(`buy`·`sell`·`sizing`)은 앱의 `buyRulesSummary`·`sellRulesSummary`·`sizingText`(`src/lib/ui/simulate/simText.ts`)를 그대로 묶어 써요. `simText.ts`가 import하는 `../format`·`../compare/compareText`는 브라우저 의존이 없어 번들할 수 있어요. 빌드 뒤 문자열 검사(§6.1)는 그대로 둬요. 원 규칙(`rules`)은 `--raw`로 함께 내요.
 - 이름 찾기: 정확히 같은 이름 → 없으면 ID. 같은 이름이 여럿이면 `ambiguous-strategy`.
 - `simulate`는 앱과 같은 `loadSimData` → `simulate`를 써요. 기간은 전략의 `period`, `--from`·`--to`로 바꿀 수 있어요. 종목은 `resolveSymbols(strategy, watchlists)`.
 - 서버 문서가 v1이면 `sanitizeStrategiesV1` → `toV2`로 옮겨 읽어요. CLI는 쓰지 않으니 옮긴 결과를 저장하지 않아요.
@@ -401,16 +441,20 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 ### 7.1 조건 신호 (전략 종목 전체)
 
 - 기준 봉: 마지막 완성 일봉이에요.
-  - `--today`가 없거나 지금이 15:30 KST(장 마감) 전이면 어제까지(`addDays(kstDate(now), -1)`), `--today`이고 15:30 KST 뒤면 오늘까지 받아요.
+  - 마감 시각은 받는 일봉의 venue로 정해요. `KRX`는 15:30 KST, 통합(`UN`, NXT 포함)은 20:00 KST예요. venue는 `loadSimData`와 같은 규칙(공급자가 KRX를 주면 KRX, 아니면 첫 venue)이에요.
+  - `--today`가 없거나 지금이 그 마감 전이면 어제까지(`addDays(kstDate(now), -1)`), `--today`이고 마감 뒤면 오늘까지 받아요.
   - 오늘이 휴장일(`getTradingDays`의 `isOpen: false`)이면 `--today`여도 마지막 거래일이에요.
-  - 출력에 `asOf`(기준 봉 날짜)와 `includesToday`를 넣어요.
+  - 출력에 `asOf`(기준 봉 날짜)·`includesToday`·`venue`를 넣어요.
 - 데이터: 종목마다 `getCandles({ interval: '1d', from: warmFrom, to })`. `warmFrom`은 `loadSimData`와 같은 식(`max(400, ceil(rulesLookback × 1.6))`일 전)이에요.
-- 판정: `createRuleEvaluator(candles, rules.buy, firstDayIdx)`(매수)와, 조건 매도가 켜져 있으면 `createRuleEvaluator(candles, rules.sell.signal.groups, firstDayIdx)`(매도). 엔진과 같이 앞 봉부터 `signal(i)` → `update(i)`를 차례로 부르고, 마지막 봉의 `signal`을 봐요.
-- 엔진과 다른 점: 매매 이력이 없어서 반등 패턴 블록의 `reset`(전량 매도 뒤 새 하락 필요)을 부르지 않아요. 그래서 「전략이 지금 그 종목을 들고 있었다면」과는 다를 수 있어요. 출력 `notes`에 「매매 이력 없이 계산한 조건 신호예요」를 넣어요.
+- 판정: `createRuleEvaluator(candles, rules.buy, firstDayIdx)`(매수)와, 조건 매도가 켜져 있으면 `createRuleEvaluator(candles, rules.sell.signal.groups, firstDayIdx)`(매도). `firstDayIdx`는 **기준 봉**의 인덱스예요(RSI는 기준 봉 앞 250봉에서 시작). 엔진과 같이 앞 봉부터 `signal(i)` → `update(i)`를 차례로 부르고, 기준 봉의 `signal`을 봐요.
+- 시뮬레이션과 다른 점(출력 `notes`에 모두 적어요):
+  - RSI 시작점: 시뮬레이션은 기간 첫날 앞 250봉, signals는 기준 봉 앞 250봉이라 RSI 값이 조금 다를 수 있어요.
+  - reset 없음: 매매 이력이 없어 반등 패턴 블록의 `reset`(전량 매도 뒤 새 하락 필요)을 부르지 않아요.
+  - 보유 중에도 매수 판정: 시뮬레이션은 보유 중 매수 조건을 보지 않지만, signals는 모든 종목의 매수 조건을 내요.
 - 출력:
 
 ```json
-{"ok":true,"data":{"strategy":"골든크로스 추세","asOf":"2026-10-31","includesToday":false,"signals":[{"symbol":"005930","buy":{"match":true,"reason":"골든크로스 20/60 + 거래량 20일 평균 1.5배↑","group":1},"sell":{"match":false}},{"symbol":"000660","buy":{"match":false},"sell":null}],"failed":[],"notes":["매매 이력 없이 계산한 조건 신호예요"]}}
+{"ok":true,"data":{"strategy":"골든크로스 추세","asOf":"2026-10-31","includesToday":false,"signals":[{"symbol":"005930","buy":{"match":true,"reason":"골든크로스 20/60 + 거래량 20일 평균 1.5배↑","group":1},"sell":{"match":false}},{"symbol":"000660","buy":{"match":false},"sell":null}],"failed":[],"venue":"KRX","notes":["매매 이력 없이 계산한 조건 신호예요","RSI는 기준 봉 앞 250봉에서 시작해요","보유 중인 종목도 매수 조건을 판정해요"]}}
 ```
 
 - `group`은 맞은 묶음 번호(1부터)예요. 평가기 `signal()`은 사유만 돌려주니, 묶음 번호를 함께 돌려주는 선택 필드를 `RuleEvaluator.signal` 결과에 더해요(`group?: number`, 엔진은 쓰지 않음).
@@ -423,6 +467,8 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 |---|---|---|
 | 평단·수량 | `account.holdings()`의 `avgPrice`·`quantity`(§6.2) | `avgPrice`가 없으면 가격 판정을 `unknown` |
 | 첫 매수일 | `account.closedOrders()` → `normalizeOrders` → 날짜순으로 수량을 더하고 빼며, 수량이 0에서 양수가 된 마지막 날. 끝 수량이 지금 보유 수량과 다르면 이력이 모자란 것 | `unknown` |
+
+- 주문 이력은 파일 캐시(`orders-<keyHash>.json`, 600)에 둬요. 앱의 `src/lib/perf/orderCache.ts`처럼 `{ orders, syncedAt, syncedThrough }`를 두고, 다음에는 `syncedThrough`의 7일 전부터만 받아 합쳐요(같은 `orderId`는 새 것으로). `keyHash`는 토스 client ID 해시라 계좌가 바뀌면 다른 파일이에요. `accountSeq`는 파일에 쓰지 않아요.
 | 손절 가격 | `stopLoss.on`이면 기준에 따라: `avgAlways`·`avgAfterScaleIn` = 평단 × (1 − pct), `firstBuy` = 첫 매수 체결가 × (1 − pct) | `firstBuy`인데 첫 매수가를 모르면 `unknown` |
 | 익절 가격 | `takeProfit.on`이면 단계마다 평단 × (1 + pct) | 지난 단계 체결 여부는 모름 → 모든 단계를 내고 `stagesDoneUnknown: true` |
 | 트레일 가격 | `trailing.on`이면 (첫 매수일부터 기준 봉까지 종가 최고값과 첫 매수가 중 큰 값) × (1 − pct) | 첫 매수일 `unknown`이면 `unknown` |
@@ -432,7 +478,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 
 - `avgAfterScaleIn`은 분할 매수가 끝났는지 알 수 없어 평단으로 계산하고 `notes`에 적어요.
 - 본전 손절(`afterFirstTake: 'breakeven'`)은 1단계 익절 여부를 몰라 `unknown`으로 둬요.
-- 토스 ETN 코드는 `Q` 없는 6자리로 와요(`types.ts`의 `ImportStock` 주석). 앱 종목 코드와 맞추는 방법은 확인 필요(§13).
+- 토스 ETN 코드는 `Q` 없는 6자리로 와요(`types.ts`의 `ImportStock` 주석). 전략 종목 `s`와 토스 코드 `code`는 `s === code || s === 'Q' + code`면 같은 종목으로 봐요.
 - 출력:
 
 ```json
@@ -445,16 +491,28 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 
 ### 8.1 Worker (`sync-worker/src/cli.test.ts`, 하네스 `sync-worker/test/harness.ts`)
 
-- 기기 코드 흐름: device → token(`pending`) → approve 조회(상태 그대로) → approve(true) → token(토큰 한 번) → token 다시(410 `expired`).
+- 기기 코드 흐름: device → token(`pending`) → approve 조회(상태 그대로, `geo` 포함) → approve(true) → token(토큰 한 번) → token 다시(410 `expired`).
+- 겹친 폴링: 승인된 기기 코드로 폴링 둘을 겹쳐 보내면(첫 batch 뒤 두 번째가 끼어들도록 `prepare`를 가로챔) `cli_tokens` 행이 1개, 토큰을 받은 응답이 1개, 다른 하나는 410 `expired`.
 - 거절: approve(false) → token 403 `denied`.
 - 만료: 시계를 10분 넘겨 token 410, approve 422 `invalid-code`.
 - 간격: 간격 안의 두 번째 폴링 400 `slow_down`, 저장 간격 +5초.
 - 횟수 제한: 같은 IP 6번째 device 429, 전체 `pending` 51번째 429. 겹친 넣기도 한도를 넘지 않음.
-- 읽기 전용 강제: CLI 토큰으로 `GET /v1/profiles` 200, `GET /v1/profiles/:id?docVersion=2` 200, `docVersion` 없음 403 `cli-scope`, `PUT /v1/profiles/:id`·`GET /v1/keys`·`POST /v1/shares`·`GET /v1/sessions`·`GET /v1/cli/tokens` 403 `cli-scope`.
+- 읽기 전용 강제(표로 돌려요):
+
+  | 요청 | 기대 |
+  |---|---|
+  | `GET /v1/profiles` | 200 |
+  | `GET /v1/profiles/:id?docVersion=2` | 200 |
+  | `GET /v1/profiles/:id`(쿼리 없음)·`?docVersion=1`·`?docVersion=02` | 403 `cli-scope` |
+  | `HEAD /v1/profiles` | 403 `cli-scope` |
+  | `GET /v1/profiles/`(끝 슬래시)·`GET /v1/profiles/:id/revisions` | 403 `cli-scope` |
+  | `PUT /v1/profiles/:id`·`DELETE /v1/profiles/:id`·`GET /v1/keys`·`POST /v1/shares`·`GET /v1/sessions`·`GET /v1/cli/tokens` | 403 `cli-scope` |
+  | `DELETE /v1/cli/token` | 200, 그 토큰만 철회(같은 사용자의 다른 CLI 토큰은 그대로) |
 - Origin: Origin 없는 세션 요청은 지금처럼 403 `origin`. Origin이 있는 요청에 `Gazua-CLI` 헤더면 CLI 경로로 가지 않음(세션 인증 실패).
 - 철회·만료: `DELETE /v1/cli/tokens/:id` 뒤 401 `cli-token-revoked`, 90일 뒤 401 `cli-token-expired`. 남의 토큰 철회 404.
 - 「다른 기기 모두 로그아웃」 뒤에도 CLI 토큰은 살아 있음.
-- 허용 목록에서 빠진 사용자 403 `not-allowed`.
+- 허용 목록에서 빠진 사용자 403 `not-allowed`(이메일 사용자, `kakao:` 소셜 사용자 각각).
+- IP: 같은 IPv6 /64의 다른 주소도 같은 횟수로 셈. `CLI_IP_SALT`가 없으면 device 503 `cli-disabled`.
 - 저장값: `cli_grants`·`cli_tokens`에 원문 코드·토큰이 없음(해시만).
 - 정리: `purge`가 만료 grant·오래된 토큰을 지움.
 
@@ -463,10 +521,13 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 - `direct.ts`: 토스 `POST /api/v1/orders`·KIS 주문 TR 경로·없는 경로는 fetch 없이 `path-blocked`. 허용 경로는 `UPSTREAM` 주소로 보냄.
 - `output.ts`: 키·토큰·`accountSeq`가 들어간 객체·오류 메시지가 `[숨김]`으로 나옴. 표준 출력이 JSON 한 줄.
 - `config.ts`: 파일 권한 600·디렉터리 700, 넓은 권한 경고, rename 쓰기.
+- `fileLock.ts`: 두 잠금이 겹치면 하나씩, 70초 넘은 잠금은 지우고 들어감, 대기 상한에서 `token-contended`. 잠금 안에서 다른 실행이 저장한 토큰을 다시 읽어 발급하지 않음.
+- `orderCache.ts`: 처음 전체 받기, 다음에는 `syncedThrough` 7일 전부터만 받아 합침, `accountSeq`가 파일에 없음.
+- `logout`: 서버 철회 호출 뒤 파일 삭제, 서버 실패여도 파일 삭제와 `warnings`.
 - `login`: 폴링 `pending` → `slow_down`(간격 증가) → 토큰, `expired`·`denied` 오류 코드.
 - `syncClient.ts`: `Authorization: Gazua-CLI` 헤더, `docVersion=2` 쿼리, 401·403·404·422 → 오류 코드 표.
 - `profileData.ts`: v1 문서 옮겨 읽기, 프로필·전략 이름 찾기(없음·여럿).
-- `signals.ts`: 장 마감 전후 `--today` 기준 봉, 휴장일, 엔진과 같은 조건 판정(Task 대표 입력으로 `createRuleEvaluator` 결과와 비교), 첫 매수일(이력 맞음·모자람), 손절·익절·트레일·기간 청산 가격·도달, `unknown` 처리.
+- `signals.ts`: venue별 마감(KRX 15:30·통합 20:00) 전후 `--today` 기준 봉, 휴장일, `firstDayIdx` = 기준 봉, 엔진과 같은 조건 판정(Task 대표 입력으로 `createRuleEvaluator` 결과와 비교), 첫 매수일(이력 맞음·모자람), 손절·익절·트레일·기간 청산 가격·도달, `unknown` 처리.
 - 번들 검사: `dist/gazua.mjs`에 `import.meta.env`·`window.`·`navigator.locks`가 없음.
 
 ### 8.3 앱
@@ -474,16 +535,18 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 - `CliConnect.svelte`: 코드 정규화(소문자·하이픈 없음 → `XXXX-XXXX`), 조회 → 확인 대화상자(이름·문구) → 허락·거절 호출, 422·404 문구, axe.
 - `SyncManage.svelte`: CLI 묶음 목록·연결 끊기·404 안내, 「다른 기기 모두 로그아웃」 문구, axe.
 - `http.ts`: `urlFor`가 없으면 지금 주소, 있으면 그 주소.
+- `kis.ts`: `tokenLock`을 넘기면 발급이 잠금 안에서 일어남.
+- `routes.ts`: `#/settings/sync` ↔ `{ name: 'settings', section: 'sync' }` 왕복, 기존 `#/settings` 그대로.
 - `toss.ts`: 보유의 `avgPrice` 읽기(`averagePurchasePrice`), 없거나 숫자가 아니면 빠짐.
 
 ## 9. 배포
 
 1. 병합.
-2. D1 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`(`0005_cli.sql`).
+2. D1 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`(`0005_cli.sql`). 시크릿 `CLI_IP_SALT`(32바이트 무작위)를 `wrangler secret put`으로 넣어요.
 3. Worker 배포: `corepack pnpm --filter sync-worker run deploy`.
 4. 앱은 병합 때 자동 배포될 수 있어요. 앱이 Worker보다 먼저 나가면 CLI 승인 화면·CLI 목록이 404를 받고 「서버 업데이트가 필요해요」를 보여요. 다른 동작은 그대로예요.
 5. CLI는 저장소에서 `corepack pnpm --filter gazua-cli build` 뒤 `node cli/dist/gazua.mjs` 또는 `corepack pnpm --filter gazua-cli link --global`로 써요. npm 배포는 하지 않아요.
-6. README(`cli/README.md`)에 설치·로그인·환경변수·토스 허용 IP 등록·명령표를 적어요.
+6. README(`cli/README.md`)에 설치·로그인·환경변수·토스 허용 IP 등록·명령표와 **「CLI용 토스 앱을 따로 만드세요. 앱과 같은 토스 키를 쓰면 토큰이 서로 무효가 돼요」** 경고를 적어요.
 
 ## 10. 범위 밖 (다시)
 
@@ -494,13 +557,16 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 | 파일 | 변경 |
 |---|---|
 | `sync-worker/migrations/0005_cli.sql` | 새 파일(§3.1) |
-| `sync-worker/src/cli.ts` | 새 파일: device·token·approve·tokens, CLI 토큰 인증, 읽기 전용 허용 목록, 횟수 제한 |
+| `sync-worker/src/cli.ts` | 새 파일: device·token·approve·tokens·자기 토큰 철회, CLI 토큰 인증, 읽기 전용 허용 목록, 횟수 제한, IP HMAC |
+| `sync-worker/src/env.ts`, `wrangler.toml` 주석 | `CLI_IP_SALT` 시크릿 |
 | `sync-worker/src/handler.ts` | Origin 없는 CLI 분기(§3.3), 앱 경로 3개 |
 | `sync-worker/src/purge.ts` | grant·토큰 정리 |
 | `sync-worker/src/cli.test.ts`, `sync-worker/README.md` | 테스트, 배포 문서 |
 | `src/lib/providers/http.ts`, `types.ts`, `toss.ts` | `urlFor`, `avgPrice`(§6.2) |
 | `src/lib/sim/rules.ts` | `signal()` 결과에 선택 필드 `group`(§7.1) |
 | `src/lib/sync/api.ts`, `controller.svelte.ts` | CLI 승인·목록·철회 |
+| `src/lib/state/routes.ts`, 설정 화면(`src/lib/ui/settings/*`) | `#/settings/sync`(§5.3) |
+| `src/lib/providers/kis.ts` | `tokenLock` 선택 인자(§4.2) |
 | `src/lib/ui/settings/CliConnect.svelte`(새), `SyncPanel.svelte`, `SyncManage.svelte` | 화면(§5) |
 | `cli/**` | 새 패키지(§6.1) |
 | `pnpm-workspace.yaml` | `'cli'` |
@@ -512,13 +578,10 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 
 ## 13. 확인 필요
 
-1. 앱의 CLI 승인 화면 주소(`verifyUrl`). 지금 설정 › 동기화·공유로 바로 가는 경로가 있는지(`src/lib/state/app.svelte.ts`의 `navigate` 경로).
-2. CLI 토큰 요청에서 허용 목록을 다시 볼 때, 소셜 사용자를 `users` 표로 판정할 수 있는지(지금 `identity`는 `sessions` 표에 있어요). 안 되면 승인 때 `identity`를 `cli_tokens`에 저장해요.
-3. Cloudflare Workers Rate Limiting 바인딩을 무료 계정에서 쓸 수 있는지. 쓸 수 있어도 이번에는 D1 방식으로 가요.
-4. Cloudflare 무료 한도 숫자(Workers 하루 10만 요청, D1 읽기 500만·쓰기 10만 행)를 배포 전 계정 화면에서 다시 확인.
-5. 토스 허용 IP: CLI를 쓰는 기기의 공인 IP가 지금 등록한 IP(프록시 기기)와 같은지, 여러 IP를 등록할 수 있는지.
-6. CLI 기본 동기화 서버 주소를 어디서 가져올지(앱 빌드 설정 값을 공유할지, `GAZUA_SYNC_URL` 필수로 할지).
-7. `simText.ts`의 요약 함수를 CLI 번들에 넣을 수 있는지(화면 의존 import가 있으면 순수 모듈로 분리).
-8. 토스 보유·주문의 ETN 코드(`Q` 없는 6자리)와 앱 종목 코드(전략 종목) 맞추기 규칙.
-9. CLI `logout`이 서버 토큰도 끊게 할지(자기 토큰 철회 경로 `DELETE /v1/cli/token` 하나를 CLI 허용 목록에 더할지). 지금 설계는 로컬 파일만 지우고 서버 철회는 앱에서 해요.
-10. 토스 `averagePurchasePrice`가 수수료 포함 평단인지, 분할 매수·일부 매도 뒤 어떻게 계산되는지(토스 API 문서).
+1. Cloudflare Workers Rate Limiting 바인딩을 무료 계정에서 쓸 수 있는지. 쓸 수 있어도 이번에는 D1 방식으로 가요.
+2. 토스 허용 IP: CLI를 쓰는 기기의 공인 IP가 지금 등록한 IP(프록시 기기)와 같은지, 여러 IP를 등록할 수 있는지.
+3. 토스 `averagePurchasePrice`가 수수료 포함 평단인지, 분할 매수·일부 매도 뒤 어떻게 계산되는지(토스 API 문서).
+4. 토스 개발자 콘솔에서 앱(client ID)을 여러 개 만들 수 있는지(CLI용 키 분리, §4.2).
+5. Cloudflare 무료 한도 숫자(Workers 하루 10만 요청, D1 읽기 500만·쓰기 10만 행)를 배포 전 계정 화면에서 다시 확인.
+
+검토 1회차에서 답을 받은 항목(승인 화면 경로, 소셜 허용 목록 판정, 기본 서버 주소, `simText` 번들, ETN 코드 맞추기, `logout` 서버 철회)은 본문에 반영했어요.
