@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_KEYS } from '../../src/lib/sync/forbidden';
+import { APP_OUTDATED_CODE } from '../../src/lib/sync/dto';
 import { DAY } from './env';
 import { harness, OTHER } from '../test/harness';
-import { doc } from '../test/docs';
+import { doc, docV2 } from '../test/docs';
 
 const j = async (r: Response) => ({ status: r.status, body: (await r.json()) as Record<string, unknown> });
 const count = (h: ReturnType<typeof harness>, sql: string) => (h.env.DB.raw.prepare(sql).get() as { n: number }).n;
@@ -274,5 +275,71 @@ describe('프로필 삭제·복구와 키 행(설계 2.6)', () => {
     expect((await me.as('POST', '/v1/profiles/p1/restore', { opId: 'r1' })).status).toBe(200);
     expect(keyRow(h)).toEqual({ revision: 2, content_id: null, nonce: null, ciphertext: null });
     expect((await me.as('GET', '/v1/keys/p1')).status).toBe(404);
+  });
+});
+
+describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
+  const docV = (h: ReturnType<typeof harness>) => (h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'p1'").get() as { n: number }).n;
+
+  it('새로 만들기·갱신이 doc_v를 기록한다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    expect(docV(h)).toBe(1);
+    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: docV2() })).status).toBe(200);
+    expect(docV(h)).toBe(2);
+  });
+
+  it('마이그레이션 뒤 doc_v 없이 들어간 기존 행은 doc_v = 1이다', async () => {
+    const h = harness();
+    await h.login();
+    const uid = (h.env.DB.raw.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id;
+    h.env.DB.raw
+      .prepare('INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at) VALUES (?, ?, 1, ?, ?)')
+      .run(uid, 'old', 'op-old', 0);
+    expect((h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'old'").get() as { n: number }).n).toBe(1);
+  });
+
+  it('v2 위에 v1을 올리면 422로 거절하고 서버는 그대로다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('옛') }))).toEqual({
+      status: 422,
+      body: { error: APP_OUTDATED_CODE },
+    });
+    expect(docV(h)).toBe(2);
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(1);
+  });
+
+  it('이미 있는 v2 프로필에 v1 새로 만들기도 422', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    expect((await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 0, doc: doc() }))).status).toBe(422);
+  });
+
+  it('검사와 갱신 사이에 다른 기기가 v2를 올려도 조건부 UPDATE가 막는다', async () => {
+    // 아래 startsWith 문자열은 putProfile의 UPDATE SQL 첫 줄과 같아야 한다.
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    h.env.DB.prepare = ((sql: string) => {
+      if (sql.startsWith('UPDATE profile_index SET revision = ?, last_op_id = ?, updated_at = ?, doc_v')) h.env.DB.raw.prepare("UPDATE profile_index SET doc_v = 2 WHERE profile_id = 'p1'").run();
+      return prepare(sql);
+    }) as typeof h.env.DB.prepare;
+    const r = await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('A') }));
+    h.env.DB.prepare = prepare;
+    expect(r).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+  });
+
+  it('반영된 같은 opId를 다시 보내면 버전 검사 전에 처음 결과를 돌려준다', async () => {
+    const h = harness();
+    const me = await h.login();
+    const put = { opId: 'op-1', expectedRevision: 0, doc: doc() };
+    await me.as('PUT', '/v1/profiles/p1', put);
+    h.env.DB.raw.prepare("UPDATE profile_index SET doc_v = 2 WHERE profile_id = 'p1'").run();
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', put))).toEqual({ status: 200, body: { revision: 1 } });
   });
 });
