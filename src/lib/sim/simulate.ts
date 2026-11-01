@@ -145,6 +145,7 @@ interface SymState {
   byDate: Map<string, number>;
   tracker: RuleEvaluator;
   pos: Position | null;
+  posAmount: number;
   posSeq: number;
   pending: { reason: string; snapshot?: PatternSnapshot } | null;
   lastClose: number | null;
@@ -190,7 +191,6 @@ const exitOf = (sell: Strategy['rules']['sell']): PositionExit => ({
 export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult {
   const { strategy: s, days } = input;
   const feePct = s.costs.feePct;
-  const amount = roundMoney((s.capital.initial * s.sizing.pct) / 100);
   const wallet = { cash: roundMoney(s.capital.initial) };
   const inDays = new Set(days);
   const equity: CoreResult['equity'] = [];
@@ -213,8 +213,24 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
     tracker.resetStats();
     const byDate = new Map<string, number>();
     dates.forEach((dt, i) => inDays.has(dt) && byDate.set(dt, i));
-    return { stock, dates, byDate, tracker, pos: null, posSeq: 0, pending: null, lastClose, rt: null };
+    return { stock, dates, byDate, tracker, pos: null, posAmount: 0, posSeq: 0, pending: null, lastClose, rt: null };
   });
+
+  const initial = roundMoney(s.capital.initial);
+  const { mode, pct } = s.sizing;
+  /** 지금 열 포지션의 1회 금액(스펙 §6.1). equityPct는 전 거래일 종가 총자산, cashPct는 그 순간 현금 */
+  const amountNow = (): number => {
+    switch (mode) {
+      case 'fixed':
+        return roundMoney((s.capital.initial * pct) / 100);
+      case 'equityPct':
+        return roundMoney(((equity.length ? equity[equity.length - 1].value : initial) * pct) / 100);
+      case 'cashPct':
+        return roundMoney((wallet.cash * pct) / 100);
+      case 'equal':
+        return roundMoney(s.capital.initial / Math.max(1, input.stocks.length));
+    }
+  };
 
   const record = (st: SymState, t: Trade) => {
     trades.push(t);
@@ -235,7 +251,8 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         continue;
       }
       const price = st.stock.candles[i].o;
-      const sized = sizeBuy(amount, price, feePct, wallet.cash);
+      const posAmount = amountNow();
+      const sized = sizeBuy(posAmount, price, feePct, wallet.cash);
       if (typeof sized === 'string') {
         skipped.push({ date, symbol: st.stock.symbol, reason: sized });
         continue;
@@ -246,6 +263,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         continue;
       }
       st.pos = openPosition(price, sized.qty, s.scaleIn, exitOf(s.rules.sell));
+      st.posAmount = posAmount;
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
       wallet.cash = roundMoney(wallet.cash - sized.cost);
@@ -263,7 +281,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         date,
         symbol,
         wallet,
-        amount,
+        amount: st.posAmount,
         feePct,
         taxPct: sellTaxPct(settle, market, isEtf),
         takeProfit: s.rules.sell.takeProfit.stages,
