@@ -1,6 +1,6 @@
 import type { Candle } from '../data/metrics';
 import { hasFlowFormat, hasMacroFormat, isV4, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
-import { sma } from '../sim/indicators';
+import { rollingMax, sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import type { Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
@@ -171,20 +171,6 @@ export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Str
   const s = strategies.find((x) => x.id === id);
   if (!s) throw new MissingStrategyError();
   return s.entry;
-}
-
-// 최근 window개 최대. 개수가 min 미만이면 null. 단조 덱으로 O(n)
-function rollingMax(c: number[], window: number, min: number): (number | null)[] {
-  const out: (number | null)[] = new Array(c.length);
-  const dq: number[] = [];
-  let head = 0;
-  for (let i = 0; i < c.length; i++) {
-    while (dq.length > head && c[dq[dq.length - 1]] <= c[i]) dq.pop();
-    dq.push(i);
-    if (dq[head] <= i - window) head++;
-    out[i] = Math.min(i + 1, window) < min ? null : c[dq[head]];
-  }
-  return out;
 }
 
 // 최근 days개 일간 수익률(c[k]/c[k-1]−1)의 표본 표준편차(%). 창마다 새로 계산해 오차가 쌓이지 않게 한다
