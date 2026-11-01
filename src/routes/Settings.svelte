@@ -149,7 +149,7 @@
 
         <section aria-labelledby="set-profiles">
           <h2 id="set-profiles">프로필</h2>
-          <Profiles {app} />
+          <Profiles {app} keySynced={(id) => !!sync?.keys.view.states.some((s) => s.profileId === id && s.active)} />
         </section>
 
         <section aria-labelledby="set-about">

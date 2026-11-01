@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
@@ -44,6 +44,26 @@ function fakeSync(over: Partial<Omit<SyncController, 'status'>> & { status?: Par
     clearError: vi.fn(),
     clearNotices: vi.fn(),
     destroy: vi.fn(),
+    // KeySync가 해제될 때 cancelReceive를 부른다(받기 확인 사이 평문을 버림). 화면이 부르는 메서드는 모두 vi.fn으로 둔다
+    keys: {
+      view: { support: true, vault: null, accountNotice: null, states: [], problem: null, remembered: false, persistent: true, uploaded: [] },
+      createVault: vi.fn(async () => ({ ok: true, notes: [] })),
+      unlockVault: vi.fn(async () => ({ ok: true, notes: [] })),
+      enable: vi.fn(async () => ({ ok: true, notes: [] })),
+      setProviders: vi.fn(async () => ({ ok: true, notes: [] })),
+      prepareReceive: vi.fn(async () => ({ ok: true, overwrite: [] })),
+      commitReceive: vi.fn(async () => ({ ok: true, notes: [] })),
+      cancelReceive: vi.fn(),
+      uploadLocal: vi.fn(async () => ({ ok: true, notes: [] })),
+      disable: vi.fn(async () => ({ ok: true, notes: [] })),
+      changePassphrase: vi.fn(async () => ({ ok: true, notes: [] })),
+      wipe: vi.fn(async () => ({ ok: true, notes: [] })),
+      forget: vi.fn(),
+      dismiss: vi.fn(async () => {}),
+      dismissAccount: vi.fn(async () => {}),
+    } as unknown as SyncController['keys'],
+    onSecretsChange: vi.fn(),
+    onLock: vi.fn(),
     ...rest,
   } as SyncController;
 }
@@ -60,6 +80,32 @@ afterEach(() => {
 });
 
 describe('SyncPanel', () => {
+
+  it('키 상태 저장소만 메모리여도 키 변경 알림 손실을 알린다', () => {
+    const sync = fakeSync({
+      account: { provider: 'google', id: 'FAKE-account', display: 'FAKE-account' },
+      status: { enabled: true, phase: 'idle', volatile: false },
+    });
+    sync.keys.view.persistent = false;
+    render(SyncPanel, { app: app(), sync });
+    expect(screen.getByText(/보낼 변경과 키 변경 알림도 탭을 닫으면 잃을 수 있어요/)).toBeTruthy();
+  });
+
+  it('IndexedDB가 없으면 volatile 경고에 키 변경 알림도 함께 알린다', () => {
+    const account = { provider: 'google' as const, id: 'me@example.test', display: 'me@example.test' };
+    render(SyncPanel, { app: app(), sync: fakeSync({ account, status: { enabled: true, phase: 'idle', volatile: true } }) });
+    expect(screen.getByText(/보낼 변경과 키 변경 알림도 탭을 닫으면 잃을 수 있어요/)).toBeTruthy();
+  });
+
+  it('로그인 + 동기화 켜짐일 때만 키 동기화 영역을 그린다', () => {
+    const account = { provider: 'google' as const, id: 'me@example.test', display: 'me@example.test' };
+    render(SyncPanel, { app: app(), sync: fakeSync({ account, status: { enabled: false } }) });
+    expect(screen.queryByRole('heading', { name: '키 동기화 (암호화)' })).toBeNull();
+    cleanup();
+    render(SyncPanel, { app: app(), sync: fakeSync({ account, status: { enabled: true, phase: 'idle' } }) });
+    expect(screen.getByRole('heading', { name: '키 동기화 (암호화)' })).toBeTruthy();
+  });
+
   it('설정이 없는 빌드면 안내만 보인다', () => {
     render(SyncPanel, { app: app(), sync: fakeSync({ configured: false }) });
     expect(screen.getByText('이 빌드에는 동기화가 설정되지 않았어요')).toBeTruthy();
@@ -69,7 +115,7 @@ describe('SyncPanel', () => {
   it('로그인 전: 올리는 것·올리지 않는 것을 알리고 기기 이름과 함께 로그인한다', async () => {
     const sync = fakeSync();
     render(SyncPanel, { app: app(), sync });
-    expect(screen.getByText(/키·계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요/)).toBeTruthy();
+    expect(screen.getByText(/계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요\. 키는 「키도 동기화」를 켠 프로필만 동기화 암호로 잠가 올려요\./)).toBeTruthy();
     await fireEvent.input(screen.getByLabelText('이 기기 이름(선택)'), { target: { value: '회사 노트북' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Google로 로그인' }));
     expect(sync.signIn).toHaveBeenCalledWith('회사 노트북');

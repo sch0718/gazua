@@ -7,6 +7,7 @@
   import type { Conflict } from '../../sync/store';
   import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
   import SyncManage from './SyncManage.svelte';
+  import KeySync from './KeySync.svelte';
 
   let { app, sync, userAgent = navigator.userAgent }: { app: App; sync: SyncController; userAgent?: string } = $props();
 
@@ -65,7 +66,7 @@
         <b>여러 기기에서 같은 프로필 쓰기</b>
         <p>
           {#if providerNames}{enabledProviders.length === 1 ? `본인 ${providerNames} 계정으로` : `${providerNames} 중 쓸 수 있는 계정으로`} 로그인하면 그룹·전략·선정 기준·묶음·분석 설정(기간·지표·벤치마크·색·정렬)을 기기끼리 맞춰요.{/if}
-          키·계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요. 올린 데이터는 암호화하지 않은 채 서버(Cloudflare)에 저장돼요.
+          계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요. 키는 「키도 동기화」를 켠 프로필만 동기화 암호로 잠가 올려요. 올린 데이터는 암호화하지 않은 채 서버(Cloudflare)에 저장돼요.
         </p>
       </div>
       <label class="field" for="sync-label-{uid}">
@@ -128,8 +129,8 @@
         </span>
       </div>
     {/if}
-    {#if status.volatile}
-      <p class="warn">이 브라우저는 IndexedDB를 쓸 수 없어 보낼 변경을 탭을 닫으면 잃을 수 있어요. 닫기 전에 지금 동기화를 눌러 주세요.</p>
+    {#if status.volatile || !sync.keys.view.persistent}
+      <p class="warn">이 브라우저는 IndexedDB를 쓸 수 없어 보낼 변경과 키 변경 알림도 탭을 닫으면 잃을 수 있어요. 닫기 전에 지금 동기화를 눌러 주세요.</p>
     {/if}
     {#each status.notices as n, i (i)}
       <p class="warn">{n} <button type="button" class="link" onclick={() => sync.clearNotices()}>닫기</button></p>
@@ -137,6 +138,9 @@
     {#each status.rejected as r (r.profileId)}
       <p class="warn">「{profileName(r.profileId, '프로필')}」을 서버가 받지 않았어요({r.code === 'too-large' ? '256 KiB 초과' : r.code}). 줄이면 다시 보내요.</p>
     {/each}
+    {#if status.enabled}
+      <KeySync {app} {sync} />
+    {/if}
   {/if}
   {#if sync.error}
     <p class="warn" role="alert">{sync.error}</p>
