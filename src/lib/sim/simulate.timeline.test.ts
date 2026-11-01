@@ -44,7 +44,7 @@ describe('timeline', () => {
     const at = (i: number) => r.timeline[i].holdings[0];
 
     // D[9]: 매수 + 추가 1번(아직 분할 매수 중)
-    const p = openPosition(buy.price, buy.qty, s.scaleIn, s.exit);
+    const p = openPosition(buy.price, buy.qty, s.scaleIn, { takeProfit: s.rules.sell.takeProfit.stages, stopLoss: { pct: s.rules.sell.stopLoss.pct, basis: s.rules.sell.stopLoss.basis }, afterFirstTake: s.rules.sell.takeProfit.afterFirstTake });
     p.buy(add1.price, add1.qty);
     expect(at(9)).toMatchObject({ qty: p.qty, avgPrice: p.avgPrice, stop: null, nextAdd: p.nextAddPrice(), takes: takesOf(p.takeLevels()), close: 97 });
     expect(at(9).value).toBe(roundMoney(p.qty * 97));

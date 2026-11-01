@@ -1,10 +1,12 @@
 import type { Candle } from '../data/metrics';
-import type { StrategyV1 } from './strategyV1';
+import type { StrategyV2 } from './strategyV2';
+export type { Cond, CondGroup, PatternEntry, SizingMode } from './strategyV2';
+export type { StrategyV1 } from './strategyV1';
 
 export type StopBasis = 'avgAfterScaleIn' | 'avgAlways' | 'firstBuy';
 
-/** 앱 전략. 전략 빌더 PR② Task 4에서 StrategyV2로 바꾼다 */
-export type Strategy = StrategyV1;
+/** 앱 전략(v2, 전략 빌더 스펙 §3). 옛 형식은 StrategyV1(strategyV1.ts)이고 읽을 때 toV2로 옮긴다 */
+export type Strategy = StrategyV2;
 
 export interface PatternSnapshot {
   a: number;

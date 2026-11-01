@@ -1,8 +1,8 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { roundMoney } from './money';
-import { createPatternTracker, type PatternTracker } from './pattern';
-import { costOf, maxShares, openPosition, type Position } from './position';
+import { createRuleEvaluator, type RuleEvaluator } from './rules';
+import { costOf, maxShares, openPosition, type Position, type PositionExit } from './position';
 import { sellTaxPct, settlementDate } from './tax';
 import { holdCurve, indexCurve, singleCurve } from './benchmarks';
 import { nearMiss, retPct, summarize } from './summary';
@@ -14,7 +14,7 @@ export interface CoreResult {
   skipped: Skip[];
   roundTrips: { symbol: string; open: string; close: string | null; cost: number; pnl: number; holdDays: number }[];
   perSymbolFirstDate: Record<string, string | null>;
-  patternStats: { maxDropPct: number; declineDays: number };
+  patternStats: { maxDropPct: number; declineDays: number } | null; // 매수 조건에 반등 패턴 블록이 없으면 null
   /** 옵션 timeline을 켰을 때만 있다 */
   timeline?: DayFrame[];
 }
@@ -32,7 +32,7 @@ export interface WalkCtx {
   amount: number; // 1회 매수 금액
   feePct: number;
   taxPct: number; // 그날 매도세 %
-  takeProfit: Strategy['exit']['takeProfit'];
+  takeProfit: Strategy['rules']['sell']['takeProfit']['stages'];
   excluded: Set<number>; // 그날 건너뛴 추가 매수 가격
   canBuy?: boolean; // false면 추가 매수를 하지 않는다(선정 기간 밖). 없으면 true
   trade(t: Trade): void;
@@ -143,10 +143,10 @@ interface SymState {
   stock: SimInput['stocks'][number];
   dates: string[];
   byDate: Map<string, number>;
-  tracker: PatternTracker;
+  tracker: RuleEvaluator;
   pos: Position | null;
   posSeq: number;
-  pending: { reason: string; snapshot: PatternSnapshot } | null;
+  pending: { reason: string; snapshot?: PatternSnapshot } | null;
   lastClose: number | null;
   rt: { open: string; openDay: number; cost: number; proceeds: number } | null;
 }
@@ -180,10 +180,17 @@ function dayFrame(date: string, cash: number, value: number, syms: SymState[]): 
   return { date, cash, value, holdings, pending };
 }
 
+/** rules.sell → 포지션이 쓰는 익절·손절(on 플래그는 Task 6에서 쓴다) */
+const exitOf = (sell: Strategy['rules']['sell']): PositionExit => ({
+  takeProfit: sell.takeProfit.stages,
+  stopLoss: { pct: sell.stopLoss.pct, basis: sell.stopLoss.basis },
+  afterFirstTake: sell.takeProfit.afterFirstTake,
+});
+
 export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult {
   const { strategy: s, days } = input;
   const feePct = s.costs.feePct;
-  const amount = roundMoney((s.capital.initial * s.capital.perBuyPct) / 100);
+  const amount = roundMoney((s.capital.initial * s.sizing.pct) / 100);
   const wallet = { cash: roundMoney(s.capital.initial) };
   const inDays = new Set(days);
   const equity: CoreResult['equity'] = [];
@@ -195,7 +202,8 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
 
   const syms: SymState[] = input.stocks.map((stock) => {
     const dates = stock.candles.map((k) => kstDate(k.t));
-    const tracker = createPatternTracker(stock.candles, s.entry);
+    const firstIdx = dates.findIndex((dt) => dt >= days[0]);
+    const tracker = createRuleEvaluator(stock.candles, s.rules.buy, firstIdx < 0 ? dates.length : firstIdx);
     let lastClose: number | null = null;
     // 워밍업: 패턴만 먹이고 거래·예약 없음
     for (let i = 0; i < dates.length && dates[i] < days[0]; i++) {
@@ -237,11 +245,11 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         skipped.push({ date, symbol: st.stock.symbol, reason: '선정 기간이 아니에요' });
         continue;
       }
-      st.pos = openPosition(price, sized.qty, s.scaleIn, s.exit);
+      st.pos = openPosition(price, sized.qty, s.scaleIn, exitOf(s.rules.sell));
       st.posSeq++;
       st.rt = { open: date, openDay: di, cost: 0, proceeds: 0 };
       wallet.cash = roundMoney(wallet.cash - sized.cost);
-      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee: sized.fee, tax: 0, reason, pattern: snapshot });
+      record(st, { date, symbol: st.stock.symbol, kind: 'buy', price, qty: sized.qty, fee: sized.fee, tax: 0, reason, ...(snapshot && { pattern: snapshot }) });
     }
 
     // 2. 장중 경로, 3. 종가
@@ -258,7 +266,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
         amount,
         feePct,
         taxPct: sellTaxPct(settle, market, isEtf),
-        takeProfit: s.exit.takeProfit,
+        takeProfit: s.rules.sell.takeProfit.stages,
         excluded: new Set(),
         canBuy: inWindows(st.stock.buyWindows, date),
         trade: (t) => record(st, t),
@@ -317,14 +325,19 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
   const perSymbolFirstDate: Record<string, string | null> = {};
   let maxDropPct = 0;
   let declineDays = 0;
+  let anyPattern = false;
   for (const st of syms) {
     perSymbolFirstDate[st.stock.symbol] = st.dates.find((dt) => inDays.has(dt)) ?? null;
     const ps = st.tracker.stats();
+    if (!ps) continue;
+    anyPattern = true;
     maxDropPct = Math.max(maxDropPct, ps.maxDropPct);
     declineDays += ps.declineDays;
   }
 
-  return { equity, trades, skipped, roundTrips, perSymbolFirstDate, patternStats: { maxDropPct, declineDays }, ...(timeline && { timeline }) };
+  const patternStats = anyPattern ? { maxDropPct, declineDays } : null;
+
+  return { equity, trades, skipped, roundTrips, perSymbolFirstDate, patternStats, ...(timeline && { timeline }) };
 }
 
 export function simulate(input: SimInput, opts: SimOptions = {}): SimResult {

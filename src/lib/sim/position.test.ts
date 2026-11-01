@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { maxShares, openPosition } from './position';
-import type { Strategy } from './types';
+import { maxShares, openPosition, type PositionExit } from './position';
 
-type Exit = Strategy['exit'];
-const exit: Exit = {
+const exit: PositionExit = {
   takeProfit: [{ pct: 10, sellPct: 50 }, { pct: 15, sellPct: 100 }],
   stopLoss: { pct: 5, basis: 'avgAfterScaleIn' },
   afterFirstTake: 'keep',

@@ -57,6 +57,6 @@ export function summarize(
 
 /** 거래도 건너뜀도 없을 때만 (신호가 났다가 건너뛴 경우는 null) */
 export function nearMiss(core: CoreResult): SimResult['nearMiss'] {
-  if (core.trades.length > 0 || core.skipped.length > 0) return null;
+  if (core.trades.length > 0 || core.skipped.length > 0 || !core.patternStats) return null; // 패턴 블록이 없으면 줄을 뺀다(§4.8)
   return { ...core.patternStats };
 }

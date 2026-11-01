@@ -1,7 +1,7 @@
 import type { Candle } from '../data/metrics';
 import { kstDate } from '../time/kst';
 import { sma } from './indicators';
-import type { PatternSnapshot, Strategy } from './types';
+import type { PatternEntry, PatternSnapshot } from './types';
 
 export interface PatternTracker {
   /** i번째 봉(그 종목 배열 기준)의 종가로 신호를 판단한다. 상태는 바꾸지 않는다. 어제까지의 상태를 쓴다. */
@@ -16,7 +16,7 @@ export interface PatternTracker {
   resetStats(): void;
 }
 
-export function createPatternTracker(candles: Candle[], entry: Strategy['entry']): PatternTracker {
+export function createPatternTracker(candles: Candle[], entry: PatternEntry): PatternTracker {
   const c = candles.map((k) => k.c);
   const { decline, triggers, filter } = entry;
   const maCross = triggers.maCross.on ? sma(c, triggers.maCross.period) : [];

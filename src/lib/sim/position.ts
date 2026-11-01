@@ -1,5 +1,12 @@
 import { roundMoney } from './money';
-import type { Strategy } from './types';
+import type { StopBasis, Strategy } from './types';
+
+/** 포지션이 쓰는 익절·손절(v1 exit 모양). 엔진이 rules.sell에서 만든다(전략 빌더 PR② Task 6에서 SellRules로 바꾼다) */
+export interface PositionExit {
+  takeProfit: { pct: number; sellPct: number }[];
+  stopLoss: { pct: number; basis: StopBasis };
+  afterFirstTake: 'keep' | 'breakeven';
+}
 
 export interface Position {
   readonly qty: number;
@@ -33,7 +40,7 @@ export function openPosition(
   price: number,
   qty: number,
   scaleIn: Strategy['scaleIn'],
-  exit: Strategy['exit'],
+  exit: PositionExit,
 ): Position {
   if (!(qty > 0)) throw new Error('수량은 0보다 커야 합니다');
   let held = qty;

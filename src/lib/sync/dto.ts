@@ -4,7 +4,7 @@ import type { Basket } from '../screen/baskets';
 import { sanitizeBaskets } from '../screen/baskets';
 import { sanitizeCriteria } from '../screen/validate';
 import type { SelectionCriteria } from '../screen/types';
-import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV1 } from '../sim/strategyV1';
 import { sanitizeStrategiesV2, type StrategyV2 } from '../sim/strategyV2';
 import type { Strategy } from '../sim/types';
 import { PERIOD_COUNTS } from '../market/periods';
@@ -113,7 +113,7 @@ export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
   if (wd) return wd;
 
   for (const [key, cleaned] of [
-    ['strategies', v === 1 ? sanitizeStrategies({ strategies: raw.strategies }, now).strategies : sanitizeStrategiesV2({ strategies: raw.strategies }, now).strategies],
+    ['strategies', v === 1 ? sanitizeStrategiesV1({ strategies: raw.strategies }, now).strategies : sanitizeStrategiesV2({ strategies: raw.strategies }, now).strategies],
     ['criteria', sanitizeCriteria({ criteria: raw.criteria }, now).criteria],
     ['baskets', sanitizeBaskets({ baskets: raw.baskets }).baskets],
   ] as const) {

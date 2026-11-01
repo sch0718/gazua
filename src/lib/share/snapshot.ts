@@ -10,7 +10,8 @@ import type { Basket } from '../screen/baskets';
 import { newStrategy } from '../sim/defaults';
 import type { SimResult, Skip, Strategy, Trade } from '../sim/types';
 import type { SimFailureReason } from '../sim/loadSimData';
-import { resolveSymbols, sanitizeStrategies } from '../sim/validate';
+import { resolveSymbols } from '../sim/validate';
+import { sanitizeStrategiesV1 } from '../sim/strategyV1';
 import { sanitizeStrategiesV2, type StrategyV2 } from '../sim/strategyV2';
 import type { Group, Settings, Watchlists } from '../state/schema';
 import { SETTING_OK } from '../sync/dto';
@@ -325,7 +326,7 @@ export function checkStrategyPart(s: unknown, title: string, now: number, mode: 
   if (!isRecord(s.universe) || s.universe.kind !== 'symbols') return fail('reference', 'strategy.universe');
   // v2는 PR①에서 서버 저장용(create)으로만 받는다. universe·benchmarks는 두 형식이 같은 모양이다
   const cleaned: Strategy | StrategyV2 | undefined =
-    v === 2 ? sanitizeStrategiesV2({ strategies: [s] }, now).strategies[0] : sanitizeStrategies({ strategies: [s] }, now).strategies[0];
+    v === 2 ? sanitizeStrategiesV2({ strategies: [s] }, now).strategies[0] : sanitizeStrategiesV1({ strategies: [s] }, now).strategies[0];
   if (!cleaned) return fail('invalid', 'strategy');
   const diff = sameAs(s, cleaned, 'strategy', mode);
   if (diff) return diff;

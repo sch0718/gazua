@@ -5,18 +5,18 @@ import { ApiError } from '../providers/errors';
 import type { CandleQuery, MarketDataProvider } from '../providers/types';
 import { addDays, kstDate, kstEpoch } from '../time/kst';
 import { createSimMemo, loadSimData, type LoadProgress } from './loadSimData';
-import { newStrategy } from './defaults';
+import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
 import type { Strategy } from './types';
 
 const NOW = kstEpoch('2026-10-12', '14:05:00');
 const demo = () => createDemoProvider({ seed: 1, now: () => NOW });
 
-function strat(patch: (s: Strategy) => void = () => {}, from = '2026-03-02', to = '2026-03-13'): Strategy {
-  const s = newStrategy(NOW, null);
+function strat(patch: (s: StrategyV1) => void = () => {}, from = '2026-03-02', to = '2026-03-13'): Strategy {
+  const s = newStrategyV1(NOW, null);
   s.period = { from, to };
   s.benchmarks = { index: 'KOSPI', symbol: null };
   patch(s);
-  return s;
+  return toV2(s);
 }
 
 type Spy = { candles: CandleQuery[]; index: unknown[][]; provider: MarketDataProvider };
@@ -57,8 +57,8 @@ afterEach(() => vi.useRealTimers());
 describe('loadSimData', () => {
   it('워밍업: MA 60/250 → from-400일', async () => {
     for (const patch of [
-      (s: Strategy) => void (s.entry.filter.aboveMa = { on: true, period: 60 }),
-      (s: Strategy) => void (s.entry.triggers.maCross = { on: true, period: 250 }),
+      (s: StrategyV1) => void (s.entry.filter.aboveMa = { on: true, period: 60 }),
+      (s: StrategyV1) => void (s.entry.triggers.maCross = { on: true, period: 250 }),
     ]) {
       const sp = spied();
       await run(sp.provider, strat(patch), ['005930']);
@@ -447,5 +447,13 @@ describe('loadSimData', () => {
       expect(calls).toEqual(['005930']);
       expect(vi.getTimerCount()).toBe(0);
     });
+  });
+
+  it('워밍업: RSI 조건은 ceil(251 × 1.6) = 402일(고정 시작점 250봉, §5.4)', async () => {
+    const sp = spied();
+    const s = strat();
+    s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, level: 30, op: 'crossUp' }] }];
+    await run(sp.provider, s, ['005930']);
+    expect(sp.candles[0].from).toBe(addDays('2026-03-02', -402));
   });
 });
