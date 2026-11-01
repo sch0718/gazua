@@ -392,3 +392,28 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     expect(await j(await me.as('PUT', '/v1/profiles/p1', put))).toEqual({ status: 200, body: { revision: 1 } });
   });
 });
+
+describe('PR①만 배포: 옛 앱(쿼리 없음 + v1 문서) 경로 무변화(§8.7)', () => {
+  it('만들기·읽기·갱신·충돌·삭제·복원 응답 모양이 지금과 같다', async () => {
+    const h = harness();
+    const me = await h.login();
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() }))).toEqual({ status: 200, body: { revision: 1 } });
+    expect(await j(await me.as('GET', '/v1/profiles/p1'))).toEqual({ status: 200, body: { revision: 1, doc: doc() } });
+    expect((await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('A') }))).body).toEqual({ revision: 2 });
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-3', expectedRevision: 1, doc: doc('B') }))).toEqual({
+      status: 409,
+      body: { error: 'conflict', revision: 2, doc: doc('A') },
+    });
+    expect((await j(await me.as('GET', '/v1/profiles/p1/revisions/2'))).body).toEqual({ revision: 2, doc: doc('A') });
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-4', expectedRevision: 2 })).status).toBe(200);
+    expect(await j(await me.as('POST', '/v1/profiles/p1/restore', { opId: 'op-5' }))).toEqual({ status: 200, body: { revision: 4, doc: doc('A') } });
+  });
+
+  it('저장소에는 받은 원본 그대로 들어간다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    const body = (h.env.DB.raw.prepare("SELECT body FROM profiles WHERE profile_id = 'p1'").get() as { body: string }).body;
+    expect(JSON.parse(body)).toEqual(docV2());
+  });
+});

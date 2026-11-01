@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { newStrategy } from '../../src/lib/sim/defaults';
+import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
 import { compareSnapshot } from '../../src/lib/share/compact';
 import { simResultFixture, validationFixture } from '../../src/lib/share/testFixtures';
 import { groupSnapshot, strategySnapshot } from '../../src/lib/share/snapshot';
@@ -180,5 +182,40 @@ describe('공유 API', () => {
     for (let i = 0; i < 1000; i++) deep = { a: deep };
     const r = await j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: { ...group(), deep } }));
     expect(r).toEqual({ status: 422, body: { error: 'invalid' } });
+  });
+});
+
+describe('전략 공유 버전(전략 빌더 §8.4, PR①)', () => {
+  const v2Snap = () => ({
+    kind: 'strategy',
+    v: 2,
+    title: '골든크로스',
+    strategy: { ...fullStrategyV2(), id: 'shared', name: '골든크로스', updatedAt: 0, universe: { kind: 'symbols', symbols: ['005930'] } },
+    capitalHidden: false,
+  });
+
+  it('v2 전략 공유를 받고 원본 그대로 저장한다', async () => {
+    const { create, read } = await setup();
+    const made = await create({ kind: 'strategy', snapshot: v2Snap() });
+    expect(made.status).toBe(200);
+    const got = await j(await read(made.body.capability as string));
+    expect(got.body.snapshot).toEqual(v2Snap());
+  });
+
+  it('v1 전략·시뮬레이션 공유(옛 앱)는 지금처럼 받고 원본 그대로 저장한다', async () => {
+    const { create, read } = await setup();
+    const v1 = strategySnapshot({ ...newStrategy(0, null, '눌림목'), universe: { kind: 'symbols', symbols: ['005930'] } }, { groups: [] }, { hideCapital: false, now: 0 });
+    const a = await create({ kind: 'strategy', snapshot: v1 });
+    expect(a.status).toBe(200);
+    expect((await j(await read(a.body.capability as string))).body.snapshot).toEqual(v1);
+    const sim = simResultFixture();
+    const b = await create({ kind: 'simResult', snapshot: sim });
+    expect(b.status).toBe(200);
+    expect((await j(await read(b.body.capability as string))).body.snapshot).toEqual(sim);
+  });
+
+  it('v3 전략 공유는 422 unsupported', async () => {
+    const { create } = await setup();
+    expect(await create({ kind: 'strategy', snapshot: { ...v2Snap(), v: 3 } })).toMatchObject({ status: 422, body: { error: 'unsupported', path: 'v' } });
   });
 });
