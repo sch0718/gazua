@@ -548,6 +548,17 @@ describe('ResultView 재생', () => {
     expect(within(panel()).getByText('다음 거래일 시가에 사요: SK하이닉스 — B 돌파')).toBeTruthy();
   });
 
+  it('「그날 상황 보기」를 누르면 새로 펼친 패널로 키보드 초점을 옮긴다', async () => {
+    setup(withReplay());
+    const button = screen.getByRole('button', { name: '그날 상황 보기' });
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    await fireEvent.click(button);
+    const panel = screen.getByRole('region', { name: '그날 상황' });
+    expect(panel.tagName).toBe('SECTION');
+    expect(document.activeElement).toBe(panel);
+  });
+
   it('결과 공유: 재생을 처음 상태로 되돌리고(패널 접힘·전체 곡선) 그 뒤에 onShare를 부른다', async () => {
     let seen: { panel: boolean; points: number } | null = null;
     const onShare = vi.fn(() => {

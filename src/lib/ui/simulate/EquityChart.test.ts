@@ -175,6 +175,24 @@ describe('EquityChart 재생(upTo)', () => {
     expect(legendDate()).toBe('2024.01.03');
   });
 
+  it.each([
+    { upTo: -1, count: 1, date: '2024.01.01', markerCount: 0 },
+    { upTo: 99, count: 5, date: '2024.01.05', markerCount: 2 },
+  ])('upTo=$upTo가 범위 밖이면 차트와 범례 모두 첫날·마지막 날로 자른다', async ({ upTo, count, date, markerCount }) => {
+    // 마지막 날을 가리키는 크로스헤어도 자른 날짜를 넘어설 수 없다
+    lwcStubHooks.crosshairOnSetData = { time: days[4] as unknown as number };
+    try {
+      render(EquityChart, props(upTo));
+      await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(2));
+      expect(real()).toHaveLength(count);
+      expect(series().data).toHaveLength(days.length);
+      expect(series().markers).toHaveLength(markerCount);
+      expect(legendDate()).toBe(date);
+    } finally {
+      lwcStubHooks.crosshairOnSetData = null;
+    }
+  });
+
   it('체결 마커: upTo 날짜까지만, 같은 날·같은 방향은 하나. upTo가 바뀌면 다시 넣는다', async () => {
     const { rerender } = render(EquityChart, props(2));
     await vi.waitFor(() => expect(series().markers).toHaveLength(1));
@@ -182,6 +200,22 @@ describe('EquityChart 재생(upTo)', () => {
     await rerender(props(3));
     await vi.waitFor(() => expect(real()).toHaveLength(4));
     expect((series().markers as { text: string }[]).map((m) => m.text)).toEqual(['매수·추가', '익절']);
+  });
+
+  it('재생 날짜가 그대로여도 테마가 바뀌면 체결 마커 색을 다시 넣는다', async () => {
+    const { rerender } = render(EquityChart, { ...props(2), theme: 'light' });
+    await vi.waitFor(() => expect(series().markers).toHaveLength(1));
+    expect(series().markers).toMatchObject([{ color: '#5b47e0' }]);
+    const root = document.documentElement.style;
+    root.setProperty('--accent', '#a093ff');
+    try {
+      await rerender({ ...props(2), theme: 'dark' });
+      expect(series().markers).toMatchObject([{ color: '#a093ff' }]);
+      expect(real()).toHaveLength(3);
+      expect(legendDate()).toBe('2024.01.03');
+    } finally {
+      root.removeProperty('--accent');
+    }
   });
 
   it('upTo가 숫자에서 undefined로 돌아오면 전체 점·마커 0개·세로축 자동으로 되돌린다', async () => {

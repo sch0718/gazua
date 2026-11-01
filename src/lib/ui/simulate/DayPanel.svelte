@@ -43,7 +43,7 @@
   });
 </script>
 
-<section class="day" aria-label="그날 상황">
+<section class="day" aria-label="그날 상황" tabindex="-1">
   <p class="when num">{replayDate(frame.date)}</p>
   <ul class="totals" aria-label="그날 자산">
     <li><span class="label">총자산</span> <b class="num">{fmtWon(frame.value)}원</b></li>

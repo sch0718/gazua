@@ -68,6 +68,19 @@ describe('ReplayBar', () => {
     expect(replay.playing).toBe(false);
   });
 
+  it.each([' ', 'Spacebar'])('range에서 %j를 누르고 있어도 반복 입력은 재생 상태를 바꾸지 않고 기본 동작을 막는다', async (key) => {
+    const { replay } = setup();
+    const range = screen.getByRole('slider', { name: '거래일' });
+    await fireEvent.keyDown(range, { key });
+    expect(replay.playing).toBe(true);
+    expect(await fireEvent.keyDown(range, { key, repeat: true })).toBe(false);
+    expect(replay.playing).toBe(true);
+    await fireEvent.keyDown(range, { key });
+    expect(replay.playing).toBe(false);
+    expect(await fireEvent.keyDown(range, { key, repeat: true })).toBe(false);
+    expect(replay.playing).toBe(false);
+  });
+
   it('멈췄을 때만 날짜를 live 영역으로 알린다', async () => {
     const { container } = setup();
     const live = container.querySelector('[aria-live="polite"]')!;

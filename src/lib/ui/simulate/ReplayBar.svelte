@@ -14,6 +14,7 @@
   function onkeydown(e: KeyboardEvent) {
     if (e.key === ' ' || e.key === 'Spacebar') {
       e.preventDefault();
+      if (e.repeat) return;
       replay.toggle();
     }
   }

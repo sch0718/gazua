@@ -107,7 +107,7 @@
   let hover = $state<string | null>(null);
   const lastDate = $derived(curves ? items.reduce((m, i) => (i.points.at(-1)!.date > m ? i.points.at(-1)!.date : m), '') : (equity.at(-1)?.date ?? ''));
   // 재생 중(upTo)이면 범례 기본 날짜는 그날, 크로스헤어가 그보다 뒤를 가리키면 무시한다
-  const capDate = $derived(curves || upTo === undefined ? null : (equity[upTo]?.date ?? null));
+  const capDate = $derived(curves || upTo === undefined ? null : (equity[Math.max(0, Math.min(upTo, equity.length - 1))]?.date ?? null));
   const date = $derived.by(() => {
     if (curves) return hover && items.some((i) => i.points.some((p) => p.date === hover)) ? hover : lastDate;
     const h = equity.find((e) => e.date === hover)?.date;
@@ -139,7 +139,7 @@
       markers?.setMarkers([]);
       return;
     }
-    const until = equity[Math.min(cut, equity.length - 1)]?.date ?? '';
+    const until = equity[Math.max(0, Math.min(cut, equity.length - 1))]?.date ?? '';
     for (const l of lines) {
       const it = items.find((i) => i.id === l.id)!;
       const byDate = new Map(it.points.map((p) => [p.date, p.value]));
@@ -196,6 +196,7 @@
     if (!c) return;
     c.applyOptions(chartColors());
     for (const { line, series } of lines) series.applyOptions({ color: token(...line.color) });
+    if (applied !== undefined) untrack(() => applyCut(applied));
   });
 
   onMount(() => {

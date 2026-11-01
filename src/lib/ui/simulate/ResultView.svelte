@@ -137,9 +137,11 @@
   const reducedQuery = typeof matchMedia === 'function' ? new MediaQuery('(prefers-reduced-motion: reduce)') : null;
   const motion = $derived(replay ? replayMotion(replay, reducedQuery?.current ?? false) : false);
 
-  /** 「그날 상황 보기」: 움직이지 않고 touched만 켠다 */
-  function openDay() {
+  /** 「그날 상황 보기」: 날짜는 그대로 두고 패널을 펼쳐 초점을 옮긴다 */
+  async function openDay() {
     if (replay) replay.seek(replay.index);
+    await tick();
+    root?.querySelector<HTMLElement>('section[aria-label="그날 상황"]')?.focus();
   }
   /** 공유 카드는 늘 최종 곡선·마커 없음으로 찍히게, 대화상자를 열기 전에 재생을 처음 상태로 되돌린다 */
   async function share() {
