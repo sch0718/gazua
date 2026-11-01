@@ -202,7 +202,7 @@ export function condReason(c: Cond): string;                 // §4.6
 - 만들 때 종목마다 필요한 지표 배열을 한 번 계산해요(같은 기간이면 공유).
 - 패턴 블록은 기존 `createPatternTracker(candles, entry)`를 그대로 감싸요. 판정·상태·통계를 바꾸지 않아요.
 - 묶음 판정: 묶음 안 조건을 앞에서부터 보고, 하나라도 틀리면 다음 묶음으로 가요. 그래서 패턴 블록의 `signal(i)`이 불리지 않는 날도 있어요. 그래도 괜찮은 이유는 `signal(i)`이 상태를 바꾸지 않고, 상태는 `update(i)`가 갱신하기 때문이에요. `simulateCore`는 그 종목 봉이 있는 날마다(워밍업 포함) 묶음 판정과 상관없이 `update(i)`를 불러요. 지금 `tracker.update(i)`를 부르는 자리 그대로예요. 묶음·조건 순서는 사유(처음 맞은 묶음)만 정하고 매수 여부는 바꾸지 않아요.
-- 패턴 블록이 맞으면 `snapshot`을 같이 돌려줘요. 매수 체결 줄은 `snapshot`이 있을 때만 `pattern` 키를 넣어요(`...(snapshot && { pattern: snapshot })`). 없을 때 `pattern: undefined`를 넣지 않아요. 골든 테스트의 `toStrictEqual`이 `undefined` 키를 구분해요.
+- 패턴 블록이 맞으면 `snapshot`을 같이 돌려줘요. 매수 체결 줄은 `snapshot`이 있을 때만 `pattern` 키를 넣어요(`...(snapshot && { pattern: snapshot })`). 없을 때 `pattern: undefined`를 넣지 않아요. 스냅샷 비교와 공유 JSON 왕복에서 `pattern: undefined`가 키 있음/없음 차이를 만들지 않게 하려는 거예요.
 - 매도용으로 `rules.sell.signal.groups`에도 평가기를 하나 더 만들어요. 매도 평가기에는 패턴 블록이 없어서 `update`·`reset`은 아무것도 하지 않아요.
 
 ### 4.2 하루 순서 (`simulateCore`)
@@ -483,6 +483,7 @@ export function condReason(c: Cond): string;                 // §4.6
      2. 삭제됨 → 410 `gone`.
      3. 저장된 `doc_v`가 들어온 `v`보다 큼 → 422(아래 코드).
      4. 그 밖 → 409 `conflict`. 본문 `doc`은 아래 4번 규칙대로 가려요.
+     - 3단계(422, `doc_v` 초과)는 들어온 문서가 있는 PUT에서만 봐요. `deleteProfile`은 들어온 문서가 없어 이 단계 없이 409로 가요.
 4. **본문을 돌려주는 응답**: 저장된 `doc_v`가 요청 버전보다 크면
    - `getProfile`·`getRevision`(그 리비전 본문의 `v`)·`restoreProfile`은 422로 답해요. `restoreProfile`은 **바꾸기 전에** 검사해서, 거절할 때는 아무것도 바꾸지 않아요.
    - 409 충돌 응답(`rejected()`, `deleteProfile`의 `h?.lastOpId === opId` 분기)은 `doc`을 빼요(`null`).
