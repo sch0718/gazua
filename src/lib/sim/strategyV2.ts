@@ -80,19 +80,20 @@ const num = (ctx: Ctx, v: unknown, def: number, min: number, max: number) =>
 const bool = (ctx: Ctx, v: unknown, def: boolean) => pick(ctx, v, def, (x) => typeof x === 'boolean');
 const oneOf = <T extends string>(ctx: Ctx, v: unknown, def: T, list: readonly T[]) => pick(ctx, v, def, (x) => list.includes(x as T));
 
+const condFactories: { [P in Cond['kind']]: (now: number) => Extract<Cond, { kind: P }> } = {
+  maPrice: () => ({ kind: 'maPrice', period: 20, side: 'above' }),
+  maCross: () => ({ kind: 'maCross', short: 20, long: 60, dir: 'golden' }),
+  rsi: () => ({ kind: 'rsi', period: 14, level: 30, op: 'crossUp' }),
+  volume: () => ({ kind: 'volume', days: 20, ratio: 1.5 }),
+  change: () => ({ kind: 'change', days: 5, pct: 10, op: 'above' }),
+  fromHigh: () => ({ kind: 'fromHigh', days: 60, pct: 20 }),
+  newHigh: () => ({ kind: 'newHigh', days: 60 }),
+  pattern: (now) => ({ kind: 'pattern', entry: sanitizeEntry(undefined, now).entry }),
+};
+
 /** 종류별 기본 조건. 편집 화면(PR②)이 종류를 바꿀 때와 정리의 기본값이 같은 값을 쓴다. pattern의 entry는 기본 반등 패턴 */
 export function defaultCond<K extends Cond['kind']>(kind: K, now = 0): Extract<Cond, { kind: K }> {
-  const all: { [P in Cond['kind']]: Extract<Cond, { kind: P }> } = {
-    maPrice: { kind: 'maPrice', period: 20, side: 'above' },
-    maCross: { kind: 'maCross', short: 20, long: 60, dir: 'golden' },
-    rsi: { kind: 'rsi', period: 14, level: 30, op: 'crossUp' },
-    volume: { kind: 'volume', days: 20, ratio: 1.5 },
-    change: { kind: 'change', days: 5, pct: 10, op: 'above' },
-    fromHigh: { kind: 'fromHigh', days: 60, pct: 20 },
-    newHigh: { kind: 'newHigh', days: 60 },
-    pattern: { kind: 'pattern', entry: sanitizeEntry(undefined, now).entry },
-  };
-  return all[kind];
+  return condFactories[kind](now);
 }
 
 /** 조건 하나. 모르는 kind, 매도 쪽 pattern은 null(버림, repaired). 기본값은 defaultCond */

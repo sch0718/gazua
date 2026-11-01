@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { exceedsDepth, findForbidden } from '../sync/forbidden';
 import { defaultCond, MAX_CONDS, MAX_GROUPS, sanitizeStrategiesV2 } from './strategyV2';
 import { fullStrategyV2 } from './testStrategyV2';
+import * as validate from './validate';
 
 const NOW = Date.UTC(2026, 10, 1);
 const one = (s: unknown) => sanitizeStrategiesV2({ strategies: [s] }, NOW);
@@ -10,6 +11,22 @@ describe('sanitizeStrategiesV2', () => {
   it('한도까지 채운 전략은 그대로 통과한다(고침 없음)', () => {
     const s = fullStrategyV2();
     expect(one(s)).toEqual({ strategies: [s], repaired: false });
+  });
+
+  it('pattern 없이 조건을 가득 채운 20개 전략은 sanitizeEntry 호출 없이 그대로 정리한다', () => {
+    const strategies = Array.from({ length: 20 }, (_, i) => {
+      const s = fullStrategyV2();
+      s.id = `s${i}`;
+      s.rules.buy[0].conds[0] = { kind: 'newHigh', days: 60 };
+      return s;
+    });
+    const spy = vi.spyOn(validate, 'sanitizeEntry');
+    try {
+      expect(sanitizeStrategiesV2({ strategies }, NOW)).toEqual({ strategies, repaired: false });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('범위를 넘는 값은 기본값으로 바꾸고 repaired', () => {
