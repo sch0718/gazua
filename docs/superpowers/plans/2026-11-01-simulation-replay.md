@@ -505,7 +505,7 @@ it('10년(2,450거래일)·8종목: timeline 켬 시간이 끔의 2배 이하', 
 - [ ] **Step 5: 실패를 확인한다**
 
 Run: `corepack pnpm test src/lib/sim/simulate.golden.test.ts src/lib/sim/simulate.timeline.test.ts src/lib/sim/simulate.perf.test.ts src/lib/ui/simulate/runController.test.ts`
-Expected: FAIL. 골든 스냅샷 3개는 통과하고, 불변식(`timeline` undefined → `toHaveLength` 실패), timeline 테스트(`r.timeline` undefined), 성능(`timeline` 없이도 시간은 재지만 앞 테스트가 실패), runController(`toHaveBeenCalledWith` 불일치)가 실패해요.
+Expected: FAIL. 골든 스냅샷 3개는 통과하고, 불변식(`timeline` undefined → `toHaveLength` 실패), timeline 테스트(`r.timeline` undefined), runController(`toHaveBeenCalledWith` 불일치)가 실패해요. 성능 테스트는 이 단계에서 통과할 수 있어요(옵션을 아직 무시하므로 켬·끔 시간이 같아요).
 
 - [ ] **Step 6: 타입을 더한다**
 
@@ -1056,7 +1056,7 @@ git commit -m "feat(simulate): 시계를 주입받는 재생 컨트롤러와 움
 **Interfaces:**
 - Consumes(기존): `Trade`(`src/lib/sim/types.ts`), lwc 가짜 `lwcCharts`·`resetLwcStub`·`ResizeObserverStub`·`lwcStubHooks`(`src/lib/chart/lwcStub.ts`; `StubSeries.markers`는 마지막 `setMarkers` 값, `options`는 `applyOptions`를 얕게 합친 값, `lwcStubHooks.crosshairOnSetData`가 있으면 `setData` 때 크로스헤어 구독자를 그 값으로 부름).
 - Produces:
-  - `src/lib/ui/simulate/markers.ts`: `type ColorToken = [string, string]`, `TRADE_LABEL: Record<Trade['kind'], string>`, `MARKER_COLOR: Record<Trade['kind'], ColorToken>`, `MIXED_COLOR: ColorToken`, `isBuying(t: Trade): boolean`, `interface MarkerGroup { time: string; bar: number; buying: boolean; kinds: Trade['kind'][] }`, `mergedMarkers(list: Trade[], barOf: (date: string) => number, mergeBars: number): MarkerGroup[]`, `tradeMarkers(list: Trade[], barOf: (date: string) => number, mergeBars: number, color: (token: ColorToken) => string): SeriesMarker<Time>[]`
+  - `src/lib/ui/simulate/markers.ts`: `type ColorToken = [string, string]`, `TRADE_LABEL: Record<Trade['kind'], string>`, `MARKER_COLOR: Record<Trade['kind'], ColorToken>`, `mergedMarkers(list: Trade[], barOf: (date: string) => number, mergeBars: number): { time: string; bar: number; buying: boolean; kinds: Trade['kind'][] }[]`(모듈 안의 `isBuying`·`MarkerGroup`·`MIXED_COLOR`는 내보내지 않아요), `tradeMarkers(list: Trade[], barOf: (date: string) => number, mergeBars: number, color: (token: ColorToken) => string): SeriesMarker<Time>[]`
   - `EquityChart` props 추가: `upTo?: number`(equity 인덱스, 없으면 지금과 같음), `trades?: Trade[]`(기본 `[]`).
 
 - [ ] **Step 1: 마커 모듈의 실패하는 테스트를 쓴다**
@@ -1124,7 +1124,7 @@ const ACCENT: ColorToken = ['--accent', '#5b47e0'];
 const UP: ColorToken = ['--up', '#d4202f'];
 const DOWN: ColorToken = ['--down', '#1d5fd6'];
 /** 익절·손절처럼 색이 섞인 마커 */
-export const MIXED_COLOR: ColorToken = ['--t2', '#5b6069'];
+const MIXED_COLOR: ColorToken = ['--t2', '#5b6069'];
 // 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
 export const MARKER_COLOR: Record<Trade['kind'], ColorToken> = {
   buy: ACCENT,
@@ -1135,9 +1135,9 @@ export const MARKER_COLOR: Record<Trade['kind'], ColorToken> = {
   gapStop: DOWN,
 };
 
-export const isBuying = (t: Trade): boolean => t.kind === 'buy' || t.kind === 'add';
+const isBuying = (t: Trade): boolean => t.kind === 'buy' || t.kind === 'add';
 
-export interface MarkerGroup {
+interface MarkerGroup {
   time: string;
   bar: number;
   buying: boolean;
@@ -1554,7 +1554,7 @@ describe('재생 문구', () => {
 ```ts
 // @vitest-environment jsdom
 import { render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DayFrame, HoldingFrame, Skip, Trade } from '../../sim/types';
 import { expectNoAxeViolations } from '../../share/testAxe';
 import DayPanel from './DayPanel.svelte';
@@ -1642,6 +1642,23 @@ describe('DayPanel', () => {
       skipped: [{ date: '2023-10-12', symbol: '000660', reason: '거래 없음' }],
     });
     await expectNoAxeViolations(container);
+  });
+
+  it('motion이면 보유가 0에서 1로 바뀌어 목록이 새로 생길 때도 떠오름 효과가 돈다(|global)', async () => {
+    // jsdom에는 Web Animations가 없다. Svelte 전환이 부르는 element.animate를 스텁으로 센다
+    const anim = { cancel() {}, finish() {}, play() {}, pause() {}, onfinish: null as null | (() => void), currentTime: 0 };
+    const animate = vi.fn(() => anim);
+    const had = 'animate' in Element.prototype;
+    const orig = (Element.prototype as { animate?: unknown }).animate;
+    (Element.prototype as { animate?: unknown }).animate = animate;
+    try {
+      const { rerender } = panel({ frame: frame() });
+      await rerender({ frame: frame({ holdings: [holding()] }), trades: [], skipped: [], names, initial: 10_000_000, motion: true });
+      await vi.waitFor(() => expect(animate.mock.calls.length).toBeGreaterThan(0));
+    } finally {
+      if (had) (Element.prototype as { animate?: unknown }).animate = orig;
+      else delete (Element.prototype as { animate?: unknown }).animate;
+    }
   });
 });
 
@@ -1897,6 +1914,7 @@ export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'nextAdd' | 'avgPrice'
 <script lang="ts">
   // 그날 상황(설계 §4.4): 머리(날짜·총자산·현금·수익률) · 보유 카드 · 예약 매수 · 그날 체결 · 그날 건너뜀.
   // motion이면(하루만 움직였을 때) 새 보유 카드·새 체결 줄이 150ms 떠오른다. 아니면 duration 0이라 효과 없이 값만 바뀐다.
+  // Svelte 5 전환은 기본이 local이라 {#if}/{:else} 분기가 새로 생길 때(보유 0→1, 체결 0→n) 돌지 않는다. 그래서 |global로 건다.
   import { fly } from 'svelte/transition';
   import type { DayFrame, Skip, Trade } from '../../sim/types';
   import { fmtWon } from '../format';
@@ -1951,7 +1969,7 @@ export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'nextAdd' | 'avgPrice'
   {:else}
     <ul class="cards" aria-label="보유 종목">
       {#each frame.holdings as h (h.symbol)}
-        <li in:fly={rise}><HoldingCard {h} name={nameOf(h.symbol)} {motion} /></li>
+        <li in:fly|global={rise}><HoldingCard {h} name={nameOf(h.symbol)} {motion} /></li>
       {/each}
     </ul>
   {/if}
@@ -1964,7 +1982,7 @@ export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'nextAdd' | 'avgPrice'
   {#if trades.length > 0}
     <ul class="lines" aria-label="그날 체결">
       {#each trades as t (t)}
-        <li in:fly={rise}><b>{nameOf(t.symbol)}</b> · {tradeWhy(t)} · <span class="num">{fmtWon(t.qty)}주 · {fmtWon(t.price)}원</span></li>
+        <li in:fly|global={rise}><b>{nameOf(t.symbol)}</b> · {tradeWhy(t)} · <span class="num">{fmtWon(t.qty)}주 · {fmtWon(t.price)}원</span></li>
       {/each}
     </ul>
   {/if}
@@ -2060,6 +2078,7 @@ git commit -m "feat(simulate): 그날 상황 패널과 보유 카드를 만들�
 ```ts
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import { expectNoAxeViolations } from '../../share/testAxe';
 import { createReplay } from './replay.svelte';
@@ -2109,6 +2128,8 @@ describe('ReplayBar', () => {
   it('range를 옮기면 그날로 이동하고 일시정지', async () => {
     const { replay, container } = setup();
     replay.play();
+    // 이벤트 밖에서 바꾼 상태를 먼저 DOM에 반영한다(안 하면 남은 반영이 input 값을 0으로 덮어 seek(0)이 된다)
+    flushSync();
     await fireEvent.input(screen.getByRole('slider', { name: '거래일' }), { target: { value: '2' } });
     expect([replay.index, replay.playing, replay.touched]).toEqual([2, false, true]);
     expect(text(container.querySelector('.when'))).toBe('2024.03.13(수) · 3/5거래일');
@@ -2580,6 +2601,8 @@ test('시뮬레이션 재생: ▶ → 날짜가 바뀜 → ⏸ → 타임라인 
   await expect(bar.getByRole('button', { name: '일시정지' })).toBeVisible();
   await expect(when).not.toHaveText(last);
   await expect(result.getByRole('region', { name: '그날 상황' })).toBeVisible();
+  // 둘째 날 이후로 실제로 진행했는지 기다린다(1배 = 초당 1거래일)
+  await expect(when).toContainText(/ · ([2-9]|\d{2,})\/\d+거래일$/, { timeout: 5_000 });
   await bar.getByRole('button', { name: '일시정지' }).click();
   await expect(bar.getByRole('button', { name: '재생' })).toBeVisible();
 
