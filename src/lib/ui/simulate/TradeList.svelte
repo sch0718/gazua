@@ -3,7 +3,7 @@
   // 상승·하락 색 관례는 CSS 변수(--up/--down)가 맡으므로 관례 값은 받지 않는다.
   import type { Trade } from '../../sim/types';
   import { fmtWon } from '../format';
-  import { returnClass, shortDate, trendReturn } from './simText';
+  import { returnClass, shortDate, tradeWhy, trendReturn } from './simText';
 
   let {
     trades,
@@ -20,9 +20,6 @@
   } = $props();
 
   const isBuy = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
-  // 엔진의 `1단계 익절 80%`는 판 비율이라 `1단계 익절(80% 매도)`로 보인다
-  const reason = (r: string) => r.replace(/^(\d+단계 익절) (\d+)%$/, '$1($2% 매도)');
-  const why = (t: Trade) => (t.kind === 'buy' ? `${t.reason} 매수` : t.kind === 'add' ? '추가 매수' : reason(t.reason));
 
   const uid = Math.random().toString(36).slice(2, 9);
   const rows = $derived(
@@ -34,7 +31,7 @@
           : { text: trendReturn(t.pnlPct), cls: returnClass(t.pnlPct) };
       const name = names[t.symbol] ?? t.symbol;
       // 매도 줄 %는 평균 단가 대비 가격 변화(비용 제외)라 시트의 포지션 결과와 부호가 다를 수 있다
-      const sub = `${shortDate(t.date)} · ${why(t)}${isBuy(t) ? '' : ' · 평단 대비'}`;
+      const sub = `${shortDate(t.date)} · ${tradeWhy(t)}${isBuy(t) ? '' : ' · 평단 대비'}`;
       return { t, name, value, sub, label: [name, value?.text, sub].filter(Boolean).join(' · ') };
     }),
   );

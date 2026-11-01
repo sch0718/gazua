@@ -1,7 +1,7 @@
 // 시뮬레이션 화면의 문구. 목업의 한 줄 요약과 같은 말투로 쓴다.
 import { resolveSymbols, type Issue } from '../../sim/validate';
-import type { Skip, Strategy } from '../../sim/types';
-import { addDays, kstDate } from '../../time/kst';
+import type { HoldingFrame, Skip, Strategy, Trade } from '../../sim/types';
+import { addDays, kstDate, kstWeekday } from '../../time/kst';
 import { kstHHMM } from '../compare/compareText';
 import type { Watchlists } from '../../state/schema';
 import { fmtWon } from '../format';
@@ -108,6 +108,58 @@ export const dotDate = dots;
 
 /** `2024-03-14` → `03.14` */
 export const shortDate = (d: string) => dots(d.slice(5));
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'] as const;
+/** 재생 날짜: `2024-03-15` → `2024.03.15(금)` */
+export const replayDate = (d: string): string => `${dots(d)}(${WEEKDAY[kstWeekday(d)]})`;
+
+/**
+ * 체결 사유(거래 내역·그날 상황): `B 돌파 매수`·`추가 매수`·`1단계 익절(80% 매도)`·`손절`.
+ * 엔진의 `1단계 익절 80%`는 판 비율이라 `(80% 매도)`로 보인다.
+ */
+export function tradeWhy(t: Trade): string {
+  if (t.kind === 'buy') return `${t.reason} 매수`;
+  if (t.kind === 'add') return '추가 매수';
+  return t.reason.replace(/^(\d+단계 익절) (\d+)%$/, '$1($2% 매도)');
+}
+
+// ── 그날 상황(재생) ──────────────────────────────────────
+
+/** 손절·추가·익절 가격은 그날 종가 처리 뒤의 값이라 다음 거래일 장중 경로에 쓰인다 */
+export const PRICE_BASIS_NOTE = '다음 거래일 기준';
+/** 분할 매수 끝나기 전(avgAfterScaleIn)이라 손절가가 없을 때 */
+export const STOP_PENDING_NOTE = '손절: 분할 매수 끝나면 정해져요';
+export const NO_HOLDINGS = '보유한 종목이 없어요';
+/** 그날 종가 신호 → 다음 거래일 시가 매수 예약 */
+export const pendingText = (name: string, reason: string): string => `다음 거래일 시가에 사요: ${name} — ${reason}`;
+
+export interface PriceMark {
+  key: string;
+  kind: 'stop' | 'add' | 'avg' | 'take';
+  label: string;
+  price: number;
+  /** 막대 왼쪽에서의 위치(%) */
+  left: number;
+}
+
+/** 가격 막대: 손절 · 다음 추가 · 평단 · 익절 눈금과 종가 점. 범위는 표시 가격(종가 포함)의 최소·최대에 여유 5% */
+export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'nextAdd' | 'avgPrice' | 'takes' | 'close'>): { marks: PriceMark[]; dot: number } {
+  const single = h.takes.length === 1 && h.takes[0].stage === 1;
+  const raw: Omit<PriceMark, 'left'>[] = [
+    ...(h.stop === null ? [] : [{ key: 'stop', kind: 'stop' as const, label: '손절', price: h.stop }]),
+    ...(h.nextAdd === null ? [] : [{ key: 'add', kind: 'add' as const, label: '다음 추가', price: h.nextAdd }]),
+    { key: 'avg', kind: 'avg' as const, label: '평단', price: h.avgPrice },
+    ...h.takes.map((t) => ({ key: `take${t.stage}`, kind: 'take' as const, label: single ? '익절' : `익절 ${t.stage}`, price: t.price })),
+  ];
+  const all = [...raw.map((m) => m.price), h.close];
+  const min = Math.min(...all);
+  const max = Math.max(...all);
+  const pad = (max - min || Math.abs(max) || 1) * 0.05;
+  const lo = min - pad;
+  const span = max + pad - lo;
+  const at = (p: number) => ((p - lo) / span) * 100;
+  return { marks: raw.map((m) => ({ ...m, left: at(m.price) })), dot: at(h.close) };
+}
 
 /** 수익률에 ▲▼를 붙인다: `▲ +32.4%`, `▼ −2.5%`, `0.0%`(소수 첫째 자리로 반올림해 0이면 화살표 없음). 색은 returnClass로. */
 export function trendReturn(v: number | null): string {
