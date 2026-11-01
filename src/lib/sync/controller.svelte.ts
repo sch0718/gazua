@@ -247,6 +247,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   let keyGeneration = 0;
   let keyOperationGeneration = 0;
   let receiveGeneration = 0;
+  let keyRefreshSequence = 0;
   let keyView = $state<KeyView>({ support: null, vault: null, accountNotice: null, states: [], problem: null, remembered: false, persistent: true, uploaded: [] });
   // 동기화 설정이 없는 빌드(e2e 등)에서는 채널을 열지 않는다
   const keyChannel = config && typeof BroadcastChannel === 'function' ? new BroadcastChannel(KEY_CHANNEL) : null;
@@ -287,26 +288,32 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     }, deps.keyDebounceMs ?? KEY_DEBOUNCE_MS);
   }
   async function refreshKeys() {
+    const sequence = ++keyRefreshSequence;
     const ks = keyStore;
     if (!ks) return;
-    const [states, vault, notice, support, synced] = await Promise.all([
-      ks.states(),
-      ks.getMeta<SavedVault | null>('keyVault'),
-      ks.getMeta<KeyAccountNotice>('keyNotice'),
-      ks.getMeta<boolean>('keySupport'),
-      store ? store.states() : Promise.resolve([] as ProfileSyncState[]),
-    ]);
-    const v = vault ?? null;
-    keyView = {
-      support: support ?? null,
-      vault: v,
-      accountNotice: notice ?? null,
-      states,
-      problem: keySync?.problem() ?? null,
-      remembered: !!v && !!vaultKey && vaultKey.vaultId === v.vaultId && vaultKey.salt === v.salt && vaultKey.vaultRevision === v.vaultRevision,
-      persistent: ks.persistent,
-      uploaded: synced.filter((s) => s.syncedRevision > 0 && !s.deleted).map((s) => s.profileId),
-    };
+    try {
+      const [states, vault, notice, support, synced] = await Promise.all([
+        ks.states(),
+        ks.getMeta<SavedVault | null>('keyVault'),
+        ks.getMeta<KeyAccountNotice>('keyNotice'),
+        ks.getMeta<boolean>('keySupport'),
+        store ? store.states() : Promise.resolve([] as ProfileSyncState[]),
+      ]);
+      if (sequence !== keyRefreshSequence) return;
+      const v = vault ?? null;
+      keyView = {
+        support: support ?? null,
+        vault: v,
+        accountNotice: notice ?? null,
+        states,
+        problem: keySync?.problem() ?? null,
+        remembered: !!v && !!vaultKey && vaultKey.vaultId === v.vaultId && vaultKey.salt === v.salt && vaultKey.vaultRevision === v.vaultRevision,
+        persistent: ks.persistent,
+        uploaded: synced.filter((s) => s.syncedRevision > 0 && !s.deleted).map((s) => s.profileId),
+      };
+    } catch {
+      // 화면 갱신의 읽기 실패가 호출한 키 동작의 결과를 덮지 않게 한다.
+    }
   }
   async function sessionOk(): Promise<boolean> {
     if (destroyed || !session || !store) return false;
@@ -677,7 +684,6 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           store: keyStore,
           api,
           app,
-          now,
           profileState: async (id) => {
             const st = await syncStore.state(id);
             return { uploaded: !!st && st.syncedRevision > 0 && !st.deleted };

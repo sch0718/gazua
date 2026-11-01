@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  blobAad,
   checkSyncPassphrase,
   checkVerifier,
   deriveVaultKey,
@@ -11,6 +12,7 @@ import {
   sealKeys,
   sealRaw,
   VERIFIER_TEXT,
+  verifierAad,
   type BlobContext,
 } from './keyCrypto';
 import { KEY_ITER, type KeyPlainV1 } from './keyWire';
@@ -28,6 +30,17 @@ let other: CryptoKey;
 beforeAll(async () => {
   key = await deriveVaultKey(PASS, SALT, KEY_ITER);
   other = await deriveVaultKey(`${PASS}x`, SALT, KEY_ITER);
+});
+
+describe('AAD 와이어 리터럴', () => {
+  it('블롭 AAD의 접두사·구분자·필드 순서를 고정한다', () => {
+    expect(blobAad({ vaultId: 'vault-id', profileId: 'profile-id', revision: 7, contentId: 'content-id', vaultRevision: 11 }))
+      .toBe('gazua-keys/v1|blob|vault-id|profile-id|7|content-id|11');
+  });
+
+  it('확인값 AAD의 접두사·구분자·필드 순서를 고정한다', () => {
+    expect(verifierAad('vault-id', 11)).toBe('gazua-keys/v1|verifier|vault-id|11');
+  });
 });
 
 describe('마스터 키', () => {

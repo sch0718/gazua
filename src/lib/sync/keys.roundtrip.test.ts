@@ -76,7 +76,6 @@ async function device(s: TestServer): Promise<Device> {
     store: keyStore,
     api,
     app,
-    now: () => s.h.clock.now,
     profileState: async (id) => {
       const st = await store.state(id);
       return { uploaded: !!st && st.syncedRevision > 0 && !st.deleted };

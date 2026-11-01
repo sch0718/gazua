@@ -76,7 +76,6 @@ export interface KeySyncDeps {
   store: KeyStore;
   api: SyncApi;
   app: KeySyncApp;
-  now: () => number;
   /** 동기화 엔진이 이 프로필을 서버에 올렸다고 확인했는가(syncedRevision > 0, 삭제 아님) */
   profileState(profileId: string): Promise<{ uploaded: boolean }>;
   vaultKey(): VaultKey | null;
@@ -379,29 +378,31 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
   }
 
   /** 5.6-4: 서버 블롭이 지금 이 기기의 고른 공급자 키와 같은가. 같으면 맞춘 상태로 쓴다 */
-  async function sameAsServer(id: string, row: { revision: number }, key: VaultKey | null): Promise<'same' | 'differs' | 'unknown'> {
-    if (!key || id !== app.meta.activeProfileId) return 'unknown';
+  async function sameAsServer(id: string, row: { revision: number }, key: VaultKey | null): Promise<'same' | 'differs' | KeyFail> {
+    if (!key) return fail(null, { needsPass: true });
+    if (id !== app.meta.activeProfileId) return fail(KEY_TEXT.otherProfile);
     const st = await store.state(id);
-    if (!st?.active) return 'unknown';
+    if (!st?.active) return fail(null, { recheck: true });
     const seq = st.localSeq;
     const local = app.syncableSecrets(id);
-    if (!local) return 'unknown';
+    if (!local) return fail(KEY_TEXT.noKeys);
     const got = await api.getKeyBlob(id);
     if (!got.ok) {
       loginFail(got);
-      if (badConflict(got)) problem = KEY_TEXT.badResponse;
-      return 'unknown';
+      if (badConflict(got)) return fail((problem = KEY_TEXT.badResponse));
+      return fail(keyFailText(got));
     }
     const blob = checkBlob(got.data);
-    if (!blob || blob.revision !== row.revision) return 'unknown';
+    if (!blob) return fail(KEY_TEXT.badResponse);
+    if (blob.revision !== row.revision) return fail(KEY_TEXT.conflict);
     let plain: KeyPlainV1;
     try {
       plain = await openKeys(key.key, ctxOf(key, id, blob), blob);
-    } catch {
-      return 'unknown';
+    } catch (e) {
+      return fail(e instanceof KeyOpenError && e.reason === 'shape' ? KEY_TEXT.shape : KEY_TEXT.unopenable);
     }
     if (!samePlain(plain, plainFor(st.providers, local))) return 'differs';
-    if (!(await store.state(id))?.active) return 'unknown';
+    if (!(await store.state(id))?.active) return fail(null, { recheck: true });
     await store.markSynced(id, { revision: blob.revision, contentId: blob.contentId, uploadedSeq: seq, notice: null });
     await store.markSeen(id, blob.revision);
     return 'same';
@@ -470,8 +471,14 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
 
   /** 다른 기기가 먼저 켠 살아 있는 행: 목록에서 보거나 PUT이 409여도 같은 판정이다. */
   async function enableConflict(id: string, revision: number, key: VaultKey): Promise<KeyResult> {
-    if ((await sameAsServer(id, { revision }, key)) === 'same') return done;
+    const same = await sameAsServer(id, { revision }, key);
+    if (same === 'same') return done;
     if (!(await store.state(id))?.active) return fail(null, { recheck: true });
+    // 비교 불가는 충돌로 확정하지 않는다. 켜기를 되돌리고 비교 실패를 알린다(5.6-4).
+    if (same !== 'differs') {
+      await store.setActive(id, { active: false, notice: null });
+      return same;
+    }
     // 이 기기 키를 올릴 변경으로 남기고 고르게 한다.
     await store.bumpSeq(id);
     await store.setNotice(id, 'conflict', revision);
@@ -673,7 +680,8 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
         if (nameOf(e) === 'SecretsChangedError') return fail(KEY_TEXT.secretsChanged);
         if (nameOf(e) === 'KeyLockedElsewhereError') return fail(KEY_TEXT.lockedElsewhere);
         // KeyLockNotSavedError·StoredKeysNotRemovedError: 화면이 KeyLock 문구로 보인다. 리비전은 올리지 않는다(다시 받을 수 있게)
-        return fail(null, { error: e instanceof Error ? e : new Error('applySyncedSecrets failed') });
+        if (e instanceof Error && (e.name === 'KeyLockNotSavedError' || e.name === 'StoredKeysNotRemovedError')) return fail(null, { error: e });
+        return fail(KEY_TEXT.server);
       }
       const providers = keyPlainProviders(p.plain);
       if (!(await store.state(p.profileId))?.active) return fail(null, { recheck: true });

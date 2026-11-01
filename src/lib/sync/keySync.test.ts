@@ -3,7 +3,7 @@ import type { ApiFail, SyncApi } from './api';
 import { deriveVaultKey, makeVerifier, openKeys, randomId, sealKeys } from './keyCrypto';
 import { createMemoryKeyStore } from './keyStore';
 import { createKeySync, KEY_TEXT, type KeySyncApp, type VaultKey } from './keySync';
-import { KEY_ITER, type KeyPlainV1, type KeyVaultHead } from './keyWire';
+import { checkBlob, KEY_ITER, type KeyPlainV1, type KeyVaultHead } from './keyWire';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -129,7 +129,6 @@ function setup(o: { active?: string; keyLock?: boolean; provider?: string } = {}
     store,
     api,
     app: app as KeySyncApp,
-    now: () => 1,
     profileState: async (id) => ({ uploaded: uploaded.has(id) }),
     vaultKey: () => key,
     setVaultKey: (k) => (key = k),
@@ -417,6 +416,37 @@ describe('되감기(5.4·5.8)', () => {
 });
 
 describe('켜기·받기·끄기·공급자(5.5~5.9)', () => {
+  describe.each(['목록', 'PUT 409'] as const)('켜기 비교 불가: %s 경로', (path) => {
+    it.each(['offline', 'auth', 'not-allowed', 'revision-changed'] as const)('%s이면 충돌 성공으로 끝내지 않고 행을 끈다', async (reason) => {
+      const t = setup();
+      t.remember();
+      t.secrets.set('p1', { kis: KIS_A });
+      await serverBlob(t.srv, 'p1', 1, { v: 1, kis: KIS_B });
+      const before = structuredClone(t.srv.rows.get('p1'));
+      if (path === 'PUT 409') t.raw.listKeys.mockResolvedValueOnce({ ok: true, data: { keyVault: head, keyBlobs: [] } });
+      if (reason === 'revision-changed') {
+        const get = t.raw.getKeyBlob.getMockImplementation()!;
+        t.raw.getKeyBlob.mockImplementationOnce(async (id) => {
+          const r = await get(id);
+          return r.ok ? { ...r, data: { ...checkBlob(r.data)!, revision: 2 } } : r;
+        });
+      } else {
+        t.raw.getKeyBlob.mockResolvedValueOnce(reason === 'auth'
+          ? { ok: false, kind: reason, code: 'session-revoked', session: 'FAKE-session' }
+          : { ok: false, kind: reason });
+      }
+      expect(await t.ks.enable('p1', ['kis'])).toEqual({
+        ok: false,
+        message: reason === 'offline' ? KEY_TEXT.offline : reason === 'revision-changed' ? KEY_TEXT.conflict : KEY_TEXT.auth,
+      });
+      expect(await t.store.state('p1')).toMatchObject({ active: false, notice: null, revision: 0, localSeq: 0, uploadedSeq: 0 });
+      expect(t.srv.rows.get('p1')).toEqual(before);
+      if (reason === 'auth') expect(t.onAuthFailure).toHaveBeenCalledWith('session-revoked', 'FAKE-session');
+      else if (reason === 'not-allowed') expect(t.onAuthFailure).toHaveBeenCalledWith('not-allowed');
+      else expect(t.onAuthFailure).not.toHaveBeenCalled();
+    });
+  });
+
   it('켜기 409(다른 기기가 그사이 켬)는 conflict로 남고 다음 단계에서도 conflict', async () => {
     const t = setup();
     t.secrets.set('p1', { kis: KIS_A });
@@ -537,7 +567,7 @@ describe('켜기·받기·끄기·공급자(5.5~5.9)', () => {
     expect(t.key()).toBeNull();
   });
 
-  it('받기: SecretsChangedError·KeyLockedElsewhereError 문구, 그 밖의 저장 실패는 오류 객체를 넘기고 리비전을 올리지 않는다', async () => {
+  it('받기: 알려진 저장 오류의 문구·오류 객체를 보존하고 리비전을 올리지 않는다', async () => {
     const t = setup();
     t.remember();
     await serverBlob(t.srv, 'p1', 1, { v: 1, kis: KIS_A });
@@ -551,6 +581,18 @@ describe('켜기·받기·끄기·공급자(5.5~5.9)', () => {
     t.app.applySyncedSecrets.mockRejectedValueOnce(e);
     expect(await receive(t)).toEqual({ ok: false, message: null, error: e });
     expect((await t.store.state('p1'))?.revision).toBe(0);
+  });
+
+  it.each([new Error('FAKE-save-error'), 'FAKE-non-error'])('받기의 알 수 없는 저장 실패는 기존 서버 문구로 알리고 상태를 유지한다: %s', async (error) => {
+    const t = setup();
+    t.remember();
+    await serverBlob(t.srv, 'p1', 1, { v: 1, kis: KIS_A });
+    await t.ks.step();
+    const before = await t.store.state('p1');
+    t.app.applySyncedSecrets.mockRejectedValueOnce(error);
+    expect(await receive(t)).toEqual({ ok: false, message: KEY_TEXT.server });
+    expect(await t.store.state('p1')).toEqual(before);
+    expect(t.secrets.get('p1')).toBeUndefined();
   });
 
   it('공급자: 고르지 않은 공급자만 바뀌면 dirty가 아니고, setProviders는 dirty를 만들어 고른 공급자만 올린다, 값이 없으면 missing-key', async () => {

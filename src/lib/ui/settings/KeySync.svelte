@@ -103,7 +103,7 @@
     offerDelete = !!r.offerDelete;
     if (r.error instanceof KeyLockNotSavedError) message = keyLockFailureText(r.error);
     else if (r.error instanceof StoredKeysNotRemovedError) message = KEYS_NOT_REMOVED;
-    else message = r.message;
+    else message = r.message ?? (r.error ? KEY_TEXT.server : null);
   }
   /** 실패를 보인다. 암호가 필요하면 하던 일을 기억한 채 입력 시트를 연다 */
   function afterFail(r: Extract<KeyResult, { ok: false }>, keep: Next) {
@@ -333,7 +333,7 @@
       {#if view.accountNotice === 'vault-changed'}
         <p class="notice" role="status">
           {KEY_TEXT.vaultChanged}
-          <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
+          <button type="button" class="link" aria-label="바뀐 동기화 암호 입력" onclick={() => ((next = null), open('enter'))}>입력</button>
           <button type="button" class="link" onclick={() => sync.keys.dismissAccount()}>닫기</button>
         </p>
       {:else if view.accountNotice === 'vault-gone'}
@@ -368,7 +368,7 @@
         {#if dirty && !view.remembered}
           <p class="notice" role="status">
             {KEY_TEXT.pendingUpload}
-            <button type="button" class="link" onclick={() => ((next = null), open('enter'))}>입력</button>
+            <button type="button" class="link" aria-label="키를 올리기 위한 동기화 암호 입력" onclick={() => ((next = null), open('enter'))}>입력</button>
           </p>
         {/if}
       {/if}
@@ -390,7 +390,7 @@
           {#if view.remembered}
             <button type="button" class="btn" onclick={() => sync.keys.forget()}>잊기</button>
           {:else}
-            <button type="button" class="btn" onclick={() => ((next = null), open('enter'))}>입력</button>
+            <button type="button" class="btn" aria-label="동기화 암호 입력" onclick={() => ((next = null), open('enter'))}>입력</button>
           {/if}
         </div>
         <div class="row actions">

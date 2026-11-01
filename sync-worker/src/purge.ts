@@ -1,4 +1,5 @@
 // 하루 한 번 Cron: 삭제 30일 지난 프로필의 본문·이력·공유·색인, 오래된 공유·세션을 지운다.
+// 키 행은 지우지 않고 남은 암호문만 삭제 표시로 바꿔 리비전을 이어 간다.
 // 무료 쓰기 한도를 아끼려고 한 번에 지우는 양을 제한한다. 남은 것은 다음 날 이어서 지운다.
 import { purgeSessions } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';

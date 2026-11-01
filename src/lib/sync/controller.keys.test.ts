@@ -96,6 +96,46 @@ const serverRevision = (s: TestServer, id: string) =>
   (s.h.env.DB.raw.prepare('SELECT revision FROM key_blobs WHERE profile_id = ?').get(id) as { revision: number } | undefined)?.revision;
 
 describe('컨트롤러의 키 동기화', () => {
+  it('겹친 상태 갱신은 최신 호출의 결과만 남긴다', async () => {
+    const d = await setup(testServer());
+    await d.sync.keys.dismissAccount();
+    const id = d.app.meta.activeProfileId;
+    await d.keyStore.activate(id, { providers: ['kis'], notice: 'available' });
+    await d.keyStore.setMeta('keySupport', false);
+    const old = await d.keyStore.states();
+    let release!: (states: typeof old) => void;
+    const spy = vi.spyOn(d.keyStore, 'states').mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    try {
+      const first = d.sync.keys.dismissAccount();
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+      await d.keyStore.setActive(id, { active: false, notice: 'removed' });
+      await d.keyStore.setMeta('keySupport', true);
+      await d.sync.keys.dismissAccount();
+      const latest = d.sync.keys.view;
+      expect(latest.support).toBe(true);
+      expect(latest.states).toEqual(await d.keyStore.states());
+      release(old);
+      await first;
+      expect(d.sync.keys.view).toEqual(latest);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it.each(['states', 'meta', 'profiles'] as const)('상태 갱신의 %s 읽기 예외가 키 동작 결과를 덮지 않는다', async (read) => {
+    const d = await setup(testServer());
+    await d.sync.keys.dismissAccount();
+    const before = d.sync.keys.view;
+    const spy = read === 'states' ? vi.spyOn(d.keyStore, 'states') : read === 'meta' ? vi.spyOn(d.keyStore, 'getMeta') : vi.spyOn(d.store, 'states');
+    spy.mockRejectedValueOnce(new Error('FAKE-refresh-error'));
+    try {
+      await expect(d.sync.keys.enable(d.app.meta.activeProfileId, [])).resolves.toEqual({ ok: false, message: KEY_TEXT.noKeys });
+      expect(d.sync.keys.view).toEqual(before);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('이 기기에서 키를 고치면 디바운스 뒤 키 단계만 돌아 자동으로 올린다', async () => {
     const s = testServer();
     const d = await on(s);

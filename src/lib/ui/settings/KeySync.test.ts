@@ -66,6 +66,30 @@ async function openRisk() {
 }
 
 describe('KeySync', () => {
+  it('함께 보이는 입력 단추는 보이는 글자를 유지하고 접근 가능한 이름으로 구분한다', async () => {
+    await setup({ keys: fakeKeys({ vault: VAULT, accountNotice: 'vault-changed', states: [row({ localSeq: 1 })] }), secrets: { kis: KIS } });
+    const labels = ['바뀐 동기화 암호 입력', '키를 올리기 위한 동기화 암호 입력', '동기화 암호 입력'];
+    for (const label of labels) {
+      const input = button(label);
+      expect(input.textContent).toBe('입력');
+      await fireEvent.click(input);
+      expect(screen.getByRole('dialog', { name: '동기화 암호 입력' })).toBeTruthy();
+      await fireEvent.click(button('취소'));
+    }
+  });
+
+  it('받기의 일반 저장 오류도 서버 문구로 보이고 조용한 실패는 그대로 둔다', async () => {
+    const commitReceive = vi.fn()
+      .mockResolvedValueOnce({ ok: false, message: null, error: new Error('FAKE-save-error') })
+      .mockResolvedValueOnce({ ok: false, message: null });
+    await setup({ keys: fakeKeys({ vault: VAULT, remembered: true, states: [row({ notice: 'newer' })] }, { commitReceive }) });
+    await fireEvent.click(button('받기'));
+    expect((await screen.findByRole('alert')).textContent?.trim()).toBe(KEY_TEXT.server);
+    await fireEvent.click(button('받기'));
+    await waitFor(() => expect(commitReceive).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('옛 Worker면 배포 안내만, 아직 모르면 아무것도 없다', async () => {
     await setup({ keys: fakeKeys({ support: false }) });
     expect(screen.getByText(KEY_TEXT.oldWorker)).toBeTruthy();
@@ -224,7 +248,7 @@ describe('KeySync', () => {
     let finish!: (v: KeyResult) => void;
     const keys = fakeKeys({ vault: VAULT }, { unlockVault: vi.fn(() => new Promise<KeyResult>((r) => (finish = r))) });
     await setup({ keys, secrets: { kis: KIS } });
-    await fireEvent.click(button('입력'));
+    await fireEvent.click(button('동기화 암호 입력'));
     await screen.findByText('동기화 암호 입력');
     await fireEvent.input(screen.getByLabelText('동기화 암호'), { target: { value: 'FAKE-wrong-pass' } });
     await fireEvent.click(button('확인'));
@@ -250,7 +274,7 @@ describe('KeySync', () => {
       await openRisk();
       await fireEvent.click(checkbox('위 내용을 이해했어요'));
       await fireEvent.click(button('계속'));
-    } else await fireEvent.click(button(method === 'unlockVault' ? '입력' : '동기화 암호 바꾸기'));
+    } else await fireEvent.click(button(method === 'unlockVault' ? '동기화 암호 입력' : '동기화 암호 바꾸기'));
     const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
     for (const input of inputs) await fireEvent.input(input, { target: { value: 'FAKE-sync-pass' } });
     await fireEvent.click(button('확인'));
@@ -268,7 +292,7 @@ describe('KeySync', () => {
   ])('빈 암호 칸을 제출하면 아무 일도 하지 않는다: %s, %s', async (kind, emptyField) => {
     const keys = fakeKeys({ vault: VAULT, remembered: kind === 'lockpass', states: [row({ notice: 'newer' })] });
     await setup({ keys, secrets: { kis: KIS }, keyLock: kind === 'lockpass' || kind === 'enter-lock' });
-    await fireEvent.click(button(kind === 'change' ? '동기화 암호 바꾸기' : kind === 'enter' ? '입력' : '받기'));
+    await fireEvent.click(button(kind === 'change' ? '동기화 암호 바꾸기' : kind === 'enter' ? '동기화 암호 입력' : '받기'));
     for (const input of document.querySelectorAll<HTMLInputElement>('input[type="password"]')) {
       await fireEvent.input(input, { target: { value: 'FAKE-sync-pass' } });
     }
@@ -389,7 +413,7 @@ describe('KeySync', () => {
     const confirmFn = vi.fn(() => true);
     const keys = fakeKeys({ vault: VAULT });
     await setup({ keys, confirmFn, secrets: { kis: KIS } });
-    await fireEvent.click(button('입력'));
+    await fireEvent.click(button('동기화 암호 입력'));
     await fireEvent.click(await screen.findByRole('button', { name: '암호를 잊었어요' }));
     expect(confirmFn).toHaveBeenCalledWith(KEY_TEXT.wipeConfirm);
     await waitFor(() => expect(keys.wipe).toHaveBeenCalled());

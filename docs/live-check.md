@@ -301,6 +301,6 @@
 ## ㉛-1 실제 D1 rekey batch 원자성
 
 - **무엇을**: `key_guard`의 CHECK 실패가 앞선 금고·블롭 변경까지 포함해 batch 전체를 되돌리는지 확인해요. 테스트용 D1 흉내로만 확인했고, 실제 D1에서는 아직 확인하지 않았어요.
-- **어떻게**: 0003을 적용한 운영 D1과 새 Worker에서 허용 목록의 별도 검증용 **계정**을 써요(금고는 계정당 하나예요). 살아 있는 블롭을 하나 이상 만든 뒤 `GET /v1/keys`의 salt·vaultRevision과 블롭 상태를 메모리에 기억해요. 새 salt와 올바르게 다시 봉한 블롭으로 rekey 본문을 만들되, 살아 있는 블롭 하나를 `keyBlobs`에서 빼고 `POST /v1/keys/rekey`로 보내 `409 conflict`를 받아요. 그 뒤 `GET /v1/keys`에서 salt·vaultRevision이 요청 전 그대로인지 확인해요. 목록과 각 `GET /v1/keys/:id`도 메모리에서 비교해 모든 블롭이 그대로인지 봐요. 키·토큰·동기화 암호·salt·암호문은 기록하지 않고 통과 여부만 남겨요.
+- **어떻게**: 0003을 적용한 운영 D1과 새 Worker에서 허용 목록의 별도 검증용 **계정**을 써요(금고는 계정당 하나예요). 살아 있는 블롭을 하나 이상 만든 뒤 `GET /v1/keys`의 salt·vaultRevision과 블롭 상태를 메모리에 기억해요. 새 salt와 올바르게 다시 봉한 블롭으로 rekey 본문을 만들되, 살아 있는 블롭 하나를 `keyBlobs`에서 빼고 `POST /v1/keys/rekey`로 보내 `409 conflict`를 받아요. batch를 되돌리지 않으면 409 대신 200이 올 수 있어요(이미 반영된 salt로 판단하는 재요청 성공 처리 때문이에요). HTTP 상태만으로 통과를 판정하지 않아요. 그 뒤 `GET /v1/keys`에서 salt·vaultRevision이 요청 전 그대로인지 확인해요. 목록과 각 `GET /v1/keys/:id`도 메모리에서 비교해 모든 블롭이 그대로인지 봐요. 끝나면 검증 계정으로 `DELETE /v1/keys`를 보내 금고를 정리하고, `GET /v1/keys`가 `keyVault: null`과 빈 `keyBlobs`를 돌려주는지 확인해요. 키·토큰·동기화 암호·salt·암호문은 기록하지 않고 통과 여부만 남겨요.
 - **바꿀 곳**: `sync-worker/src/keys.ts`의 `rekey` batch와 `key_guard` 감시 문장이에요.
-- **결과**: 미확인 — 실제 D1 CHECK 실패 시 batch 전체 되돌림 __
+- 결과: 미확인 — 실제 D1 CHECK 실패 시 batch 전체 되돌림 __
