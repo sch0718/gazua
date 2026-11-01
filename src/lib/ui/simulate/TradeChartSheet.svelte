@@ -7,7 +7,6 @@
     createSeriesMarkers,
     LineSeries,
     LineStyle,
-    type SeriesMarker,
     type Time,
   } from 'lightweight-charts';
   import type { Candle } from '../../data/metrics';
@@ -17,6 +16,7 @@
   import { fmtWon } from '../format';
   import { positionOf, positionReturnPct } from './positions';
   import { returnClass, shortDate, trendReturn } from './simText';
+  import { TRADE_LABEL, tradeMarkers } from './markers';
 
   let {
     open,
@@ -42,22 +42,10 @@
   const edgePadBars = (n: number) => Math.max(3, Math.ceil(n * 0.07));
   /** 같은 방향 마커가 이 봉 수 안이면 하나로 합친다(라벨 겹침 방지) */
   const MERGE_BARS = 3;
-  const LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
   // 토큰을 못 읽을 때의 폴백은 라이트 토큰 값(tokens.css)과 같게, 토큰마다 하나
   const ACCENT: [string, string] = ['--accent', '#5b47e0'];
   const T2: [string, string] = ['--t2', '#5b6069'];
   const T3: [string, string] = ['--t3', '#676d77'];
-  const UP: [string, string] = ['--up', '#d4202f'];
-  const DOWN: [string, string] = ['--down', '#1d5fd6'];
-  // 마커·가격선 색 토큰: 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
-  const MARKER_COLOR: Record<Trade['kind'], [string, string]> = {
-    buy: ACCENT,
-    add: ACCENT,
-    take: UP,
-    gapTake: UP,
-    stop: DOWN,
-    gapStop: DOWN,
-  };
 
   const position = $derived(trade ? positionOf(trades, trade) : null);
   const pattern = $derived(position?.trades.find((t) => t.kind === 'buy')?.pattern ?? null);
@@ -84,7 +72,7 @@
     if (!position) return [];
     const year = position.trades[0].date.slice(0, 4);
     const when = (d: string) => (d.slice(0, 4) === year ? shortDate(d) : d.slice(2).replaceAll('-', '.'));
-    return position.trades.map((t) => `${LABEL[t.kind]} ${when(t.date)} ${fmtWon(t.price)}원`);
+    return position.trades.map((t) => `${TRADE_LABEL[t.kind]} ${when(t.date)} ${fmtWon(t.price)}원`);
   });
   const outcome = $derived.by(() => {
     if (!position) return null;
@@ -93,27 +81,6 @@
   });
   // 제목: `DB하이텍 · 25.03.24 매수`(포지션의 첫 매수일)
   const title = $derived(position ? `${name} · ${position.trades[0].date.slice(2).replaceAll('-', '.')} 매수` : name);
-
-  const buying = (t: Trade) => t.kind === 'buy' || t.kind === 'add';
-
-  /** 같은 방향 거래가 MERGE_BARS봉 안에 몰리면 마커 하나로(라벨 `매수·추가`·`익절·손절`). 시간 순으로 돌려준다. */
-  function mergedMarkers(list: Trade[], barOf: (date: string) => number) {
-    type Group = { time: string; bar: number; buying: boolean; kinds: Trade['kind'][] };
-    const groups: Group[] = [];
-    const lastOf = new Map<boolean, Group>();
-    for (const t of list) {
-      const bar = barOf(t.date);
-      const last = lastOf.get(buying(t));
-      if (last && bar - last.bar <= MERGE_BARS) {
-        last.kinds.push(t.kind);
-        continue;
-      }
-      const g = { time: t.date, bar, buying: buying(t), kinds: [t.kind] };
-      groups.push(g);
-      lastOf.set(g.buying, g);
-    }
-    return groups.sort((a, b) => a.bar - b.bar);
-  }
 
   let el = $state<HTMLDivElement>();
 
@@ -143,18 +110,7 @@
       const i = dates.findIndex((d) => d >= date);
       return i < 0 ? dates.length : i;
     };
-    const markers: SeriesMarker<Time>[] = mergedMarkers(position.trades, barOf).map((g) => {
-      const colors = [...new Set(g.kinds.map((k) => v(MARKER_COLOR[k])))];
-      return {
-        time: g.time as Time,
-        position: g.buying ? 'belowBar' : 'aboveBar',
-        shape: g.buying ? 'arrowUp' : 'arrowDown',
-        // 익절·손절처럼 색이 섞이면 중립색
-        color: colors.length === 1 ? colors[0] : v(T2),
-        text: [...new Set(g.kinds.map((k) => LABEL[k]))].join('·'),
-      };
-    });
-    createSeriesMarkers(line, markers);
+    createSeriesMarkers(line, tradeMarkers(position.trades, barOf, MERGE_BARS, v));
 
     if (pattern) {
       // 고른 돌파 기준선만 강조색. L은 참고용이라 성긴 점선, 값은 요약 글에 있으니 축 라벨은 뺀다
