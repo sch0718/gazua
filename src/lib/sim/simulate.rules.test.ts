@@ -1,6 +1,7 @@
 // 전략 빌더 엔진(배분·트레일링·기간 청산·조건 매도) 동작. 대표 입력은 testInputs의 봉 도우미를 쓴다.
 import { describe, expect, it } from 'vitest';
 import { simulate } from './simulate';
+import { roundMoney } from './money';
 import { baseStrategy, BASE, candlesFrom, D, flat, stockOf, type Ohlc } from './testInputs';
 import type { SimInput, Strategy } from './types';
 
@@ -24,6 +25,20 @@ describe('자금 배분(§6)', () => {
   it('equal: 처음 자금 ÷ 받은 종목 수', () => {
     const r = simulate(input(v2((s) => (s.sizing = { mode: 'equal', pct: 10 })), [flatRest, flatRest]));
     expect(buys(r)[0].qty).toBe(Math.floor(5_000_000 / (86 * 1.00015)));
+  });
+  it('equal: 봉을 받지 못한 종목도 입력 종목 수에 포함한다', () => {
+    const data = input(v2((s) => (s.sizing = { mode: 'equal', pct: 10 })), [flatRest, flatRest, flatRest]);
+    data.stocks[2].candles = [];
+    const r = simulate(data);
+    const amount = roundMoney(data.strategy.capital.initial / data.stocks.length);
+    const qty = Math.floor(amount / (86 * 1.00015));
+
+    expect(r.perSymbol.filter((s) => s.firstDate !== null).map((s) => s.symbol)).toEqual(['S0', 'S1']);
+    expect(buys(r).map((t) => ({ symbol: t.symbol, price: t.price, qty: t.qty }))).toEqual([
+      { symbol: 'S0', price: 86, qty },
+      { symbol: 'S1', price: 86, qty },
+    ]);
+    for (const t of buys(r)) expect(roundMoney(t.qty * t.price + t.fee)).toBeLessThanOrEqual(amount);
   });
   it('cashPct: 같은 시가에 앞 종목이 산 뒤 남은 현금으로', () => {
     const r = simulate(input(v2((s) => (s.sizing = { mode: 'cashPct', pct: 50 })), [flatRest, flatRest]));

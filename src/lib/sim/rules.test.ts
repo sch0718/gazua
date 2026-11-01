@@ -53,6 +53,22 @@ describe('조건 판정(§5.2)', () => {
     const c = closes([10, 9, 8, 7, 8, 9, 10, 11]);
     expect(hits(c, one({ kind: 'rsi', period: 2, level: 50, op: 'crossUp' }))).toEqual([5]);
   });
+  it('rsi: 충분한 워밍업 앞에 봉을 더 받아도 첫 거래일부터 판정이 같다', () => {
+    const dates = tradingDates('2024-01-02', 306);
+    const tail = [100, 101, 100, 100, 99, 100];
+    // 고정 시작점 앞은 상승, 뒤 250봉은 보합이다
+    const candles = dates.map((dt, i) => {
+      const c = i < 50 ? 50 + i : i < 300 ? 100 : tail[i - 300];
+      return bar(dt, c, c, c, c);
+    });
+    const groups = one({ kind: 'rsi', period: 14, level: 50, op: 'above' });
+    const full = createRuleEvaluator(candles, groups, 300);
+    const shorter = createRuleEvaluator(candles.slice(50), groups, 250);
+    const signals = tail.map((_, i) => full.signal(300 + i));
+
+    expect(signals).toEqual(tail.map((_, i) => shorter.signal(250 + i)));
+    expect(signals.map((s) => s !== null)).toEqual([false, true, false, false, false, true]);
+  });
   it('volume: 배 이상은 같음 포함', () => {
     const c = closes([1, 1, 1, 1], [10, 10, 10, 20]);
     expect(hits(c, one({ kind: 'volume', days: 3, ratio: 2 }))).toEqual([3]);

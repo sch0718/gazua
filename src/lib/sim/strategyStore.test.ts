@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSafeStorage } from '../state/storage';
-import { memoryBacking, seed } from '../state/testStorage';
+import { memoryBacking, seed, totalQuotaBacking } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
 import { MAX_STRATEGIES, newStrategy } from './defaults';
 import { newStrategyV1, toV2 } from './strategyV1';
@@ -84,9 +84,35 @@ describe('새 키 strategySet(§8.2)', () => {
     const st = make();
     const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
     st.set(profileKeys.strategies('p'), { strategies: [v1] });
+    const reportCorrupt = vi.spyOn(st, 'reportCorrupt');
     expect(loadStrategies(st, 'p')).toEqual([toV2(v1)]);
     expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [toV2(v1)] });
     expect(st.get(profileKeys.strategies('p'), null)).toEqual({ strategies: [v1] });
+    expect(reportCorrupt).not.toHaveBeenCalled();
+    expect(st.issues).toEqual([]);
+  });
+  it('새 키 쓰기가 실패하면 옮긴 목록만 돌려주고 옛 키는 그대로 둔다', () => {
+    const backing = totalQuotaBacking();
+    const oldKey = profileKeys.strategies('p');
+    const newKey = profileKeys.strategySet('p');
+    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    seed(backing, oldKey, { strategies: [v1] });
+    const before = backing.dump();
+    backing.limit = backing.used();
+    const st = createSafeStorage(backing);
+    const trySet = vi.spyOn(st, 'trySet');
+    const next = [toV2(v1)];
+
+    expect(loadStrategies(st, 'p')).toEqual(next);
+    expect(trySet).toHaveBeenCalledWith(newKey, { strategies: next });
+    expect(trySet).toHaveReturnedWith(false);
+    expect(st.readBacking(newKey, null)).toBeNull();
+    expect(st.get(oldKey, null)).toEqual({ strategies: [v1] });
+    expect(backing.dump()).toBe(before);
+    expect(st.issues).toEqual([{ key: newKey, kind: 'write-failed' }]);
+    expect(loadStrategies(st, 'p')).toEqual(next);
+    expect(trySet).toHaveBeenCalledTimes(2);
+    expect(backing.dump()).toBe(before);
   });
   it('새 키가 있으면 옛 키는 읽지 않는다', () => {
     const st = make();

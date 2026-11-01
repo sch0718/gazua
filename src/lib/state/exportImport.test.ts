@@ -489,14 +489,18 @@ describe('baskets in export files', () => {
 
 describe('내보내기 v2(§8.5)', () => {
   it('schemaVersion 2로 내보내고, v1 파일은 전략을 옮겨 새 키에 쓴다', () => {
-    const st = createSafeStorage(memoryBacking());
+    const backing = memoryBacking();
+    const st = createSafeStorage(backing);
     const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
     const file = { format: EXPORT_FORMAT, schemaVersion: 1, profile: { name: '옛' }, settings: {}, watchlists: LISTS, recent: [], strategies: [v1] };
     const r = importData(st, JSON.stringify(file), () => 0);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(r.repaired).toBe(false);
+    expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.strategySet(r.profileId)}`)!)).toEqual({ strategies: [toV2(v1)] });
     expect(st.get(profileKeys.strategySet(r.profileId), null)).toEqual({ strategies: [toV2(v1)] });
     expect(st.get(profileKeys.strategies(r.profileId), null)).toBeNull();
+    expect(loadStrategies(st, r.profileId)).toEqual([toV2(v1)]);
     expect(JSON.parse(exportData(st, r.profileId, false)).schemaVersion).toBe(2);
   });
   it('알 수 없는 버전은 거절한다', () => {
