@@ -522,7 +522,7 @@ describe('Simulate run states', () => {
     expect(screen.queryByText(STALE)).toBeNull();
     const before = dropOf();
     await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
-    await fireEvent.input(screen.getByRole('textbox', { name: '고점 대비 하락폭' }), { target: { value: String(before + 7) } });
+    await fireEvent.input(screen.getByRole('textbox', { name: '매수 묶음 1의 조건 1 고점 대비 하락폭' }), { target: { value: String(before + 7) } });
     expect(await screen.findByText(STALE)).toBeTruthy();
     vi.mocked(simulate).mockClear();
     await fireEvent.click(screen.getByRole('button', { name: '다시 실행' }));
@@ -541,7 +541,7 @@ describe('Simulate run states', () => {
     await runWide();
     const before = dropOf();
     await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
-    const input = screen.getByRole('textbox', { name: '고점 대비 하락폭' });
+    const input = screen.getByRole('textbox', { name: '매수 묶음 1의 조건 1 고점 대비 하락폭' });
     await fireEvent.input(input, { target: { value: String(before + 7) } });
     expect(await screen.findByText(STALE)).toBeTruthy();
     await fireEvent.input(input, { target: { value: String(before) } });
@@ -559,7 +559,7 @@ describe('Simulate run states', () => {
     const before = dropOf();
     await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
     await fireEvent.click(screen.getByRole('button', { name: /^매수/ }));
-    await fireEvent.input(screen.getByRole('textbox', { name: '고점 대비 하락폭' }), { target: { value: String(before + 7) } });
+    await fireEvent.input(screen.getByRole('textbox', { name: '매수 묶음 1의 조건 1 고점 대비 하락폭' }), { target: { value: String(before + 7) } });
     await fireEvent.click(screen.getByRole('button', { name: '결과' }));
     expect(screen.getByText(STALE)).toBeTruthy();
     expect(screen.getByText('이전 결과')).toBeTruthy();
