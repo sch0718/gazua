@@ -469,6 +469,7 @@ export function condReason(c: Cond): string;                 // §4.6
 
 1. **요청 버전**: 새 앱은 프로필 요청에 쿼리 `docVersion=2`를 붙여요. 붙이는 자리는 `src/lib/sync/api.ts`의 프로필 요청들(`getProfile`·`getRevision`·`restoreProfile`·`putProfile`·`deleteProfile`)이에요. 헤더가 아니라 쿼리라 CORS 허용 헤더(`sync-worker/src/cors.ts`의 `ALLOWED_HEADERS`)를 바꾸지 않아요.
    - Worker 파싱: 없으면 1. 1 이상의 정수가 아니면 422 `invalid`(path `docVersion`).
+   - PUT은 `checkProfileDoc` 통과 뒤 `replayed()` 전에 들어온 문서의 `v`가 요청 버전(`docVersion`, 없으면 1)보다 크면 422 `invalid`(path `docVersion`)로 거절해요. 요청 버전보다 낮은 문서는 허용해요.
 2. **저장 버전 열**: `profile_index`에 버전 열을 더해요. 본문을 파싱하지 않고 비교할 수 있어요.
    - `sync-worker/migrations/0004_doc_version.sql`: `ALTER TABLE profile_index ADD COLUMN doc_v INTEGER NOT NULL DEFAULT 1;` 지금 행은 모두 v1 문서라 기본값 1이 맞아요.
    - 새로 만들기: `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at, doc_v) VALUES (?, ?, 1, ?, ?, ?) ON CONFLICT (user_id, profile_id) DO NOTHING`. 지금 문장의 충돌 처리를 그대로 둬요. 겹친 만들기는 반영되지 않고 `rejected()`로 가요.

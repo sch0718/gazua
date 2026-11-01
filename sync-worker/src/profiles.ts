@@ -142,6 +142,7 @@ export async function putProfile(env: SyncEnv, ctx: AuthContext, profileId: stri
   const { opId, expectedRevision, doc } = opArgs(body);
   const checked = checkProfileDoc(doc, now);
   if (!checked.ok) throw new HttpError(422, checked.code, checked.path ? { path: checked.path } : {});
+  if (checked.doc.v > reqV) throw new HttpError(422, 'invalid', { path: 'docVersion' });
   const again = await replayed(env, ctx.userId, profileId, opId);
   if (again) return again;
 

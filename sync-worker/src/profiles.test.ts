@@ -282,6 +282,38 @@ describe('프로필 삭제·복구와 키 행(설계 2.6)', () => {
 describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   const docV = (h: ReturnType<typeof harness>) => (h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'p1'").get() as { n: number }).n;
 
+  it('docVersion 없이 v2 문서를 PUT하면 422 invalid이고 아무것도 저장하지 않는다', async () => {
+    const h = harness();
+    const me = await h.login();
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() }))).toEqual({
+      status: 422,
+      body: { error: 'invalid', path: 'docVersion' },
+    });
+    expect(count(h, 'SELECT count(*) AS n FROM profile_index')).toBe(0);
+    expect(count(h, 'SELECT count(*) AS n FROM profiles')).toBe(0);
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(0);
+  });
+
+  it.each([docV2(), doc()])('docVersion=2는 v$v 문서 PUT을 허용한다', async (sent) => {
+    const h = harness();
+    const me = await h.login();
+    expect(await j(await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: sent }))).toEqual({
+      status: 200,
+      body: { revision: 1 },
+    });
+    expect(docV(h)).toBe(sent.v);
+    expect(await j(await me.as('GET', '/v1/profiles/p1?docVersion=2'))).toEqual({ status: 200, body: { revision: 1, doc: sent } });
+  });
+
+  it('반영된 opId라도 요청 버전보다 높은 문서는 재시도 확인 전에 거절한다', async () => {
+    const h = harness();
+    const me = await h.login();
+    const put = { opId: 'op-1', expectedRevision: 0, doc: docV2() };
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', put)).status).toBe(200);
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', put))).toEqual({ status: 422, body: { error: 'invalid', path: 'docVersion' } });
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(1);
+  });
+
   function injectV2BeforeBodyRead(h: ReturnType<typeof harness>) {
     const prepare = h.env.DB.prepare.bind(h.env.DB);
     let headRead = false;
@@ -331,20 +363,20 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   it('옛 앱(쿼리 없음)은 v2 문서를 받지 못한다: GET·리비전 422', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     expect(await j(await me.as('GET', '/v1/profiles/p1'))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
     expect((await me.as('GET', '/v1/profiles/p1/revisions/1')).status).toBe(422);
     expect(await j(await me.as('GET', '/v1/profiles/p1?docVersion=2'))).toEqual({ status: 200, body: { revision: 1, doc: docV2() } });
     expect((await j(await me.as('GET', '/v1/profiles/p1/revisions/1?docVersion=2'))).body).toEqual({ revision: 1, doc: docV2() });
   });
 
-  it('409 충돌 응답은 요청 버전보다 높은 문서를 빼고(null) 보낸다', async () => {
+  it('요청 버전보다 높은 PUT은 충돌보다 먼저 거절한다', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-2', expectedRevision: 1, doc: docV2('A') });
     const stale = await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-3', expectedRevision: 1, doc: docV2('B') }));
-    expect(stale).toEqual({ status: 409, body: { error: 'conflict', revision: 2, doc: null } });
+    expect(stale).toEqual({ status: 422, body: { error: 'invalid', path: 'docVersion' } });
     const fresh = await j(await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-4', expectedRevision: 1, doc: docV2('B') }));
     expect(fresh).toEqual({ status: 409, body: { error: 'conflict', revision: 2, doc: docV2('A') } });
   });
@@ -352,7 +384,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   it('deleteProfile의 409도 doc을 뺀다', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     // 같은 opId가 이미 PUT으로 반영된 경우(h.lastOpId === opId, 삭제 아님) → 409
     const r = await j(await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 1 }));
     expect(r.status).toBe(409);
@@ -362,7 +394,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   it('삭제된 v2 프로필: GET은 410(버전 검사 전), 옛 앱의 복원은 바꾸기 전에 422', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1 });
     expect((await me.as('GET', '/v1/profiles/p1')).status).toBe(410);
     expect(await j(await me.as('POST', '/v1/profiles/p1/restore', { opId: 'op-3' }))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
@@ -382,7 +414,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     const me = await h.login();
     await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
     expect(docV(h)).toBe(1);
-    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: docV2() })).status).toBe(200);
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-2', expectedRevision: 1, doc: docV2() })).status).toBe(200);
     expect(docV(h)).toBe(2);
   });
 
@@ -399,7 +431,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   it('v2 위에 v1을 올리면 422로 거절하고 서버는 그대로다', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('옛') }))).toEqual({
       status: 422,
       body: { error: APP_OUTDATED_CODE },
@@ -411,7 +443,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   it('이미 있는 v2 프로필에 v1 새로 만들기도 422', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
     expect((await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 0, doc: doc() }))).status).toBe(422);
   });
 
@@ -465,7 +497,7 @@ describe('PR①만 배포: 옛 앱(쿼리 없음 + v1 문서) 경로 무변화(�
     const cleaned = sanitizeStrategiesV2({ strategies: sent.strategies }, h.clock.now).strategies;
     expect(sent.strategies).toEqual(cleaned);
     expect(JSON.stringify(sent.strategies)).not.toBe(JSON.stringify(cleaned));
-    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: sent })).status).toBe(200);
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: sent })).status).toBe(200);
     const body = (h.env.DB.raw.prepare("SELECT body FROM profiles WHERE profile_id = 'p1'").get() as { body: string }).body;
     expect(body).toBe(JSON.stringify(sent));
   });
