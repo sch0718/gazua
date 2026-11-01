@@ -1,0 +1,20 @@
+{
+  "name": "gazua-cli",
+  "private": true,
+  "version": "0.7.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "type": "module",
+  "bin": { "gazua": "dist/gazua.mjs" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "TZ=America/New_York vitest run",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "0.25.12",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

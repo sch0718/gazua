@@ -1,3 +1,4 @@
 packages:
   - 'proxy'
   - 'sync-worker'
+  - 'cli'
