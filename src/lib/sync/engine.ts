@@ -4,6 +4,7 @@
 // - 삭제는 tombstone이다. 오래 오프라인이던 기기가 지운 프로필을 되살리지 못한다.
 // - 원격 적용은 같은 ID를 쓰고, 이 기기의 기존 프로필을 동의 없이 덮어쓰지 않는다.
 import type { ApiFail, SyncApi } from './api';
+import { toV2 } from '../sim/strategyV1';
 import { docName } from './profileDoc';
 import { APP_OUTDATED_CODE, PROFILE_DOC_VERSION, type ProfileDoc } from './dto';
 import { docHash } from './hash';
@@ -188,6 +189,11 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
     await store.putState({ profileId, syncedRevision: revision, syncedHash: hash, ...extra });
   }
 
+  /** 받은 v1을 옮긴 해시를 구한다. 대기 중 실제 로컬 수정은 섞지 않는다. */
+  function migratedHash(doc: ProfileDoc): Promise<string> {
+    return docHash(doc.v === 1 ? { ...doc, v: 2, strategies: doc.strategies.map(toV2) } : doc);
+  }
+
   // ── 큐에 넣기 ──────────────────────────────────────────
 
   async function enqueueChanged(): Promise<void> {
@@ -337,7 +343,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const sent = ops.find((o) => o.profileId === id && o.kind === 'put' && o.sentAt !== undefined && o.hash === remoteHash);
       if (sent) {
         await store.deleteOp(sent.opId);
-        await setSynced(id, got.data.revision, remoteHash);
+        await setSynced(id, got.data.revision, got.data.doc.v === 1 ? await migratedHash(got.data.doc) : remoteHash);
         continue; // 로컬이 다르면 이어지는 보내기가 새 작업으로 올린다
       }
       if (localHash === remoteHash || (st && !st.deleted && st.syncedHash === localHash && !unackedOther(ops, id, localHash))) {
@@ -512,7 +518,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           if (choice === 'restore') {
             if (c.deletedAt !== null) {
               const r = await api.restoreProfile(profileId, uuid());
-              if (r.ok) await setSynced(profileId, r.data.revision, await docHash(r.data.doc));
+              if (r.ok) await setSynced(profileId, r.data.revision, await migratedHash(r.data.doc));
               else if (r.kind === 'gone' && r.deletedAt !== null) {
                 // 복구 기간은 지났지만 tombstone이 아직 있다: 같은 ID로는 되살릴 수 없으니 이 기기 것을 새 프로필로 남겨 올린다
                 const mine = local.list().some((p) => p.id === profileId) ? local.read(profileId) : c.local;

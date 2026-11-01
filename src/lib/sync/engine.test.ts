@@ -76,6 +76,47 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 1, doc: doc() } });
   });
 
+  it.each([false, true])('sent로 확인한 v1은 옮긴 v2 해시를 저장한다(실제 수정: %s)', async (edited) => {
+    const d = await receiving();
+    const remote = doc();
+    d.local.write('p1', remote);
+    const syncedHash = await docHash(d.local.read('p1'));
+    await d.store.putOp({ opId: 'remote-1', profileId: 'p1', kind: 'put', doc: remote, hash: await docHash(remote), createdAt: d.s.h.clock.now, sentAt: d.s.h.clock.now, baseRevision: 0 });
+    if (edited) d.app.renameProfile('p1', '응답 대기 중 실제 수정');
+    const put = vi.spyOn(d.api, 'putProfile');
+    await d.engine.pull();
+    expect(await d.store.state('p1')).toEqual({ profileId: 'p1', syncedRevision: 1, syncedHash });
+    expect(await d.store.ops()).toEqual([]);
+    await d.engine.syncNow();
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toHaveLength(edited ? 1 : 0);
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: edited ? 2 : 1, doc: edited ? d.local.read('p1') : remote } });
+    expect((await d.api.putProfile('p1', { opId: 'remote-next', expectedRevision: edited ? 2 : 1, doc: { ...d.local.read('p1'), name: '다음 원격 수정' } })).ok).toBe(true);
+    await d.engine.syncNow();
+    expect(d.engine.status().conflicts).toEqual([]);
+    expect(d.local.read('p1').name).toBe('다음 원격 수정');
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toHaveLength(edited ? 2 : 1);
+  });
+
+  it.each([false, true])('restore로 복구한 v1은 옮긴 v2 해시를 저장한다(실제 수정: %s)', async (edited) => {
+    const d = await receiving();
+    await d.engine.pull();
+    const syncedHash = await docHash(d.local.read('p1'));
+    expect((await d.api.deleteProfile('p1', { opId: 'remote-delete', expectedRevision: 1 })).ok).toBe(true);
+    if (edited) d.app.renameProfile('p1', '삭제를 알기 전 실제 수정');
+    await d.store.putConflict({ profileId: 'p1', kind: 'deleted', local: d.local.read('p1'), deletedAt: d.s.h.clock.now, purgeAt: d.s.h.clock.now + 30 * 86400000, remoteRevision: 2, detectedAt: d.s.h.clock.now });
+    const put = vi.spyOn(d.api, 'putProfile');
+    await d.engine.resolve('p1', 'restore');
+    expect(await d.store.state('p1')).toEqual({ profileId: 'p1', syncedRevision: edited ? 4 : 3, syncedHash: edited ? await docHash(d.local.read('p1')) : syncedHash });
+    await d.engine.syncNow();
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toHaveLength(edited ? 1 : 0);
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: edited ? 4 : 3, doc: edited ? d.local.read('p1') : doc() } });
+    expect((await d.api.putProfile('p1', { opId: 'remote-next', expectedRevision: edited ? 4 : 3, doc: { ...d.local.read('p1'), name: '다음 원격 수정' } })).ok).toBe(true);
+    await d.engine.syncNow();
+    expect(d.engine.status().conflicts).toEqual([]);
+    expect(d.local.read('p1').name).toBe('다음 원격 수정');
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toHaveLength(edited ? 2 : 1);
+  });
+
   it('옛 탭이 받은 v1이 옛 키와 확인 해시에만 반영되면 묵은 v2를 PUT하지 않는다', async () => {
     const d = await receiving();
     await d.engine.pull();
