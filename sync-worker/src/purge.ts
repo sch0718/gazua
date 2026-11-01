@@ -1,7 +1,9 @@
 // 하루 한 번 Cron: 삭제 30일 지난 프로필의 본문·이력·공유·색인, 오래된 공유·세션을 지운다.
+// 키 행은 지우지 않고 남은 암호문만 삭제 표시로 바꿔 리비전을 이어 간다.
 // 무료 쓰기 한도를 아끼려고 한 번에 지우는 양을 제한한다. 남은 것은 다음 날 이어서 지운다.
 import { purgeSessions } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
+import { KEY_TOMBSTONE_SQL } from './keySql';
 
 export const PURGE_PROFILES_PER_RUN = 50;
 export const PURGE_ROWS_PER_RUN = 500;
@@ -23,6 +25,8 @@ export async function purge(env: SyncEnv, now: number): Promise<{ profiles: numb
       db.prepare(`DELETE FROM profiles WHERE user_id = ? AND profile_id = ? AND ${STILL_DUE}`).bind(...k, ...cond),
       db.prepare(`DELETE FROM revisions WHERE user_id = ? AND profile_id = ? AND ${STILL_DUE}`).bind(...k, ...cond),
       db.prepare(`DELETE FROM shares WHERE user_id = ? AND source_profile_id = ? AND ${STILL_DUE}`).bind(...k, ...cond),
+      // 키 행은 지우지 않는다(정리된 프로필이 같은 ID로 다시 올라와도 리비전이 이어지게, 설계 2.6). 남은 암호문만 삭제 표시로
+      db.prepare(`${KEY_TOMBSTONE_SQL} AND ${STILL_DUE}`).bind(now, ...k, ...cond),
       db.prepare('DELETE FROM profile_index WHERE user_id = ? AND profile_id = ? AND purge_at IS NOT NULL AND purge_at <= ?').bind(...cond),
     ]);
   }

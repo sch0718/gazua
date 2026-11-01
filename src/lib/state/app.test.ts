@@ -8,9 +8,9 @@ import { newBasket } from '../screen/baskets';
 import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
 import { createMemoryOrderCache } from '../perf/orderCache';
-import { KeyLockNotSavedError, KeyLockedElsewhereError, StoredKeysNotRemovedError, createApp, type App } from './app.svelte';
+import { KeyLockNotSavedError, KeyLockedElsewhereError, SecretsChangedError, StoredKeysNotRemovedError, createApp, sameProviderKeys, type App, type AppDeps } from './app.svelte';
 import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
-import { WrongPassphraseError, isLocked, lockSecrets, type Secrets } from './secrets';
+import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
 import { memoryBacking, seed, totalQuotaBacking } from './testStorage';
 
@@ -1550,5 +1550,130 @@ describe('leaveShared', () => {
     app.leaveShared();
     expect(app.route).toEqual({ name: 'compare', groupId: 'g1' });
     expect(location.hash).toBe('#/compare/g1');
+  });
+});
+
+describe('키 동기화용 앱 변경(설계 5.2)', () => {
+  const KIS2 = { appKey: 'FAKE-kis-key-0002', appSecret: 'FAKE/kis+secret-0002' };
+  const TOSS = { clientId: 'FAKE-toss-client-0001', clientSecret: 'FAKE-toss-secret-0001' };
+  const TOKEN = { accessToken: 'FAKE-access-token', expiresAt: NOW + 3_600_000 };
+
+  function keyApp(extra: Partial<AppDeps> = {}) {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    seed(backing, 'p:p1:settings', { onboarded: true, provider: 'kis', proxyUrl: 'https://proxy.test' });
+    const app = createApp({ storage: createSafeStorage(backing), now, orderCache: createMemoryOrderCache(), ...extra });
+    apps.push(app);
+    return { app, backing };
+  }
+
+  it('sameProviderKeys는 그 공급자의 두 값만 본다(proxyToken 무시)', () => {
+    expect(sameProviderKeys('kis', { kis: SECRETS.kis }, { ...SECRETS, toss: TOSS })).toBe(true);
+    expect(sameProviderKeys('kis', { kis: SECRETS.kis }, { kis: KIS2 })).toBe(false);
+    expect(sameProviderKeys('toss', {}, null)).toBe(true);
+    expect(sameProviderKeys('toss', { toss: TOSS }, {})).toBe(false);
+  });
+
+  it('onSecretsChange: 바뀐 공급자만 알리고 proxyToken·잠그기·잠금 끄기·지우기·가져오기에는 부르지 않는다', async () => {
+    const calls: unknown[] = [];
+    const { app } = keyApp({ onSecretsChange: (e) => calls.push(e) });
+    await app.setSecrets({ kis: SECRETS.kis });
+    expect(calls).toEqual([{ profileId: 'p1', providers: ['kis'] }]);
+    await app.setSecrets({ kis: KIS2, toss: TOSS });
+    expect(calls.at(-1)).toEqual({ profileId: 'p1', providers: ['kis', 'toss'] });
+    calls.length = 0;
+    await app.setSecrets({ kis: KIS2, toss: TOSS, proxyToken: 'FAKE-proxy-2' });
+    await app.setSecrets(app.secrets!, 'correct horse'); // KeyLock의 잠그기: 같은 키 + 암호
+    app.disableKeyLock();
+    expect(app.importData(app.exportData(true)).ok).toBe(true);
+    app.clearSecrets();
+    expect(calls).toEqual([]);
+  });
+
+  it('onLock: 잠긴 프로필에서 lock()이 키를 버릴 때만 한 번', async () => {
+    const onLock = vi.fn();
+    const { app } = keyApp({ onLock });
+    app.lock();
+    expect(onLock).not.toHaveBeenCalled();
+    await app.setSecrets(SECRETS, 'correct horse');
+    app.lock();
+    expect(onLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('applySyncedSecrets: 받은 공급자만 병합하고, 바뀐 공급자의 토큰만 버리며, 토스가 바뀔 때만 주문 캐시를 버린다', async () => {
+    const orderCache = createMemoryOrderCache();
+    const removeProfile = vi.spyOn(orderCache, 'removeProfile');
+    const onSecretsChange = vi.fn();
+    const { app, backing } = keyApp({ orderCache, onSecretsChange });
+    await app.setSecrets({ ...SECRETS, toss: TOSS });
+    onSecretsChange.mockClear();
+    removeProfile.mockClear();
+    seed(backing, 'p:p1:token:kis', TOKEN);
+    seed(backing, 'p:p1:token:toss', TOKEN);
+    seed(backing, 'p:p1:tokenIssuedAt:kis', 123);
+    expect(await app.applySyncedSecrets('p1', { kis: KIS2 })).toEqual(['kis']);
+    expect(app.secrets).toEqual({ kis: KIS2, toss: TOSS, proxyToken: SECRETS.proxyToken });
+    expect(backing.getItem('gazua:v1:p:p1:token:kis')).toBeNull();
+    expect(backing.getItem('gazua:v1:p:p1:token:toss')).not.toBeNull();
+    expect(backing.getItem('gazua:v1:p:p1:tokenIssuedAt:kis')).toBe('123');
+    expect(removeProfile).not.toHaveBeenCalled();
+    expect(await app.applySyncedSecrets('p1', { toss: { ...TOSS, clientSecret: 'FAKE-toss-secret-0002' } })).toEqual(['toss']);
+    expect(backing.getItem('gazua:v1:p:p1:token:toss')).toBeNull();
+    expect(removeProfile).toHaveBeenCalledWith('p1');
+    expect(app.secrets?.kis).toEqual(KIS2);
+    expect(onSecretsChange).not.toHaveBeenCalled();
+  });
+
+  it('applySyncedSecrets: 받은 값이 로컬과 같으면 쓰지도 지우지도 않고 []', async () => {
+    const { app, backing } = keyApp();
+    await app.setSecrets({ ...SECRETS, toss: TOSS });
+    seed(backing, 'p:p1:token:kis', TOKEN);
+    const setItem = vi.spyOn(backing, 'setItem');
+    const removeItem = vi.spyOn(backing, 'removeItem');
+    expect(await app.applySyncedSecrets('p1', { kis: SECRETS.kis })).toEqual([]);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+  });
+
+  it('applySyncedSecrets: 잠금 프로필은 주어진 암호로 다시 봉하고 같은 암호로 풀린다', async () => {
+    const { app, backing } = keyApp();
+    await app.setSecrets(SECRETS, 'correct horse');
+    expect(await app.applySyncedSecrets('p1', { kis: KIS2 }, 'correct horse')).toEqual(['kis']);
+    const stored = JSON.parse(backing.getItem('gazua:v1:p:p1:secrets')!);
+    expect(isLocked(stored)).toBe(true);
+    expect((await unlockSecrets(stored, 'correct horse')).kis).toEqual(KIS2);
+    expect(backing.dump()).not.toContain(KIS2.appKey);
+  });
+
+  it('applySyncedSecrets: 다른 프로필·잠겨서 풀리지 않음은 던지고, 쓰기 직전에 저장소가 바뀌면 SecretsChangedError', async () => {
+    const { app, backing } = keyApp();
+    await expect(app.applySyncedSecrets('p2', { kis: KIS2 })).rejects.toThrow();
+    await app.setSecrets(SECRETS, 'correct horse');
+    const other = JSON.stringify(await lockSecrets({ kis: KIS2 }, 'other horse'));
+    const pending = app.applySyncedSecrets('p1', { kis: { ...KIS2, appSecret: 'FAKE-x' } }, 'correct horse');
+    backing.setItem('gazua:v1:p:p1:secrets', other);
+    await expect(pending).rejects.toBeInstanceOf(SecretsChangedError);
+    expect(backing.getItem('gazua:v1:p:p1:secrets')).toBe(other);
+
+    const locked = memoryBacking();
+    seed(locked, 'meta', META_ONE);
+    seed(locked, 'p:p1:settings', { onboarded: true, keyLock: true });
+    seed(locked, 'p:p1:secrets', await lockSecrets(SECRETS, 'correct horse'));
+    const gated = createApp({ storage: createSafeStorage(locked), now });
+    apps.push(gated);
+    expect(gated.secrets).toBeNull();
+    await expect(gated.applySyncedSecrets('p1', { kis: KIS2 }, 'correct horse')).rejects.toThrow();
+  });
+
+  it('syncableSecrets: 다른 탭이 쓴 평문을 읽고 proxyToken은 빼며, 잠금이면 메모리와 저장된 잠긴 키가 같을 때만', async () => {
+    const { app, backing } = keyApp();
+    await app.setSecrets(SECRETS);
+    seed(backing, 'p:p1:secrets', { kis: KIS2, proxyToken: 'FAKE-proxy' });
+    expect(app.syncableSecrets('p1')).toEqual({ kis: KIS2 });
+    expect(app.syncableSecrets('p2')).toBeNull();
+    await app.setSecrets(SECRETS, 'correct horse');
+    expect(app.syncableSecrets('p1')).toEqual({ kis: SECRETS.kis });
+    seed(backing, 'p:p1:secrets', await lockSecrets({ kis: KIS2 }, 'correct horse'));
+    expect(app.syncableSecrets('p1')).toBeNull();
   });
 });

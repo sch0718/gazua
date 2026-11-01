@@ -41,6 +41,15 @@ export const FORBIDDEN_KEYS: readonly string[] = [
   // 소유자는 서버가 정한다
   'ownerId',
   'userId',
+  // 키 동기화 와이어(keyWire.ts). 금고·블롭이 프로필 문서·공유 스냅샷에 섞이면 거절한다
+  'keyVault',
+  'vaultId',
+  'keyBlobs',
+  'nonce',
+  'ciphertext',
+  'verifier',
+  'vaultRevision',
+  'contentId',
 ];
 
 const FORBIDDEN = new Set(FORBIDDEN_KEYS.map((k) => k.toLowerCase()));

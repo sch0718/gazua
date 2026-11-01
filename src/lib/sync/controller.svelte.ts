@@ -9,7 +9,22 @@ import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
 import { createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
 import { appProfiles } from './local';
-import { openSyncStore, type SyncStore } from './store';
+import { openSyncStore, type ProfileSyncState, type SyncStore } from './store';
+import { checkVerifier, deriveVaultKey, makeVerifier, randomId, samePassphrase } from './keyCrypto';
+import { openKeyStore, type KeyStore, type KeySyncState } from './keyStore';
+import {
+  createKeySync,
+  KEY_TEXT,
+  keyFailText,
+  type KeyAccountNotice,
+  type KeyFail,
+  type KeyResult,
+  type KeySync,
+  type PreparedReceive,
+  type SavedVault,
+  type VaultKey,
+} from './keySync';
+import { checkVaultHead, KEY_ITER, type KeyProvider } from './keyWire';
 import { PROVIDER_NAMES, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
 import type { SocialProvider } from '@sch0718/firebase-session/client';
 
@@ -20,6 +35,49 @@ export const FOCUS_PULL_INTERVAL = 5 * 60 * 1000;
 export const SOCIAL_SESSION_TIMEOUT = 20_000;
 /** 저장한 재인증 플래그를 읽기 위해 연결을 기다리는 상한이에요. */
 export const REAUTH_READ_WAIT = 1500;
+
+/** 이 기기 키 변경 뒤 키 단계를 돌리기까지(설계 5.6-2). 엔진의 프로필 디바운스와 따로 둔다(5.3) */
+export const KEY_DEBOUNCE_MS = 3000;
+/** 탭 사이 마스터 키 잊기 알림(설계 5.12) */
+export const KEY_CHANNEL = 'gazua-keys';
+
+/** 설정 화면이 그리는 키 동기화 상태. 비밀값은 없다 */
+export interface KeyView {
+  /** 서버가 /v1/keys를 아는가(마지막 키 단계). 아직 모르면 null */
+  support: boolean | null;
+  vault: SavedVault | null;
+  accountNotice: KeyAccountNotice;
+  states: KeySyncState[];
+  /** 키 영역 문구(서버 응답이 맞지 않아요 등) */
+  problem: string | null;
+  /** 이 탭이 지금 금고의 마스터 키를 기억하는가 */
+  remembered: boolean;
+  /** 키 상태가 IndexedDB에 남는가 */
+  persistent: boolean;
+  /** 동기화 엔진이 서버에 올렸다고 확인한 프로필(켤 수 있는 조건, 설계 1.4) */
+  uploaded: string[];
+}
+
+/** 키 동기화 동작. KDF는 잠금 밖에서, 네트워크·저장은 엔진 직렬화 안에서 한다 */
+export interface SyncKeys {
+  readonly view: KeyView;
+  createVault(pass: string): Promise<KeyResult>;
+  unlockVault(pass: string): Promise<KeyResult>;
+  enable(profileId: string, providers: KeyProvider[]): Promise<KeyResult>;
+  setProviders(profileId: string, providers: KeyProvider[]): Promise<KeyResult>;
+  /** 받을 블롭을 풀어 둔다. 화면에는 덮어쓸 공급자만 돌려준다 */
+  prepareReceive(profileId: string): Promise<{ ok: true; overwrite: KeyProvider[] } | KeyFail>;
+  /** 풀어 둔 키를 저장한다. 이 기기 키 잠금이면 lockPass를 먼저 확인한다 */
+  commitReceive(lockPass?: string): Promise<KeyResult>;
+  cancelReceive(): void;
+  uploadLocal(profileId: string): Promise<KeyResult>;
+  disable(profileId: string): Promise<KeyResult>;
+  changePassphrase(current: string, next: string): Promise<KeyResult>;
+  wipe(): Promise<KeyResult>;
+  forget(): void;
+  dismiss(profileId: string): Promise<void>;
+  dismissAccount(): Promise<void>;
+}
 
 export interface SyncControllerDeps {
   config: SyncConfig | null;
@@ -38,6 +96,10 @@ export interface SyncControllerDeps {
   socialTimeout?: number;
   reauthReadWait?: number;
   notify?: (message: string) => void;
+  /** 키 동기화 상태 저장소. 기본은 IndexedDB `gazua-sync-keys` */
+  keyStore?: () => Promise<KeyStore>;
+  /** 키 변경 뒤 키 단계까지 기다리는 시간(기본 KEY_DEBOUNCE_MS) */
+  keyDebounceMs?: number;
 }
 
 export interface SyncAccount {
@@ -62,6 +124,12 @@ export interface SyncController {
   attach(app: App): Promise<void>;
   /** createApp의 onSyncableChange에 넘긴다. */
   onSyncableChange(e: { kind: 'changed' | 'deleted'; profileId: string }): void;
+  /** 키 동기화(설계 5절) */
+  readonly keys: SyncKeys;
+  /** createApp의 onSecretsChange에 넘긴다 */
+  onSecretsChange(e: { profileId: string; providers: KeyProvider[] }): void;
+  /** createApp의 onLock에 넘긴다 */
+  onLock(): void;
   signIn(label?: string): Promise<void>;
   signInWith(provider: SocialProvider, label?: string, returnHash?: string, opts?: { reauth?: boolean }): Promise<void>;
   completeSocialSignIn(ret: SocialReturn, opts?: { onLate?: (outcome: SocialOutcome) => void }): Promise<SocialOutcome>;
@@ -163,6 +231,257 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     : null;
   const cleanups: (() => void)[] = [];
 
+  // ── 키 동기화(설계 5.12) ─────────────────────────────
+  let keyStore: KeyStore | null = null;
+  let keySync: KeySync | null = null;
+  let appRef: App | null = null;
+  /** 탭 메모리의 마스터 키(추출 불가 CryptoKey). 저장소에 두지 않는다 */
+  let vaultKey: VaultKey | null = null;
+  /** 받기 확인 사이에 쥔 평문. 화면에는 넘기지 않는다 */
+  let pendingReceive: PreparedReceive | null = null;
+  /** 이 탭 메모리의 소유자(OWNER_KEY와 같은 값). 키 단계가 저장값과 견준다(5.12 #5) */
+  let ownerId: string | null = null;
+  let keyTimer: ReturnType<typeof setTimeout> | null = null;
+  let destroyed = false;
+  // 잠금 밖 KDF·받기가 끝나기 전에 잊었으면 그 결과를 다시 기억하지 않는다.
+  let keyGeneration = 0;
+  let keyOperationGeneration = 0;
+  let receiveGeneration = 0;
+  let keyRefreshSequence = 0;
+  let keyView = $state<KeyView>({ support: null, vault: null, accountNotice: null, states: [], problem: null, remembered: false, persistent: true, uploaded: [] });
+  // 동기화 설정이 없는 빌드(e2e 등)에서는 채널을 열지 않는다
+  const keyChannel = config && typeof BroadcastChannel === 'function' ? new BroadcastChannel(KEY_CHANNEL) : null;
+  keyChannel?.addEventListener('message', (e) => {
+    if ((e as MessageEvent<{ type?: string }>).data?.type === 'forget') forgetVaultKey();
+  });
+
+  function clearKeyTimer() {
+    if (keyTimer !== null) clearTimeout(keyTimer);
+    keyTimer = null;
+  }
+  /** keyOperationGeneration은 exclusive 진입점(keyAction·prepareReceive·키 단계)에서 정한다. */
+  function setVaultKey(key: VaultKey | null, generation = keyOperationGeneration): boolean {
+    if (!key) {
+      forgetVaultKey();
+      return true;
+    }
+    if (destroyed || generation !== keyGeneration) return false;
+    vaultKey = key;
+    return true;
+  }
+  /** 마스터 키를 잊는다. broadcast면 다른 탭에도 알린다(로그아웃·계정 전환·전체 삭제·암호 바꾸기) */
+  function forgetVaultKey(broadcast = false) {
+    ++keyGeneration;
+    vaultKey = null;
+    pendingReceive = null;
+    keyView.remembered = false;
+    clearKeyTimer();
+    if (broadcast && !destroyed) keyChannel?.postMessage({ type: 'forget' });
+    void refreshKeys();
+  }
+  function scheduleKeys() {
+    if (destroyed || !session || !status.enabled || !engine) return;
+    clearKeyTimer();
+    keyTimer = setTimeout(() => {
+      keyTimer = null;
+      void engine?.keysNow().then(refreshKeys);
+    }, deps.keyDebounceMs ?? KEY_DEBOUNCE_MS);
+  }
+  /** 키 변경을 이 기기에 기록하지 못했을 때의 안내(다음에 기록이 성공하면 지운다) */
+  let keyRecordProblem: string | null = null;
+  async function refreshKeys() {
+    const sequence = ++keyRefreshSequence;
+    const ks = keyStore;
+    if (!ks) return;
+    try {
+      const [states, vault, notice, support, synced] = await Promise.all([
+        ks.states(),
+        ks.getMeta<SavedVault | null>('keyVault'),
+        ks.getMeta<KeyAccountNotice>('keyNotice'),
+        ks.getMeta<boolean>('keySupport'),
+        store ? store.states() : Promise.resolve([] as ProfileSyncState[]),
+      ]);
+      if (sequence !== keyRefreshSequence) return;
+      const v = vault ?? null;
+      keyView = {
+        support: support ?? null,
+        vault: v,
+        accountNotice: notice ?? null,
+        states,
+        problem: keySync?.problem() ?? keyRecordProblem,
+        remembered: !!v && !!vaultKey && vaultKey.vaultId === v.vaultId && vaultKey.salt === v.salt && vaultKey.vaultRevision === v.vaultRevision,
+        persistent: ks.persistent,
+        uploaded: synced.filter((s) => s.syncedRevision > 0 && !s.deleted).map((s) => s.profileId),
+      };
+    } catch {
+      // 화면 갱신의 읽기 실패가 호출한 키 동작의 결과를 덮지 않게 한다.
+    }
+  }
+  async function sessionOk(): Promise<boolean> {
+    if (destroyed || !session || !store) return false;
+    const stored = await store.getMeta<SessionMeta>(SESSION_KEY);
+    const owner = (await store.getMeta<string>(OWNER_KEY)) ?? null;
+    return stored?.id === session.id && owner === ownerId;
+  }
+  /** 엔진 직렬화 안에서 키 동작을 하고, 판정이 바뀌었으면 키 단계를 다시 돈다 */
+  async function keyAction(fn: (ks: KeySync) => Promise<KeyResult>, generation = keyGeneration): Promise<KeyResult> {
+    const ks = keySync;
+    const eng = engine;
+    if (!ks || !eng) return { ok: false, message: KEY_TEXT.server };
+    try {
+      const r = await eng.exclusive(() => {
+        if (destroyed || generation !== keyGeneration) return Promise.resolve<KeyFail>({ ok: false, message: null });
+        keyOperationGeneration = generation;
+        return fn(ks);
+      });
+      if (!r.ok && r.recheck) await eng.keysNow();
+      return r;
+    } catch {
+      return { ok: false, message: KEY_TEXT.server };
+    } finally {
+      await refreshKeys();
+    }
+  }
+  /** 금고 머리를 받아 이 암호로 만든 키가 맞는지 본다(잠금 밖 KDF) */
+  async function keyFromPass(pass: string): Promise<{ key: VaultKey } | KeyFail> {
+    const eng = engine;
+    const keyApi = api;
+    if (!keyApi || !eng || destroyed) return { ok: false, message: KEY_TEXT.server };
+    const l = await eng.exclusive(async () => {
+      if (!(await sessionOk())) {
+        forgetVaultKey();
+        return null;
+      }
+      return keyApi.listKeys();
+    });
+    if (!l) return { ok: false, message: KEY_TEXT.auth };
+    if (!l.ok) {
+      if (l.kind === 'auth') onAuthFailure(l.code, l.session);
+      else if (l.kind === 'not-allowed') onAuthFailure('not-allowed');
+      return { ok: false, message: keyFailText(l) };
+    }
+    if (!l.data || typeof l.data !== 'object') return { ok: false, message: KEY_TEXT.badResponse };
+    const head = l.data.keyVault === null ? null : checkVaultHead(l.data.keyVault);
+    if (!head) return { ok: false, message: l.data.keyVault === null ? KEY_TEXT.noVault : KEY_TEXT.badResponse };
+    const key = await deriveVaultKey(pass, head.salt, head.iter);
+    if (!(await checkVerifier(key, head.verifier, head.vaultId, head.vaultRevision))) return { ok: false, message: KEY_TEXT.wrongPass };
+    return { key: { key, vaultId: head.vaultId, salt: head.salt, vaultRevision: head.vaultRevision } };
+  }
+
+  const keys: SyncKeys = {
+    get view() {
+      return keyView;
+    },
+    async createVault(pass) {
+      const generation = keyGeneration;
+      const vaultId = randomId();
+      const salt = randomId();
+      const key = await deriveVaultKey(pass, salt, KEY_ITER);
+      const verifier = await makeVerifier(key, vaultId, 1);
+      return keyAction((ks) => ks.createVault({ key, vaultId, salt, verifier }), generation);
+    },
+    async unlockVault(pass) {
+      const generation = keyGeneration;
+      const r = await keyFromPass(pass);
+      if ('ok' in r) return r;
+      const unlocked = await keyAction(async () => {
+        if (!(await sessionOk())) {
+          forgetVaultKey();
+          return { ok: false, message: KEY_TEXT.auth };
+        }
+        if (!setVaultKey(r.key, generation)) return { ok: false, message: null };
+        if ((await keyStore?.getMeta<KeyAccountNotice>('keyNotice')) === 'vault-changed') await keyStore?.setMeta('keyNotice', null);
+        return { ok: true, notes: [] };
+      }, generation);
+      if (!unlocked.ok) return unlocked;
+      // 엔진 메서드는 exclusive가 끝난 뒤에 부른다(5.6-4).
+      await engine?.keysNow();
+      await refreshKeys();
+      return unlocked;
+    },
+    enable: (id, providers) => keyAction((ks) => ks.enable(id, providers)),
+    async setProviders(id, providers) {
+      const r = await keyAction((ks) => ks.setProviders(id, providers));
+      if (r.ok) scheduleKeys();
+      return r;
+    },
+    async prepareReceive(id) {
+      const generation = keyGeneration;
+      const receive = ++receiveGeneration;
+      pendingReceive = null;
+      const ks = keySync;
+      const eng = engine;
+      if (!ks || !eng) return { ok: false, message: KEY_TEXT.server };
+      try {
+        const r = await eng.exclusive(() => {
+          if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return Promise.resolve<KeyFail>({ ok: false, message: null });
+          keyOperationGeneration = generation;
+          return ks.prepareReceive(id);
+        });
+        if (destroyed || generation !== keyGeneration || receive !== receiveGeneration) return { ok: false, message: null };
+        if (!r.ok) {
+          if (r.recheck) await eng.keysNow();
+          return r;
+        }
+        pendingReceive = r.prepared;
+        return { ok: true, overwrite: [...r.prepared.overwrite] };
+      } catch {
+        return { ok: false, message: KEY_TEXT.server };
+      } finally {
+        await refreshKeys();
+      }
+    },
+    async commitReceive(lockPass) {
+      const generation = keyGeneration;
+      const p = pendingReceive;
+      const a = appRef;
+      if (!p || !a) return { ok: false, message: null, recheck: true };
+      if (a.settings.keyLock) {
+        // 기기 잠금 암호 확인(310000회)은 잠금 밖에서 먼저(5.7-3). 틀리면 풀어 둔 것을 그대로 두어 다시 넣을 수 있게
+        if (!lockPass || !(await a.verifyPassphrase(lockPass))) return { ok: false, message: KEY_TEXT.wrongLockPass };
+      }
+      if (pendingReceive !== p) return { ok: false, message: null, recheck: true };
+      pendingReceive = null;
+      return keyAction((ks) => ks.commitReceive(p, a.settings.keyLock ? lockPass : undefined), generation);
+    },
+    cancelReceive() {
+      ++receiveGeneration;
+      pendingReceive = null;
+    },
+    uploadLocal: (id) => keyAction((ks) => ks.uploadLocal(id)),
+    disable: (id) => keyAction((ks) => ks.disable(id)),
+    async changePassphrase(current, next) {
+      const generation = keyGeneration;
+      if (samePassphrase(current, next)) return { ok: false, message: KEY_TEXT.samePass };
+      // 기억 중이어도 현재 암호를 다시 묻는다(1.4)
+      const cur = await keyFromPass(current);
+      if ('ok' in cur) return cur;
+      const salt = randomId();
+      const key = await deriveVaultKey(next, salt, KEY_ITER);
+      const r = await keyAction((ks) => {
+        if (!setVaultKey(cur.key, generation)) return Promise.resolve<KeyFail>({ ok: false, message: null });
+        return ks.rekey({ key, salt });
+      }, generation);
+      if (!r.ok) return r;
+      if (!destroyed) keyChannel?.postMessage({ type: 'forget' });
+      return { ok: true, notes: [KEY_TEXT.passChangedDone] };
+    },
+    async wipe() {
+      const r = await keyAction((ks) => ks.wipe());
+      if (r.ok && !destroyed) keyChannel?.postMessage({ type: 'forget' });
+      return r;
+    },
+    forget: () => forgetVaultKey(),
+    async dismiss(id) {
+      await keySync?.dismiss(id);
+      await refreshKeys();
+    },
+    async dismissAccount() {
+      await keySync?.dismissAccount();
+      await refreshKeys();
+    },
+  };
+
   async function needsSocialReauth(): Promise<boolean> {
     if (socialReauth) return true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -191,6 +510,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   }
 
   async function forget(message: string | null) {
+    forgetVaultKey(true);
     // 세션 철회 응답 등에서도 쓰므로 사용자 동작의 세대는 여기서 올리지 않아요.
     const mine = session?.id;
     session = null;
@@ -223,9 +543,13 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     // 동기화 상태(켜짐·대기 작업·리비전·충돌)는 계정에 묶는다. 다른 계정이면 버리고, 다시 켤 때 올릴 것을 확인받는다.
     const owner = await store!.getMeta<string>(OWNER_KEY);
     if (owner !== user.uid) {
-      if (owner !== undefined) await engine?.reset();
+      if (owner !== undefined) {
+        await engine?.reset();
+        forgetVaultKey(true); // 이 탭의 계정 전환(5.12 #6)
+      }
       await store!.setMeta(OWNER_KEY, user.uid);
     }
+    ownerId = user.uid;
     session = { id: r.data.sessionId, email: user.email ?? '' };
     await store!.setMeta(SESSION_KEY, session);
     account = { provider: 'google', id: session.email, display: session.email };
@@ -279,11 +603,13 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     if (owner !== user.sub) {
       if (owner !== undefined) {
         await engine?.reset();
+        forgetVaultKey(true);
         if (!isCurrent()) return;
       }
       await store!.setMeta(OWNER_KEY, user.sub);
       if (!isCurrent()) return;
     }
+    ownerId = user.sub;
     const next: SessionMeta = { id: data.sessionId, email: '', provider, account: user.sub, display: user.unverifiedEmail ?? user.sub };
     await store!.setMeta(SESSION_KEY, next);
     if (!isCurrent()) return;
@@ -352,8 +678,45 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       try {
         if (!config || !api) return;
         store = await (deps.store ?? (() => openSyncStore()))();
-        engine = createSyncEngine({ local: appProfiles(app, deps.storage), store, api, now, lock: deps.lock ?? webLock, onAuthFailure });
-        cleanups.push(engine.subscribe((s) => (status = s)));
+        keyStore = await (deps.keyStore ?? (() => openKeyStore()))();
+        ownerId = (await store.getMeta<string>(OWNER_KEY)) ?? null;
+        appRef = app;
+        const syncStore = store;
+        keySync = createKeySync({
+          store: keyStore,
+          api,
+          app,
+          profileState: async (id) => {
+            const st = await syncStore.state(id);
+            return { uploaded: !!st && st.syncedRevision > 0 && !st.deleted };
+          },
+          vaultKey: () => vaultKey,
+          setVaultKey,
+          sessionOk,
+          onAuthFailure,
+        });
+        const ks = keySync;
+        engine = createSyncEngine({
+          local: appProfiles(app, deps.storage),
+          store,
+          api,
+          now,
+          lock: deps.lock ?? webLock,
+          onAuthFailure,
+          keys: {
+            step: () => {
+              keyOperationGeneration = keyGeneration;
+              return ks.step();
+            },
+            reset: () => ks.reset(),
+          },
+        });
+        cleanups.push(
+          engine.subscribe((s) => {
+            status = s;
+            void refreshKeys();
+          }),
+        );
         await engine.init();
         session = (await store.getMeta<SessionMeta>(SESSION_KEY)) ?? null;
         if (!session?.provider && auth && await store.getMeta<boolean>(REDIRECT_KEY)) {
@@ -398,10 +761,14 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           window.addEventListener('focus', onFocus);
           document.addEventListener('visibilitychange', onFocus);
           window.addEventListener('online', onOnline);
+          // bfcache로 되살아나도 마스터 키가 남지 않게
+          const onPageHide = () => forgetVaultKey();
+          window.addEventListener('pagehide', onPageHide);
           cleanups.push(() => {
             window.removeEventListener('focus', onFocus);
             document.removeEventListener('visibilitychange', onFocus);
             window.removeEventListener('online', onOnline);
+            window.removeEventListener('pagehide', onPageHide);
           });
         }
         lastFocusPull = now();
@@ -414,6 +781,30 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       if (!engine) return;
       if (e.kind === 'deleted') void engine.profileDeleted(e.profileId);
       else if (session) engine.profileChanged(e.profileId);
+    },
+
+    keys,
+
+    onSecretsChange(e) {
+      const ks = keyStore;
+      if (!ks) return;
+      void (async () => {
+        try {
+          // 행이 없거나 꺼졌거나 고르지 않은 공급자만 바뀌었으면 bumpSeq가 무시한다(5.6-1)
+          await ks.bumpSeq(e.profileId, e.providers);
+          const st = await ks.state(e.profileId);
+          keyRecordProblem = null;
+          if (st?.active && st.localSeq > st.uploadedSeq) scheduleKeys();
+        } catch {
+          // 기록 실패는 업로드 대상에서 빠지므로 조용히 넘기지 않고 키 영역에 알린다.
+          keyRecordProblem = '키 변경을 이 기기에 기록하지 못했어요. 새로 고친 뒤 다시 시도해 주세요';
+        }
+        await refreshKeys();
+      })();
+    },
+
+    onLock() {
+      forgetVaultKey(); // 이 탭의 lock()만(다른 탭의 lock은 이 탭 키를 잊게 하지 않는다)
     },
 
     signIn: (label) => {
@@ -539,7 +930,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         return 'upload' in r ? r : ok(r);
       }, null),
 
-    setEnabled: (on) => guarded(async () => void (await engine?.setEnabled(on)), undefined),
+    setEnabled: (on) =>
+      guarded(async () => {
+        await engine?.setEnabled(on);
+        if (!on) forgetVaultKey();
+      }, undefined),
     syncNow: () =>
       guarded(async () => {
         lastFocusPull = now();
@@ -585,7 +980,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       engine?.clearNotices();
     },
     destroy() {
+      if (destroyed) return;
+      destroyed = true;
       for (const c of cleanups.splice(0)) c();
+      forgetVaultKey();
+      keyChannel?.close();
       engine?.destroy();
     },
   };

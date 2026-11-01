@@ -55,6 +55,13 @@ export interface SyncEngineDeps {
   debounceMs?: number;
   /** 다시 로그인해야 할 때(세션 철회·만료 등). session은 실패한 요청이 쓴 기기 세션. */
   onAuthFailure?: (code: string, session?: string) => void;
+  /** 키 동기화(설계 5.3). 없으면 단계를 건너뛴다 */
+  keys?: {
+    /** 실패는 스스로 상태에 남기고 'idle'을 돌려준다(auth·not-allowed만 그 단계 값). 로그인 정리는 step이 직접 한다 */
+    step(): Promise<SyncPhase>;
+    /** 계정 전환: 키 저장소를 비운다 */
+    reset(): Promise<void>;
+  };
 }
 
 export interface SyncEngine {
@@ -69,10 +76,17 @@ export interface SyncEngine {
   profileChanged(id: string): void;
   /** 이 기기에서 프로필을 지웠다. tombstone 작업을 바로 큐에 넣는다. */
   profileDeleted(id: string): Promise<void>;
-  /** 받기 → 보내기. */
+  /** 받기 → 키 → 보내기. */
   syncNow(): Promise<void>;
   pull(): Promise<void>;
   flush(): Promise<void>;
+  /** 키 단계만(이 기기 키 변경 직후, 받기·올리기 뒤) */
+  keysNow(): Promise<void>;
+  /**
+   * 엔진과 같은 직렬화(탭 안 chain + Web Lock) 안에서 fn을 돈다. 켜기·받기·끄기·rekey·전체 삭제가 쓴다.
+   * fn 안에서 syncNow·keysNow·pull·reset·resolve 같은 엔진 메서드를 기다리면 교착된다.
+   */
+  exclusive<T>(fn: () => Promise<T>): Promise<T>;
   resolve(profileId: string, choice: Resolution): Promise<void>;
   /** 서버의 과거 리비전을 새 로컬 프로필 `이름 (복원)`으로 만든다(원래 프로필은 그대로). 새 프로필 ID를 돌려준다. */
   restoreRevision(profileId: string, revision: number): Promise<{ ok: true; profileId: string } | ApiFail>;
@@ -340,15 +354,16 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
     return 'idle';
   }
 
-  async function run(steps: ('pull' | 'push')[]): Promise<void> {
+  async function run(steps: ('pull' | 'keys' | 'push')[]): Promise<void> {
     if (!status.enabled || destroyed) return;
+    const keysOnly = steps.length === 1 && steps[0] === 'keys';
     await serial(async () => {
       // 다른 탭이 끄면(같은 IndexedDB) 이 탭의 상태는 늦게 안다. 잠금 안에서 저장된 값을 다시 본다.
       if ((await store.getMeta<boolean>('enabled')) !== true) {
         await refresh({ enabled: false, phase: 'off' });
         return;
       }
-      emit({ phase: 'syncing' });
+      if (!keysOnly) emit({ phase: 'syncing' });
       let phase: SyncPhase = 'idle';
       for (const s of steps) {
         // 단계 사이에 꺼졌으면(이 탭·다른 탭) 남은 일을 하지 않는다
@@ -362,12 +377,16 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           return;
         }
         if (s === 'pull') phase = await pull();
+        // 키 단계의 네트워크 실패는 키 상태에만 남고 'idle'이라 프로필 올리기를 막지 않는다(설계 5.3)
+        else if (s === 'keys') phase = deps.keys ? await deps.keys.step() : 'idle';
         else {
           await enqueueChanged();
           phase = await push();
         }
         if (phase !== 'idle') break;
       }
+      // 키만 동기화해도 프로필의 동기화 표시·실패 횟수·재시도는 그대로 둔다.
+      if (keysOnly) return;
       if (phase === 'off') {
         await refresh({ enabled: false, phase: 'off' });
         return;
@@ -439,9 +458,12 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       });
       engine.profileChanged(id);
     },
-    syncNow: () => run(['pull', 'push']),
+    // pull 다음: 다른 기기의 tombstone을 먼저 적용해 지운 프로필의 블롭을 올리려 하지 않는다(설계 5.3)
+    syncNow: () => run(['pull', 'keys', 'push']),
     pull: () => run(['pull']),
     flush: () => run(['push']),
+    keysNow: () => run(['keys']),
+    exclusive: (fn) => serial(fn),
     async resolve(profileId, choice) {
       let push = false;
       // 이 기기 저장소에 쓰지 못하면 해결을 완료로 치지 않는다(다시 열었을 때 오래된 문서가 고른 서버 것을 덮어쓰지 않게)
@@ -525,6 +547,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
         for (const c of await store.conflicts()) await store.deleteConflict(c.profileId);
         await store.setMeta('enabled', false);
         await store.deleteMeta('lastSyncAt');
+        await deps.keys?.reset();
         await refresh({ enabled: false, phase: 'off', lastSyncAt: null, notices: [] });
       });
     },

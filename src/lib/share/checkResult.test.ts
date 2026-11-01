@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_KEYS } from '../sync/forbidden';
 import { axisDate, checkSimResult, dayOffset, isIsoDate } from './checkResult';
 import { checkShareSnapshot } from './snapshot';
-import { NOW, simResultFixture, validationFixture } from './testFixtures';
+import { allKeys, NOW, simResultFixture, validationFixture } from './testFixtures';
 
 type Edit = (s: any) => void; // 고정 데이터 한 곳을 고친다
 const sim = (edit: Edit, hidden = false) => {
@@ -15,13 +15,6 @@ const val = (edit: Edit) => {
   edit(s);
   return checkShareSnapshot(s, 'validation', NOW);
 };
-
-/** 값 안의 모든 객체 키 */
-function allKeys(v: unknown, out = new Set<string>()): Set<string> {
-  if (Array.isArray(v)) v.forEach((x) => allKeys(x, out));
-  else if (typeof v === 'object' && v !== null) for (const [k, x] of Object.entries(v)) (out.add(k), allKeys(x, out));
-  return out;
-}
 
 describe('날짜 도구', () => {
   it('ISO 날짜·일수 변환', () => {

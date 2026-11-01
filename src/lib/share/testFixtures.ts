@@ -6,9 +6,10 @@ import { newStrategy } from '../sim/defaults';
 import type { DoneState } from '../ui/simulate/runController.svelte';
 import type { Trade } from '../sim/types';
 import { axisDate } from './checkResult';
-import type { ValidationRun } from './compact';
 import { SKIP_REASONS } from './resultEnums';
-import { criteriaSnapshot, strategySnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
+import type { Group } from '../state/schema';
+import { compareSnapshot, type ValidationRun } from './compact';
+import { criteriaSnapshot, groupSnapshot, strategySnapshot, type ShareSnapshot, type SimResultSnapshot, type ValidationSnapshot } from './snapshot';
 
 export const NOW = Date.UTC(2026, 9, 29, 3);
 
@@ -258,4 +259,25 @@ export function bigValidationRun(o: { days: number; every: number; take: number;
     notes: ['survivorship', 'snapshot', 'dividend'],
   };
   return { result, criteria, baskets, strategies: [], collectedAt: '2026-10-16T18:00:00+09:00' };
+}
+
+/** 값 안의 모든 객체 키(금지 키 겹침 검사용, checkResult.test.ts·forbidden.test.ts가 함께 쓴다) */
+export function allKeys(v: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(v)) v.forEach((x) => allKeys(x, out));
+  else if (typeof v === 'object' && v !== null) for (const [k, x] of Object.entries(v)) (out.add(k), allKeys(x, out));
+  return out;
+}
+
+/** 검사를 통과하는 여섯 종류 공유 스냅샷(group·strategy·criteria·compare·simResult·validation) */
+export function shareFixtures(): ShareSnapshot[] {
+  const group: Group = { id: 'g-fixture', name: '반도체', items: [{ symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 }] };
+  const strategy = newStrategy(NOW, group.id, '눌림목');
+  return [
+    groupSnapshot(group),
+    strategySnapshot(strategy, { groups: [group] }, { hideCapital: false, now: NOW }),
+    criteriaSnapshot(newCriteria(NOW, null, '대형'), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW }),
+    compareSnapshot(group, { period: { unit: 'M', n: 6 }, metric: 'rsi', benchmark: 'KOSDAQ', boardOrder: 'mine' }),
+    simResultFixture(),
+    validationFixture(),
+  ];
 }

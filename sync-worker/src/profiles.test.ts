@@ -235,3 +235,44 @@ describe('프로필 API', () => {
     expect((await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('A') }))).body).toEqual({ revision: 2 });
   });
 });
+
+describe('프로필 삭제·복구와 키 행(설계 2.6)', () => {
+  const A = (n: number, c: string) => c.repeat(n);
+  const vault = { vaultId: A(24, 'V'), kdf: 'PBKDF2-SHA256', iter: 600000, salt: A(24, 'S'), verifier: { nonce: A(16, 'N'), ciphertext: A(56, 'C') } };
+  const blob = { expectedRevision: 0, newRevision: 1, contentId: A(24, 'I'), vaultId: A(24, 'V'), vaultRevision: 1, nonce: A(16, 'N'), ciphertext: A(64, 'X') };
+  const keyRow = (h: ReturnType<typeof harness>) => h.env.DB.raw.prepare("SELECT revision, content_id, nonce, ciphertext FROM key_blobs WHERE profile_id = 'p1'").get();
+  async function withKey() {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    await me.as('PUT', '/v1/keys/vault', vault);
+    expect((await me.as('PUT', '/v1/keys/p1', blob)).status).toBe(200);
+    return { h, me };
+  }
+
+  it('tombstone이 반영되면 같은 batch에서 키 행이 삭제 표시가 된다', async () => {
+    const { h, me } = await withKey();
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'd1', expectedRevision: 1 })).status).toBe(200);
+    expect(keyRow(h)).toEqual({ revision: 2, content_id: null, nonce: null, ciphertext: null });
+    // 같은 opId 재전송은 다시 바꾸지 않는다
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'd1', expectedRevision: 1 })).status).toBe(200);
+    expect(keyRow(h)).toMatchObject({ revision: 2 });
+  });
+
+  it('409로 끝난 삭제는 키 행을 바꾸지 않는다', async () => {
+    const { h, me } = await withKey();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1, doc: doc('B') });
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'd1', expectedRevision: 1 })).status).toBe(409);
+    expect(keyRow(h)).toEqual({ revision: 1, content_id: A(24, 'I'), nonce: A(16, 'N'), ciphertext: A(64, 'X') });
+  });
+
+  it('복원해도 살아 있는 블롭은 없다(고아 행이 있었어도 삭제 표시가 된다)', async () => {
+    const { h, me } = await withKey();
+    await me.as('DELETE', '/v1/profiles/p1', { opId: 'd1', expectedRevision: 1 });
+    // 되돌린 Worker 기간에 tombstone이 키 행을 바꾸지 못했다고 친다
+    h.env.DB.raw.prepare("UPDATE key_blobs SET revision = 1, content_id = ?, nonce = ?, ciphertext = ? WHERE profile_id = 'p1'").run(A(24, 'I'), A(16, 'N'), A(64, 'X'));
+    expect((await me.as('POST', '/v1/profiles/p1/restore', { opId: 'r1' })).status).toBe(200);
+    expect(keyRow(h)).toEqual({ revision: 2, content_id: null, nonce: null, ciphertext: null });
+    expect((await me.as('GET', '/v1/keys/p1')).status).toBe(404);
+  });
+});

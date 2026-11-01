@@ -7,7 +7,8 @@
   let {
     app,
     confirmFn = (m: string) => window.confirm(m),
-  }: { app: App; confirmFn?: (message: string) => boolean } = $props();
+    keySynced = () => false,
+  }: { app: App; confirmFn?: (message: string) => boolean; keySynced?: (profileId: string) => boolean } = $props();
 
   const uid = Math.random().toString(36).slice(2, 8);
   let renaming = $state<string | null>(null);
@@ -44,7 +45,8 @@
 
   function remove(id: string, name: string) {
     if (profiles.length <= 1) return;
-    if (!confirmFn(`'${name}' 프로필을 지울까요? 이 프로필의 관심종목과 키도 함께 지워져요.`)) return;
+    const serverKeys = keySynced(id) ? ' 서버에 올린 키도 지워져요.' : '';
+    if (!confirmFn(`'${name}' 프로필을 지울까요? 이 프로필의 관심종목과 키도 함께 지워져요.${serverKeys}`)) return;
     app.deleteProfile(id);
     showSnackbar(`'${name}' 프로필을 지웠어요`);
   }

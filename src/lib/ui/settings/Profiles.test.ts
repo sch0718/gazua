@@ -9,10 +9,10 @@ import Profiles from './Profiles.svelte';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 let apps: App[] = [];
-function setup(confirmFn = vi.fn(() => true)) {
+function setup(confirmFn = vi.fn(() => true), keySynced?: (id: string) => boolean) {
   const app = makeTestApp({ groups: [{ id: 'g1', name: '내 관심', items: [] }], now: NOW });
   apps.push(app);
-  render(Profiles, { app, confirmFn });
+  render(Profiles, { app, confirmFn, ...(keySynced && { keySynced }) });
   return app;
 }
 const names = (app: App) => app.meta.profiles.map((p) => p.name);
@@ -24,6 +24,17 @@ afterEach(() => {
 });
 
 describe('Profiles', () => {
+  it('삭제 확인: 키 동기화가 켜진 프로필에만 서버 키 문장을 더한다', async () => {
+    const confirmFn = vi.fn(() => false);
+    const app = setup(confirmFn, (id) => id !== 'p1');
+    const other = app.addProfile('회사');
+    await fireEvent.click(await screen.findByRole('button', { name: '내 프로필 삭제' }));
+    expect(confirmFn).toHaveBeenLastCalledWith(`'내 프로필' 프로필을 지울까요? 이 프로필의 관심종목과 키도 함께 지워져요.`);
+    await fireEvent.click(await screen.findByRole('button', { name: '회사 삭제' }));
+    expect(confirmFn).toHaveBeenLastCalledWith(`'회사' 프로필을 지울까요? 이 프로필의 관심종목과 키도 함께 지워져요. 서버에 올린 키도 지워져요.`);
+    void other;
+  });
+
   it('cannot delete the last profile', () => {
     setup();
     expect(screen.getByRole('button', { name: '내 프로필 삭제' }).hasAttribute('disabled')).toBe(true);

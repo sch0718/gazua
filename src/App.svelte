@@ -50,7 +50,13 @@
   // 동기화 설정(VITE_*)이 없는 빌드면 configured=false로 아무것도 하지 않는다.
   const syncConfig = readSyncConfig();
   const sync = createSyncController({ config: syncConfig, storage });
-  const app = createApp({ storage, now: () => Date.now(), onSyncableChange: (e) => sync.onSyncableChange(e) });
+  const app = createApp({
+    storage,
+    now: () => Date.now(),
+    onSyncableChange: (e) => sync.onSyncableChange(e),
+    onSecretsChange: (e) => sync.onSecretsChange(e),
+    onLock: () => sync.onLock(),
+  });
   setShareController(sync);
   // 공유 읽기는 로그인 없이 capability 헤더로만 읽는다.
   const publicApi = syncConfig ? createSyncApi(syncConfig.apiUrl, { idToken: async () => null, sessionId: async () => null }) : null;

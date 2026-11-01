@@ -10,6 +10,8 @@ import {
   readJson,
   SESSION_PATHS,
 } from '@sch0718/firebase-session/worker';
+import { KEY_BODY_MAX } from '../../src/lib/sync/keyWire';
+import { checkKeyId, createVault, deleteKeyBlob, getKeyBlob, listKeys, putKeyBlob, rekey, wipeKeys } from './keys';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import type { SyncDeps, SyncEnv } from './env';
 import {
@@ -68,6 +70,19 @@ const ROUTES: [string, RegExp, string, Handler][] = [
   ],
   ['GET', /^\/v1\/profiles\/([^/]+)\/revisions$/, '/v1/profiles/:id/revisions', authed(async ({ env, ctx, params }) => ok({ revisions: await listRevisions(env, ctx, params[0]) }))],
   ['GET', /^\/v1\/profiles\/([^/]+)\/revisions\/([^/]+)$/, '/v1/profiles/:id/revisions/:rev', authed(async ({ env, ctx, params }) => ok(await getRevision(env, ctx, params[0], params[1])))],
+  ['GET', /^\/v1\/keys$/, '/v1/keys', authed(async ({ env, ctx }) => ok(await listKeys(env, ctx)))],
+  // 두 DELETE는 본문을 읽지 않는다(readJson은 본문이 없으면 400 bad-json)
+  ['DELETE', /^\/v1\/keys$/, '/v1/keys', authed(async ({ env, ctx }) => ok(await wipeKeys(env, ctx)))],
+  ['PUT', /^\/v1\/keys\/vault$/, '/v1/keys/vault', authed(async ({ req, env, deps, ctx }) => ok(await createVault(env, ctx, await readJson(req, KEY_BODY_MAX.vault), deps.now())))],
+  ['POST', /^\/v1\/keys\/rekey$/, '/v1/keys/rekey', authed(async ({ req, env, deps, ctx }) => ok(await rekey(env, ctx, await readJson(req, KEY_BODY_MAX.rekey), deps.now())))],
+  ['GET', /^\/v1\/keys\/([^/]+)$/, '/v1/keys/:id', authed(async ({ env, ctx, params }) => ok(await getKeyBlob(env, ctx, params[0])))],
+  [
+    'PUT',
+    /^\/v1\/keys\/([^/]+)$/,
+    '/v1/keys/:id',
+    authed(async ({ req, env, deps, ctx, params }) => ok(await putKeyBlob(env, ctx, checkKeyId(params[0]), await readJson(req, KEY_BODY_MAX.blob), deps.now()))),
+  ],
+  ['DELETE', /^\/v1\/keys\/([^/]+)$/, '/v1/keys/:id', authed(async ({ env, deps, ctx, params }) => ok(await deleteKeyBlob(env, ctx, params[0], deps.now())))],
   ['POST', /^\/v1\/shares$/, '/v1/shares', authed(async ({ req, env, deps, ctx }) => ok(await createShare(env, deps, ctx, await readJson(req, 110 * 1024))))],
   ['GET', /^\/v1\/shares$/, '/v1/shares', authed(async ({ env, ctx }) => ok({ shares: await listShares(env, ctx) }))],
   ['DELETE', /^\/v1\/shares\/([^/]+)$/, '/v1/shares/:id', authed(async ({ env, deps, ctx, params }) => (await revokeShare(env, ctx, params[0], deps.now()), ok({ revoked: true })))],
