@@ -331,3 +331,20 @@ test('앱 바: 폰 폭에서 시뮬레이션 화면에는 상태 칩이 없고 �
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
   await expect(chip).toHaveCount(1);
 });
+
+test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 확인 → 실행 → 결과·재생', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+  await page.getByRole('button', { name: /골든크로스 추세/ }).click();
+  await page.getByRole('button', { name: /매수 조건/ }).click();
+  await expect(page.getByRole('group', { name: '매수 묶음 1' })).toBeVisible();
+  await page.getByRole('button', { name: /^매도/ }).click();
+  await expect(page.getByRole('group', { name: '매도 묶음 1' })).toBeVisible();
+  await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
+  await expect(page.getByRole('slider', { name: '거래일' }).or(page.getByText(/매수 조건을 모두 만족한 날이 없|거래가 없/))).toBeVisible({ timeout: 30_000 });
+});

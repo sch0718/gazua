@@ -67,6 +67,8 @@ test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위�
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   const run = page.getByRole('button', { name: '시뮬레이션 실행' });
   await expect(run).toBeVisible();
+  await page.getByRole('button', { name: /매수 조건/ }).click();
+  await page.getByRole('button', { name: /^매도/ }).click();
   await expectNoSeriousViolations(page, '전략 편집');
 
   await run.click();

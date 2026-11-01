@@ -2,9 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkShareSnapshot } from '../share/snapshot';
+import { checkShareSnapshot, strategySnapshot } from '../share/snapshot';
 import { sanitizeCriteria } from '../screen/validate';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
+import { fromTemplate, TEMPLATES } from '../sim/templates';
 import { checkProfileDoc } from './dto';
 import { exceedsDepth, findForbidden } from './forbidden';
 
@@ -53,5 +54,19 @@ describe('Worker 공용 경로 계약', () => {
     const d = { ...fx.doc, v: 2, strategies: [fullStrategyV2()] };
     expect(findForbidden(d)).toBeNull();
     expect(exceedsDepth(d)).toBe(false);
+  });
+});
+
+describe('지금 앱이 만든 v2 문서·공유는 Worker 검사를 통과한다(N4)', () => {
+  it('템플릿 3개와 한도까지 채운 전략', () => {
+    const strategies = [...TEMPLATES.map((t, i) => ({ ...fromTemplate(t, fx.now, 'g0', t.name), id: `t${i}` })), { ...fullStrategyV2(), id: 'full' }];
+    const doc = { ...fx.doc, v: 2, strategies };
+    const r = checkProfileDoc(doc, fx.now);
+    expect(r.ok).toBe(true);
+    for (const s of strategies) {
+      const snap = strategySnapshot({ ...s, universe: { kind: 'symbols', symbols: ['005930'] } }, { groups: [] }, { hideCapital: false, now: fx.now });
+      expect(snap.v).toBe(2);
+      expect(checkShareSnapshot(snap, 'strategy', fx.now, 'create')).toEqual({ ok: true, snapshot: snap });
+    }
   });
 });
