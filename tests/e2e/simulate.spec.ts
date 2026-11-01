@@ -342,9 +342,9 @@ test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /골든크로스 추세/ }).click();
   await page.getByRole('button', { name: /매수 조건/ }).click();
-  await expect(page.getByRole('group', { name: '매수 묶음 1' })).toBeVisible();
+  await expect(page.getByRole('group', { name: '매수 묶음 1', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^매도/ }).click();
-  await expect(page.getByRole('group', { name: '매도 묶음 1' })).toBeVisible();
+  await expect(page.getByRole('group', { name: '조건 매도 묶음 1', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
   await expect(page.getByRole('slider', { name: '거래일' }).or(page.getByText(/매수 조건을 모두 만족한 날이 없|거래가 없/))).toBeVisible({ timeout: 30_000 });
 });
