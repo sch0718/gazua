@@ -481,6 +481,7 @@ AI 도구가 로그인까지 할 수는 없어요(사람이 앱에서 승인). �
 | 평단·수량 | `account.holdings()`의 `avgPrice`·`quantity`(§6.2) | `avgPrice`가 없으면 가격 판정을 `unknown` |
 | 첫 매수일 | `account.closedOrders()` → `normalizeOrders`로 거른 뒤 **실제 체결 시각순**(`filledAt ?? orderedAt`)으로 다시 정렬해(`normalizeOrders`는 같은 날 매수를 먼저 둬서 같은 날 전량 매도 후 재매수를 거꾸로 읽는다) 수량을 더하고 빼며, 수량이 0에서 양수가 된 마지막 날. 끝 수량이 지금 보유 수량과 다르면 이력이 모자란 것 | `unknown` |
 
+- 주문별 체결은 합산돼 `filledAt`이 마지막 체결 시각이라, 부분 체결이 다른 주문 사이에 끼면 순서를 복원할 수 없어요. 복원 중 누적 수량이 음수가 되면 첫 매수일을 `null`(`unknown`)로 두고 트레일·기간 청산도 `unknown`이에요.
 - 주문 이력은 파일 캐시(`orders-<keyHash>-<accountSeq 해시 앞 8자>.json`, 600)에 둬요. 앱의 `src/lib/perf/orderCache.ts`처럼 `{ orders, syncedAt, syncedThrough }`를 두고, 다음에는 `syncedThrough`의 7일 전부터만 받아 합쳐요(같은 `orderId`는 새 것으로). `keyHash`는 토스 client ID 해시이고, `accountSeq`의 SHA-256 앞 8자를 파일 이름에 더해 계좌가 바뀌면 다른 파일이 돼요. 원문 `accountSeq`는 파일 이름에도 내용에도 쓰지 않아요.
 | 손절 가격 | `stopLoss.on`이면 기준에 따라: `avgAlways`·`avgAfterScaleIn` = 평단 × (1 − pct), `firstBuy` = 첫 매수 체결가 × (1 − pct) | `firstBuy`인데 첫 매수가를 모르면 `unknown` |
 | 익절 가격 | `takeProfit.on`이면 단계마다 평단 × (1 + pct) | 지난 단계 체결 여부는 모름 → 모든 단계를 내고 `stagesDoneUnknown: true` |
