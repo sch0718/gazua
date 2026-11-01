@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Candle } from '../../src/lib/data/metrics';
 import type { Venue } from '../../src/lib/market/tradable';
 import type { Trade } from '../../src/lib/perf/types';
@@ -318,7 +318,7 @@ describe('runSignals', () => {
     it('보유 종목마다 평단·첫 매수일·보유일수·손절/익절/트레일/기간 청산을 계산한다', async () => {
       const provider = stub({ candles: { '005930': candles }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 }]) });
       const out = await runSignals({ provider, strategy: strat(), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => [order()] });
-      const heldDays = tradingDates('2026-09-02', 100).filter((d) => d <= '2026-10-30').length;
+      const heldDays = 21; // 기간 청산 판정에 필요한 N+1 거래일까지만 센다
       expect(out.holdings).toEqual([
         {
           symbol: '005930',
@@ -336,6 +336,55 @@ describe('runSignals', () => {
         },
       ]);
       expect(out.notes).toEqual([...NOTES.base, NOTES.breakeven]);
+    });
+
+    it('기간 청산이 꺼져 있으면 보유 거래일 달력을 조회하지 않는다', async () => {
+      const provider = stub({ candles: { '005930': candles }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 }]) });
+      const calendar = vi.spyOn(provider, 'getTradingDays').mockRejectedValue(new ApiError('upstream'));
+      const out = await runSignals({ provider, strategy: strat((s) => (s.rules.sell.timeExit.on = false)), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => [order()] });
+      expect(calendar).not.toHaveBeenCalled();
+      expect(out.holdings?.[0]).toMatchObject({ timeExit: null, stop: { price: 63705, hit: false } });
+    });
+
+    it('N이 500보다 커도 각 달력 요청은 한도 안에 나누고 N+1 거래일에서 멈춘다', async () => {
+      const provider = stub({ candles: { '005930': candles }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 }]) });
+      const calendar = vi.spyOn(provider, 'getTradingDays').mockImplementation(async (from, to) => {
+        const days = weekdayCalendar(from, to);
+        if (days.filter((d) => d.isOpen).length > 500) throw new ApiError('upstream');
+        return days;
+      });
+      const old = order({ orderedAt: '2024-01-02T09:30:00+09:00', filledAt: '2024-01-02T09:30:05+09:00' });
+      const out = await runSignals({ provider, strategy: strat((s) => (s.rules.sell.timeExit.days = 600)), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => [old] });
+      expect(out.holdings?.[0].timeExit).toEqual({ heldDays: 601, days: 600, hit: true });
+      expect(calendar.mock.calls.length).toBeGreaterThan(1);
+      expect(calendar.mock.calls.every(([from, to]) => weekdayCalendar(from, to).length <= 365)).toBe(true);
+      expect(calendar.mock.calls.at(-1)![1] < '2026-10-30').toBe(true);
+    });
+
+    it.each([4, 5, 20])('휴장일은 빼고 거래정지로 봉이 없는 거래일도 세어 %i일 청산을 판정한다', async (days) => {
+      const provider = stub({ candles: { '005930': candles.filter((c) => kstDate(c.t) !== '2026-10-29') }, closed: ['2026-10-28'], account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 }]) });
+      const recent = order({ orderedAt: '2026-10-26T09:30:00+09:00', filledAt: '2026-10-26T09:30:05+09:00' });
+      const out = await runSignals({ provider, strategy: strat((s) => (s.rules.sell.timeExit.days = days)), symbols: ['005930'], now: NOW, today: false, loadOrders: async () => [recent] });
+      expect(out.holdings?.[0].timeExit).toEqual({ heldDays: 4, days, hit: days <= 4 });
+    });
+
+    it.each(['error', 'incomplete'] as const)('달력 %s 시 해당 종목의 기간 청산만 unknown이고 다음 종목은 판정한다', async (failure) => {
+      const provider = stub({ candles: { '005930': candles, '000660': candles }, account: account([
+        { symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 68500 },
+        { symbol: '000660', name: 'SK하이닉스', quantity: 10, avgPrice: 68500 },
+      ]) });
+      vi.spyOn(provider, 'getTradingDays').mockImplementation(async (from, to) => {
+        if (from === '2026-09-02') {
+          if (failure === 'error') throw new ApiError('upstream');
+          return weekdayCalendar(from, to).slice(1);
+        }
+        return weekdayCalendar(from, to);
+      });
+      const out = await runSignals({ provider, strategy: strat(), symbols: ['005930', '000660'], now: NOW, today: false, loadOrders: async () => [order(), order({ orderId: 'o2', symbol: '000660', orderedAt: '2026-10-29T09:30:00+09:00', filledAt: '2026-10-29T09:30:05+09:00' })] });
+      expect(out.signals).toHaveLength(2);
+      expect(out.failed).toEqual([]);
+      expect(out.holdings?.[0]).toMatchObject({ timeExit: { heldDays: null, days: 20, hit: 'unknown' }, stop: { price: 63705, hit: false }, trail: { price: 70470, hit: false } });
+      expect(out.holdings?.[1].timeExit).toEqual({ heldDays: 2, days: 20, hit: false });
     });
 
     it('주문 이력이 모자라면 첫 매수일에 의존하는 항목은 unknown', async () => {

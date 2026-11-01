@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MarketDataProvider } from '../../../src/lib/providers/types';
+import { ApiError } from '../../../src/lib/providers/errors';
 import { fullStrategyV2 } from '../../../src/lib/sim/testStrategyV2';
-import { barsFromCloses } from '../../../src/lib/sim/testBars';
-import { kstDate } from '../../../src/lib/time/kst';
+import { barsFromCloses, tradingDates } from '../../../src/lib/sim/testBars';
+import { addDays, kstDate } from '../../../src/lib/time/kst';
 import { writeAuth } from '../config';
 import { COMMANDS, run } from '../main';
 import type { Built } from '../providers';
@@ -61,6 +62,31 @@ describe('gazua signals', () => {
     const { t } = setup([]);
     expect(await run(['signals', '--strategy', '없는 전략'], t.io)).toBe(1);
     expect(t.result().error.code).toBe('strategy-not-found');
+  });
+
+  it('첫 매수가 600거래일 전이어도 signals 명령은 성공하고 기간 청산에 도달한다', async () => {
+    const { t } = setup([]);
+    const dates = tradingDates('2024-01-02', 1000).filter((d) => d <= '2026-10-30');
+    const first = dates[dates.length - 601];
+    const toss: MarketDataProvider = {
+      ...provider(),
+      id: 'toss',
+      async getTradingDays(from, to) {
+        const open = dates.filter((d) => d >= from && d <= to);
+        if (open.length > 500) throw new ApiError('upstream', 'Toss calendar needed too many requests');
+        const days = [];
+        for (let d = from; d <= to; d = addDays(d, 1)) days.push({ date: d, isOpen: open.includes(d) });
+        return days;
+      },
+      account: {
+        accountId: async () => 'test-account',
+        holdings: async () => [{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 10 }],
+        closedOrders: async () => [{ orderId: 'old-buy', symbol: '005930', side: 'BUY', status: 'FILLED', currency: 'KRW', orderedAt: `${first}T09:30:00+09:00`, filledAt: `${first}T09:30:05+09:00`, quantity: 10, price: 10, amount: 100, commission: 0, tax: 0 }],
+      },
+    };
+    COMMANDS.signals = makeSignals(() => ({ id: 'toss', provider: toss, keyHash: 'old-holding' }));
+    expect(await run(['signals', '--strategy', '골든크로스 추세'], t.io)).toBe(0);
+    expect(t.result()).toMatchObject({ ok: true, data: { failed: [], holdings: [{ firstBuyDate: first, timeExit: { heldDays: 21, days: 20, hit: true } }] } });
   });
 
   it('프로필이 여럿이면 profile-required, --profile로 고른다', async () => {

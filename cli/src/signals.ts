@@ -104,6 +104,7 @@ export interface HoldingJudgement {
   /** 익절 단계가 이미 체결됐는지는 모른다 → 모든 단계를 내고 true */
   stagesDoneUnknown: boolean;
   trail: { price: number | null; hit: Tri } | null;
+  /** heldDays는 판정에 필요한 days+1에서 멈춘다. 그 전까지는 첫날=1인 실제 거래일 수 */
   timeExit: { heldDays: number | null; days: number; hit: Tri } | null;
   /** 본전 손절(1단계 익절 뒤)은 익절 여부를 몰라 판정하지 않는다 */
   breakeven?: { price: number | null; hit: 'unknown' };
@@ -196,6 +197,27 @@ interface Base {
   close: number;
 }
 
+/** 거래정지로 일봉이 없는 날도 세도록 달력을 쓴다. 한 요청은 최대 365일이라 토스의 500 hop 한도 안이다. */
+async function countHeldDays(provider: MarketDataProvider, from: string, to: string, limit: number): Promise<number | null> {
+  let count = 0;
+  try {
+    while (from <= to && count < limit) {
+      const chunkEnd = addDays(from, Math.min(365, limit - count) - 1);
+      const end = chunkEnd < to ? chunkEnd : to;
+      const calendar = new Map((await provider.getTradingDays(from, end)).map((d) => [d.date, d]));
+      for (let date = from; date <= end; date = addDays(date, 1)) {
+        const day = calendar.get(date);
+        if (!day) return null; // 불완전한 응답으로 보유일수를 과소 계산하지 않는다
+        if (day.isOpen) count++;
+      }
+      from = addDays(end, 1);
+    }
+    return count;
+  } catch {
+    return null; // 한 종목의 기간 청산만 unknown, 다른 매도 규칙과 종목은 계속 판정한다
+  }
+}
+
 export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
   const { provider, strategy, symbols, now } = d;
   const venue = pickVenue(provider);
@@ -276,7 +298,9 @@ export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
           const covered = all.length > 0 && kstDate(all[0].t) <= addDays(first.date, 7);
           const closes = all.filter((c) => kstDate(c.t) >= first.date && kstDate(c.t) <= b.date).map((c) => c.c);
           peakClose = !covered ? null : closes.length ? Math.max(...closes) : first.price;
-          heldDays = first.date > b.date ? 0 : (await provider.getTradingDays(first.date, b.date)).filter((x) => x.isOpen).length;
+          if (strategy.rules.sell.timeExit.on) {
+            heldDays = await countHeldDays(provider, first.date, b.date, strategy.rules.sell.timeExit.days + 1);
+          }
         }
         holdings.push(judgeHolding({ strategy, symbol: s, quantity: h.quantity, avgPrice: h.avgPrice, close: b.close, first, peakClose, heldDays, signalSell: sells.get(s) ?? null }));
       }
