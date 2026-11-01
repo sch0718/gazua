@@ -3,8 +3,9 @@ import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { newStrategy } from '../sim/defaults';
 import { newCriteria } from '../screen/defaults';
-import { FORBIDDEN_KEYS } from './forbidden';
-import { checkProfileDoc, PROFILE_DOC_MAX_BYTES, type ProfileDocV1 } from './dto';
+import { FORBIDDEN_KEYS, JSON_DEPTH_MAX } from './forbidden';
+import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV1 } from './dto';
+import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { applyProfileDoc, buildProfileDoc } from './profileDoc';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
@@ -88,6 +89,33 @@ describe('buildProfileDoc', () => {
 });
 
 describe('checkProfileDoc', () => {
+  it.each([
+    { v: 3, code: 'unsupported' },
+    { v: '3', code: 'invalid' },
+  ])('v=$v 판정을 알 수 없는 최상위 키 검사보다 먼저 한다', ({ v, code }) => {
+    expect(checkProfileDoc({ ...validDoc(), v, extra: 1 }, NOW)).toMatchObject({ ok: false, code, path: 'v' });
+  });
+
+  it('v3 문서도 금지 키를 버전보다 먼저 거절한다', () => {
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra: { AppSecret: 'x' } }, NOW)).toMatchObject({
+      ok: false, code: 'forbidden-field', path: 'extra.AppSecret',
+    });
+  });
+
+  it('v3 문서도 깊이 상한을 버전보다 먼저 검사한다', () => {
+    let extra: unknown = {};
+    for (let i = 0; i < JSON_DEPTH_MAX; i++) extra = { child: extra };
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra }, NOW)).toMatchObject({
+      ok: false, code: 'forbidden-field', path: `extra${'.child'.repeat(JSON_DEPTH_MAX)}`,
+    });
+  });
+
+  it('v3 문서도 바이트 상한을 버전보다 먼저 검사한다', () => {
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra: 'x'.repeat(PROFILE_DOC_MAX_BYTES) }, NOW)).toMatchObject({
+      ok: false, code: 'too-large',
+    });
+  });
+
   it.each(FORBIDDEN_KEYS)('금지 키 %s는 어느 깊이에 있어도 거절한다', (key) => {
     const top = { ...validDoc(), [key]: 'x' };
     expect(checkProfileDoc(top, NOW)).toMatchObject({ ok: false, code: 'forbidden-field', path: key });
@@ -126,7 +154,9 @@ describe('checkProfileDoc', () => {
     const missing = validDoc() as unknown as Record<string, unknown>;
     delete missing.baskets;
     expect(checkProfileDoc(missing, NOW)).toMatchObject({ code: 'invalid', path: 'baskets' });
-    expect(checkProfileDoc({ ...validDoc(), v: 2 }, NOW)).toMatchObject({ code: 'invalid', path: 'v' });
+    expect(checkProfileDoc({ ...validDoc(), v: 3 }, NOW)).toMatchObject({ code: 'unsupported', path: 'v' });
+    expect(checkProfileDoc({ ...validDoc(), v: '1' }, NOW)).toMatchObject({ code: 'invalid', path: 'v' });
+    expect(checkProfileDoc({ ...validDoc(), v: 0 }, NOW)).toMatchObject({ code: 'invalid', path: 'v' });
     expect(checkProfileDoc([], NOW)).toMatchObject({ code: 'invalid' });
   });
 
@@ -158,5 +188,48 @@ describe('applyProfileDoc', () => {
     expect(settings).toMatchObject({ provider: 'toss', proxyUrl: FAKE.proxyUrl, venueMode: 'NXT', theme: 'dark', onboarded: true, lastGroupId: 'g-1' });
     expect(backing.getItem(`gazua:v1:p:${PID}:secrets`)).toContain(FAKE.proxyToken);
     expect(backing.getItem(`gazua:v1:p:${PID}:recent`)).toBe('["000660"]');
+  });
+});
+
+describe('checkProfileDoc v1·v2(전략 빌더 §8.3)', () => {
+  const v2Doc = () => ({ ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] });
+
+  it('앱이 만드는 버전은 1 그대로, 받는 최대는 2', () => {
+    expect(PROFILE_DOC_VERSION).toBe(1);
+    expect(PROFILE_DOC_MAX_VERSION).toBe(2);
+    expect(APP_OUTDATED_CODE).toBe('앱을 새로 고쳐 주세요');
+  });
+
+  it('v1 문서는 지금처럼 통과하고 원본을 돌려준다', () => {
+    const d = validDoc();
+    const r = checkProfileDoc(d, NOW);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.doc).toBe(d);
+  });
+
+  it('v2 문서는 v2 검증으로 통과하고 원본을 돌려준다', () => {
+    const d = v2Doc();
+    const r = checkProfileDoc(d, NOW);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.doc).toBe(d);
+  });
+
+  it('v2 문서에 v1 전략이 섞이면 거절한다', () => {
+    const d = { ...v2Doc(), strategies: validDoc().strategies };
+    expect(checkProfileDoc(d, NOW)).toMatchObject({ ok: false, code: 'unknown-field' });
+  });
+
+  it('v1 문서에 v2 전략이 섞이면 거절한다', () => {
+    const d = { ...validDoc(), strategies: [fullStrategyV2()] };
+    expect(checkProfileDoc(d, NOW)).toMatchObject({ ok: false });
+  });
+
+  it('v2 전략의 고칠 값·모르는 필드를 거절한다', () => {
+    const bad = v2Doc();
+    bad.strategies[0].rules.sell.trailing.pct = 80;
+    expect(checkProfileDoc(bad, NOW)).toMatchObject({ code: 'invalid', path: 'strategies[0].rules.sell.trailing.pct' });
+    const extra = v2Doc();
+    (extra.strategies[0].rules.buy[0].conds[1] as unknown as Record<string, unknown>).note = 'x';
+    expect(checkProfileDoc(extra, NOW)).toMatchObject({ code: 'unknown-field', path: 'strategies[0].rules.buy[0].conds[1].note' });
   });
 });

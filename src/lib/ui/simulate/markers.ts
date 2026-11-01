@@ -5,14 +5,24 @@ import type { Trade } from '../../sim/types';
 /** [CSS 변수, 대체 색(라이트 토큰 값)] */
 export type ColorToken = [string, string];
 
-export const TRADE_LABEL: Record<Trade['kind'], string> = { buy: '매수', add: '추가', take: '익절', gapTake: '익절', stop: '손절', gapStop: '손절' };
+export const TRADE_LABEL: Record<Trade['kind'], string> = {
+  buy: '매수',
+  add: '추가',
+  take: '익절',
+  gapTake: '익절',
+  stop: '손절',
+  gapStop: '손절',
+  trail: '트레일',
+  time: '기간',
+  signalSell: '조건',
+};
 
 const ACCENT: ColorToken = ['--accent', '#5b47e0'];
 const UP: ColorToken = ['--up', '#d4202f'];
 const DOWN: ColorToken = ['--down', '#1d5fd6'];
 /** 익절·손절처럼 색이 섞인 마커 */
 const MIXED_COLOR: ColorToken = ['--t2', '#5b6069'];
-// 매수 = 강조색, 익절 = 상승색, 손절 = 하락색
+// 매수 = 강조색, 익절 = 상승색, 손절 = 하락색, 트레일링·기간 청산·조건 매도 = 손익 방향이 정해지지 않아 섞인 색
 export const MARKER_COLOR: Record<Trade['kind'], ColorToken> = {
   buy: ACCENT,
   add: ACCENT,
@@ -20,6 +30,9 @@ export const MARKER_COLOR: Record<Trade['kind'], ColorToken> = {
   gapTake: UP,
   stop: DOWN,
   gapStop: DOWN,
+  trail: MIXED_COLOR,
+  time: MIXED_COLOR,
+  signalSell: MIXED_COLOR,
 };
 
 const isBuying = (t: Trade): boolean => t.kind === 'buy' || t.kind === 'add';

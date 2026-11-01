@@ -1,5 +1,6 @@
-import type { ProfileDocV1 } from '../../src/lib/sync/dto';
+import type { ProfileDocV1, ProfileDocV2 } from '../../src/lib/sync/dto';
 import { newStrategy } from '../../src/lib/sim/defaults';
+import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
 import { T0 } from './harness';
 
 export function doc(name = '내 프로필', groups = ['관심']): ProfileDocV1 {
@@ -12,4 +13,10 @@ export function doc(name = '내 프로필', groups = ['관심']): ProfileDocV1 {
     criteria: [],
     baskets: [],
   };
+}
+
+/** 전략 v2를 담은 문서(전략 빌더 PR①). 나머지는 doc()과 같다 */
+export function docV2(name = '내 프로필'): ProfileDocV2 {
+  const d = doc(name);
+  return { ...d, v: 2, strategies: [{ ...fullStrategyV2(), id: 's1' }] };
 }

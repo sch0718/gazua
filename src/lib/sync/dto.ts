@@ -5,13 +5,19 @@ import { sanitizeBaskets } from '../screen/baskets';
 import { sanitizeCriteria } from '../screen/validate';
 import type { SelectionCriteria } from '../screen/types';
 import { sanitizeStrategies } from '../sim/validate';
+import { sanitizeStrategiesV2, type StrategyV2 } from '../sim/strategyV2';
 import type { Strategy } from '../sim/types';
 import { PERIOD_COUNTS } from '../market/periods';
 import type { PeriodUnit, Settings, Watchlists } from '../state/schema';
 import { sanitizeWatchlists } from '../state/validate';
 import { findForbidden, jsonBytes, jsonDiff } from './forbidden';
 
+/** 앱이 만드는 문서 버전. 전략 빌더 PR②에서 2로 올린다 */
 export const PROFILE_DOC_VERSION = 1;
+/** 받는 문서의 가장 높은 버전(전략 빌더 §8.3). 이보다 높으면 unsupported */
+export const PROFILE_DOC_MAX_VERSION = 2;
+/** 옛 앱에 v2 문서를 주거나 받지 않을 때의 422 코드. 옛 앱 SyncPanel이 코드를 괄호에 그대로 보여서 문장으로 둔다 */
+export const APP_OUTDATED_CODE = '앱을 새로 고쳐 주세요';
 /** 제안서 2절: 개인 문서당 256 KiB. 넘으면 자르지 않고 알린다. */
 export const PROFILE_DOC_MAX_BYTES = 256 * 1024;
 export const PROFILE_NAME_MAX = 30;
@@ -30,8 +36,15 @@ export interface ProfileDocV1 {
   baskets: Basket[];
 }
 
-export type DocError = 'invalid' | 'unknown-field' | 'forbidden-field' | 'too-large';
-export type DocCheck = { ok: true; doc: ProfileDocV1 } | { ok: false; code: DocError; path?: string };
+/** 전략 v2(전략 빌더)를 담은 문서. 나머지 필드는 v1과 같다 */
+export interface ProfileDocV2 extends Omit<ProfileDocV1, 'v' | 'strategies'> {
+  v: 2;
+  strategies: StrategyV2[];
+}
+export type ProfileDoc = ProfileDocV1 | ProfileDocV2;
+
+export type DocError = 'invalid' | 'unknown-field' | 'forbidden-field' | 'too-large' | 'unsupported';
+export type DocCheck = { ok: true; doc: ProfileDoc } | { ok: false; code: DocError; path?: string };
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -72,17 +85,20 @@ function sameAs(input: unknown, cleaned: unknown, path: string): DocCheck | null
 }
 
 /**
- * 받은 문서를 검사한다. 금지 키 → 크기 → 알 수 없는 필드 → 값 순서로 본다.
+ * 받은 문서를 검사한다. 금지 키 → 크기 → 버전 → 알 수 없는 필드 → 값 순서로 본다.
  * 저장소 읽기처럼 고쳐서 받지 않는다. 고칠 것이 하나라도 있으면 거절한다.
+ * v가 1이면 v1 전략, 2면 v2 전략으로 검사한다. 앱은 아직 v1만 만든다.
  */
 export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
   if (!isRecord(raw)) return fail('invalid');
   const forbidden = findForbidden(raw);
   if (forbidden) return fail('forbidden-field', forbidden);
   if (jsonBytes(raw) > PROFILE_DOC_MAX_BYTES) return fail('too-large');
+  const v = raw.v;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return fail('invalid', 'v');
+  if (v > PROFILE_DOC_MAX_VERSION) return fail('unsupported', 'v');
   for (const k of Object.keys(raw)) if (!TOP_KEYS.includes(k)) return fail('unknown-field', k);
   for (const k of TOP_KEYS) if (!Object.hasOwn(raw, k)) return fail('invalid', k);
-  if (raw.v !== PROFILE_DOC_VERSION) return fail('invalid', 'v');
   if (typeof raw.name !== 'string' || raw.name.trim() === '' || raw.name !== raw.name.trim() || [...raw.name].length > PROFILE_NAME_MAX)
     return fail('invalid', 'name');
 
@@ -97,7 +113,7 @@ export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
   if (wd) return wd;
 
   for (const [key, cleaned] of [
-    ['strategies', sanitizeStrategies({ strategies: raw.strategies }, now).strategies],
+    ['strategies', v === 1 ? sanitizeStrategies({ strategies: raw.strategies }, now).strategies : sanitizeStrategiesV2({ strategies: raw.strategies }, now).strategies],
     ['criteria', sanitizeCriteria({ criteria: raw.criteria }, now).criteria],
     ['baskets', sanitizeBaskets({ baskets: raw.baskets }).baskets],
   ] as const) {
@@ -105,5 +121,5 @@ export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
     const d = sameAs(raw[key], cleaned, key);
     if (d) return d;
   }
-  return { ok: true, doc: raw as unknown as ProfileDocV1 };
+  return { ok: true, doc: raw as unknown as ProfileDoc }; // 입력 원본을 돌려준다(Worker는 이것을 저장한다)
 }

@@ -1,8 +1,8 @@
 // 결과 스냅샷 검사용 열거값(설계 2.7). 원래 타입이 있는 모듈(sim/types·screen/runValidation 등)을 끌어오지 않으려고
 // 값만 따로 둔다. 원래 타입과 같은지는 resultEnums.test.ts가 타입으로 확인한다. 이 파일은 아무것도 import하지 않는다.
 
-export const TRADE_KINDS = ['buy', 'add', 'take', 'stop', 'gapStop', 'gapTake'] as const;
-export const SELL_KINDS = ['take', 'stop', 'gapStop', 'gapTake'] as const;
+export const TRADE_KINDS = ['buy', 'add', 'take', 'stop', 'gapStop', 'gapTake', 'trail', 'time', 'signalSell'] as const;
+export const SELL_KINDS = ['take', 'stop', 'gapStop', 'gapTake', 'trail', 'time', 'signalSell'] as const;
 /** 고정 순서. 건너뜀 이유별 개수·목록의 이유 위치가 이 순서다 */
 export const SKIP_REASONS = ['현금 부족', '1주가 1회 금액보다 비쌈', '거래 없음', '선정 기간이 아니에요'] as const;
 export const SIM_FAILURE_REASONS = ['받지 못했어요', '종목 정보를 받지 못했어요', '기간 안에 데이터가 없어요'] as const;

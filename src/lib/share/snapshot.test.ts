@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newCriteria } from '../screen/defaults';
 import { MAX_SYMBOLS, newStrategy } from '../sim/defaults';
+import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { sanitizeStrategies } from '../sim/validate';
 import type { Watchlists } from '../state/schema';
 import { MAX_ITEMS } from '../state/watchlist';
@@ -16,6 +17,7 @@ import {
 } from './snapshot';
 import { compareSnapshot } from './compact';
 import { SIM_SYMBOLS_MAX } from './checkResult';
+import { shareFixtures, simResultFixture, NOW as FIX_NOW } from './testFixtures';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
 const PROFILE_NAME = '비밀 프로필 이름';
@@ -43,6 +45,12 @@ function allIds() {
 }
 
 describe('공유 스냅샷', () => {
+  it.each(shareFixtures())('create: $kind 공유는 입력 원본을 돌려준다', (raw) => {
+    const r = checkShareSnapshot(raw, raw.kind, FIX_NOW, 'create');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot).toBe(raw);
+  });
+
   it('시뮬레이션 결과의 종목 한도는 전략 기본값과 같다', () => {
     expect(SIM_SYMBOLS_MAX).toBe(MAX_SYMBOLS);
   });
@@ -118,7 +126,8 @@ describe('공유 스냅샷', () => {
     expect(checkShareSnapshot({ ...s, symbols: ['bad'] }, 'group', NOW)).toMatchObject({ code: 'invalid', path: 'symbols' });
     expect(checkShareSnapshot({ ...s, symbols: ['005930', '005930'] }, 'group', NOW)).toMatchObject({ code: 'invalid' });
     expect(checkShareSnapshot({ ...s, title: ' 앞' }, 'group', NOW)).toMatchObject({ code: 'invalid', path: 'title' });
-    expect(checkShareSnapshot({ ...s, v: 2 }, 'group', NOW)).toMatchObject({ code: 'invalid', path: 'v' });
+    expect(checkShareSnapshot({ ...s, v: 2 }, 'group', NOW)).toMatchObject({ code: 'unsupported', path: 'v' });
+    expect(checkShareSnapshot({ ...s, v: '1' }, 'group', NOW)).toMatchObject({ code: 'invalid', path: 'v' });
   });
 });
 
@@ -271,5 +280,60 @@ describe('비교 화면 스냅샷', () => {
     expect(checkShareSnapshot({ ...s, view: { ...s.view, extra: 1 } }, 'compare', NOW)).toMatchObject({ code: 'unknown-field', path: 'view.extra' });
     expect(checkShareSnapshot({ ...s, view: { ...s.view, theme: 'dark' } }, 'compare', NOW)).toMatchObject({ code: 'forbidden-field', path: 'view.theme' });
     expect(checkShareSnapshot({ ...s, colorConvention: 'kr' }, 'compare', NOW)).toMatchObject({ code: 'unknown-field' });
+  });
+});
+
+describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
+  const v2Strategy = (title: string, symbols: string[]) => ({
+    ...fullStrategyV2(),
+    id: 'shared',
+    name: title,
+    updatedAt: 0,
+    universe: { kind: 'symbols' as const, symbols },
+  });
+  const strategyV2Snap = () => ({ kind: 'strategy', v: 2, title: '골든크로스', strategy: v2Strategy('골든크로스', ['005930', '000660']), capitalHidden: false });
+  const simResultV2Snap = () => {
+    const f = simResultFixture();
+    return { ...f, v: 2, strategy: { ...v2Strategy(f.title, (f.strategy.universe as { symbols: string[] }).symbols), benchmarks: f.strategy.benchmarks } };
+  };
+
+  it('create: v2 전략 공유를 받고 원본을 돌려준다', () => {
+    const raw = strategyV2Snap();
+    const r = checkShareSnapshot(raw, 'strategy', NOW, 'create');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot).toBe(raw);
+  });
+
+  it('create: v2 시뮬레이션 결과 공유를 받고 원본을 돌려준다', () => {
+    const raw = simResultV2Snap();
+    const r = checkShareSnapshot(raw, 'simResult', FIX_NOW, 'create');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot).toBe(raw);
+  });
+
+  it('create: v1 전략 공유는 지금처럼 받는다', () => {
+    const raw = strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW });
+    expect(checkShareSnapshot(raw, 'strategy', NOW, 'create')).toMatchObject({ ok: true });
+  });
+
+  it('read: v2는 unsupported(PR① 앱은 v1만 그린다), v1은 v1 그대로', () => {
+    expect(checkShareSnapshot(strategyV2Snap(), 'strategy', NOW, 'read')).toMatchObject({ ok: false, code: 'unsupported', path: 'v' });
+    expect(checkShareSnapshot(simResultV2Snap(), 'simResult', FIX_NOW, 'read')).toMatchObject({ ok: false, code: 'unsupported', path: 'v' });
+    const v1 = strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW });
+    const r = checkShareSnapshot(v1, 'strategy', NOW, 'read');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.snapshot.v).toBe(1);
+  });
+
+  it('create: v3는 unsupported, v2 전략에 고칠 값이 있으면 invalid', () => {
+    expect(checkShareSnapshot({ ...strategyV2Snap(), v: 3 }, 'strategy', NOW, 'create')).toMatchObject({ code: 'unsupported', path: 'v' });
+    const bad = strategyV2Snap();
+    bad.strategy.rules.sell.timeExit.days = 0;
+    expect(checkShareSnapshot(bad, 'strategy', NOW, 'create')).toMatchObject({ code: 'invalid', path: 'strategy.rules.sell.timeExit.days' });
+  });
+
+  it('create: 기준 공유는 v1만 받는다', () => {
+    const c = criteriaSnapshot(newCriteria(NOW, null), { baskets: [], strategies: [] }, { hideCapital: false, now: NOW });
+    expect(checkShareSnapshot({ ...c, v: 2 }, 'criteria', NOW, 'create')).toMatchObject({ code: 'unsupported', path: 'v' });
   });
 });

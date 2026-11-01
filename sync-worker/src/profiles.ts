@@ -1,6 +1,6 @@
 // 프로필 API: expectedRevision 조건부 갱신, opId 재시도, tombstone 삭제와 30일 복구, 리비전 보존(현재 + 과거 10개).
 // 비교·갱신·이력 기록은 D1 batch(한 트랜잭션)로 묶고, 뒤 문장은 `last_op_id = 이 작업`일 때만 적용한다.
-import { checkProfileDoc } from '../../src/lib/sync/dto';
+import { APP_OUTDATED_CODE, checkProfileDoc } from '../../src/lib/sync/dto';
 import type { D1PreparedStatement } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
 import { HttpError } from '@sch0718/firebase-session/worker';
@@ -18,12 +18,26 @@ export interface IndexRow {
   deletedAt: number | null;
   purgeAt: number | null;
 }
-type Head = IndexRow & { lastOpId: string };
+type Head = IndexRow & { lastOpId: string; docV: number };
 
 export function checkId(id: string): string {
   if (!ID_RE.test(id)) throw new HttpError(404, 'not-found');
   return id;
 }
+
+/** 요청이 다룰 수 있는 문서 버전(쿼리 docVersion). 없으면 1(옛 앱). 전략 빌더 §8.3 */
+export function requestDocVersion(url: URL): number {
+  const raw = url.searchParams.get('docVersion');
+  if (raw === null) return 1;
+  if (!/^[1-9]\d{0,2}$/.test(raw)) throw new HttpError(422, 'invalid', { path: 'docVersion' });
+  return Number(raw);
+}
+
+/** 저장된 본문의 버전. v가 없으면 1 */
+const docVersionOf = (doc: unknown): number => {
+  const v = typeof doc === 'object' && doc !== null ? (doc as { v?: unknown }).v : undefined;
+  return typeof v === 'number' ? v : 1;
+};
 
 function opArgs(body: unknown): { opId: string; expectedRevision: number; doc?: unknown } {
   const b = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
@@ -35,7 +49,7 @@ function opArgs(body: unknown): { opId: string; expectedRevision: number; doc?: 
 
 async function head(env: SyncEnv, userId: string, profileId: string): Promise<Head | null> {
   return env.DB.prepare(
-    `SELECT profile_id AS profileId, revision, updated_at AS updatedAt, deleted_at AS deletedAt, purge_at AS purgeAt, last_op_id AS lastOpId
+    `SELECT profile_id AS profileId, revision, updated_at AS updatedAt, deleted_at AS deletedAt, purge_at AS purgeAt, last_op_id AS lastOpId, doc_v AS docV
      FROM profile_index WHERE user_id = ? AND profile_id = ?`,
   )
     .bind(userId, profileId)
@@ -57,12 +71,18 @@ async function replayed(env: SyncEnv, userId: string, profileId: string, opId: s
   return { revision: r.revision };
 }
 
-/** 작업이 반영되지 않았을 때의 응답: 정리돼 없으면 410, 삭제됐으면 410, 아니면 409와 현재 본문. */
-async function rejected(env: SyncEnv, userId: string, profileId: string): Promise<never> {
+/**
+ * 작업이 반영되지 않았을 때의 응답(전략 빌더 §8.3). 순서:
+ * 머리 없음 410 → 삭제됨 410 → (들어온 문서가 있는 PUT만) 저장 버전 > 들어온 버전이면 422 → 409.
+ * 409 본문의 doc은 저장 버전이 요청 버전보다 높으면 null(옛 앱에 v2를 주지 않는다).
+ */
+async function rejected(env: SyncEnv, userId: string, profileId: string, incomingV: number | null, reqV: number): Promise<never> {
   const h = await head(env, userId, profileId);
   if (!h) throw new HttpError(410, 'gone', { deletedAt: null, purgeAt: null });
   if (h.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt, revision: h.revision });
-  throw new HttpError(409, 'conflict', { revision: h.revision, doc: await currentDoc(env, userId, profileId) });
+  if (incomingV !== null && h.docV > incomingV) throw new HttpError(422, APP_OUTDATED_CODE);
+  const doc = await currentDoc(env, userId, profileId);
+  throw new HttpError(409, 'conflict', { revision: h.revision, doc: docVersionOf(doc) > reqV ? null : doc });
 }
 
 /** 이 작업이 색인에 반영됐을 때만 참. 뒤에 user_id·profile_id·opId를 바인딩한다. */
@@ -100,42 +120,46 @@ export async function listProfiles(env: SyncEnv, ctx: AuthContext): Promise<Inde
   return results;
 }
 
-export async function getProfile(env: SyncEnv, ctx: AuthContext, profileId: string): Promise<{ revision: number; doc: unknown }> {
+export async function getProfile(env: SyncEnv, ctx: AuthContext, profileId: string, reqV = 1): Promise<{ revision: number; doc: unknown }> {
   // 리비전과 본문을 한 문장으로 읽는다. 따로 읽으면 사이에 다른 기기가 바꿔 리비전 N과 N+1의 본문이 짝지어질 수 있다.
   const row = await env.DB.prepare(
-    `SELECT i.revision AS revision, i.deleted_at AS deletedAt, i.purge_at AS purgeAt, p.body AS body
+    `SELECT i.revision AS revision, i.deleted_at AS deletedAt, i.purge_at AS purgeAt, i.doc_v AS docV, p.body AS body
      FROM profile_index i LEFT JOIN profiles p ON p.user_id = i.user_id AND p.profile_id = i.profile_id
      WHERE i.user_id = ? AND i.profile_id = ?`,
   )
     .bind(ctx.userId, checkId(profileId))
-    .first<{ revision: number; deletedAt: number | null; purgeAt: number | null; body: string | null }>();
+    .first<{ revision: number; deletedAt: number | null; purgeAt: number | null; docV: number; body: string | null }>();
   if (!row) throw new HttpError(404, 'not-found');
   if (row.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: row.deletedAt, purgeAt: row.purgeAt, revision: row.revision });
+  // 삭제 판정(본문 없음) 다음에 본다. 요청 버전보다 높은 문서는 주지 않는다(옛 앱이 받아 기본값으로 덮지 않게)
+  if (row.docV > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
   return { revision: row.revision, doc: row.body === null ? null : JSON.parse(row.body) };
 }
 
-/** PUT: 새로 만들기(expectedRevision 0) 또는 조건부 갱신. */
-export async function putProfile(env: SyncEnv, ctx: AuthContext, profileId: string, body: unknown, now: number): Promise<{ revision: number }> {
+/** PUT: 새로 만들기(expectedRevision 0) 또는 조건부 갱신. 저장 버전보다 낮은 문서는 같은 문장 안에서 막는다(전략 빌더 §8.3). */
+export async function putProfile(env: SyncEnv, ctx: AuthContext, profileId: string, body: unknown, now: number, reqV = 1): Promise<{ revision: number }> {
   checkId(profileId);
   const { opId, expectedRevision, doc } = opArgs(body);
   const checked = checkProfileDoc(doc, now);
   if (!checked.ok) throw new HttpError(422, checked.code, checked.path ? { path: checked.path } : {});
+  if (checked.doc.v > reqV) throw new HttpError(422, 'invalid', { path: 'docVersion' });
   const again = await replayed(env, ctx.userId, profileId, opId);
   if (again) return again;
 
+  const docV = checked.doc.v;
   const text = JSON.stringify(checked.doc);
   const size = new TextEncoder().encode(text).length;
   const revision = expectedRevision + 1;
   const first =
     expectedRevision === 0
       ? env.DB.prepare(
-          `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at) VALUES (?, ?, 1, ?, ?)
+          `INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at, doc_v) VALUES (?, ?, 1, ?, ?, ?)
            ON CONFLICT (user_id, profile_id) DO NOTHING`,
-        ).bind(ctx.userId, profileId, opId, now)
+        ).bind(ctx.userId, profileId, opId, now, docV)
       : env.DB.prepare(
-          `UPDATE profile_index SET revision = ?, last_op_id = ?, updated_at = ?
-           WHERE user_id = ? AND profile_id = ? AND revision = ? AND deleted_at IS NULL`,
-        ).bind(revision, opId, now, ctx.userId, profileId, expectedRevision);
+          `UPDATE profile_index SET revision = ?, last_op_id = ?, updated_at = ?, doc_v = ?
+           WHERE user_id = ? AND profile_id = ? AND revision = ? AND deleted_at IS NULL AND doc_v <= ?`,
+        ).bind(revision, opId, now, docV, ctx.userId, profileId, expectedRevision, docV);
   await env.DB.batch([
     first,
     env.DB.prepare(`INSERT OR REPLACE INTO profiles (user_id, profile_id, body, size) SELECT ?, ?, ?, ? WHERE ${APPLIED}`).bind(
@@ -151,7 +175,7 @@ export async function putProfile(env: SyncEnv, ctx: AuthContext, profileId: stri
   ]);
   const h = await head(env, ctx.userId, profileId);
   if (h?.lastOpId === opId) return { revision: h.revision };
-  return rejected(env, ctx.userId, profileId);
+  return rejected(env, ctx.userId, profileId, docV, reqV);
 }
 
 /** DELETE: tombstone. 본문은 30일 복구를 위해 남기고, 공유 읽기는 막힌다. */
@@ -161,6 +185,7 @@ export async function deleteProfile(
   profileId: string,
   body: unknown,
   now: number,
+  reqV = 1,
 ): Promise<{ revision: number; deletedAt: number; purgeAt: number }> {
   checkId(profileId);
   const { opId, expectedRevision } = opArgs(body);
@@ -181,13 +206,16 @@ export async function deleteProfile(
   }
   const h = await head(env, ctx.userId, profileId);
   if (h?.lastOpId === opId && h.deletedAt !== null) return { revision: h.revision, deletedAt: h.deletedAt, purgeAt: h.purgeAt! };
-  if (h?.lastOpId === opId) throw new HttpError(409, 'conflict', { revision: h.revision, doc: await currentDoc(env, ctx.userId, profileId) });
+  if (h?.lastOpId === opId) {
+    const doc = await currentDoc(env, ctx.userId, profileId);
+    throw new HttpError(409, 'conflict', { revision: h.revision, doc: docVersionOf(doc) > reqV ? null : doc });
+  }
   if (h && h.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt, revision: h.revision });
-  return rejected(env, ctx.userId, profileId);
+  return rejected(env, ctx.userId, profileId, null, reqV);
 }
 
 /** 삭제 후 30일 안이면 마지막 본문으로 되살린다. */
-export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: string, body: unknown, now: number): Promise<{ revision: number; doc: unknown }> {
+export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: string, body: unknown, now: number, reqV = 1): Promise<{ revision: number; doc: unknown }> {
   checkId(profileId);
   const b = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   if (typeof b.opId !== 'string' || !ID_RE.test(b.opId)) throw new HttpError(422, 'invalid', { path: 'opId' });
@@ -198,6 +226,8 @@ export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: 
     if (!h) throw new HttpError(404, 'not-found');
     if (h.deletedAt === null) throw new HttpError(409, 'not-deleted', { revision: h.revision });
     if (h.purgeAt! <= now) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt });
+    // 되살리면 본문을 돌려주니 바꾸기 전에 본다. 옛 앱이 v2 프로필을 되살려 v1으로 덮는 길을 막는다
+    if (h.docV > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
     const revision = h.revision + 1;
     await env.DB.batch([
       env.DB.prepare(
@@ -216,7 +246,10 @@ export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: 
     if (after?.lastOpId !== opId) throw new HttpError(409, 'conflict', { revision: after?.revision ?? null });
   }
   const h = await head(env, ctx.userId, profileId);
-  return { revision: h!.revision, doc: await currentDoc(env, ctx.userId, profileId) };
+  const doc = await currentDoc(env, ctx.userId, profileId);
+  // 재시도(again)도 실제로 돌려줄 본문의 버전을 확인한다.
+  if (docVersionOf(doc) > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
+  return { revision: h!.revision, doc };
 }
 
 export async function listRevisions(env: SyncEnv, ctx: AuthContext, profileId: string) {
@@ -231,12 +264,15 @@ export async function listRevisions(env: SyncEnv, ctx: AuthContext, profileId: s
   return results.map((r) => ({ revision: r.revision, createdAt: r.createdAt, deleted: r.deleted === 1 }));
 }
 
-export async function getRevision(env: SyncEnv, ctx: AuthContext, profileId: string, rev: string) {
+export async function getRevision(env: SyncEnv, ctx: AuthContext, profileId: string, rev: string, reqV = 1) {
   checkId(profileId);
   if (!/^\d{1,9}$/.test(rev)) throw new HttpError(404, 'not-found');
   const row = await env.DB.prepare('SELECT body FROM revisions WHERE user_id = ? AND profile_id = ? AND revision = ? AND body IS NOT NULL')
     .bind(ctx.userId, profileId, Number(rev))
     .first<{ body: string }>();
   if (!row) throw new HttpError(404, 'not-found');
-  return { revision: Number(rev), doc: JSON.parse(row.body) };
+  const doc: unknown = JSON.parse(row.body);
+  // 리비전마다 버전이 다를 수 있어 그 본문의 v를 본다
+  if (docVersionOf(doc) > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
+  return { revision: Number(rev), doc };
 }

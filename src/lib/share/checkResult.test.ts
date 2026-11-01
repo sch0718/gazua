@@ -213,3 +213,15 @@ describe('결과 스냅샷 검사', () => {
     expect(checkShareSnapshot(s, 'validation', NOW, 'read').ok).toBe(true);
   });
 });
+
+describe('새 매도 종류(전략 빌더 §4.7)', () => {
+  it.each(['trail', 'time', 'signalSell'])('%s: 단계 없음·손익 있음이면 통과', (kind) => {
+    expect(sim((s) => (s.result.trades[2][2] = kind))).toMatchObject({ ok: true });
+  });
+  it.each(['trail', 'time', 'signalSell'])('%s: 단계가 있으면 invalid', (kind) => {
+    expect(sim((s) => ((s.result.trades[2][2] = kind), (s.result.trades[2][3] = 1)))).toMatchObject({ ok: false, code: 'invalid', path: 'result.trades[2]' });
+  });
+  it.each(['trail', 'time', 'signalSell'])('%s: 손익이 없으면 invalid', (kind) => {
+    expect(sim((s) => ((s.result.trades[2][2] = kind), (s.result.trades[2][7] = null)))).toMatchObject({ ok: false, code: 'invalid', path: 'result.trades[2]' });
+  });
+});

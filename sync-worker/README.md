@@ -216,3 +216,21 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
 - 세션 마지막 사용 시각은 1시간에 한 번만 써요.
 - 관리 목록(기기·삭제한 프로필·과거 버전·내 공유)은 펼칠 때만 서버에서 읽어요.
 - 한도를 넘거나 서버가 응답하지 않아도 로컬 사용과 JSON 내보내기는 그대로예요. 다시 시도할 때는 간격을 늘려 가요(최대 5분).
+
+## 전략 빌더 PR① 배포 (문서 버전 `doc_v`)
+
+전략 빌더(전략 v2) 앱보다 **먼저** 배포해요. 설계: `docs/superpowers/specs/2026-11-01-strategy-builder-design.md` §8.7.
+
+1. 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote` (= `wrangler d1 migrations apply gazua-sync --remote`). `0004_doc_version.sql`이 `profile_index.doc_v`(기본 1)를 더해요.
+2. Worker 배포: `corepack pnpm --filter sync-worker run deploy` (= `wrangler deploy`). `run`을 빼면 pnpm 내장 `deploy` 명령이 돌아요. 마이그레이션을 먼저 해야 새 코드의 `doc_v` 쿼리가 실패하지 않아요.
+3. 앱 배포(PR① 앱은 여전히 v1 문서만 만들어요). 병합하면 앱이 자동으로 먼저 배포될 수 있어요. PR① 앱은 `docVersion`을 보내지 않는 v1 클라이언트라 옛 Worker와도 그대로 돌아 순서가 바뀌어도 무해해요.
+
+PR①만 배포된 동안 옛 앱은 전과 똑같이 돌아요. 모든 문서가 v1(`doc_v = 1`)이고 옛 앱의 요청 버전도 1이라 가리기·거절이 걸리지 않아요. 전략 빌더 PR② 앱은 이 배포를 확인한 뒤 내보내요. 순서를 어기면 PR② 앱의 v2 PUT이 옛 Worker에서 422(`v`)로 거절되고, 그 문서가 바뀔 때까지 다시 보내지 않아요.
+
+| 응답 | 언제 |
+|---|---|
+| 422 `앱을 새로 고쳐 주세요` | 저장 문서 버전이 요청 `docVersion`(없으면 1)보다 높은 GET·리비전·복원, v2 위에 v1 PUT |
+| 422 `invalid` (path `docVersion`) | 쿼리 없이(또는 문서보다 낮은 `docVersion`으로) v2 문서를 PUT할 때예요 |
+| 409 `doc: null` | 충돌인데 돌려줄 본문의 버전이 요청 버전보다 높을 때예요 |
+
+옛 앱의 복원(restore)이 다른 요청과 겹치면 서버에서는 복원이 반영됐는데 옛 앱은 422(`앱을 새로 고쳐 주세요`)를 받는 좁은 창이 있어요. 옛 앱에 v2 본문을 주지 않으려고 둔 의도한 한계예요.

@@ -57,7 +57,7 @@ export interface SimInput {
 export interface Trade {
   date: string;
   symbol: string;
-  kind: 'buy' | 'add' | 'take' | 'stop' | 'gapStop' | 'gapTake';
+  kind: 'buy' | 'add' | 'take' | 'stop' | 'gapStop' | 'gapTake' | 'trail' | 'time' | 'signalSell'; // 뒤 3종은 전략 빌더(트레일링·기간 청산·조건 매도)
   stage?: number; // 익절 단계(1부터)
   price: number;
   qty: number;

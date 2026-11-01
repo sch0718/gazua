@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { newStrategy } from '../../src/lib/sim/defaults';
+import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
+import { sanitizeStrategiesV2 } from '../../src/lib/sim/strategyV2';
+import { sanitizeStrategies } from '../../src/lib/sim/validate';
 import { compareSnapshot } from '../../src/lib/share/compact';
 import { simResultFixture, validationFixture } from '../../src/lib/share/testFixtures';
 import { groupSnapshot, strategySnapshot } from '../../src/lib/share/snapshot';
@@ -180,5 +184,62 @@ describe('공유 API', () => {
     for (let i = 0; i < 1000; i++) deep = { a: deep };
     const r = await j(await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: { ...group(), deep } }));
     expect(r).toEqual({ status: 422, body: { error: 'invalid' } });
+  });
+});
+
+describe('전략 공유 버전(전략 빌더 §8.4, PR①)', () => {
+  const v2Snap = () => ({
+    kind: 'strategy',
+    v: 2,
+    title: '골든크로스',
+    strategy: { ...fullStrategyV2(), id: 'shared', name: '골든크로스', updatedAt: 0, universe: { kind: 'symbols', symbols: ['005930'] } },
+    capitalHidden: false,
+  });
+
+  it('v2 전략 공유를 받고 원본 그대로 저장한다', async () => {
+    const { h, create, read } = await setup();
+    const snapshot = v2Snap();
+    const { id, ...strategy } = snapshot.strategy;
+    const sent = { ...snapshot, strategy: { ...strategy, id } };
+    const cleaned = sanitizeStrategiesV2({ strategies: [sent.strategy] }, h.clock.now).strategies[0];
+    expect(sent.strategy).toEqual(cleaned);
+    expect(JSON.stringify(sent.strategy)).not.toBe(JSON.stringify(cleaned));
+    const made = await create({ kind: 'strategy', snapshot: sent });
+    expect(made.status).toBe(200);
+    const body = (h.env.DB.raw.prepare('SELECT snapshot AS body FROM shares WHERE id = ?').get(made.body.id as string) as { body: string }).body;
+    expect(body).toBe(JSON.stringify(sent));
+    const got = await j(await read(made.body.capability as string));
+    expect(got.body.snapshot).toEqual(sent);
+  });
+
+  it('v1 전략·시뮬레이션 공유(옛 앱)는 지금처럼 받고 원본 그대로 저장한다', async () => {
+    const { h, create, read } = await setup();
+    const snapshot = strategySnapshot({ ...newStrategy(0, null, '눌림목'), universe: { kind: 'symbols', symbols: ['005930'] } }, { groups: [] }, { hideCapital: false, now: 0 });
+    const { id, ...strategy } = snapshot.strategy;
+    const v1 = { ...snapshot, strategy: { ...strategy, id } };
+    const cleaned = sanitizeStrategies({ strategies: [v1.strategy] }, h.clock.now).strategies[0];
+    expect(v1.strategy).toEqual(cleaned);
+    expect(JSON.stringify(v1.strategy)).not.toBe(JSON.stringify(cleaned));
+    const a = await create({ kind: 'strategy', snapshot: v1 });
+    expect(a.status).toBe(200);
+    const aBody = (h.env.DB.raw.prepare('SELECT snapshot AS body FROM shares WHERE id = ?').get(a.body.id as string) as { body: string }).body;
+    expect(aBody).toBe(JSON.stringify(v1));
+    expect((await j(await read(a.body.capability as string))).body.snapshot).toEqual(v1);
+    const simSnapshot = simResultFixture();
+    const { id: simId, ...simStrategy } = simSnapshot.strategy;
+    const sim = { ...simSnapshot, strategy: { ...simStrategy, id: simId } };
+    const cleanedSim = sanitizeStrategies({ strategies: [sim.strategy] }, h.clock.now).strategies[0];
+    expect(sim.strategy).toEqual(cleanedSim);
+    expect(JSON.stringify(sim.strategy)).not.toBe(JSON.stringify(cleanedSim));
+    const b = await create({ kind: 'simResult', snapshot: sim });
+    expect(b.status).toBe(200);
+    const bBody = (h.env.DB.raw.prepare('SELECT snapshot AS body FROM shares WHERE id = ?').get(b.body.id as string) as { body: string }).body;
+    expect(bBody).toBe(JSON.stringify(sim));
+    expect((await j(await read(b.body.capability as string))).body.snapshot).toEqual(sim);
+  });
+
+  it('v3 전략 공유는 422 unsupported', async () => {
+    const { create } = await setup();
+    expect(await create({ kind: 'strategy', snapshot: { ...v2Snap(), v: 3 } })).toMatchObject({ status: 422, body: { error: 'unsupported', path: 'v' } });
   });
 });
