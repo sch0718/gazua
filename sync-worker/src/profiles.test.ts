@@ -281,6 +281,52 @@ describe('프로필 삭제·복구와 키 행(설계 2.6)', () => {
 describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   const docV = (h: ReturnType<typeof harness>) => (h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'p1'").get() as { n: number }).n;
 
+  function injectV2BeforeBodyRead(h: ReturnType<typeof harness>) {
+    const prepare = h.env.DB.prepare.bind(h.env.DB);
+    let headRead = false;
+    let injected = false;
+    h.env.DB.prepare = (sql: string) => {
+      if (sql.startsWith('SELECT profile_id AS profileId') && sql.includes('FROM profile_index')) headRead = true;
+      if (headRead && !injected && sql.startsWith('SELECT body FROM profiles')) {
+        // 머리를 읽은 뒤 다른 요청이 v2 본문을 저장한 상황을 만든다.
+        h.env.DB.raw.prepare("UPDATE profiles SET body = ? WHERE profile_id = 'p1'").run(JSON.stringify(docV2('경합')));
+        h.env.DB.raw.prepare("UPDATE profile_index SET doc_v = 2 WHERE profile_id = 'p1'").run();
+        injected = true;
+      }
+      return prepare(sql);
+    };
+    return () => {
+      h.env.DB.prepare = prepare;
+      return injected;
+    };
+  }
+
+  it.each([
+    { method: 'PUT', opId: 'op-conflict', expectedRevision: 0 },
+    { method: 'DELETE', opId: 'op-conflict', expectedRevision: 2 },
+    { method: 'DELETE', opId: 'op-1', expectedRevision: 1 },
+  ])('본문 읽기 경합: $method 충돌(opId=$opId)은 옛 앱에 v2를 주지 않는다', async ({ method, opId, expectedRevision }) => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    const finishRace = injectV2BeforeBodyRead(h);
+    const r = await j(await me.as(method, '/v1/profiles/p1', { opId, expectedRevision, ...(method === 'PUT' ? { doc: doc('수정') } : {}) }));
+    expect(finishRace()).toBe(true);
+    expect(r).toEqual({ status: 409, body: { error: 'conflict', revision: 1, doc: null } });
+  });
+
+  it.each([false, true])('본문 읽기 경합: 복구(재시도=%s)는 옛 앱에 422를 돌려준다', async (retry) => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
+    await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1 });
+    if (retry) expect((await me.as('POST', '/v1/profiles/p1/restore', { opId: 'op-3' })).status).toBe(200);
+    const finishRace = injectV2BeforeBodyRead(h);
+    const r = await j(await me.as('POST', '/v1/profiles/p1/restore', { opId: 'op-3' }));
+    expect(finishRace()).toBe(true);
+    expect(r).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+  });
+
   it('옛 앱(쿼리 없음)은 v2 문서를 받지 못한다: GET·리비전 422', async () => {
     const h = harness();
     const me = await h.login();

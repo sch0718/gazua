@@ -81,7 +81,8 @@ async function rejected(env: SyncEnv, userId: string, profileId: string, incomin
   if (!h) throw new HttpError(410, 'gone', { deletedAt: null, purgeAt: null });
   if (h.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt, revision: h.revision });
   if (incomingV !== null && h.docV > incomingV) throw new HttpError(422, APP_OUTDATED_CODE);
-  throw new HttpError(409, 'conflict', { revision: h.revision, doc: h.docV > reqV ? null : await currentDoc(env, userId, profileId) });
+  const doc = await currentDoc(env, userId, profileId);
+  throw new HttpError(409, 'conflict', { revision: h.revision, doc: docVersionOf(doc) > reqV ? null : doc });
 }
 
 /** 이 작업이 색인에 반영됐을 때만 참. 뒤에 user_id·profile_id·opId를 바인딩한다. */
@@ -204,8 +205,10 @@ export async function deleteProfile(
   }
   const h = await head(env, ctx.userId, profileId);
   if (h?.lastOpId === opId && h.deletedAt !== null) return { revision: h.revision, deletedAt: h.deletedAt, purgeAt: h.purgeAt! };
-  if (h?.lastOpId === opId)
-    throw new HttpError(409, 'conflict', { revision: h.revision, doc: h.docV > reqV ? null : await currentDoc(env, ctx.userId, profileId) });
+  if (h?.lastOpId === opId) {
+    const doc = await currentDoc(env, ctx.userId, profileId);
+    throw new HttpError(409, 'conflict', { revision: h.revision, doc: docVersionOf(doc) > reqV ? null : doc });
+  }
   if (h && h.deletedAt !== null) throw new HttpError(410, 'gone', { deletedAt: h.deletedAt, purgeAt: h.purgeAt, revision: h.revision });
   return rejected(env, ctx.userId, profileId, null, reqV);
 }
@@ -242,9 +245,10 @@ export async function restoreProfile(env: SyncEnv, ctx: AuthContext, profileId: 
     if (after?.lastOpId !== opId) throw new HttpError(409, 'conflict', { revision: after?.revision ?? null });
   }
   const h = await head(env, ctx.userId, profileId);
-  // 재시도(again)로 온 경우에도 본문을 주기 전에 본다
-  if (h!.docV > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
-  return { revision: h!.revision, doc: await currentDoc(env, ctx.userId, profileId) };
+  const doc = await currentDoc(env, ctx.userId, profileId);
+  // 재시도(again)도 실제로 돌려줄 본문의 버전을 확인한다.
+  if (docVersionOf(doc) > reqV) throw new HttpError(422, APP_OUTDATED_CODE);
+  return { revision: h!.revision, doc };
 }
 
 export async function listRevisions(env: SyncEnv, ctx: AuthContext, profileId: string) {
