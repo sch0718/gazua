@@ -1,11 +1,12 @@
 // 전략 v2 형식과 읽기 검증(전략 빌더 스펙 §3). PR①에서는 서버 검사(dto·snapshot)만 쓴다. 앱은 아직 v1(types.ts의 Strategy)을 쓴다.
 // Worker 번들에 들어가니 DOM·저장소·import.meta.env를 쓰지 않는다.
-// 종목·기간·자금·분할 매수·익절 단계·손절·비교·비용은 v1 검증(sanitizeStrategies)을 그대로 빌려 규칙이 갈라지지 않게 한다.
+// 종목·기간·자금·분할 매수·익절 단계·손절·비교·비용은 v1 검증(sanitizeStrategiesV1)을 그대로 빌려 규칙이 갈라지지 않게 한다.
 import { MAX_STRATEGIES } from './defaults';
-import type { StopBasis, Strategy } from './types';
-import { sanitizeEntry, sanitizeStrategies } from './validate';
+import type { StopBasis } from './types';
+import type { StrategyV1 } from './strategyV1';
+import { sanitizeEntry, sanitizeStrategiesV1 } from './strategyV1';
 
-export type PatternEntry = Strategy['entry'];
+export type PatternEntry = StrategyV1['entry'];
 
 export type Cond =
   | { kind: 'maPrice'; period: number; side: 'above' | 'below' }
@@ -28,8 +29,8 @@ export interface StrategyV2 {
   id: string;
   name: string;
   updatedAt: number;
-  universe: Strategy['universe'];
-  period: Strategy['period'];
+  universe: StrategyV1['universe'];
+  period: StrategyV1['period'];
   capital: { initial: number };
   sizing: { mode: SizingMode; pct: number };
   rules: {
@@ -42,9 +43,9 @@ export interface StrategyV2 {
       signal: { on: boolean; groups: CondGroup[] };
     };
   };
-  scaleIn: Strategy['scaleIn'];
-  benchmarks: Strategy['benchmarks'];
-  costs: Strategy['costs'];
+  scaleIn: StrategyV1['scaleIn'];
+  benchmarks: StrategyV1['benchmarks'];
+  costs: StrategyV1['costs'];
 }
 
 export const MAX_GROUPS = 4;
@@ -182,7 +183,7 @@ function sanitizeOneV2(raw: Row, now: number): { strategy: StrategyV2; repaired:
   const cap = rec(ctx, raw.capital);
 
   // 공통 필드는 v1 모양으로 옮겨 v1 검증을 그대로 쓴다. undefined는 v1에서도 「없는 필드」(조용히 기본값)다
-  const v1 = sanitizeStrategies(
+  const v1 = sanitizeStrategiesV1(
     {
       strategies: [
         {
@@ -234,7 +235,7 @@ function sanitizeOneV2(raw: Row, now: number): { strategy: StrategyV2; repaired:
 }
 
 /**
- * `{ strategies: [...] }`의 v2 전략 목록을 고친다. 규칙은 sanitizeStrategies(v1)와 같다:
+ * `{ strategies: [...] }`의 v2 전략 목록을 고친다. 규칙은 sanitizeStrategiesV1(v1)와 같다:
  * 필수 필드(id·name)가 틀린 항목과 id가 겹치는 항목은 버리고, MAX_STRATEGIES개까지만 남긴다.
  */
 export function sanitizeStrategiesV2(raw: unknown, now = Date.now()): { strategies: StrategyV2[]; repaired: boolean } {

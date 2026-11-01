@@ -1,36 +1,10 @@
 import type { Candle } from '../data/metrics';
+import type { StrategyV1 } from './strategyV1';
 
 export type StopBasis = 'avgAfterScaleIn' | 'avgAlways' | 'firstBuy';
 
-export interface Strategy {
-  id: string;
-  name: string; // 30자 이내
-  updatedAt: number;
-  universe: { kind: 'group'; groupId: string } | { kind: 'symbols'; symbols: string[] }; // 최대 8종목
-  period: { from: string; to: string }; // KST YYYY-MM-DD, 양끝 포함
-  capital: { initial: number; perBuyPct: number };
-  entry: {
-    decline: {
-      dropPct: { on: boolean; value: number };
-      days: { on: boolean; value: number };
-    };
-    triggers: {
-      reboundDays: { on: boolean; value: number };
-      breakout: { on: boolean; level: 'A' | 'B' };
-      maCross: { on: boolean; period: number };
-      goldenCross: { on: boolean; short: number; long: number };
-    };
-    filter: { aboveMa: { on: boolean; period: number } };
-  };
-  scaleIn: { on: boolean; stepPct: number; maxAdds: number };
-  exit: {
-    takeProfit: { pct: number; sellPct: number }[]; // 1~3단계, 마지막 단계 sellPct = 100
-    stopLoss: { pct: number; basis: StopBasis };
-    afterFirstTake: 'keep' | 'breakeven';
-  };
-  benchmarks: { index: 'KOSPI' | 'KOSDAQ'; symbol: string | null };
-  costs: { feePct: number }; // 매수·매도 각각
-}
+/** 앱 전략. 전략 빌더 PR② Task 4에서 StrategyV2로 바꾼다 */
+export type Strategy = StrategyV1;
 
 export interface PatternSnapshot {
   a: number;

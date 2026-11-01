@@ -1,0 +1,673 @@
+{
+  "now": 1793502000000,
+  "doc": {
+    "v": 1,
+    "name": "계약",
+    "settings": {
+      "period": {
+        "unit": "D",
+        "n": 1
+      },
+      "metric": "change",
+      "benchmark": "AUTO",
+      "perfBenchmark": null,
+      "colorConvention": "kr",
+      "boardOrder": "value"
+    },
+    "watchlists": {
+      "groups": [
+        {
+          "id": "g0",
+          "name": "관심",
+          "items": [
+            {
+              "symbol": "005930",
+              "colorSlot": 1,
+              "hidden": false,
+              "addedAt": 1
+            }
+          ]
+        }
+      ]
+    },
+    "strategies": [
+      {
+        "id": "s1",
+        "name": "눌림목",
+        "updatedAt": 1793502000000,
+        "universe": {
+          "kind": "group",
+          "groupId": "g0"
+        },
+        "period": {
+          "from": "2023-10-31",
+          "to": "2026-10-31"
+        },
+        "capital": {
+          "initial": 10000000,
+          "perBuyPct": 10
+        },
+        "entry": {
+          "decline": {
+            "dropPct": {
+              "on": true,
+              "value": 10
+            },
+            "days": {
+              "on": false,
+              "value": 10
+            }
+          },
+          "triggers": {
+            "reboundDays": {
+              "on": true,
+              "value": 3
+            },
+            "breakout": {
+              "on": true,
+              "level": "B"
+            },
+            "maCross": {
+              "on": false,
+              "period": 20
+            },
+            "goldenCross": {
+              "on": false,
+              "short": 5,
+              "long": 20
+            }
+          },
+          "filter": {
+            "aboveMa": {
+              "on": false,
+              "period": 60
+            }
+          }
+        },
+        "scaleIn": {
+          "on": false,
+          "stepPct": 3,
+          "maxAdds": 2
+        },
+        "exit": {
+          "takeProfit": [
+            {
+              "pct": 15,
+              "sellPct": 100
+            }
+          ],
+          "stopLoss": {
+            "pct": 5,
+            "basis": "avgAfterScaleIn"
+          },
+          "afterFirstTake": "keep"
+        },
+        "benchmarks": {
+          "index": "KOSPI",
+          "symbol": "069500"
+        },
+        "costs": {
+          "feePct": 0.015
+        }
+      }
+    ],
+    "criteria": [
+      {
+        "id": "c1",
+        "name": "새 기준",
+        "updatedAt": 1793502000000,
+        "pool": {
+          "markets": [
+            "KOSPI",
+            "KOSDAQ"
+          ],
+          "types": [
+            "STOCK"
+          ],
+          "excludeManaged": true,
+          "sectors": [],
+          "themes": [],
+          "baskets": []
+        },
+        "conditions": {
+          "marketCap": {
+            "on": false,
+            "minEok": 1000
+          },
+          "tradingValue": {
+            "on": true,
+            "days": 20,
+            "minEok": 10
+          },
+          "leader": {
+            "on": false,
+            "level": 1,
+            "maxRank": 3
+          },
+          "returnRange": {
+            "on": false,
+            "days": 60,
+            "minPct": -30,
+            "maxPct": 0
+          },
+          "vsMa": {
+            "on": false,
+            "period": 60,
+            "side": "above"
+          },
+          "fromHigh": {
+            "on": false,
+            "minPct": 20,
+            "maxPct": 50
+          },
+          "volatility": {
+            "on": false,
+            "days": 20,
+            "maxPct": 3
+          },
+          "rebound": {
+            "on": true,
+            "withinDays": 10,
+            "pattern": {
+              "from": "custom",
+              "entry": {
+                "decline": {
+                  "dropPct": {
+                    "on": true,
+                    "value": 10
+                  },
+                  "days": {
+                    "on": false,
+                    "value": 10
+                  }
+                },
+                "triggers": {
+                  "reboundDays": {
+                    "on": true,
+                    "value": 3
+                  },
+                  "breakout": {
+                    "on": true,
+                    "level": "B"
+                  },
+                  "maCross": {
+                    "on": false,
+                    "period": 20
+                  },
+                  "goldenCross": {
+                    "on": false,
+                    "short": 5,
+                    "long": 20
+                  }
+                },
+                "filter": {
+                  "aboveMa": {
+                    "on": false,
+                    "period": 60
+                  }
+                }
+              }
+            }
+          },
+          "macro": {
+            "betaDays": 120,
+            "usdkrw": {
+              "beta": {
+                "on": false,
+                "min": 0.3,
+                "max": 5
+              },
+              "trend": {
+                "on": false,
+                "lookback": 20,
+                "thresholdPct": 3,
+                "minAbsBeta": 0.3,
+                "whenFlat": "pass"
+              }
+            },
+            "wti": {
+              "beta": {
+                "on": false,
+                "min": 0.3,
+                "max": 5
+              },
+              "trend": {
+                "on": false,
+                "lookback": 20,
+                "thresholdPct": 3,
+                "minAbsBeta": 0.3,
+                "whenFlat": "pass"
+              }
+            }
+          },
+          "flow": {
+            "amount": {
+              "on": false,
+              "who": "foreign",
+              "days": 20,
+              "minPct": 1,
+              "maxPct": 100
+            },
+            "streak": {
+              "on": false,
+              "who": "inst",
+              "minDays": 5
+            }
+          },
+          "fin": {
+            "per": {
+              "on": false,
+              "min": 0,
+              "max": 15
+            },
+            "pbr": {
+              "on": false,
+              "min": 0,
+              "max": 1.5
+            },
+            "roe": {
+              "on": false,
+              "min": 10
+            },
+            "opMargin": {
+              "on": false,
+              "min": 5
+            },
+            "revGrowth": {
+              "on": false,
+              "min": 10
+            },
+            "opGrowth": {
+              "on": false,
+              "min": 20
+            },
+            "debtRatio": {
+              "on": false,
+              "max": 100
+            },
+            "profitable": {
+              "on": false
+            }
+          }
+        },
+        "rank": {
+          "by": "marketCap",
+          "take": 10,
+          "series": "usdkrw",
+          "flow": {
+            "who": "foreign",
+            "days": 20
+          },
+          "fin": {
+            "metric": "per"
+          }
+        },
+        "rebalance": "monthly",
+        "period": {
+          "from": "2023-10-31",
+          "to": "2026-10-31"
+        },
+        "benchmarks": {
+          "indices": [
+            "KOSPI"
+          ],
+          "symbols": [
+            "069500"
+          ]
+        },
+        "costs": {
+          "feePct": 0.015
+        },
+        "capital": 10000000,
+        "trading": {
+          "strategyId": null
+        }
+      }
+    ],
+    "baskets": []
+  },
+  "share": {
+    "kind": "strategy",
+    "v": 1,
+    "title": "눌림목",
+    "strategy": {
+      "id": "shared",
+      "name": "눌림목",
+      "updatedAt": 0,
+      "universe": {
+        "kind": "symbols",
+        "symbols": [
+          "005930"
+        ]
+      },
+      "period": {
+        "from": "2023-10-31",
+        "to": "2026-10-31"
+      },
+      "capital": {
+        "initial": 10000000,
+        "perBuyPct": 10
+      },
+      "entry": {
+        "decline": {
+          "dropPct": {
+            "on": true,
+            "value": 10
+          },
+          "days": {
+            "on": false,
+            "value": 10
+          }
+        },
+        "triggers": {
+          "reboundDays": {
+            "on": true,
+            "value": 3
+          },
+          "breakout": {
+            "on": true,
+            "level": "B"
+          },
+          "maCross": {
+            "on": false,
+            "period": 20
+          },
+          "goldenCross": {
+            "on": false,
+            "short": 5,
+            "long": 20
+          }
+        },
+        "filter": {
+          "aboveMa": {
+            "on": false,
+            "period": 60
+          }
+        }
+      },
+      "scaleIn": {
+        "on": false,
+        "stepPct": 3,
+        "maxAdds": 2
+      },
+      "exit": {
+        "takeProfit": [
+          {
+            "pct": 15,
+            "sellPct": 100
+          }
+        ],
+        "stopLoss": {
+          "pct": 5,
+          "basis": "avgAfterScaleIn"
+        },
+        "afterFirstTake": "keep"
+      },
+      "benchmarks": {
+        "index": "KOSPI",
+        "symbol": "069500"
+      },
+      "costs": {
+        "feePct": 0.015
+      }
+    },
+    "capitalHidden": false
+  },
+  "sim": {
+    "kind": "simResult",
+    "v": 1,
+    "title": "눌림목",
+    "strategy": {
+      "id": "shared",
+      "name": "눌림목",
+      "updatedAt": 0,
+      "universe": {
+        "kind": "symbols",
+        "symbols": [
+          "005930",
+          "000660",
+          "Q500023"
+        ]
+      },
+      "period": {
+        "from": "2023-10-28",
+        "to": "2026-10-28"
+      },
+      "capital": {
+        "initial": 10000000,
+        "perBuyPct": 10
+      },
+      "entry": {
+        "decline": {
+          "dropPct": {
+            "on": true,
+            "value": 10
+          },
+          "days": {
+            "on": false,
+            "value": 10
+          }
+        },
+        "triggers": {
+          "reboundDays": {
+            "on": true,
+            "value": 3
+          },
+          "breakout": {
+            "on": true,
+            "level": "B"
+          },
+          "maCross": {
+            "on": false,
+            "period": 20
+          },
+          "goldenCross": {
+            "on": false,
+            "short": 5,
+            "long": 20
+          }
+        },
+        "filter": {
+          "aboveMa": {
+            "on": false,
+            "period": 60
+          }
+        }
+      },
+      "scaleIn": {
+        "on": false,
+        "stepPct": 3,
+        "maxAdds": 2
+      },
+      "exit": {
+        "takeProfit": [
+          {
+            "pct": 15,
+            "sellPct": 100
+          }
+        ],
+        "stopLoss": {
+          "pct": 5,
+          "basis": "avgAfterScaleIn"
+        },
+        "afterFirstTake": "keep"
+      },
+      "benchmarks": {
+        "index": "KOSPI",
+        "symbol": "069500"
+      },
+      "costs": {
+        "feePct": 0.015
+      }
+    },
+    "capitalHidden": false,
+    "run": {
+      "from": "2024-01-02",
+      "to": "2024-01-12",
+      "source": "KRX 일봉",
+      "demo": false,
+      "fetchedAt": 1793242800000
+    },
+    "result": {
+      "axis": {
+        "start": "2024-01-02",
+        "offsets": [
+          0,
+          1,
+          2,
+          7,
+          10
+        ]
+      },
+      "sampled": null,
+      "curves": {
+        "strategy": [
+          0,
+          1.5,
+          -2.25,
+          3,
+          4.1
+        ],
+        "hold": [
+          0,
+          0.5,
+          1,
+          1.5,
+          2
+        ],
+        "index": [
+          0,
+          null,
+          0.3,
+          0.4,
+          0.5
+        ],
+        "benchmark": null
+      },
+      "summary": {
+        "totalReturnPct": 4.1,
+        "cagrPct": 100.12,
+        "mddPct": -3.69,
+        "winRatePct": 50,
+        "wins": 1,
+        "losses": 1,
+        "avgWinPct": 15,
+        "avgLossPct": -5.6,
+        "roundTrips": 2,
+        "openPositions": 0,
+        "avgHoldDays": 12.5,
+        "avgCashPct": 62.31,
+        "skippedSignals": 3,
+        "vsHoldPp": 2.1,
+        "vsIndexPp": 3.6,
+        "vsBenchmarkPp": null
+      },
+      "benchmarks": {
+        "holdReturnPct": 2,
+        "indexReturnPct": 0.5,
+        "benchmarkReturnPct": null
+      },
+      "indexFailed": null,
+      "benchmarkFailed": true,
+      "symbols": [
+        "005930",
+        "000660",
+        "Q500023"
+      ],
+      "trades": [
+        [
+          1,
+          0,
+          "buy",
+          null,
+          70000,
+          14,
+          "B 돌파",
+          null
+        ],
+        [
+          2,
+          1,
+          "buy",
+          null,
+          132400,
+          12,
+          "3일 연속 상승",
+          null
+        ],
+        [
+          7,
+          1,
+          "stop",
+          null,
+          125000,
+          12,
+          "손절",
+          -5.6
+        ],
+        [
+          10,
+          0,
+          "take",
+          1,
+          80500,
+          14,
+          "1단계 익절 100%",
+          15
+        ]
+      ],
+      "perSymbol": [
+        [
+          0,
+          141000,
+          1.41,
+          1,
+          0
+        ],
+        [
+          1,
+          -88000,
+          -0.88,
+          1,
+          0
+        ]
+      ],
+      "skipped": {
+        "counts": [
+          [
+            "현금 부족",
+            1
+          ],
+          [
+            "1주가 1회 금액보다 비쌈",
+            2
+          ]
+        ],
+        "rows": [
+          [
+            2,
+            1,
+            1
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            0,
+            0
+          ]
+        ]
+      },
+      "nearMiss": null,
+      "failed": [
+        {
+          "symbol": "Q500023",
+          "reason": "기간 안에 데이터가 없어요"
+        }
+      ]
+    }
+  }
+}

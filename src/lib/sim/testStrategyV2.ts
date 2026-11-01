@@ -1,5 +1,5 @@
 // 테스트 전용: 묶음·조건을 한도까지 채운 v2 전략(전략 빌더 스펙 §3). 정리(sanitizeStrategiesV2)를 거쳐도 그대로여야 한다.
-import { sanitizeEntry } from './validate';
+import { sanitizeEntry } from './strategyV1';
 import type { Cond, StrategyV2 } from './strategyV2';
 
 const BUY_FIRST: Cond[] = [

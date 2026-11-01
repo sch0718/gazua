@@ -1,6 +1,7 @@
 // 저장된 선정 기준의 검증과 편집 화면 경고. sim/validate.ts와 같은 규칙: 틀린 값은 기본값으로 되돌리고 repaired를 켠다.
 import { kstDate, kstEpoch } from '../time/kst';
-import { ruleIssues, sanitizeEntry } from '../sim/validate';
+import { ruleIssues } from '../sim/validate';
+import { sanitizeEntry } from '../sim/strategyV1';
 import type { Strategy } from '../sim/types';
 import { BENCH_MAX, MAX_CRITERIA, MAX_INITIAL, NAME_MAX, POOL_THEMES_MAX, TAKE_MAX, newCriteria } from './defaults';
 import type { Basket } from './baskets';
