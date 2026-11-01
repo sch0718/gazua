@@ -295,14 +295,14 @@ describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
     const raw = strategyV2Snap();
     const r = checkShareSnapshot(raw, 'strategy', NOW, 'create');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.snapshot).toEqual(raw);
+    if (r.ok) expect(r.snapshot).toBe(raw);
   });
 
   it('create: v2 시뮬레이션 결과 공유를 받고 원본을 돌려준다', () => {
     const raw = simResultV2Snap();
     const r = checkShareSnapshot(raw, 'simResult', FIX_NOW, 'create');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.snapshot).toEqual(raw);
+    if (r.ok) expect(r.snapshot).toBe(raw);
   });
 
   it('create: v1 전략 공유는 지금처럼 받는다', () => {

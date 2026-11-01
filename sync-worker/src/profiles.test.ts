@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN_KEYS } from '../../src/lib/sync/forbidden';
 import { APP_OUTDATED_CODE } from '../../src/lib/sync/dto';
+import { sanitizeStrategiesV2 } from '../../src/lib/sim/strategyV2';
 import { DAY } from './env';
 import { harness, OTHER } from '../test/harness';
 import { doc, docV2 } from '../test/docs';
@@ -458,8 +459,14 @@ describe('PR①만 배포: 옛 앱(쿼리 없음 + v1 문서) 경로 무변화(�
   it('저장소에는 받은 원본 그대로 들어간다', async () => {
     const h = harness();
     const me = await h.login();
-    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    const snapshot = docV2();
+    const { id, ...strategy } = snapshot.strategies[0];
+    const sent = { ...snapshot, strategies: [{ ...strategy, id }] };
+    const cleaned = sanitizeStrategiesV2({ strategies: sent.strategies }, h.clock.now).strategies;
+    expect(sent.strategies).toEqual(cleaned);
+    expect(JSON.stringify(sent.strategies)).not.toBe(JSON.stringify(cleaned));
+    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: sent })).status).toBe(200);
     const body = (h.env.DB.raw.prepare("SELECT body FROM profiles WHERE profile_id = 'p1'").get() as { body: string }).body;
-    expect(JSON.parse(body)).toEqual(docV2());
+    expect(body).toBe(JSON.stringify(sent));
   });
 });
