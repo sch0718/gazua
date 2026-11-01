@@ -236,10 +236,10 @@ export function condReason(c: Cond): string;                 // §4.6
 
 ### 4.4 손절·익절 끄기 (`Position`)
 
-- `openPosition(price, qty, scaleIn, sell, amount)`로 바꿔요. `sell`은 `rules.sell`, `amount`는 §6.1의 포지션 금액이에요.
+- `openPosition(price, qty, scaleIn, sell)`로 바꿔요. `sell`은 `rules.sell`이에요. 포지션 금액(§6.1)은 `Position`이 아니라 엔진의 종목 상태 `SymState.posAmount`에 둬요(구현 계획에서 정함, `Position` API를 덜 바꾸고 결과는 같아요).
 - `stopLoss.on = false`면 기본 손절가가 없어요(`null`). 다만 `afterFirstTake: 'breakeven'`은 익절 설정이라 1단계 익절 뒤 평단 손절이 살아요. 지금 `stopPrice()`의 `base === null ? avg()` 분기 그대로예요.
 - `takeProfit.on = false`면 `takeLevels()`가 빈 배열이에요.
-- 새 멤버 `trailPrice(): number | null`, `markClose(close: number): void`(peak 갱신), `readonly amount: number`.
+- 새 멤버 `trailPrice(): number | null`, `markClose(close: number): void`(peak 갱신).
 
 ### 4.5 동시 신호 우선순위
 
@@ -337,7 +337,7 @@ export function condReason(c: Cond): string;                 // §4.6
 | `cashPct` | roundMoney(그 순간 남은 현금 × pct / 100). 같은 시가에 앞 종목이 사면 줄어든 현금으로 계산해요 |
 | `equal` | roundMoney(initial / 종목 수). 종목 수는 엔진의 `input.stocks.length`(실제로 받은 종목) |
 
-- 금액은 포지션을 열 때 한 번 정해 포지션에 붙여요(`Position.amount`). 추가 매수(`walkBar`의 `ctx.amount`)도 그 금액을 써요. 지금은 늘 같은 금액이라 결과가 같아요.
+- 금액은 포지션을 열 때 한 번 정해 종목 상태에 붙여요(`SymState.posAmount`). 추가 매수(`walkBar`의 `ctx.amount`)도 그 금액을 써요. 지금은 늘 같은 금액이라 결과가 같아요.
 - 「그날 총자산」을 전 거래일 종가로 정한 이유: 시가 체결 전에는 오늘 종가를 몰라요. 같은 날 앞 종목 매수로 총자산이 바뀌지도 않아요.
 - `equal`의 종목 수는 받지 못한 종목을 빼요. 편집 화면 안내(§10.4)는 고른 종목 수로 보이니, 일부 종목을 받지 못하면 실제 금액이 안내보다 커져요. 결과 화면의 받지 못한 종목 안내가 이미 있어 따로 알리지 않아요.
 
@@ -727,7 +727,7 @@ export interface DayFrame {
 
 ### 12.2 지표 (`indicators.test.ts`, 새 파일)
 
-- `rsi`: 널리 쓰이는 14일 예시표(StockCharts의 44.34, 44.09, … 시작 표). 첫 값 70.53, 다음 66.32(소수 둘째 자리). 원본 표와 숫자 대조는 확인 필요(§14).
+- `rsi`: StockCharts의 14일 예시표(원본 넷째 자리 종가 44.3389, 44.0902, …). 첫 값 70.533, 다음 66.319(PR② 계획 검토에서 확인).
 - `rsi` 특수값: 계속 오름 → 100, 변화 없음 → 50, `start + n` 앞은 `null`.
 - `rsi` 시작점: 워밍업 길이만 다른 두 입력에서 기간 안 값이 같아요.
 - `volumeRatio`: 오늘 제외 평균, `v ≤ 0` 봉 제외, 오늘 0 → `null`, 창 안에 값 없음 → `null`.
@@ -782,7 +782,7 @@ export interface DayFrame {
 
 ## 14. 확인 필요
 
-1. RSI 예시표 숫자(70.53, 66.32)는 기억에 기댄 값이에요. 구현 때 원본 표와 대조해야 해요.
+1. ~~RSI 예시표 숫자~~ — 해소: 원본 넷째 자리 종가로 70.533·66.319를 확인했어요(PR② 계획 검토).
 2. 템플릿 숫자(§3.4)를 이대로 둘지.
 
 검토 1회차에서 답을 받은 항목(트레일링 기준, `equityPct` 기준, `runTrading`의 `equal`, 거래량 값 없음, RSI 시작점, 쿼리 자리, 422 코드, `Segmented` 줄바꿈, 옛 앱의 v2 공유 문구)은 본문에 반영했어요.
@@ -796,7 +796,7 @@ export interface DayFrame {
 | `src/lib/sim/types.ts` | ①(`Trade['kind']` 3종) ②(나머지) | `PatternEntry`·`Cond`·`CondGroup`·`SizingMode`, `Strategy` v2, `Trade.kind` 3종, `HoldingFrame`·`DayFrame` 필드 |
 | `src/lib/sim/strategyV2.ts` | ① | 새 파일: `StrategyV2`, `sanitizeStrategiesV2` |
 | `src/lib/sim/strategyV1.ts` | ② | 새 파일: `StrategyV1`, `sanitizeStrategiesV1`(옮김), `toV2` |
-| `src/lib/sim/validate.ts` | ② | 꼬리 없는 `sanitizeStrategies` 없앰(호출처는 `…V1`·`…V2`로), `sanitizeEntry` → `sanitizePatternEntry`, `ruleIssues`·`strategyIssues` |
+| `src/lib/sim/validate.ts` | ② | 꼬리 없는 `sanitizeStrategies` 없앰(호출처는 `…V1`·`…V2`로), `sanitizeEntry`는 이름을 유지하고 `strategyV1.ts`로 옮김(Worker 경로 `sanitizeCriteria`가 씀), `ruleIssues`·`strategyIssues` |
 | `src/lib/sync/dto.ts` | ① | v1·v2 검사, `unsupported`, `APP_OUTDATED_CODE` |
 | `src/lib/share/snapshot.ts` | ①(create v1·v2, read v1만) ②(read 옮기기, v2 생성) | §8.4 |
 | `src/lib/share/checkResult.ts`, `resultEnums.ts`, `src/lib/ui/simulate/markers.ts` | ① | 새 체결 종류(`markers.ts`는 라벨·색) |
@@ -804,7 +804,7 @@ export interface DayFrame {
 | `sync-worker/src/shares.ts` | ①(테스트만) | 코드 변경 없음, v2 생성 테스트 |
 | `src/lib/sim/indicators.ts`, `src/lib/screen/precompute.ts` | ② | `rsi`·`volumeRatio`, `rollingMax` 이동 |
 | `src/lib/sim/rules.ts` | ② | 새 파일: 평가기, `rulesLookback`, `condReason` |
-| `src/lib/sim/position.ts` | ② | `sell`·`amount` 인자, 끄기, `trailPrice`·`markClose` |
+| `src/lib/sim/position.ts` | ② | `sell` 인자, 끄기, `trailPrice`·`markClose` |
 | `src/lib/sim/simulate.ts` | ② | 평가기, 예약 매도, `sellQty`, 트레일 floor, 배분, `dayFrame` 필드 |
 | `src/lib/sim/summary.ts` | ② | `nearMiss`가 `stats()` null 처리 |
 | `src/lib/sim/defaults.ts`, `templates.ts`(새) | ② | v2 기본값, `defaultPatternEntry`, 템플릿 |

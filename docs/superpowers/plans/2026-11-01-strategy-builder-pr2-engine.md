@@ -19,7 +19,7 @@
 
 | 항목 | 결정 | 이유 |
 |---|---|---|
-| Task 순서 | 지표 → 평가기 → v1 분리 → **v2 전환(타입·저장·문서·공유·엔진 매수)** → 배분 → 트레일링 → 예약 매도 → 결과·재생 → 동기화 옮기기 → 요약 문구(simText·shareText) → 선정 기준 → 경고 → 편집 화면 둘 → e2e | `Strategy` 타입을 바꾸는 순간 저장·문서·공유·엔진·화면이 함께 컴파일돼야 해서, 이름 교체(꼬리 없는 `sanitizeStrategies` 제거)와 저장 새 키를 한 Task(Task 4)로 묶었어요. 나머지는 제안 순서 그대로예요 |
+| Task 순서 | 지표 → 평가기 → v1 분리 → **v2 전환(타입·저장·문서·공유·엔진 매수)** → 배분 → 트레일링 → 예약 매도 → 결과·재생 → 동기화 옮기기 → 요약 문구(simText·shareText) → 선정 기준 → 경고 → 편집 화면 둘 → e2e | `Strategy` 타입을 바꾸는 순간 저장·문서·공유·엔진·화면이 함께 컴파일돼야 해서, 이름 교체(꼬리 없는 `sanitizeStrategies` 제거)와 저장 새 키를 Task 4로 묶고, 4a(타입·엔진)·4b(저장·문서)·4c(공유·내보내기)·4d(선정 기준·화면)로 나눠 각각 커밋해요. 4a~4c 동안은 svelte-check가 빨간 것을 허용하고 4d에서 전체 초록이에요. 나머지는 제안 순서 그대로예요 |
 | 포지션 금액 | `SymState.posAmount`에 둬요(스펙 §4.4의 `Position.amount` 대신) | `Position` API를 덜 바꾸고 결과는 같아요 |
 | `sanitizeEntry` 이름 | 그대로 두고 `strategyV1.ts`로 옮겨요(스펙 §15.1의 `sanitizePatternEntry` 이름 바꾸기는 하지 않아요) | Worker 공용 경로(`sanitizeCriteria`)가 쓰는 함수라 이름까지 바꾸면 계약 확인 범위만 넓어져요 |
 | 패턴 블록 도우미 | 새 `src/lib/sim/patternBlock.ts`(`patternEntryOf`·`patternCount`) | 엔진·화면·선정 기준·문구가 같이 써요. `strategyV2.ts`(Worker 경로)에는 더하지 않아요 |
@@ -107,8 +107,8 @@
 import { describe, expect, it } from 'vitest';
 import { rollingMax, rsi, volumeRatio } from './indicators';
 
-// StockCharts의 14일 RSI 예시표 앞부분(스펙 §12.2). 값이 원본 표와 다르면 원본 표 값으로 고치고, 공식(§5.1)은 바꾸지 않는다
-const SC = [44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.1, 45.42, 45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.0];
+// StockCharts의 14일 RSI 예시표 앞부분(스펙 §12.2) — 원본 표의 소수 넷째 자리 종가. 첫 값 70.533, 다음 66.319(검토에서 확인)
+const SC = [44.3389, 44.0902, 44.1497, 43.6124, 44.3278, 44.8264, 45.0955, 45.4245, 45.8433, 46.0826, 45.8931, 46.0328, 45.614, 46.282, 46.282, 46.0028];
 
 describe('rsi', () => {
   it('손으로 계산한 값: 기간 2', () => {
@@ -118,8 +118,8 @@ describe('rsi', () => {
   it('StockCharts 예시표 14일: 첫 값 70.53, 다음 66.32', () => {
     const r = rsi(SC, 14);
     expect(r.slice(0, 14).every((x) => x === null)).toBe(true);
-    expect(r[14]).toBeCloseTo(70.53, 1);
-    expect(r[15]).toBeCloseTo(66.32, 1);
+    expect(r[14]).toBeCloseTo(70.533, 2);
+    expect(r[15]).toBeCloseTo(66.319, 2);
   });
   it('특수값: 계속 오르면 100, 변화가 없으면 50', () => {
     expect(rsi([1, 2, 3, 4, 5], 3)[4]).toBe(100);
@@ -237,7 +237,7 @@ import { rollingMax } from '../sim/indicators';
 - [ ] **Step 4: 통과 확인**
 
 Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/indicators.test.ts src/lib/screen && corepack pnpm check`
-Expected: PASS. 선정 기준 테스트도 그대로 통과해요(`rollingMax` 동작이 같아요). StockCharts 값이 다르면 Step 1의 주석대로 기대값만 원본 표로 고쳐요.
+Expected: PASS. 선정 기준 테스트도 그대로 통과해요(`rollingMax` 동작이 같아요).
 
 - [ ] **Step 5: 커밋**
 
@@ -762,6 +762,16 @@ describe('Worker 공용 경로 계약', () => {
     expect(checkProfileDoc({ ...fx.doc, v: 3 }, fx.now)).toMatchObject({ ok: false, code: 'unsupported' });
     expect(checkShareSnapshot({ ...fx.share, v: 3 }, 'strategy', fx.now, 'create')).toMatchObject({ ok: false, code: 'unsupported' });
   });
+  it('거절 사례는 지금과 같은 코드로 거절한다', () => {
+    // v2 문서에 v1 전략이 섞이면 unknown-field
+    expect(checkProfileDoc({ ...fx.doc, v: 2 }, fx.now)).toMatchObject({ ok: false, code: 'unknown-field' });
+    // v1 문서의 전략에 고칠 값이 있으면 invalid
+    const bad = structuredClone(fx.doc);
+    bad.strategies[0].capital.perBuyPct = 500;
+    expect(checkProfileDoc(bad, fx.now)).toMatchObject({ ok: false, code: 'invalid', path: 'strategies[0].capital.perBuyPct' });
+    // 금지 키가 있으면 forbidden-field
+    expect(checkProfileDoc({ ...fx.doc, appSecret: 'x' }, fx.now)).toMatchObject({ ok: false, code: 'forbidden-field' });
+  });
   it('v2 문서는 금지 키·깊이에 걸리지 않는다', () => {
     const d = { ...fx.doc, v: 2, strategies: [fullStrategyV2()] };
     expect(findForbidden(d)).toBeNull();
@@ -975,11 +985,12 @@ git commit -m "refactor(sim): v1 전략 코드를 strategyV1로 옮기고 toV2�
 ```
 
 ---
-### Task 4: v2 전환 — 타입·저장 키·문서·공유·엔진 매수
+### Task 4: v2 전환 (4a~4d)
 
-`Strategy`를 v2로 바꾸는 Task예요. 타입이 바뀌면 저장·문서·공유·엔진·화면이 함께 컴파일돼야 해서 한 Task로 묶었어요. 엔진은 평가기(Task 2)를 매수 판정에 연결하고, 매도·배분은 지금 동작 그대로(익절·손절 켬, `fixed`) 둬요. 골든 스냅샷이 그대로여야 해요.
+`Strategy`를 v2로 바꾸는 일을 네 개의 하위 Task로 나눠 각각 커밋해요. 타입이 바뀌는 순간 여러 영역이 같이 깨지므로, **4a~4c에서는 `corepack pnpm check`(svelte-check)가 빨간 것을 허용해요.** 각 하위 Task는 「통과 확인」에 적은 vitest 대상만 초록이어야 하고, 4d 끝에서 `corepack pnpm test`·`corepack pnpm check`가 모두 초록이어야 해요. 골든 스냅샷은 4a 끝에서 이미 그대로여야 해요.
 
-**Files:**
+**전체 Files·Interfaces(4a~4d 합계):**
+
 - Modify: `src/lib/sim/types.ts`, `src/lib/sim/defaults.ts`, `src/lib/sim/validate.ts`, `src/lib/sim/pattern.ts:4,19`
 - Create: `src/lib/sim/patternBlock.ts`, `src/lib/sim/patternBlock.test.ts`
 - Modify: `src/lib/sim/simulate.ts`, `src/lib/sim/position.ts:1-37`, `src/lib/sim/loadSimData.ts:48-56,73`, `src/lib/sim/summary.ts:59-62`
@@ -991,6 +1002,7 @@ git commit -m "refactor(sim): v1 전략 코드를 strategyV1로 옮기고 toV2�
 - Create: `src/lib/ui/simulate/editor/PatternFields.svelte`(= `EntrySection.svelte`를 옮김), Delete: `src/lib/ui/simulate/editor/EntrySection.svelte`
 - Modify: `src/lib/ui/simulate/StrategyEditor.svelte:16,232`, `src/lib/ui/simulate/editor/ExitSection.svelte`, `src/lib/ui/simulate/editor/PeriodSection.svelte:38`, `src/lib/ui/simulate/simText.ts:49-102,208-215`, `src/lib/ui/simulate/ResultView.svelte:66`, `src/lib/ui/screen/CriteriaEditor.svelte:27,318-347,500`
 - Modify(테스트): `src/lib/sim/testInputs.ts:21-31`, `src/lib/sim/simulate.test.ts:4,24-31`, `src/lib/sim/position.test.ts`, `sync-worker/test/docs.ts`, 그리고 `corepack pnpm check`가 가리키는 테스트·고정값 파일(Step 9)
+
 
 **Interfaces:**
 - Produces:
@@ -1006,6 +1018,15 @@ git commit -m "refactor(sim): v1 전략 코드를 strategyV1로 옮기고 toV2�
   - `snapshot.ts`: `STRATEGY_SHARE_VERSION = 2`, `StrategySnapshot.v: 2`, `SimResultSnapshot.v: 2`
   - `exportImport.ts`: `EXPORT_SCHEMA_VERSION = 2`
   - `precompute.ts`: `export class MissingPatternError extends Error`
+
+
+---
+
+#### Task 4a: 타입·기본값·엔진 매수 교체 (sim 테스트까지)
+
+엔진은 평가기(Task 2)를 매수 판정에 연결하고, 매도·배분은 지금 동작 그대로(익절·손절 켬, `fixed`) 둬요.
+
+**Files:** `src/lib/sim/types.ts`, `src/lib/sim/defaults.ts`, `src/lib/sim/validate.ts`, `src/lib/sim/pattern.ts:4,19`, `src/lib/sim/patternBlock.ts`(새), `src/lib/sim/simulate.ts`, `src/lib/sim/position.ts:1-37`, `src/lib/sim/loadSimData.ts:48-56,73`, `src/lib/sim/summary.ts:59-62`, 테스트 `src/lib/sim/patternBlock.test.ts`(새)·`testInputs.ts`·`simulate.test.ts`·`position.test.ts`·`validate.test.ts`·`simulate.timeline.test.ts`
 
 - [ ] **Step 1: 실패 테스트 쓰기**
 
@@ -1034,113 +1055,25 @@ describe('v2 기본값과 패턴 블록', () => {
 });
 ```
 
-`src/lib/sim/strategyStore.test.ts` 끝에 붙여요(파일 위 import는 이 파일에 이미 있는 저장소 도우미를 써요. `createSafeStorage`·`memoryBacking`이 없으면 `../state/storage`·`../state/testStorage`에서 가져와요).
+
+`src/lib/sim/loadSimData.test.ts`의 `strat` 도우미는 `newStrategy`로 만들고 v1 필드(`s.entry…`)를 고쳐요. `newStrategyV1`로 만들어 patch(인자 타입 `StrategyV1`)를 적용한 뒤 `toV2`로 돌려주게 바꾸고, 파일 끝(`describe('loadSimData')` 안)에 더해요.
 
 ```ts
-import { newStrategyV1, toV2 } from './strategyV1';
-import { profileKeys } from '../state/profileStore';
-
-describe('새 키 strategySet(§8.2)', () => {
-  const make = () => createSafeStorage(memoryBacking());
-  it('옛 키만 있으면 v2로 옮겨 새 키에 쓰고 옛 키는 그대로 둔다', () => {
-    const st = make();
-    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
-    st.set(profileKeys.strategies('p'), { strategies: [v1] });
-    expect(loadStrategies(st, 'p')).toEqual([toV2(v1)]);
-    expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [toV2(v1)] });
-    expect(st.get(profileKeys.strategies('p'), null)).toEqual({ strategies: [v1] });
-  });
-  it('새 키가 있으면 옛 키는 읽지 않는다', () => {
-    const st = make();
-    st.set(profileKeys.strategies('p'), { strategies: [{ ...newStrategyV1(0, null, '옛'), id: 's1' }] });
-    const v2 = toV2({ ...newStrategyV1(0, null, '새'), id: 's2' });
-    st.set(profileKeys.strategySet('p'), { strategies: [v2] });
-    expect(loadStrategies(st, 'p')).toEqual([v2]);
-  });
-  it('저장은 새 키에만 한다', () => {
-    const st = make();
-    const v2 = toV2({ ...newStrategyV1(0, null), id: 's2' });
-    saveStrategies(st, 'p', [v2]);
-    expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [v2] });
-    expect(st.get(profileKeys.strategies('p'), null)).toBeNull();
-  });
-});
-```
-
-`src/lib/sync/dto.test.ts`에서 PR①의 `it('앱이 만드는 버전은 1 그대로, 받는 최대는 2', …)`의 `expect(PROFILE_DOC_VERSION).toBe(1)`을 `toBe(2)`로 바꾸고 제목을 `'앱이 만드는 버전은 2, 받는 최대는 2'`로 바꿔요. 같은 파일에 붙여요.
-
-```ts
-describe('applyProfileDoc v1·v2(§8.2)', () => {
-  it('v2 문서는 새 키에만 쓴다', () => {
-    const { st } = seeded();
-    const d = { ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] };
-    applyProfileDoc(st, PID, d);
-    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: d.strategies });
-  });
-  it('v1 문서는 옛 키에 v1, 새 키에 toV2 결과를 바로 쓴다', () => {
-    const { st } = seeded();
-    const v1 = { ...newStrategyV1(NOW, 'g0', '옛'), id: 'old' };
-    const d = { ...validDoc(), v: 1 as const, strategies: [v1] };
-    applyProfileDoc(st, PID, d);
-    expect(st.get(profileKeys.strategies(PID), null)).toEqual({ strategies: [v1] });
-    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: [toV2(v1)] });
-  });
-  it('buildProfileDoc은 v2 문서를 만든다', () => {
-    expect(validDoc().v).toBe(2);
-  });
-});
-```
-
-(`seeded`·`PID`·`validDoc`은 이 파일에 이미 있어요. import에 `profileKeys`(`../state/profileStore`), `newStrategyV1`·`toV2`(`../sim/strategyV1`)를 더해요. `validDoc()`의 반환 타입을 `ProfileDocV1`에서 `ProfileDocV2`로 바꾸고, v1 문서가 필요한 기존 테스트는 `{ ...validDoc(), v: 1, strategies: [newStrategyV1(NOW, 'g0')] }`로 만들어요.)
-
-`src/lib/share/snapshot.test.ts`에서 PR①의 `it('read: v2는 unsupported(PR① 앱은 v1만 그린다), v1은 v1 그대로', …)`를 아래로 바꿔요.
-
-```ts
-  it('read: v2는 받고, v1은 v2로 옮겨 v: 2로 돌려준다(§8.4)', () => {
-    expect(checkShareSnapshot(strategyV2Snap(), 'strategy', NOW, 'read')).toMatchObject({ ok: true });
-    const v1 = { kind: 'strategy', v: 1, title: '눌림목', strategy: { ...newStrategyV1(NOW, null, '눌림목'), id: 'shared', updatedAt: 0, universe: { kind: 'symbols', symbols: ['005930'] } }, capitalHidden: false };
-    const r = checkShareSnapshot(v1, 'strategy', NOW, 'read');
-    expect(r.ok).toBe(true);
-    if (r.ok && r.snapshot.kind === 'strategy') {
-      expect(r.snapshot.v).toBe(2);
-      expect(r.snapshot.strategy).toEqual(toV2(v1.strategy as never));
-    }
-  });
-  it('strategySnapshot은 v: 2로 만든다', () => {
-    expect(strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW }).v).toBe(2);
+  it('워밍업: RSI 조건은 ceil(251 × 1.6) = 402일(고정 시작점 250봉, §5.4)', async () => {
+    const sp = spied();
+    const s = strat();
+    s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, level: 30, op: 'crossUp' }] }];
+    await run(sp.provider, s, ['005930']);
+    expect(sp.candles[0].from).toBe(addDays('2026-03-02', -402));
   });
 ```
 
-(import에 `newStrategyV1`·`toV2`(`../sim/strategyV1`)를 더해요. 같은 `describe` 안의 `'create: v1 전략 공유는 지금처럼 받는다'`는 `strategySnapshot(newStrategy(…))` 대신 위 `v1` 객체 모양으로 만들어요(이제 `newStrategy`는 v2예요).)
-
-`src/lib/state/exportImport.test.ts` 끝에 붙여요(파일의 기존 도우미를 써요).
-
-```ts
-describe('내보내기 v2(§8.5)', () => {
-  it('schemaVersion 2로 내보내고, v1 파일은 전략을 옮겨 새 키에 쓴다', () => {
-    const st = createSafeStorage(memoryBacking());
-    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
-    const file = { format: EXPORT_FORMAT, schemaVersion: 1, profile: { name: '옛' }, settings: {}, watchlists: { groups: [{ id: 'g0', name: '관심', items: [] }] }, recent: [], strategies: [v1] };
-    const r = importData(st, JSON.stringify(file), () => 0);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(st.get(profileKeys.strategySet(r.profileId), null)).toEqual({ strategies: [toV2(v1)] });
-    expect(st.get(profileKeys.strategies(r.profileId), null)).toBeNull();
-    expect(JSON.parse(exportData(st, r.profileId, false)).schemaVersion).toBe(2);
-  });
-  it('알 수 없는 버전은 거절한다', () => {
-    const st = createSafeStorage(memoryBacking());
-    expect(importData(st, JSON.stringify({ format: EXPORT_FORMAT, schemaVersion: 3, settings: {} }))).toEqual({ ok: false, reason: IMPORT_BAD_VERSION });
-  });
-});
-```
-
-(`watchlists` 고정값이 `validWatchlists`를 통과하지 않으면 이 파일의 기존 성공 테스트가 쓰는 관심종목 모양을 그대로 써요.)
+(시작일 `2026-03-02`는 같은 파일 「MA가 더 길면 ceil(MA*1.6)일」 테스트가 쓰는 `strat()` 기본 시작일이에요.)
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/patternBlock.test.ts src/lib/sim/strategyStore.test.ts src/lib/sync/dto.test.ts src/lib/share/snapshot.test.ts src/lib/state/exportImport.test.ts`
-Expected: FAIL — `./patternBlock`이 없고, `profileKeys.strategySet`이 `undefined`, `PROFILE_DOC_VERSION`이 1, read v2가 `unsupported`예요.
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/patternBlock.test.ts src/lib/sim/loadSimData.test.ts`
+Expected: FAIL — `./patternBlock`이 없고, RSI 워밍업이 400일로 나와요.
 
 - [ ] **Step 3: 타입·기본값·패턴 블록 도우미**
 
@@ -1343,7 +1276,131 @@ export function nearMiss(core: CoreResult): SimResult['nearMiss'] {
   const warmFrom = addDays(from, -Math.max(400, Math.ceil(lookback * 1.6)));
 ```
 
-- [ ] **Step 5: 저장 키·문서**
+- [ ] **Step 5: sim 테스트 옮기기**
+
+`src/lib/sim/testInputs.ts`의 `baseStrategy`를 v1으로 만든 뒤 옮겨요. 골든 입력이 v1 필드를 고치니(`x.exit…`, `x.capital.perBuyPct`) 콜백 인자 타입을 `StrategyV1`로 둬요.
+
+```ts
+import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
+
+/** 자금 1,000만 원, 회당 10%, 수수료 0.015%, 돌파 끔, 손절 5% 매번 평단. v1으로 고친 뒤 toV2로 옮긴다(골든이 옮기기까지 지킨다) */
+export function baseStrategy(over: (s: StrategyV1) => void = () => {}): Strategy {
+  const s = newStrategyV1(0, null);
+  s.capital = { initial: 10_000_000, perBuyPct: 10 };
+  s.costs.feePct = 0.015;
+  s.entry.triggers.breakout.on = false;
+  s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
+  over(s);
+  return toV2(s);
+}
+```
+
+`src/lib/sim/simulate.test.ts`의 `strat`도 같은 방식이에요.
+
+```ts
+import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
+
+function strat(over: (s: StrategyV1) => void = () => {}): Strategy {
+  const s = newStrategyV1(0, null);
+  s.capital = { initial: 10_000_000, perBuyPct: 10 };
+  s.costs.feePct = 0;
+  s.entry.triggers.breakout.on = false;
+  s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
+  over(s);
+  return toV2(s);
+}
+```
+
+`newStrategy` import를 지워요. 이 파일에서 `openPosition(…, s.exit)`처럼 전략의 `exit`를 넘기는 곳은 `{ takeProfit: s.rules.sell.takeProfit.stages, stopLoss: { pct: s.rules.sell.stopLoss.pct, basis: s.rules.sell.stopLoss.basis }, afterFirstTake: s.rules.sell.takeProfit.afterFirstTake }`로 바꿔요. `WalkCtx` 고정값의 `takeProfit`은 배열 그대로예요.
+
+`src/lib/sim/position.test.ts`: `exit` 고정값의 타입 표기가 `Strategy['exit']`면 `PositionExit`로 바꿔요(값은 그대로).
+
+`src/lib/sim/validate.test.ts`의 v1 검증 테스트는 import를 `import { sanitizeStrategiesV1 as sanitizeStrategies } from './strategyV1';`로 바꿔 그대로 둬요. `ruleIssues`·`strategyIssues` 테스트에서 v1 필드를 고치는 줄은 아래 대응표(Task 4d Step 3)로 바꿔요. `simulate.timeline.test.ts`의 v1 필드도 같은 대응표로 바꿔요.
+
+- [ ] **Step 6: 통과 확인(골든)**
+
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/simulate.golden.test.ts src/lib/sim/simulate.test.ts src/lib/sim/position.test.ts src/lib/sim/simulate.timeline.test.ts src/lib/sim/patternBlock.test.ts src/lib/sim/rules.test.ts src/lib/sim/strategyV1.test.ts src/lib/sim/validate.test.ts src/lib/sim/loadSimData.test.ts`
+Expected: PASS. `simulate.golden.test.ts`는 스냅샷 그대로여야 해요. 깨지면 스냅샷을 갱신하지 말고 엔진 변경을 되짚어요(평가기 `update` 호출 위치, `pattern` 키 생략, `amount`). 이 시점에 svelte-check와 다른 영역 테스트는 빨간 것이 정상이에요(`sanitizeStrategies` 다시 내보내기를 지웠기 때문).
+
+- [ ] **Step 7: 커밋**
+
+```bash
+git add src/lib/sim
+git commit -m "feat(sim): 전략 타입을 v2로 바꾸고 엔진 매수를 조건 평가기로 옮김"
+```
+
+---
+
+#### Task 4b: 저장 키·문서·동기화
+
+**Files:** `src/lib/sim/strategyStore.ts`, `src/lib/state/profileStore.ts:19`, `src/lib/state/app.svelte.ts:128,637,661,835`, `src/lib/sync/dto.ts:7-9,16,29-38,116`, `src/lib/sync/profileDoc.ts`, `src/lib/sync/engine.ts`, `src/lib/sync/store.ts`, `src/lib/sync/api.ts:12,25,52,103-108`, `src/lib/sync/local.ts`, `src/lib/ui/settings/SyncPanel.svelte:5,37`, `sync-worker/test/docs.ts`, 테스트 `src/lib/sim/strategyStore.test.ts`·`src/lib/sync/dto.test.ts`
+
+- [ ] **Step 1: 실패 테스트 쓰기**
+
+`src/lib/sim/strategyStore.test.ts` 끝에 붙여요. 파일 **맨 위** import 묶음에 `import { newStrategyV1, toV2 } from './strategyV1';`를 더하고, `profileKeys`·`createSafeStorage`·`memoryBacking`이 아직 없으면 `../state/profileStore`·`../state/storage`·`../state/testStorage`에서 가져와요(이미 있으면 다시 import하지 않아요).
+
+```ts
+describe('새 키 strategySet(§8.2)', () => {
+  const make = () => createSafeStorage(memoryBacking());
+  it('옛 키만 있으면 v2로 옮겨 새 키에 쓰고 옛 키는 그대로 둔다', () => {
+    const st = make();
+    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    st.set(profileKeys.strategies('p'), { strategies: [v1] });
+    expect(loadStrategies(st, 'p')).toEqual([toV2(v1)]);
+    expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(profileKeys.strategies('p'), null)).toEqual({ strategies: [v1] });
+  });
+  it('새 키가 있으면 옛 키는 읽지 않는다', () => {
+    const st = make();
+    st.set(profileKeys.strategies('p'), { strategies: [{ ...newStrategyV1(0, null, '옛'), id: 's1' }] });
+    const v2 = toV2({ ...newStrategyV1(0, null, '새'), id: 's2' });
+    st.set(profileKeys.strategySet('p'), { strategies: [v2] });
+    expect(loadStrategies(st, 'p')).toEqual([v2]);
+  });
+  it('저장은 새 키에만 한다', () => {
+    const st = make();
+    const v2 = toV2({ ...newStrategyV1(0, null), id: 's2' });
+    saveStrategies(st, 'p', [v2]);
+    expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [v2] });
+    expect(st.get(profileKeys.strategies('p'), null)).toBeNull();
+  });
+});
+```
+
+
+`src/lib/sync/dto.test.ts`에서 PR①의 `it('앱이 만드는 버전은 1 그대로, 받는 최대는 2', …)`의 `expect(PROFILE_DOC_VERSION).toBe(1)`을 `toBe(2)`로 바꾸고 제목을 `'앱이 만드는 버전은 2, 받는 최대는 2'`로 바꿔요. 같은 파일에 붙여요.
+
+```ts
+describe('applyProfileDoc v1·v2(§8.2)', () => {
+  it('v2 문서는 새 키에만 쓴다', () => {
+    const { st } = seeded();
+    const d = { ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] };
+    applyProfileDoc(st, PID, d);
+    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: d.strategies });
+  });
+  it('v1 문서는 옛 키에 v1, 새 키에 toV2 결과를 바로 쓴다', () => {
+    const { st } = seeded();
+    const v1 = { ...newStrategyV1(NOW, 'g0', '옛'), id: 'old' };
+    const d = { ...validDoc(), v: 1 as const, strategies: [v1] };
+    applyProfileDoc(st, PID, d);
+    expect(st.get(profileKeys.strategies(PID), null)).toEqual({ strategies: [v1] });
+    expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: [toV2(v1)] });
+  });
+  it('buildProfileDoc은 v2 문서를 만든다', () => {
+    expect(validDoc().v).toBe(2);
+  });
+});
+```
+
+(`seeded`·`PID`·`validDoc`은 이 파일에 이미 있어요. import에 `profileKeys`(`../state/profileStore`), `newStrategyV1`·`toV2`(`../sim/strategyV1`)를 더해요. `validDoc()`의 반환 타입을 `ProfileDocV1`에서 `ProfileDocV2`로 바꾸고, v1 문서가 필요한 기존 테스트는 `{ ...validDoc(), v: 1, strategies: [newStrategyV1(NOW, 'g0')] }`로 만들어요.)
+
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/strategyStore.test.ts src/lib/sync/dto.test.ts`
+Expected: FAIL — `profileKeys.strategySet`이 `undefined`, `PROFILE_DOC_VERSION`이 1이에요.
+
+- [ ] **Step 3: 저장 키·문서**
 
 `src/lib/state/profileStore.ts:19` 아래에 더해요.
 
@@ -1458,21 +1515,86 @@ export function applyProfileDoc(st: SafeStorage, profileId: string, doc: Profile
 
 `src/lib/sync/engine.ts`·`store.ts`·`api.ts`·`src/lib/ui/settings/SyncPanel.svelte`: `ProfileDocV1`을 모두 `ProfileDoc`로 바꿔요(import 포함). 동작은 같아요.
 
-`src/lib/state/exportImport.ts`:
-- `:21` → `import { sanitizeStrategiesV1, toV2 } from '../sim/strategyV1';`와 `import { sanitizeStrategiesV2 } from '../sim/strategyV2';`
-- `:27` → `export const EXPORT_SCHEMA_VERSION = 2;`
-- `:122` → `if (file.schemaVersion !== 1 && file.schemaVersion !== 2) return fail(IMPORT_BAD_VERSION);`
-- `:133`을 바꿔요.
+공유 검사가 계약 테스트에서 v1 검증을 부를 수 있게 `src/lib/share/snapshot.ts`의 v1 검증 이름만 먼저 바꿔요(동작 같음, 나머지는 4c): `import { resolveSymbols, sanitizeStrategies } from '../sim/validate';` → `import { resolveSymbols } from '../sim/validate';`와 `import { sanitizeStrategiesV1 } from '../sim/strategyV1';`, `checkStrategyPart` 안의 `sanitizeStrategies(` → `sanitizeStrategiesV1(`.
 
-```ts
-  // v1 파일(전략 빌더 이전)은 전략을 옮긴다(스펙 §8.5)
-  const v1 = file.schemaVersion === 1 ? sanitizeStrategiesV1(file, now()) : null;
-  const { strategies, repaired: strategiesRepaired } = v1 ? { strategies: v1.strategies.map(toV2), repaired: v1.repaired } : sanitizeStrategiesV2(file, now());
+- [ ] **Step 4: Worker 테스트 고정값**
+
+`sync-worker/test/docs.ts`: `import { newStrategy } from '../../src/lib/sim/defaults';` → `import { newStrategyV1 } from '../../src/lib/sim/strategyV1';`, `doc()`의 `newStrategy(T0, 'g0', '눌림목')` → `newStrategyV1(T0, 'g0', '눌림목')`. Worker 테스트 코드만 바꾸고 Worker 동작은 그대로예요.
+
+`src/lib/sync/dto.test.ts`의 `seeded()`는 `seed(backing, \`p:${PID}:strategies\`, …)`를 `seed(backing, \`p:${PID}:strategySet\`, { strategies: [newStrategy(NOW, 'g-1', '눌림목')] })`로 바꿔요(새 키에 v2).
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/strategyStore.test.ts src/lib/sync/dto.test.ts src/lib/sync/contract.test.ts src/lib/sync/engine.test.ts src/lib/sync/roundtrip.test.ts && (cd sync-worker && npx vitest run src/profiles.test.ts)`
+Expected: PASS. `contract.test.ts`(N4)가 여기서 초록이어야 해요. Worker 공유 테스트(`shares.test.ts`)와 Worker 타입 검사는 4c에서 초록이 돼요(그 테스트가 아직 옛 `sanitizeStrategies`를 불러요).
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add src/lib/sim/strategyStore.ts src/lib/sim/strategyStore.test.ts src/lib/state/profileStore.ts src/lib/state/app.svelte.ts src/lib/sync src/lib/share/snapshot.ts src/lib/ui/settings/SyncPanel.svelte sync-worker/test/docs.ts
+git commit -m "feat(sync): 전략을 새 저장 키에 두고 프로필 문서를 v2로 만듦"
 ```
 
-- `:153` → `st.set(profileKeys.strategySet(id), { strategies });`
+---
 
-- [ ] **Step 6: 공유**
+#### Task 4c: 공유·내보내기
+
+**Files:** `src/lib/share/snapshot.ts`, `src/lib/share/compact.ts:214`, `src/lib/share/importPlan.ts:11,138`, `src/lib/share/pendingImport.ts:54,56`, `src/lib/share/shareText.ts:52-56,97-99`, `src/lib/share/testFixtures.ts:26`, `src/lib/state/exportImport.ts:21,27,35,40,122,133,153`, `sync-worker/src/shares.test.ts:217`, 테스트 `src/lib/share/snapshot.test.ts`·`src/lib/state/exportImport.test.ts`
+
+- [ ] **Step 1: 실패 테스트 쓰기**
+
+`src/lib/share/snapshot.test.ts`에서 PR①의 `it('read: v2는 unsupported(PR① 앱은 v1만 그린다), v1은 v1 그대로', …)`를 아래로 바꿔요.
+
+```ts
+  it('read: v2는 받고, v1은 v2로 옮겨 v: 2로 돌려준다(§8.4)', () => {
+    expect(checkShareSnapshot(strategyV2Snap(), 'strategy', NOW, 'read')).toMatchObject({ ok: true });
+    const v1 = { kind: 'strategy', v: 1, title: '눌림목', strategy: { ...newStrategyV1(NOW, null, '눌림목'), id: 'shared', updatedAt: 0, universe: { kind: 'symbols', symbols: ['005930'] } }, capitalHidden: false };
+    const r = checkShareSnapshot(v1, 'strategy', NOW, 'read');
+    expect(r.ok).toBe(true);
+    if (r.ok && r.snapshot.kind === 'strategy') {
+      expect(r.snapshot.v).toBe(2);
+      expect(r.snapshot.strategy).toEqual(toV2(v1.strategy as never));
+    }
+  });
+  it('strategySnapshot은 v: 2로 만든다', () => {
+    expect(strategySnapshot(newStrategy(NOW, null, '눌림목'), w, { hideCapital: false, now: NOW }).v).toBe(2);
+  });
+```
+
+(import에 `newStrategyV1`·`toV2`(`../sim/strategyV1`)를 더해요. 같은 `describe` 안의 `'create: v1 전략 공유는 지금처럼 받는다'`는 `strategySnapshot(newStrategy(…))` 대신 위 `v1` 객체 모양으로 만들어요(이제 `newStrategy`는 v2예요).)
+
+
+`src/lib/state/exportImport.test.ts` 끝에 붙여요(파일의 기존 도우미를 써요).
+
+```ts
+describe('내보내기 v2(§8.5)', () => {
+  it('schemaVersion 2로 내보내고, v1 파일은 전략을 옮겨 새 키에 쓴다', () => {
+    const st = createSafeStorage(memoryBacking());
+    const v1 = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    const file = { format: EXPORT_FORMAT, schemaVersion: 1, profile: { name: '옛' }, settings: {}, watchlists: { groups: [{ id: 'g0', name: '관심', items: [] }] }, recent: [], strategies: [v1] };
+    const r = importData(st, JSON.stringify(file), () => 0);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(st.get(profileKeys.strategySet(r.profileId), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(profileKeys.strategies(r.profileId), null)).toBeNull();
+    expect(JSON.parse(exportData(st, r.profileId, false)).schemaVersion).toBe(2);
+  });
+  it('알 수 없는 버전은 거절한다', () => {
+    const st = createSafeStorage(memoryBacking());
+    expect(importData(st, JSON.stringify({ format: EXPORT_FORMAT, schemaVersion: 3, settings: {} }))).toEqual({ ok: false, reason: IMPORT_BAD_VERSION });
+  });
+});
+```
+
+(`watchlists` 고정값이 `validWatchlists`를 통과하지 않으면 이 파일의 기존 성공 테스트가 쓰는 관심종목 모양을 그대로 써요.)
+
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share/snapshot.test.ts src/lib/state/exportImport.test.ts`
+Expected: FAIL — read v2가 `unsupported`, 내보내기 `schemaVersion`이 1이에요.
+
+- [ ] **Step 3: 공유**
 
 `src/lib/share/snapshot.ts`:
 - import: `import { resolveSymbols, sanitizeStrategies } from '../sim/validate';` → `import { resolveSymbols } from '../sim/validate';`, `import { sanitizeStrategiesV1, toV2, type StrategyV1 } from '../sim/strategyV1';`, `import { defaultPatternEntry, newStrategy } from '../sim/defaults';`(이미 있는 `newStrategy` import에 합쳐요), `import { patternEntryOf } from '../sim/patternBlock';`
@@ -1519,7 +1641,47 @@ const upgrade = (x: StrategyV1 | Strategy): Strategy => ('rules' in x ? x : toV2
 
 `src/lib/share/shareText.ts`의 두 전략 문구는 Task 10에서 최종으로 바꿔요. 여기서는 컴파일만 맞춰요: `st.entry.decline.dropPct` 자리는 `patternEntryOf(st)?.decline.dropPct`를 쓰고(없으면 `'끔'`), `st.exit.takeProfit`은 `st.rules.sell.takeProfit.stages`, `st.exit.stopLoss.pct`는 `st.rules.sell.stopLoss.pct`, `st.capital.perBuyPct`는 `st.sizing.pct`로 바꿔요.
 
-- [ ] **Step 7: 선정 기준(컴파일)**
+
+테스트 고정값:
+- `src/lib/share/testFixtures.ts:26`(`simResultFixture`)의 `v: 1` → `v: STRATEGY_SHARE_VERSION`(import 더하기). `:94`(`validationFixture`)의 `v: 1`은 그대로예요.
+- `sync-worker/src/shares.test.ts:217`의 v1 공유 테스트는 v1 스냅샷을 유지해야 해요. `newStrategy(0, null, '눌림목')`을 `newStrategyV1(0, null, '눌림목')`(`../../src/lib/sim/strategyV1`)으로 바꾸고, `strategySnapshot`이 이제 `v: 2`를 붙이니 만든 스냅샷에 `v: 1`을 덮어써요(`const v1 = { ...snapshot, v: 1, strategy: … }`). 같은 테스트의 `sanitizeStrategies(` → `sanitizeStrategiesV1(`. Worker 테스트 코드만 바꾸고 Worker 동작은 그대로예요.
+
+- [ ] **Step 4: 내보내기**
+
+`src/lib/state/exportImport.ts`:
+- `:21` → `import { sanitizeStrategiesV1, toV2 } from '../sim/strategyV1';`와 `import { sanitizeStrategiesV2 } from '../sim/strategyV2';`
+- `:27` → `export const EXPORT_SCHEMA_VERSION = 2;`
+- `:122` → `if (file.schemaVersion !== 1 && file.schemaVersion !== 2) return fail(IMPORT_BAD_VERSION);`
+- `:133`을 바꿔요.
+
+```ts
+  // v1 파일(전략 빌더 이전)은 전략을 옮긴다(스펙 §8.5)
+  const v1 = file.schemaVersion === 1 ? sanitizeStrategiesV1(file, now()) : null;
+  const { strategies, repaired: strategiesRepaired } = v1 ? { strategies: v1.strategies.map(toV2), repaired: v1.repaired } : sanitizeStrategiesV2(file, now());
+```
+
+- `:153` → `st.set(profileKeys.strategySet(id), { strategies });`
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share src/lib/state src/lib/sync/contract.test.ts && (cd sync-worker && npx vitest run && npx tsc -p tsconfig.json --noEmit)`
+Expected: PASS.
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add src/lib/share src/lib/state/exportImport.ts src/lib/state/exportImport.test.ts sync-worker/src/shares.test.ts
+git commit -m "feat(share): 전략 공유를 v2로 만들고 v1 공유·내보내기 파일을 옮겨 읽음"
+```
+
+---
+
+#### Task 4d: 선정 기준·화면 컴파일 (여기서 전체 초록)
+
+**Files:** `src/lib/screen/defaults.ts:47`, `src/lib/screen/testData.ts:71-72`, `src/lib/screen/types.ts:43`, `src/lib/screen/precompute.ts:117,130-174,204,242`, `src/lib/screen/runValidation.ts:330-336`, `src/lib/ui/simulate/editor/PatternFields.svelte`(= `EntrySection.svelte`를 옮김), `src/lib/ui/simulate/StrategyEditor.svelte:16,232`, `src/lib/ui/simulate/editor/ExitSection.svelte`, `src/lib/ui/simulate/editor/PeriodSection.svelte:38`, `src/lib/ui/simulate/simText.ts:49-102,208-215`, `src/lib/ui/simulate/ResultView.svelte:66`, `src/lib/ui/screen/CriteriaEditor.svelte:27,318-347,500`, 그리고 `corepack pnpm check`가 가리키는 테스트·고정값 파일
+
+- [ ] **Step 1: 선정 기준(컴파일)**
+
 
 - `src/lib/screen/defaults.ts:47` → `pattern: { from: 'custom', entry: defaultPatternEntry() },`(import `defaultPatternEntry`).
 - `src/lib/screen/testData.ts:71-72` → `export function reboundEntry(): PatternEntry { const e = defaultPatternEntry();`(나머지 본문 그대로).
@@ -1562,7 +1724,7 @@ export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Str
   };
 ```
 
-- [ ] **Step 8: 화면(컴파일)**
+- [ ] **Step 2: 화면(컴파일)**
 
 `src/lib/ui/simulate/editor/EntrySection.svelte`를 `PatternFields.svelte`로 옮겨요(`git mv`). 바꿀 것:
 - props: `s: Strategy; update: (fn: (s: Strategy) => void) => void;`를 `entry: PatternEntry; update: (fn: (e: PatternEntry) => void) => void;`로(import `type PatternEntry` from `'../../../sim/types'`).
@@ -1622,46 +1784,7 @@ export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Str
 
 - `:500` → `{:else if pattern.from === 'custom'}<PatternFields entry={pattern.entry} update={updateEntry} nf={(k) => nf(\`entry-${k}\`)} />`(앞 `{:else if entryHost}` 분기를 이것으로).
 
-- [ ] **Step 9: 테스트·고정값 옮기기**
-
-`src/lib/sim/testInputs.ts`의 `baseStrategy`를 v1으로 만든 뒤 옮겨요. 골든 입력이 v1 필드를 고치니(`x.exit…`, `x.capital.perBuyPct`) 콜백 인자 타입을 `StrategyV1`로 둬요.
-
-```ts
-import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
-
-/** 자금 1,000만 원, 회당 10%, 수수료 0.015%, 돌파 끔, 손절 5% 매번 평단. v1으로 고친 뒤 toV2로 옮긴다(골든이 옮기기까지 지킨다) */
-export function baseStrategy(over: (s: StrategyV1) => void = () => {}): Strategy {
-  const s = newStrategyV1(0, null);
-  s.capital = { initial: 10_000_000, perBuyPct: 10 };
-  s.costs.feePct = 0.015;
-  s.entry.triggers.breakout.on = false;
-  s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
-  over(s);
-  return toV2(s);
-}
-```
-
-`src/lib/sim/simulate.test.ts`의 `strat`도 같은 방식이에요.
-
-```ts
-import { newStrategyV1, toV2, type StrategyV1 } from './strategyV1';
-
-function strat(over: (s: StrategyV1) => void = () => {}): Strategy {
-  const s = newStrategyV1(0, null);
-  s.capital = { initial: 10_000_000, perBuyPct: 10 };
-  s.costs.feePct = 0;
-  s.entry.triggers.breakout.on = false;
-  s.exit.stopLoss = { pct: 5, basis: 'avgAlways' };
-  over(s);
-  return toV2(s);
-}
-```
-
-`newStrategy` import를 지워요. 이 파일에서 `openPosition(…, s.exit)`처럼 전략의 `exit`를 넘기는 곳은 `{ takeProfit: s.rules.sell.takeProfit.stages, stopLoss: { pct: s.rules.sell.stopLoss.pct, basis: s.rules.sell.stopLoss.basis }, afterFirstTake: s.rules.sell.takeProfit.afterFirstTake }`로 바꿔요. `WalkCtx` 고정값의 `takeProfit`은 배열 그대로예요.
-
-`src/lib/sim/position.test.ts`: `exit` 고정값의 타입 표기가 `Strategy['exit']`면 `PositionExit`로 바꿔요(값은 그대로).
-
-`sync-worker/test/docs.ts`: `import { newStrategy } from '../../src/lib/sim/defaults';` → `import { newStrategyV1 } from '../../src/lib/sim/strategyV1';`, `doc()`의 `newStrategy(T0, 'g0', '눌림목')` → `newStrategyV1(T0, 'g0', '눌림목')`. Worker 테스트 코드만 바꾸고 Worker 동작은 그대로예요.
+- [ ] **Step 3: 남은 테스트·고정값 옮기기**
 
 나머지는 컴파일러가 가리키는 대로 아래 대응표로 고쳐요.
 
@@ -1684,16 +1807,16 @@ Run: `corepack pnpm check 2>&1 | grep -E "Error|error" | head -80`
 
 대상이 될 파일(검색: `grep -rln "\.entry\.\|\.exit\.\|perBuyPct\|sanitizeStrategies\b\|Strategy\['entry'\]" src tests sync-worker/src sync-worker/test`): `src/lib/share/testFixtures.ts`, `src/lib/ui/simulate/resultFixture.ts`, `src/lib/sim/validate.test.ts`, `src/lib/screen/*.test.ts`, `src/lib/ui/simulate/*.test.ts`, `src/lib/share/*.test.ts` 등. `src/lib/sim/validate.test.ts`의 v1 검증 테스트는 `sanitizeStrategiesV1`(`./strategyV1`)로 import를 바꿔 그대로 둬요.
 
-- [ ] **Step 10: 통과 확인**
+- [ ] **Step 4: 통과 확인(전체)**
 
 Run: `corepack pnpm test && corepack pnpm check && (cd sync-worker && npx vitest run && npx tsc -p tsconfig.json --noEmit)`
-Expected: 모두 PASS. 특히 `simulate.golden.test.ts`(스냅샷 그대로)와 `contract.test.ts`가 통과해야 해요. 골든이 깨지면 스냅샷을 갱신하지 말고 엔진 변경을 되짚어요(평가기 `update` 호출 위치, `pattern` 키 생략, `amount`).
+Expected: 모두 PASS. 골든·`contract.test.ts` 포함.
 
-- [ ] **Step 11: 커밋**
+- [ ] **Step 5: 커밋**
 
 ```bash
-git add -A src sync-worker/test
-git commit -m "feat(simulate): 앱 전략을 v2로 바꾸고 새 저장 키·문서 v2·공유 v2·조건 평가기 매수로 옮김"
+git add -A src
+git commit -m "feat(simulate): 선정 기준과 편집 화면을 v2 전략에 맞춤"
 ```
 
 ---
@@ -1758,6 +1881,7 @@ describe('자금 배분(§6)', () => {
     const [first, add] = buys(r);
     expect(add.kind).toBe('add');
     expect(add.qty * add.price).toBeLessThanOrEqual(first.qty * first.price * 1.06);
+    expect(add.qty * add.price).toBeGreaterThan(first.qty * first.price * 0.9);
   });
 });
 ```
@@ -2741,11 +2865,19 @@ const dv = `docVersion=${PROFILE_DOC_VERSION}`; // Worker가 이 버전보다 �
         await engine.exclusive(() => migrateStrategies({ storage: deps.storage, profiles: app.meta.profiles.map((p) => ({ id: p.id, name: p.name })), store: syncStore }));
 ```
 
-(`deps.storage`·`app`·`syncStore`는 이 블록에서 이미 쓰는 이름이에요. `appProfiles(app, deps.storage)`를 만드는 같은 블록이라 셋 다 있어요.)
+(`deps.storage`·`app`은 이 블록(`attach(app)`)에서 이미 쓰는 이름이에요. 동기화 저장소는 바깥 변수 `store`(`let store: SyncStore | null`, `:213`)이고, 같은 블록 `:684`에서 `const syncStore = store;`로 null이 아닌 값을 잡아 두니 그것을 넘겨요. `createSyncEngine({ store, … })`에 넘기는 것과 같은 저장소예요.)
 
-`src/lib/sync/engine.ts`의 `pull()`: `const got = await api.getProfile(id);` 아래 `if (!got.ok) {…}` 다음에 더해요.
+`src/lib/sync/engine.ts`의 `pull()`: `const got = await api.getProfile(id);` 아래 `if (!got.ok) {…}` 블록을 바꾸고 그 다음에 버전 검사를 더해요. Worker가 「요청 버전보다 높은 문서」를 422 `APP_OUTDATED_CODE`로 답하면 실패로 치지 않고 안내만 남긴 채 다음 프로필로 가요(다른 프로필 동기화가 멈추지 않게).
 
 ```ts
+      if (!got.ok) {
+        if (got.kind === 'gone' || got.kind === 'not-found') continue;
+        if (got.kind === 'invalid' && got.code === APP_OUTDATED_CODE) {
+          if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+          continue;
+        }
+        return failed(got);
+      }
       // 이 앱보다 높은 버전 문서는 쓰지 않는다(Worker가 막지만 한 번 더, §8.3)
       if (typeof got.data.doc.v !== 'number' || got.data.doc.v > PROFILE_DOC_VERSION) {
         if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
@@ -2756,12 +2888,18 @@ const dv = `docVersion=${PROFILE_DOC_VERSION}`; // Worker가 이 버전보다 �
 engine.ts 위쪽(`MAX_BACKOFF` 근처)에 상수를 두고 import를 더해요.
 
 ```ts
-import { PROFILE_DOC_VERSION } from './dto';
+import { APP_OUTDATED_CODE, PROFILE_DOC_VERSION } from './dto';
 /** 이 앱보다 높은 버전 문서를 만났을 때의 안내 */
 export const APP_OUTDATED_TEXT = '앱을 새로 고쳐 주세요. 새 버전에서 만든 데이터가 있어요.';
 ```
 
-`src/lib/ui/settings/SyncPanel.svelte:139`: 거절 줄에서 `APP_OUTDATED_CODE`는 보이지 않게 걸러요.
+`push()`의 `else if (r.kind === 'invalid') {…}` 블록 끝에, 이 앱의 올리기가 `APP_OUTDATED_CODE`로 거절됐으면 같은 안내를 더해요.
+
+```ts
+          if (r.code === APP_OUTDATED_CODE && !status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+```
+
+`src/lib/ui/settings/SyncPanel.svelte:139`: 거절 줄에서 `APP_OUTDATED_CODE`는 보이지 않게 걸러요. 구분 방법: **이 앱**이 받은 「앱을 새로 고쳐 주세요」는 엔진이 `status.notices`에 `APP_OUTDATED_TEXT`로 남겨 패널의 안내 줄(`status.notices` 목록)로 보여요. 거절 기록(`status.rejected`)의 `APP_OUTDATED_CODE` 줄은 같은 출처의 **옛 탭**이 남긴 것일 수 있어(IndexedDB를 같이 써요) 숨겨요. 옛 탭 기록은 옮기기 단계가 시작할 때 지우기도 해요.
 
 ```svelte
     {#each status.rejected.filter((r) => r.code !== APP_OUTDATED_CODE) as r (r.profileId)}
@@ -2769,7 +2907,9 @@ export const APP_OUTDATED_TEXT = '앱을 새로 고쳐 주세요. 새 버전에�
 
 (import `APP_OUTDATED_CODE` from `'../../sync/dto'`.)
 
-`src/lib/sync/engine.test.ts`에 높은 버전 거르기 테스트를 더해요(이 파일의 가짜 api 도우미로 `getProfile`이 `{ revision: 2, doc: { ...doc, v: 3 } }`를 돌려주게 하고, `pull` 뒤 `local.write`가 불리지 않았고 `status().notices`에 `APP_OUTDATED_TEXT`가 있음을 단언).
+`src/lib/sync/engine.test.ts`에 두 테스트를 더해요(이 파일의 가짜 api·로컬 도우미를 써요).
+- 422 경로: 프로필 두 개 중 첫 번째의 `getProfile`이 `{ ok: false, kind: 'invalid', code: APP_OUTDATED_CODE }`를 돌려주게 해요. 동기화 뒤 `status().phase`가 `'error'`가 아니고, 첫 프로필은 `local.write`가 불리지 않고, **두 번째 프로필은 정상으로 받아 쓰이며**, `status().notices`에 `APP_OUTDATED_TEXT`가 있음을 단언해요.
+- 높은 버전 방어: `getProfile`이 `{ ok: true, data: { revision: 2, doc: { ...doc, v: 3 } } }`를 돌려줘도 `local.write`가 불리지 않고 같은 안내가 남음을 단언해요.
 
 - [ ] **Step 4: 통과 확인**
 
@@ -3300,13 +3440,13 @@ describe('매수 조건 묶음(§10.2)', () => {
     await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('button', { name: '＋ 조건' }));
     await tick();
-    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '묶음 1의 조건 2 종류' }));
-    await fireEvent.change(screen.getByRole('combobox', { name: '묶음 1의 조건 2 종류' }), { target: { value: 'rsi' } });
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }));
+    await fireEvent.change(screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }), { target: { value: 'rsi' } });
     await fireEvent.click(screen.getByRole('button', { name: '＋ 또는 묶음' }));
     await settle();
     expect(saved(app).rules.buy).toHaveLength(2);
     expect(saved(app).rules.buy[0].conds[1]).toEqual({ kind: 'rsi', period: 14, level: 30, op: 'crossUp' });
-    await fireEvent.click(screen.getByRole('button', { name: '묶음 1의 조건 2 지우기' }));
+    await fireEvent.click(screen.getByRole('button', { name: '매수 묶음 1의 조건 2 지우기' }));
     await settle();
     expect(saved(app).rules.buy[0].conds).toHaveLength(1);
   });
@@ -3315,7 +3455,7 @@ describe('매수 조건 묶음(§10.2)', () => {
     await openSection('매수 조건');
     await fireEvent.click(screen.getByRole('button', { name: '＋ 조건' }));
     await tick();
-    const opt = screen.getByRole('combobox', { name: '묶음 1의 조건 2 종류' }).querySelector('option[value="pattern"]') as HTMLOptionElement;
+    const opt = screen.getByRole('combobox', { name: '매수 묶음 1의 조건 2 종류' }).querySelector('option[value="pattern"]') as HTMLOptionElement;
     expect(opt.disabled).toBe(true);
   });
   it('한도에서는 버튼을 막고 이유를 보인다', async () => {
@@ -3381,7 +3521,7 @@ export const COND_KINDS: readonly { kind: Cond['kind']; label: string }[] = [
     onremove,
   }: {
     cond: Cond;
-    /** `묶음 1의 조건 2` — 종류 선택·지우기 버튼 이름의 앞부분 */
+    /** `매수 묶음 1의 조건 2` — 종류 선택·지우기 버튼 이름의 앞부분(매수·매도 묶음이 한 화면에 있어도 겹치지 않게) */
     label: string;
     allowPattern: boolean;
     /** 다른 줄이 반등 패턴을 쓰고 있으면 true(이 줄 선택지에서 막는다) */
@@ -3487,7 +3627,7 @@ export const COND_KINDS: readonly { kind: Cond['kind']; label: string }[] = [
     min-height: 44px;
     padding: 0 10px;
     border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-chip);
     background: var(--surface);
     color: var(--t1);
     font: inherit;
@@ -3505,7 +3645,7 @@ export const COND_KINDS: readonly { kind: Cond['kind']; label: string }[] = [
 </style>
 ```
 
-(CSS 변수 이름(`--line`·`--surface`·`--t1`·`--radius-sm`)이 이 앱에 없으면 `ExitSection.svelte`·`EntrySection`(이제 `PatternFields`)이 쓰는 같은 역할의 변수로 바꿔요. `.x.danger` 모양은 `ExitSection.svelte`의 `.x`·`.danger` 규칙을 그대로 옮겨요. `.row`는 `PatternFields.svelte`의 `.row` 규칙을 그대로 옮겨요.)
+(CSS 토큰은 이 앱 것을 써요: 모서리 `--r-card`(카드)·`--r-chip`(칩·입력)·`--r-sheet`(시트), 선 `--line`, 면 `--surface`, 글자 `--t1`·`--t2`, 터치 높이 `--touch`. `min-height: 44px` 자리는 `var(--touch)`로 써도 돼요. `.x.danger` 모양은 `ExitSection.svelte`의 `.x`·`.danger` 규칙을 그대로 옮겨요. `.row`는 `PatternFields.svelte`의 `.row` 규칙을 그대로 옮겨요.)
 
 `src/lib/ui/simulate/editor/CondGroupCard.svelte`:
 
@@ -3568,7 +3708,7 @@ export const COND_KINDS: readonly { kind: Cond['kind']; label: string }[] = [
     <CondRow
       bind:this={rows[ci]}
       {cond}
-      label="묶음 {index + 1}의 조건 {ci + 1}"
+      label="{prefix} {index + 1}의 조건 {ci + 1}"
       {allowPattern}
       patternTaken={patternTaken && cond.kind !== 'pattern'}
       update={setCond(ci)}
@@ -3586,7 +3726,7 @@ export const COND_KINDS: readonly { kind: Cond['kind']; label: string }[] = [
     gap: 4px;
     padding: 12px;
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--r-card);
   }
   .g-head {
     display: flex;
@@ -3767,6 +3907,12 @@ describe('매도 토글·배분(§10.3·§10.4)', () => {
     expect([sell.stopLoss.on, sell.trailing.on, sell.timeExit.on, sell.signal.on]).toEqual([false, true, true, true]);
     expect(sell.signal.groups).toEqual([{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }]);
     expect(screen.getByRole('group', { name: '매도 묶음 1' })).toBeTruthy();
+  });
+  it('매도·기간·자금 구역을 펼쳐도 axe 위반이 없다', async () => {
+    const { view } = setup((s) => (s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }] }));
+    await openSection('매도');
+    await openSection('기간·자금');
+    await expectNoAxeViolations(view.container);
   });
   it('배분 방식: 균등이면 비율 칸을 숨기고 안내', async () => {
     const { app } = setup();
@@ -4109,4 +4255,4 @@ git commit -m "test(simulate): 전략 빌더 e2e·axe와 v2 문서·공유 계�
 - PR① 코드와의 일치: `StrategyV2`·`sanitizeStrategiesV2`·`defaultCond`·`MAX_GROUPS`·`MAX_CONDS`·`fullStrategyV2`·`PROFILE_DOC_MAX_VERSION`·`APP_OUTDATED_CODE`·`ProfileDocV2`·`STRATEGY_SHARE_MAX_VERSION`·새 체결 종류·마커는 다시 만들지 않고 import해요.
 - N4: Worker 공용 파일은 import 자리·이름(`sanitizeStrategiesV1`)과 read 모드만 바뀌어요. `checkProfileDoc` 판정 순서·`TOP_KEYS`·create 모드는 그대로예요. Task 3의 고정값 계약과 Task 15의 Worker 테스트가 확인해요. **PR①-b는 필요 없어요.**
 - 이름 일관성: `toV2`·`newStrategyV1`·`sanitizeStrategiesV1`·`sanitizeEntry`·`defaultPatternEntry`·`patternEntryOf`·`patternCount`·`createRuleEvaluator`·`condReason`·`rulesLookback`·`RSI_START_BARS`·`REASON_MAX`·`sellQty`·`SellCtx`·`SellRules`·`posAmount`·`pendingSell`·`sellEval`·`strategySet`·`profileDocBase`·`migrateStrategies`·`APP_OUTDATED_TEXT`·`STRATEGY_SHARE_VERSION`·`MissingPatternError`·`patternRefIssues`·`buyRulesSummary`·`sellRulesSummary`·`sizingText`·`cutText`·`TEMPLATES`·`fromTemplate`가 모든 Task에서 같아요.
-- 확인 필요로 남긴 것: RSI 예시표 값(70.53·66.32)의 원본 대조(Task 1 Step 1 주석).
+- 확인 필요: 없어요. 스펙 §14-1(RSI 예시표 값)은 원본 넷째 자리 종가로 70.533·66.319를 확인해 해소했어요(Task 1).
