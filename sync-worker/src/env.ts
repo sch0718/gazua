@@ -20,6 +20,8 @@ export interface SyncEnv {
   NAVER_CLIENT_SECRET?: string;
   /** 콤마로 구분한 콜백 주소(var). 정확히 일치해야 하고 비면 모두 거절한다. */
   SOCIAL_REDIRECT_URIS?: string;
+  /** CLI 요청 IP를 해시하는 솔트(secret, 32바이트 무작위). 없으면 POST /v1/cli/device가 503 cli-disabled. */
+  CLI_IP_SALT?: string;
 }
 
 /** 테스트에서 바꿔 끼우는 것들. */

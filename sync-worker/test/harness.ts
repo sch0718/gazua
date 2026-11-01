@@ -28,7 +28,7 @@ export interface Harness {
   clock: { now: number };
   logs: string[];
   token(claims?: Record<string, unknown>, opts?: { kid?: string; key?: CryptoKey; alg?: string }): Promise<string>;
-  call(method: string, path: string, o?: { token?: string | null; session?: string | null; body?: unknown; origin?: string | null; headers?: Record<string, string> }): Promise<Response>;
+  call(method: string, path: string, o?: { token?: string | null; session?: string | null; body?: unknown; origin?: string | null; headers?: Record<string, string>; cf?: { country?: string; city?: string } }): Promise<Response>;
   /** 로그인해서 세션을 만든다. */
   login(email?: string, sub?: string, label?: string): Promise<{ token: string; session: string; as: Caller }>;
 }
@@ -50,7 +50,7 @@ export function harness(opts: { allowed?: string; social?: SocialOptions } = {})
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
     log: (l) => logs.push(l),
   };
-  const env: Harness['env'] = { DB: createTestD1(), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}` };
+  const env: Harness['env'] = { DB: createTestD1(), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}`, CLI_IP_SALT: 'test-cli-ip-salt' };
 
   if (opts.social) {
     const social = typeof opts.social === 'object' ? opts.social : {};
@@ -83,7 +83,10 @@ export function harness(opts: { allowed?: string; social?: SocialOptions } = {})
     if (o.token) headers.Authorization = `Bearer ${o.token}`;
     if (o.session) headers['X-Gazua-Session'] = o.session;
     if (o.body !== undefined) headers['Content-Type'] = 'application/json';
-    return handle(new Request(BASE + path, { method, headers, body: o.body === undefined ? undefined : JSON.stringify(o.body) }), env, deps);
+    const request = new Request(BASE + path, { method, headers, body: o.body === undefined ? undefined : JSON.stringify(o.body) });
+    // Cloudflare가 붙여 주는 request.cf를 흉내 낸다(Node의 Request는 init의 cf를 버린다)
+    if (o.cf) Object.defineProperty(request, 'cf', { value: o.cf });
+    return handle(request, env, deps);
   };
 
   return {
