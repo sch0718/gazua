@@ -120,7 +120,7 @@ async function unlock(d: Device, pass = PASS) {
   if (!r.ok) throw new Error(`listKeys ${r.kind}`);
   const h = checkVaultHead(r.data.keyVault)!;
   const key = await deriveVaultKey(pass, h.salt, h.iter);
-  expect(await checkVerifier(key, h.verifier, h.vaultId, h.vaultRevision)).toBe(true);
+  if (!(await checkVerifier(key, h.verifier, h.vaultId, h.vaultRevision))) throw new Error(KEY_TEXT.wrongPass);
   d.vault.key = { key, vaultId: h.vaultId, salt: h.salt, vaultRevision: h.vaultRevision };
 }
 const enable = (d: Device, providers: KeyProvider[] = ['kis']) => d.engine.exclusive(() => d.keys.enable(d.app.meta.activeProfileId, providers));
@@ -397,7 +397,7 @@ describe('두 기기 왕복(설계 7.7)', () => {
     expect((await state(b, id))?.notice).toBe('available');
   });
 
-  it('A 암호 바꿈 → B vault-changed·옛 키 잊음·newer 없음 → 새 암호로 받으면 같은 키', async () => {
+  it('A 암호 바꿈 → B vault-changed·옛 키 잊음·newer 없음 → 새 암호로 B 키 변경·자동 올리기 → A newer·받기', async () => {
     const s = testServer();
     const { a, b, id } = await pair(s);
     await unlock(b);
@@ -411,9 +411,25 @@ describe('두 기기 왕복(설계 7.7)', () => {
     expect(b.vault.key).toBeNull();
     expect(await b.keyStore.getMeta('keyNotice')).toBe('vault-changed');
     expect(await state(b, id)).toMatchObject({ notice: null, revision: before.revision, syncedContentId: before.syncedContentId });
+    await expect(unlock(b, PASS)).rejects.toThrow(KEY_TEXT.wrongPass);
+    expect(b.vault.key).toBeNull();
     await unlock(b, PASS2);
-    expect(await receive(b)).toEqual({ ok: true, notes: [KEY_TEXT.sameKeys] });
+    // 컨트롤러의 remembered: true에 해당하는 현재 금고의 메모리 키.
+    expect(b.vault.key).toMatchObject({ vaultId: a.vault.key!.vaultId, salt, vaultRevision: a.vault.key!.vaultRevision });
     expect(b.app.secrets?.kis).toEqual(KIS_A);
+    const revision = keyRows(s)[0].revision as number;
+    await setKeys(b, { kis: KIS_B, toss: TOSS_B, proxyToken: 'FAKE-proxy-B' });
+    await b.engine.keysNow();
+    expect(keyRows(s)[0].revision).toBe(revision + 1);
+    expect(await state(b, id)).toMatchObject({ notice: null, revision: revision + 1 });
+    const uploaded = (await state(b, id))!;
+    expect(uploaded.uploadedSeq).toBe(uploaded.localSeq);
+    await a.engine.keysNow();
+    expect(await state(a, id)).toMatchObject({ notice: 'newer', remoteRevision: revision + 1 });
+    await unlock(a, PASS2);
+    expect(await receive(a)).toEqual({ ok: true, notes: [KEY_TEXT.received] });
+    expect(a.app.secrets?.kis).toEqual(KIS_B);
+    expect(await state(a, id)).toMatchObject({ notice: null, revision: revision + 1, syncedContentId: keyRows(s)[0].content_id });
   });
 
   it('B 키 잠금 켬 상태에서 받기: 잠금 암호로 다시 봉하고, 다시 열면 같은 잠금 암호로 풀린다', async () => {
