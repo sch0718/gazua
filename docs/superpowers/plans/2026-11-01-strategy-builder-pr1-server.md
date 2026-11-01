@@ -34,9 +34,9 @@
 - `strategyV2.ts`·`dto.ts`·`snapshot.ts`·`checkResult.ts`·`resultEnums.ts`는 Worker 번들에 들어가요. DOM·저장소·`import.meta.env`를 쓰지 않아요.
 - 문체: 코드 주석은 한국어 해요체가 아닌 지금 코드의 짧은 서술체(「…한다」)를 따라요.
 - 검증 명령
-  - 루트: `pnpm test`(= `TZ=America/New_York vitest run`), `pnpm check`(svelte-check 두 번).
-  - 한 파일: `TZ=America/New_York pnpm vitest run <경로>`.
-  - Worker: `cd sync-worker && npx vitest run`(= `pnpm test`)과 `npx tsc -p tsconfig.json --noEmit`(= `pnpm check`).
+  - 루트: `corepack pnpm test`(= `TZ=America/New_York vitest run`), `corepack pnpm check`(svelte-check 두 번).
+  - 한 파일: `TZ=America/New_York corepack pnpm vitest run <경로>`.
+  - Worker: `cd sync-worker && npx vitest run`(= `corepack pnpm test`)과 `npx tsc -p tsconfig.json --noEmit`(= `corepack pnpm check`).
 
 ## File Structure
 
@@ -111,7 +111,7 @@ describe('새 매도 종류 표시', () => {
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/share/checkResult.test.ts src/lib/ui/simulate/markers.test.ts`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share/checkResult.test.ts src/lib/ui/simulate/markers.test.ts`
 Expected: FAIL — 「단계 없음·손익 있음이면 통과」가 `code: 'invalid'`로 실패하고, 라벨 테스트가 `undefined`로 실패해요.
 
 - [ ] **Step 3: 최소 구현**
@@ -166,7 +166,7 @@ export const MARKER_COLOR: Record<Trade['kind'], ColorToken> = {
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/share/checkResult.test.ts src/lib/ui/simulate/markers.test.ts src/lib/share/resultEnums.test.ts && pnpm check`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share/checkResult.test.ts src/lib/ui/simulate/markers.test.ts src/lib/share/resultEnums.test.ts && corepack pnpm check`
 Expected: PASS. `resultEnums.test.ts`의 `Same<(typeof TRADE_KINDS)[number], Trade['kind']>`·`SELL_KINDS` 대조가 통과하고, svelte-check 오류 0이에요.
 
 - [ ] **Step 5: 커밋**
@@ -191,6 +191,7 @@ git commit -m "feat(simulate): 새 매도 체결 종류 3종을 타입·결과 �
   - `export type PatternEntry = Strategy['entry']`
   - `export type Cond`, `export interface CondGroup { conds: Cond[] }`, `export type SizingMode`, `export interface StrategyV2`
   - `export const MAX_GROUPS = 4`, `export const MAX_CONDS = 5`
+  - `export function defaultCond<K extends Cond['kind']>(kind: K, now?: number): Extract<Cond, { kind: K }>`
   - `export function sanitizeStrategiesV2(raw: unknown, now?: number): { strategies: StrategyV2[]; repaired: boolean }`
   - 테스트 전용 `export function fullStrategyV2(): StrategyV2`(`testStrategyV2.ts`)
 
@@ -249,7 +250,7 @@ export function fullStrategyV2(): StrategyV2 {
 ```ts
 import { describe, expect, it } from 'vitest';
 import { exceedsDepth, findForbidden } from '../sync/forbidden';
-import { MAX_CONDS, MAX_GROUPS, sanitizeStrategiesV2 } from './strategyV2';
+import { defaultCond, MAX_CONDS, MAX_GROUPS, sanitizeStrategiesV2 } from './strategyV2';
 import { fullStrategyV2 } from './testStrategyV2';
 
 const NOW = Date.UTC(2026, 10, 1);
@@ -319,6 +320,12 @@ describe('sanitizeStrategiesV2', () => {
     expect(r.strategies[0].v).toBe(2);
   });
 
+  it('defaultCond가 정리 기본값과 같다', () => {
+    const s = fullStrategyV2() as any;
+    s.rules.buy[1].conds = [{ kind: 'rsi', period: 0, level: 0, op: 'x' }];
+    expect(one(s).strategies[0].rules.buy[1].conds[0]).toEqual(defaultCond('rsi'));
+  });
+
   it('새 키는 금지 키에 걸리지 않고 깊이 한도 안이다', () => {
     const doc = { strategies: [fullStrategyV2()] };
     expect(findForbidden(doc)).toBeNull();
@@ -329,7 +336,7 @@ describe('sanitizeStrategiesV2', () => {
 
 - [ ] **Step 3: 실패 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/sim/strategyV2.test.ts`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/strategyV2.test.ts`
 Expected: FAIL — `Failed to resolve import "./strategyV2"`.
 
 - [ ] **Step 4: 구현** — `src/lib/sim/strategyV2.ts`
@@ -417,27 +424,54 @@ const num = (ctx: Ctx, v: unknown, def: number, min: number, max: number) =>
 const bool = (ctx: Ctx, v: unknown, def: boolean) => pick(ctx, v, def, (x) => typeof x === 'boolean');
 const oneOf = <T extends string>(ctx: Ctx, v: unknown, def: T, list: readonly T[]) => pick(ctx, v, def, (x) => list.includes(x as T));
 
-/** 조건 하나. 모르는 kind, 매도 쪽 pattern은 null(버림, repaired) */
+/** 종류별 기본 조건. 편집 화면(PR②)이 종류를 바꿀 때와 정리의 기본값이 같은 값을 쓴다. pattern의 entry는 기본 반등 패턴 */
+export function defaultCond<K extends Cond['kind']>(kind: K, now = 0): Extract<Cond, { kind: K }> {
+  const all: { [P in Cond['kind']]: Extract<Cond, { kind: P }> } = {
+    maPrice: { kind: 'maPrice', period: 20, side: 'above' },
+    maCross: { kind: 'maCross', short: 20, long: 60, dir: 'golden' },
+    rsi: { kind: 'rsi', period: 14, level: 30, op: 'crossUp' },
+    volume: { kind: 'volume', days: 20, ratio: 1.5 },
+    change: { kind: 'change', days: 5, pct: 10, op: 'above' },
+    fromHigh: { kind: 'fromHigh', days: 60, pct: 20 },
+    newHigh: { kind: 'newHigh', days: 60 },
+    pattern: { kind: 'pattern', entry: sanitizeEntry(undefined, now).entry },
+  };
+  return all[kind];
+}
+
+/** 조건 하나. 모르는 kind, 매도 쪽 pattern은 null(버림, repaired). 기본값은 defaultCond */
 function sanitizeCond(ctx: Ctx, raw: unknown, allowPattern: boolean): Cond | null {
   if (!isRecord(raw)) {
     ctx.repaired = true;
     return null;
   }
   switch (raw.kind) {
-    case 'maPrice':
-      return { kind: 'maPrice', period: int(ctx, raw.period, 20, 2, 250), side: oneOf(ctx, raw.side, 'above', SIDES) };
-    case 'maCross':
-      return { kind: 'maCross', short: int(ctx, raw.short, 20, 2, 250), long: int(ctx, raw.long, 60, 2, 250), dir: oneOf(ctx, raw.dir, 'golden', DIRS) };
-    case 'rsi':
-      return { kind: 'rsi', period: int(ctx, raw.period, 14, 2, 50), level: num(ctx, raw.level, 30, 1, 99), op: oneOf(ctx, raw.op, 'crossUp', RSI_OPS) };
-    case 'volume':
-      return { kind: 'volume', days: int(ctx, raw.days, 20, 2, 120), ratio: num(ctx, raw.ratio, 1.5, 1, 20) };
-    case 'change':
-      return { kind: 'change', days: int(ctx, raw.days, 5, 1, 250), pct: num(ctx, raw.pct, 10, -90, 500), op: oneOf(ctx, raw.op, 'above', SIDES) };
-    case 'fromHigh':
-      return { kind: 'fromHigh', days: int(ctx, raw.days, 60, 2, 250), pct: num(ctx, raw.pct, 20, 1, 90) };
+    case 'maPrice': {
+      const d = defaultCond('maPrice');
+      return { kind: 'maPrice', period: int(ctx, raw.period, d.period, 2, 250), side: oneOf(ctx, raw.side, d.side, SIDES) };
+    }
+    case 'maCross': {
+      const d = defaultCond('maCross');
+      return { kind: 'maCross', short: int(ctx, raw.short, d.short, 2, 250), long: int(ctx, raw.long, d.long, 2, 250), dir: oneOf(ctx, raw.dir, d.dir, DIRS) };
+    }
+    case 'rsi': {
+      const d = defaultCond('rsi');
+      return { kind: 'rsi', period: int(ctx, raw.period, d.period, 2, 50), level: num(ctx, raw.level, d.level, 1, 99), op: oneOf(ctx, raw.op, d.op, RSI_OPS) };
+    }
+    case 'volume': {
+      const d = defaultCond('volume');
+      return { kind: 'volume', days: int(ctx, raw.days, d.days, 2, 120), ratio: num(ctx, raw.ratio, d.ratio, 1, 20) };
+    }
+    case 'change': {
+      const d = defaultCond('change');
+      return { kind: 'change', days: int(ctx, raw.days, d.days, 1, 250), pct: num(ctx, raw.pct, d.pct, -90, 500), op: oneOf(ctx, raw.op, d.op, SIDES) };
+    }
+    case 'fromHigh': {
+      const d = defaultCond('fromHigh');
+      return { kind: 'fromHigh', days: int(ctx, raw.days, d.days, 2, 250), pct: num(ctx, raw.pct, d.pct, 1, 90) };
+    }
     case 'newHigh':
-      return { kind: 'newHigh', days: int(ctx, raw.days, 60, 2, 250) };
+      return { kind: 'newHigh', days: int(ctx, raw.days, defaultCond('newHigh').days, 2, 250) };
     case 'pattern': {
       if (!allowPattern) {
         ctx.repaired = true;
@@ -515,7 +549,7 @@ function sanitizeOneV2(raw: Row, now: number): { strategy: StrategyV2; repaired:
   if (v1.repaired) ctx.repaired = true;
   if (raw.v !== 2) ctx.repaired = true;
 
-  const defaultBuy = (): CondGroup[] => [{ conds: [{ kind: 'pattern', entry: sanitizeEntry(undefined, now).entry }] }];
+  const defaultBuy = (): CondGroup[] => [{ conds: [defaultCond('pattern', now)] }];
   const strategy: StrategyV2 = {
     v: 2,
     id: b.id,
@@ -568,8 +602,8 @@ export function sanitizeStrategiesV2(raw: unknown, now = Date.now()): { strategi
 
 - [ ] **Step 5: 통과 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/sim/strategyV2.test.ts && pnpm check`
-Expected: PASS(9개). svelte-check 오류 0.
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sim/strategyV2.test.ts && corepack pnpm check`
+Expected: PASS(10개). svelte-check 오류 0.
 
 - [ ] **Step 6: 커밋**
 
@@ -605,10 +639,10 @@ git commit -m "feat(simulate): 전략 v2 타입과 읽기 검증을 더함(앱�
     expect(checkProfileDoc({ ...validDoc(), v: 0 }, NOW)).toMatchObject({ code: 'invalid', path: 'v' });
 ```
 
-파일 위 import에 더해요.
+`:7`의 dto import를 합쳐 바꾸고, 고정 입력 import를 더해요.
 
 ```ts
-import { APP_OUTDATED_CODE, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION } from './dto';
+import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV1 } from './dto';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
 ```
 
@@ -661,7 +695,7 @@ describe('checkProfileDoc v1·v2(전략 빌더 §8.3)', () => {
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/sync/dto.test.ts`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sync/dto.test.ts`
 Expected: FAIL — `APP_OUTDATED_CODE`·`PROFILE_DOC_MAX_VERSION`이 `undefined`, v3가 `invalid`로 나와 `unsupported` 기대가 실패, v2 문서가 `invalid`(`v`)로 실패해요.
 
 - [ ] **Step 3: 구현** — `src/lib/sync/dto.ts`
@@ -725,7 +759,7 @@ export type DocCheck = { ok: true; doc: ProfileDoc } | { ok: false; code: DocErr
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/sync && pnpm check && (cd sync-worker && npx tsc -p tsconfig.json --noEmit)`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/sync && corepack pnpm check && (cd sync-worker && npx tsc -p tsconfig.json --noEmit)`
 Expected: PASS. Worker 타입 검사도 통과해요(`checked.doc`은 `JSON.stringify`에만 쓰여요).
 
 - [ ] **Step 5: 커밋**
@@ -748,8 +782,8 @@ git commit -m "feat(sync): 프로필 문서 검사가 v1·v2 전략을 판정함
 - Produces:
   - `export const SHARE_VERSION = 1`(그대로, 만드는 버전)
   - `export const STRATEGY_SHARE_MAX_VERSION = 2`
-  - `checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v?: 1 | 2): { ok: true; strategy: Strategy } | PartFail` — `v = 2`면 `sanitizeStrategiesV2`로 검사, 돌려주는 `strategy`는 같은 타입 이름에 담은 원본 정리값(`as unknown as Strategy`)
-  - 공개 스냅샷 타입(`StrategySnapshot` 등)은 바꾸지 않아요. v2 create 결과는 같은 타입에 담겨요(Worker는 JSON으로만 저장해요).
+  - `checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v?: 1 | 2): { ok: true; strategy: Strategy | StrategyV2 } | PartFail` — `v = 2`면 `sanitizeStrategiesV2`로 검사해요. 이 파일 밖 호출처는 없어요(`grep -rn checkStrategyPart src sync-worker/src`로 확인).
+  - 공개 스냅샷 타입(`StrategySnapshot` 등)은 바꾸지 않아요. 결과를 담는 자리는 지금처럼 `as unknown as StrategySnapshot` 한 번뿐이에요(create는 원본 `raw`, read는 v1만). Worker는 JSON으로만 저장해요.
 
 - [ ] **Step 1: 실패 테스트 쓰기** — `src/lib/share/snapshot.test.ts`
 
@@ -830,7 +864,7 @@ describe('전략 공유 v2(전략 빌더 §8.4, PR①)', () => {
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/share/snapshot.test.ts`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share/snapshot.test.ts`
 Expected: FAIL — v2 create가 `invalid`(`v`)로, group v2가 `invalid`로 나와 `unsupported` 기대가 실패해요.
 
 - [ ] **Step 3: 구현** — `src/lib/share/snapshot.ts`
@@ -838,7 +872,7 @@ Expected: FAIL — v2 create가 `invalid`(`v`)로, group v2가 `invalid`로 나�
 `:13` import 아래에 더해요.
 
 ```ts
-import { sanitizeStrategiesV2 } from '../sim/strategyV2';
+import { sanitizeStrategiesV2, type StrategyV2 } from '../sim/strategyV2';
 ```
 
 `:23`을 바꿔요.
@@ -854,13 +888,12 @@ export const STRATEGY_SHARE_MAX_VERSION = 2;
 
 ```ts
 /** 전략 부분(strategy·simResult). 돌려주는 strategy는 정리 결과(read면 빠진 필드를 채운 값)다. v = 2면 v2 전략으로 검사한다(create 모드만 불린다). */
-export function checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v: 1 | 2 = 1): { ok: true; strategy: Strategy } | PartFail {
+export function checkStrategyPart(s: unknown, title: string, now: number, mode: CheckMode, v: 1 | 2 = 1): { ok: true; strategy: Strategy | StrategyV2 } | PartFail {
   if (!isRecord(s) || s.id !== SHARED_ID || s.name !== title || s.updatedAt !== 0) return fail('invalid', 'strategy');
   if (!isRecord(s.universe) || s.universe.kind !== 'symbols') return fail('reference', 'strategy.universe');
-  // v2는 PR①에서 서버 저장용으로만 받는다. 앱 타입(Strategy, v1)에 담아 돌려주지만 Worker는 JSON으로만 쓴다
-  const cleaned = (v === 2 ? sanitizeStrategiesV2({ strategies: [s] }, now).strategies[0] : sanitizeStrategies({ strategies: [s] }, now).strategies[0]) as
-    | Strategy
-    | undefined;
+  // v2는 PR①에서 서버 저장용(create)으로만 받는다. universe·benchmarks는 두 형식이 같은 모양이다
+  const cleaned: Strategy | StrategyV2 | undefined =
+    v === 2 ? sanitizeStrategiesV2({ strategies: [s] }, now).strategies[0] : sanitizeStrategies({ strategies: [s] }, now).strategies[0];
   if (!cleaned) return fail('invalid', 'strategy');
   const diff = sameAs(s, cleaned, 'strategy', mode);
   if (diff) return diff;
@@ -911,7 +944,7 @@ export function checkStrategyPart(s: unknown, title: string, now: number, mode: 
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `TZ=America/New_York pnpm vitest run src/lib/share && pnpm check`
+Run: `TZ=America/New_York corepack pnpm vitest run src/lib/share && corepack pnpm check`
 Expected: PASS. 기존 공유 테스트(`compact.test.ts`·`pendingImport.test.ts` 등)도 통과해요. create에서 원본과 정리 결과는 `sameAs`로 같음을 이미 확인했으니 돌려주는 값이 바뀌지 않아요.
 
 - [ ] **Step 5: 커밋**
@@ -972,6 +1005,16 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     expect(docV(h)).toBe(2);
   });
 
+  it('마이그레이션 뒤 doc_v 없이 들어간 기존 행은 doc_v = 1이다', async () => {
+    const h = harness();
+    await h.login();
+    const uid = (h.env.DB.raw.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id;
+    h.env.DB.raw
+      .prepare('INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at) VALUES (?, ?, 1, ?, ?)')
+      .run(uid, 'old', 'op-old', 0);
+    expect((h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'old'").get() as { n: number }).n).toBe(1);
+  });
+
   it('v2 위에 v1을 올리면 422로 거절하고 서버는 그대로다', async () => {
     const h = harness();
     const me = await h.login();
@@ -992,6 +1035,7 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   });
 
   it('검사와 갱신 사이에 다른 기기가 v2를 올려도 조건부 UPDATE가 막는다', async () => {
+    // 아래 startsWith 문자열은 Step 5 putProfile의 UPDATE SQL 첫 줄과 글자까지 같아야 한다(구현 SQL을 계획 문자열과 같게 쓴다)
     const h = harness();
     const me = await h.login();
     await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: doc() });
@@ -1465,7 +1509,6 @@ describe('전략 공유 버전(전략 빌더 §8.4, PR①)', () => {
 });
 ```
 
-`simResultFixture`의 `NOW`(2026-10-29)와 하네스 시계가 달라 `simResult` 검사에 시각이 쓰이면 실패할 수 있어요. 이 파일 위쪽에 이미 `simResultFixture()`를 만드는 기존 테스트가 있으니 그 테스트와 같은 방식으로 만들어요(기존 테스트가 통과하는 설정 그대로).
 
 - [ ] **Step 2: 실행**
 
@@ -1474,7 +1517,7 @@ Expected: PASS. 실패하면 Task 4·5·6 구현을 고쳐요(이 테스트는 �
 
 - [ ] **Step 3: 전체 확인**
 
-Run: `pnpm test && pnpm check && (cd sync-worker && npx vitest run && npx tsc -p tsconfig.json --noEmit)`
+Run: `corepack pnpm test && corepack pnpm check && (cd sync-worker && npx vitest run && npx tsc -p tsconfig.json --noEmit)`
 Expected: 모두 PASS.
 
 - [ ] **Step 4: 커밋**
@@ -1500,9 +1543,9 @@ git commit -m "test(sync-worker): 옛 앱 경로 무변화와 공유 원본 저�
 
 전략 빌더(전략 v2) 앱보다 **먼저** 배포해요. 설계: `docs/superpowers/specs/2026-11-01-strategy-builder-design.md` §8.7.
 
-1. 마이그레이션: `pnpm --filter sync-worker migrate:remote` (= `wrangler d1 migrations apply gazua-sync --remote`). `0004_doc_version.sql`이 `profile_index.doc_v`(기본 1)를 더해요.
-2. Worker 배포: `pnpm --filter sync-worker deploy` (= `wrangler deploy`). 마이그레이션을 먼저 해야 새 코드의 `doc_v` 쿼리가 실패하지 않아요.
-3. 앱 배포(PR① 앱은 여전히 v1 문서만 만들어요).
+1. 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote` (= `wrangler d1 migrations apply gazua-sync --remote`). `0004_doc_version.sql`이 `profile_index.doc_v`(기본 1)를 더해요.
+2. Worker 배포: `corepack pnpm --filter sync-worker run deploy` (= `wrangler deploy`). `run`을 빼면 pnpm 내장 `deploy` 명령이 돌아요. 마이그레이션을 먼저 해야 새 코드의 `doc_v` 쿼리가 실패하지 않아요.
+3. 앱 배포(PR① 앱은 여전히 v1 문서만 만들어요). 병합하면 앱이 자동으로 먼저 배포될 수 있어요. PR① 앱은 `docVersion`을 보내지 않는 v1 클라이언트라 옛 Worker와도 그대로 돌아 순서가 바뀌어도 무해해요.
 
 PR①만 배포된 동안 옛 앱은 전과 똑같이 돌아요. 모든 문서가 v1(`doc_v = 1`)이고 옛 앱의 요청 버전도 1이라 가리기·거절이 걸리지 않아요. 전략 빌더 PR② 앱은 이 배포를 확인한 뒤 내보내요. 순서를 어기면 PR② 앱의 v2 PUT이 옛 Worker에서 422(`v`)로 거절되고, 그 문서가 바뀔 때까지 다시 보내지 않아요.
 
@@ -1530,4 +1573,4 @@ git commit -m "docs(sync-worker): 전략 빌더 PR① 배포 순서를 적음"
 
 - 스펙 §8.7 PR① 범위 대응: `strategyV2.ts`(Task 2), `checkProfileDoc` v1·v2·`unsupported`·원본 반환·`APP_OUTDATED_CODE`(Task 3), 공유 create v1·v2 원본·read v1만·v2 `unsupported`(Task 4), 새 체결 종류·`markers.ts`(Task 1), `doc_v`·조건부 갱신·`ON CONFLICT`·`replayed()` 순서·`rejected()` 순서(Task 5), `docVersion`·GET/리비전/복원 422·409 `doc: null`·`deleteProfile` 409·삭제 410 우선(Task 6), `shares.ts` 원본 저장·옛 앱 경로 무변화·v1 문서·v1 공유 계속 통과(Task 7), 금지 키·깊이(Task 2), 배포 순서(Task 8).
 - 앱 쪽 호출(`sanitizeStrategies` 사용처, `api.ts`, `PROFILE_DOC_VERSION`, `SHARE_VERSION`)은 어느 Task도 바꾸지 않아요.
-- 이름 일관성: `StrategyV2`·`sanitizeStrategiesV2`·`fullStrategyV2`·`docV2`·`APP_OUTDATED_CODE`·`PROFILE_DOC_MAX_VERSION`·`STRATEGY_SHARE_MAX_VERSION`·`requestDocVersion`·`docVersionOf`·`doc_v`/`docV`가 모든 Task에서 같아요.
+- 이름 일관성: `StrategyV2`·`sanitizeStrategiesV2`·`defaultCond`·`fullStrategyV2`·`docV2`·`APP_OUTDATED_CODE`·`PROFILE_DOC_MAX_VERSION`·`STRATEGY_SHARE_MAX_VERSION`·`requestDocVersion`·`docVersionOf`·`doc_v`/`docV`가 모든 Task에서 같아요.
