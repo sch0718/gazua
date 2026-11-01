@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { parseArgv } from './args';
+import { profiles, strategies, watchlists } from './commands/data';
 import { login, logout } from './commands/login';
 import { configDir } from './config';
 import type { Command, Ctx, Io } from './context';
@@ -13,6 +14,9 @@ import { createRedactor, fail, ok, render, type Result } from './output';
 export const COMMANDS: Record<string, Command> = {
   login,
   logout,
+  profiles,
+  watchlists,
+  strategies,
 };
 
 /** 증권사 키를 담는 환경변수. 명령 검증보다 먼저 출력 거르기에 등록해, 인자 오류 메시지가 입력을 되풀이해도 키가 나가지 않게 한다 */

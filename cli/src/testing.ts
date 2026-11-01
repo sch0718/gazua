@@ -2,6 +2,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { newStrategyV1 } from '../../src/lib/sim/strategyV1';
+import { fullStrategyV2 } from '../../src/lib/sim/testStrategyV2';
 import type { Io } from './context';
 
 const dirs: string[] = [];
@@ -66,4 +68,47 @@ export function fakeFetch(handler: (call: FakeCall) => FakeReply | undefined | P
     return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'content-type': 'application/json', ...reply.headers } });
   }) as typeof fetch;
   return Object.assign(f, { calls });
+}
+
+/** 서버가 돌려주는 프로필 문서 모양(v1 또는 v2). 그룹 g0에 005930·000660, 전략 하나 */
+export function profileDoc(v: 1 | 2, name = '내 프로필'): Record<string, unknown> {
+  return {
+    v,
+    name,
+    settings: { period: { unit: 'D', n: 1 }, metric: 'change', benchmark: 'AUTO', perfBenchmark: null, colorConvention: 'kr', boardOrder: 'value' },
+    watchlists: {
+      groups: [
+        {
+          id: 'g0',
+          name: '반도체',
+          items: [
+            { symbol: '005930', colorSlot: 1, hidden: false, addedAt: 1 },
+            { symbol: '000660', colorSlot: 2, hidden: true, addedAt: 1 },
+          ],
+        },
+      ],
+    },
+    strategies: v === 1 ? [{ ...newStrategyV1(1, 'g0', '눌림목'), id: 's1' }] : [fullStrategyV2()],
+    criteria: [],
+    baskets: [],
+  };
+}
+
+/** /v1/profiles와 /v1/profiles/:id?docVersion=2를 흉내 내는 가짜 동기화 서버 */
+export function syncServer(profiles: Record<string, { doc: unknown; revision?: number; deleted?: boolean }>) {
+  return fakeFetch((c) => {
+    if (c.url.pathname === '/v1/profiles') {
+      return {
+        body: {
+          profiles: Object.entries(profiles).map(([profileId, p]) => ({ profileId, revision: p.revision ?? 1, updatedAt: 1, deletedAt: p.deleted ? 5 : null, purgeAt: p.deleted ? 9 : null })),
+        },
+      };
+    }
+    const m = /^\/v1\/profiles\/([^/]+)$/.exec(c.url.pathname);
+    if (m && c.url.searchParams.get('docVersion') === '2') {
+      const p = profiles[decodeURIComponent(m[1])];
+      return p ? { body: { revision: p.revision ?? 1, doc: p.doc } } : { status: 404, body: { error: 'not-found' } };
+    }
+    return undefined;
+  });
 }
