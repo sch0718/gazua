@@ -85,7 +85,7 @@ function sameAs(input: unknown, cleaned: unknown, path: string): DocCheck | null
 }
 
 /**
- * 받은 문서를 검사한다. 금지 키 → 크기 → 알 수 없는 필드 → 값 순서로 본다.
+ * 받은 문서를 검사한다. 금지 키 → 크기 → 버전 → 알 수 없는 필드 → 값 순서로 본다.
  * 저장소 읽기처럼 고쳐서 받지 않는다. 고칠 것이 하나라도 있으면 거절한다.
  * v가 1이면 v1 전략, 2면 v2 전략으로 검사한다. 앱은 아직 v1만 만든다.
  */
@@ -94,11 +94,11 @@ export function checkProfileDoc(raw: unknown, now = Date.now()): DocCheck {
   const forbidden = findForbidden(raw);
   if (forbidden) return fail('forbidden-field', forbidden);
   if (jsonBytes(raw) > PROFILE_DOC_MAX_BYTES) return fail('too-large');
-  for (const k of Object.keys(raw)) if (!TOP_KEYS.includes(k)) return fail('unknown-field', k);
-  for (const k of TOP_KEYS) if (!Object.hasOwn(raw, k)) return fail('invalid', k);
   const v = raw.v;
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return fail('invalid', 'v');
   if (v > PROFILE_DOC_MAX_VERSION) return fail('unsupported', 'v');
+  for (const k of Object.keys(raw)) if (!TOP_KEYS.includes(k)) return fail('unknown-field', k);
+  for (const k of TOP_KEYS) if (!Object.hasOwn(raw, k)) return fail('invalid', k);
   if (typeof raw.name !== 'string' || raw.name.trim() === '' || raw.name !== raw.name.trim() || [...raw.name].length > PROFILE_NAME_MAX)
     return fail('invalid', 'name');
 

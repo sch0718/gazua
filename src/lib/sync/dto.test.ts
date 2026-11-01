@@ -3,7 +3,7 @@ import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { newStrategy } from '../sim/defaults';
 import { newCriteria } from '../screen/defaults';
-import { FORBIDDEN_KEYS } from './forbidden';
+import { FORBIDDEN_KEYS, JSON_DEPTH_MAX } from './forbidden';
 import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV1 } from './dto';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { applyProfileDoc, buildProfileDoc } from './profileDoc';
@@ -89,6 +89,33 @@ describe('buildProfileDoc', () => {
 });
 
 describe('checkProfileDoc', () => {
+  it.each([
+    { v: 3, code: 'unsupported' },
+    { v: '3', code: 'invalid' },
+  ])('v=$v 판정을 알 수 없는 최상위 키 검사보다 먼저 한다', ({ v, code }) => {
+    expect(checkProfileDoc({ ...validDoc(), v, extra: 1 }, NOW)).toMatchObject({ ok: false, code, path: 'v' });
+  });
+
+  it('v3 문서도 금지 키를 버전보다 먼저 거절한다', () => {
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra: { AppSecret: 'x' } }, NOW)).toMatchObject({
+      ok: false, code: 'forbidden-field', path: 'extra.AppSecret',
+    });
+  });
+
+  it('v3 문서도 깊이 상한을 버전보다 먼저 검사한다', () => {
+    let extra: unknown = {};
+    for (let i = 0; i < JSON_DEPTH_MAX; i++) extra = { child: extra };
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra }, NOW)).toMatchObject({
+      ok: false, code: 'forbidden-field', path: `extra${'.child'.repeat(JSON_DEPTH_MAX)}`,
+    });
+  });
+
+  it('v3 문서도 바이트 상한을 버전보다 먼저 검사한다', () => {
+    expect(checkProfileDoc({ ...validDoc(), v: 3, extra: 'x'.repeat(PROFILE_DOC_MAX_BYTES) }, NOW)).toMatchObject({
+      ok: false, code: 'too-large',
+    });
+  });
+
   it.each(FORBIDDEN_KEYS)('금지 키 %s는 어느 깊이에 있어도 거절한다', (key) => {
     const top = { ...validDoc(), [key]: 'x' };
     expect(checkProfileDoc(top, NOW)).toMatchObject({ ok: false, code: 'forbidden-field', path: key });
