@@ -168,7 +168,7 @@ describe('보유 종목 매칭과 첫 매수', () => {
 });
 
 describe('judgeHolding: 스펙 §7.2의 계산', () => {
-  const base = { strategy: strat(), symbol: '005930', quantity: 10, avgPrice: 68500 as number | undefined, close: 71200, first: { date: '2026-09-02', price: 68000 } as { date: string; price: number } | null, peakClose: 78300 as number | null, heldDays: 42 as number | null, signalSell: { match: false } };
+  const base = { strategy: strat(), symbol: '005930', quantity: 10, avgPrice: 68500 as number | undefined, close: 71200, asOf: '2026-10-30', first: { date: '2026-09-02', price: 68000 } as { date: string; price: number } | null, peakClose: 78300 as number | null, heldDays: 42 as number | null, signalSell: { match: false } };
 
   it('예시 수치: 손절 63,705 · 익절 75,350/82,200 · 트레일 70,470 · 20일 청산 도달', () => {
     expect(judgeHolding(base)).toEqual({
@@ -335,6 +335,38 @@ describe('runSignals', () => {
           signalSell: { match: false },
         },
       ]);
+      expect(out.notes).toEqual([...NOTES.base, NOTES.breakeven]);
+    });
+
+    it.each([80, 120])('오늘 100에 샀지만 기준 봉이 어제 종가 %i이면 보유 기준 판정은 모두 unknown', async (close) => {
+      const provider = stub({ candles: { '005930': barsFromCloses([100, 100, close], '2026-10-29') }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 100 }]) });
+      const calendar = vi.spyOn(provider, 'getTradingDays');
+      const recent = order({ orderedAt: '2026-11-03T09:30:00+09:00', filledAt: '2026-11-03T09:30:05+09:00', price: 100, amount: 1000 });
+      const out = await runSignals({ provider, strategy: strat(), symbols: ['005930'], now: kstEpoch('2026-11-03', '12:00:00'), today: false, loadOrders: async () => [recent] });
+      expect(out.asOf).toBe('2026-11-02');
+      expect(out.holdings?.[0]).toMatchObject({
+        close,
+        firstBuyDate: '2026-11-03',
+        stop: { hit: 'unknown' },
+        takes: [{ stage: 1, hit: 'unknown' }, { stage: 2, hit: 'unknown' }],
+        trail: { price: null, hit: 'unknown' },
+        timeExit: { heldDays: null, days: 20, hit: 'unknown' },
+      });
+      expect(out.notes).toContain('005930: 첫 매수일(2026-11-03)이 기준 봉 날짜(2026-11-02)보다 뒤라 보유 기준 판정을 unknown으로 두었어요');
+      expect(calendar).not.toHaveBeenCalled();
+    });
+
+    it.each([80, 120])('첫 매수일이 기준 봉 날짜와 같으면 종가 %i로 정상 판정한다', async (close) => {
+      const provider = stub({ candles: { '005930': barsFromCloses([100, 100, close], '2026-10-29') }, account: account([{ symbol: '005930', name: '삼성전자', quantity: 10, avgPrice: 100 }]) });
+      const recent = order({ orderedAt: '2026-11-02T09:30:00+09:00', filledAt: '2026-11-02T09:30:05+09:00', price: 100, amount: 1000 });
+      const out = await runSignals({ provider, strategy: strat(), symbols: ['005930'], now: kstEpoch('2026-11-03', '12:00:00'), today: false, loadOrders: async () => [recent] });
+      expect(out.holdings?.[0]).toMatchObject({
+        firstBuyDate: '2026-11-02',
+        stop: { price: 93, hit: close <= 93 },
+        takes: [{ stage: 1, price: 110, hit: close >= 110 }, { stage: 2, price: 120, hit: close >= 120 }],
+        trail: { price: Math.max(100, close) * 0.9, hit: close === 80 },
+        timeExit: { heldDays: 1, days: 20, hit: false },
+      });
       expect(out.notes).toEqual([...NOTES.base, NOTES.breakeven]);
     });
 

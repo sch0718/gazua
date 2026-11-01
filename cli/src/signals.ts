@@ -117,6 +117,7 @@ export function judgeHolding(i: {
   quantity: number;
   avgPrice: number | undefined;
   close: number;
+  asOf: string;
   first: { date: string; price: number } | null;
   peakClose: number | null;
   heldDays: number | null;
@@ -124,8 +125,9 @@ export function judgeHolding(i: {
 }): HoldingJudgement {
   const { stopLoss, takeProfit, trailing, timeExit } = i.strategy.rules.sell;
   const avg = i.avgPrice;
+  const hasPositionBar = i.first === null || i.first.date <= i.asOf;
   const down = (base: number | null | undefined, pct: number) => (base == null ? null : round2(base * (1 - pct / 100)));
-  const tri = (price: number | null, hit: (p: number) => boolean): Tri => (price === null ? 'unknown' : hit(price));
+  const tri = (price: number | null, hit: (p: number) => boolean): Tri => (!hasPositionBar || price === null ? 'unknown' : hit(price));
 
   let stop: HoldingJudgement['stop'] = null;
   if (stopLoss.on) {
@@ -144,7 +146,8 @@ export function judgeHolding(i: {
     const price = i.first === null || i.peakClose === null ? null : down(Math.max(i.peakClose, i.first.price), trailing.pct);
     trail = { price, hit: tri(price, (p) => i.close <= p) };
   }
-  const time = timeExit.on ? { heldDays: i.heldDays, days: timeExit.days, hit: (i.heldDays === null ? 'unknown' : i.heldDays >= timeExit.days) as Tri } : null;
+  const heldDays = hasPositionBar ? i.heldDays : null;
+  const time = timeExit.on ? { heldDays, days: timeExit.days, hit: (heldDays === null ? 'unknown' : heldDays >= timeExit.days) as Tri } : null;
   return {
     symbol: i.symbol,
     quantity: i.quantity,
@@ -285,7 +288,9 @@ export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
         const first = firstBuyOf(trades.filter((t) => matchesHolding(s, t.symbol)), h.quantity);
         let peakClose: number | null = null;
         let heldDays: number | null = null;
-        if (first) {
+        if (first && first.date > b.date) {
+          notes.push(`${s}: 첫 매수일(${first.date})이 기준 봉 날짜(${b.date})보다 뒤라 보유 기준 판정을 unknown으로 두었어요`);
+        } else if (first) {
           // 첫 매수일이 받아 둔 범위보다 앞이면 그 날부터 다시 받는다. 첫 매수일 근처부터 확보하지 못하면 최고값을 모른다(트레일 unknown)
           let all = b.candles;
           if (first.date < from) {
@@ -302,7 +307,7 @@ export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
             heldDays = await countHeldDays(provider, first.date, b.date, strategy.rules.sell.timeExit.days + 1);
           }
         }
-        holdings.push(judgeHolding({ strategy, symbol: s, quantity: h.quantity, avgPrice: h.avgPrice, close: b.close, first, peakClose, heldDays, signalSell: sells.get(s) ?? null }));
+        holdings.push(judgeHolding({ strategy, symbol: s, quantity: h.quantity, avgPrice: h.avgPrice, close: b.close, asOf: b.date, first, peakClose, heldDays, signalSell: sells.get(s) ?? null }));
       }
     }
     const { stopLoss, takeProfit } = strategy.rules.sell;
