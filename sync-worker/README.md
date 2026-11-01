@@ -23,7 +23,7 @@
 
 ## HTTP 계약
 
-모든 요청은 `Origin`이 `ALLOWED_ORIGINS`와 정확히 같아야 해요. 다르면 `403 origin`이에요. preflight는 `GET, POST, PUT, DELETE`와 `Authorization, Content-Type, X-Gazua-Session, X-Share-Token` 헤더만 허용해요. 모든 응답은 `Cache-Control: no-store`예요.
+앱 요청은 `Origin`이 `ALLOWED_ORIGINS`와 정확히 같아야 해요. 다르면 `403 origin`이에요. 읽기 전용 CLI는 `Origin`을 보내지 않으므로, **`Origin` 헤더가 아예 없고** `POST /v1/cli/device`·`POST /v1/cli/token`이거나 `Authorization: Gazua-CLI <토큰>`이 있는 요청만 CLI 경로로 받아요(그 밖의 `Origin` 없는 요청은 계속 `403 origin`). preflight는 `GET, POST, PUT, DELETE`와 `Authorization, Content-Type, X-Gazua-Session, X-Share-Token` 헤더만 허용해요. 모든 응답은 `Cache-Control: no-store`예요.
 
 Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보내요.
 - `Authorization: Bearer <Firebase ID 토큰>`: RS256 서명과 `aud`, `iss`, `exp`, `iat`, `auth_time`, `sub`를 검사해요. 이메일은 `email_verified`여야 하고 `ALLOWED_EMAILS`에 있어야 해요.
@@ -48,6 +48,11 @@ Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보�
 | `GET/PUT/DELETE /v1/keys/:id` | 프로필 하나의 암호문. `PUT`(8 KiB)은 `{ expectedRevision, newRevision, contentId, vaultId, vaultRevision, nonce, ciphertext }`이고 `404`(프로필 없음)·`410`(삭제됨)·`409 no-vault`·`409 vault-changed`·`409 conflict`·`422 key-limit`(살아 있는 블롭 50개)이에요. `DELETE`(끄기)는 본문 없이 암호문을 지우고 리비전만 남겨요 |
 | `POST /v1/keys/rekey` | 동기화 암호 바꾸기(128 KiB). 살아 있는 블롭 전부를 새 키로 다시 봉해 한 batch로 바꿔요. 그사이 무엇이 바뀌었으면 하나도 바꾸지 않고 `409` |
 | `DELETE /v1/keys` | 서버의 키 모두 지우기(본문 없음). 다시 보내도 `200` |
+| `POST /v1/cli/device` | CLI용. 무인증(IP·전체 횟수 제한). `{ label }` → `{ deviceCode, userCode, verifyUrl, interval: 5, expiresIn: 600 }`. 시크릿 `CLI_IP_SALT`가 없으면 `503 cli-disabled` |
+| `POST /v1/cli/token` | CLI용. `{ deviceCode }` → `400 pending`·`400 slow_down`·`403 denied`·`410 expired`·`404 unknown-device`, 승인되면 `{ token, tokenId, expiresAt }`를 **한 번만** 줘요 |
+| `POST /v1/cli/approve` | 앱 세션. `{ userCode }`는 조회(상태 그대로, `{ label, createdAt, geo }`), `{ userCode, approve }`는 승인·거절. 코드가 맞지 않으면 `422 invalid-code` |
+| `GET /v1/cli/tokens`, `DELETE /v1/cli/tokens/:id` | 앱 세션. 살아 있는 CLI 토큰 목록과 철회 |
+| CLI 토큰(`Authorization: Gazua-CLI <토큰>`) | `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, `DELETE /v1/cli/token`(자기 토큰 철회)만 통과해요. 그 밖은 라우터 전에 `403 cli-scope`예요. 토큰은 90일 고정이고 D1에는 해시만 둬요 |
 
 capability는 256비트(base64url 43자)예요. 만들 때 한 번만 돌려주고 D1에는 해시만 둬요. 링크는 `https://<앱>/#/s/<capability>`이고, fragment라서 서버 로그·Referer에 남지 않아요. 로그에는 `메서드 경로패턴 상태 시간`만 남겨요.
 
@@ -207,6 +212,17 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
   SELECT profile_id, revision, length(ciphertext) AS ciphertext_length, ciphertext IS NULL AS deleted FROM key_blobs;
   SELECT count(*) AS non_base64_rows FROM key_blobs WHERE ciphertext GLOB '*[^A-Za-z0-9+/=]*';
   ```
+
+## 읽기 전용 CLI 배포 (`0005_cli.sql`, `CLI_IP_SALT`)
+
+설계: `docs/superpowers/specs/2026-11-01-readonly-cli-design.md`. 순서는 **병합 → 마이그레이션 → 시크릿 → Worker 배포**예요.
+
+1. 병합 뒤 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`. `0005_cli.sql`이 `cli_grants`·`cli_tokens` 표를 더해요(표만 더해서 지금 Worker·앱은 영향이 없어요).
+2. 시크릿: `corepack pnpm --filter sync-worker exec wrangler secret put CLI_IP_SALT`에 32바이트 무작위 값을 넣어요(예: `openssl rand -base64 32`). 요청 IP를 이 값으로 HMAC-SHA256한 해시만 저장하고 원 IP는 저장하지 않아요. 값이 없으면 `POST /v1/cli/device`가 `503 cli-disabled`예요.
+3. Worker 배포: `corepack pnpm --filter sync-worker run deploy`.
+4. 확인: 앱의 설정 › 동기화·공유 › CLI 연결에 `gazua login` 코드를 넣어 승인되는지 봐요. 승인 대기(`cli_grants`)는 만료 하루 뒤, 토큰(`cli_tokens`)은 만료·철회 30일 뒤 Cron이 지워요.
+
+무료 한도: 로그인 1회는 요청 약 125건·D1 쓰기 약 125행이고, 명령 1회는 프로필 목록 1 + 문서 N 요청이에요. 숫자는 Cloudflare 공개 요금표 기준이라 배포 전 계정 화면에서 다시 확인하세요.
 
 ## 무료 한도 아끼기
 
