@@ -74,6 +74,7 @@ describe('KeySync', () => {
     await setup({ keys: fakeKeys({ support: null }) });
     expect(screen.queryByRole('switch')).toBeNull();
     expect(screen.queryByText(KEY_TEXT.oldWorker)).toBeNull();
+    expect(screen.queryByRole('heading', { name: '키 동기화 (암호화)' })).toBeNull();
   });
 
   it('꺼진 이유 두 가지: 문구와 disabled, 토글의 aria-describedby로 잇는다', async () => {
@@ -130,6 +131,34 @@ describe('KeySync', () => {
     expect((button('계속') as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('켜진 공급자 변경이 실패하면 토스 체크를 원래대로 되돌린다', async () => {
+    const keys = fakeKeys(
+      { vault: VAULT, remembered: true, states: [row({ providers: ['kis', 'toss'] })] },
+      { setProviders: vi.fn(async () => ({ ok: false as const, message: KEY_TEXT.server })) },
+    );
+    await setup({ keys, secrets: { kis: KIS, toss: TOSS } });
+    await fireEvent.click(checkbox('토스 키'));
+    expect(keys.setProviders).toHaveBeenCalledWith('p1', ['kis']);
+    await screen.findByRole('alert');
+    expect(checkbox('토스 키').checked).toBe(true);
+    expect(checkbox('KIS 키').checked).toBe(true);
+  });
+
+  it.each(['setProviders', 'uploadLocal'] as const)('올리는 중에는 켜진 공급자 체크를 끈다: %s', async (method) => {
+    let finish!: (v: KeyResult) => void;
+    const keys = fakeKeys(
+      { vault: VAULT, remembered: true, states: [row({ providers: ['kis', 'toss'], notice: 'conflict' })] },
+      { [method]: vi.fn(() => new Promise<KeyResult>((resolve) => (finish = resolve))) },
+    );
+    await setup({ keys, secrets: { kis: KIS, toss: TOSS } });
+    if (method === 'setProviders') await fireEvent.click(checkbox('토스 키'));
+    else await fireEvent.click(button('이 기기 키 올리기'));
+    expect(checkbox('KIS 키').disabled).toBe(true);
+    expect(checkbox('토스 키').disabled).toBe(true);
+    finish({ ok: true, notes: [] });
+    await waitFor(() => expect(checkbox('토스 키').disabled).toBe(false));
+  });
+
   it('암호 정하기: 3.4 문구 네 가지가 alert로, 해당 칸에 aria-invalid·aria-describedby', async () => {
     const { keys } = await setup({ secrets: { kis: KIS } });
     await openRisk();
@@ -174,6 +203,81 @@ describe('KeySync', () => {
     expect(screen.getByText('동기화 암호 입력')).toBeTruthy();
     finish({ ok: false, message: KEY_TEXT.wrongPass });
     expect((await screen.findByRole('alert')).textContent).toBe(KEY_TEXT.wrongPass);
+  });
+
+  it.each([
+    ['createVault', false],
+    ['createVault', true],
+    ['unlockVault', false],
+    ['changePassphrase', false],
+  ] as const)('암호 처리의 null 문구를 다른 오류로 바꾸지 않는다: %s, needsPass=%s', async (method, needsPass) => {
+    const keys = fakeKeys(
+      { vault: method === 'createVault' ? null : VAULT },
+      { [method]: vi.fn(async () => ({ ok: false as const, message: null, needsPass })) },
+    );
+    await setup({ keys, secrets: { kis: KIS } });
+    if (method === 'createVault') {
+      await openRisk();
+      await fireEvent.click(checkbox('위 내용을 이해했어요'));
+      await fireEvent.click(button('계속'));
+    } else await fireEvent.click(button(method === 'unlockVault' ? '입력' : '동기화 암호 바꾸기'));
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
+    for (const input of inputs) await fireEvent.input(input, { target: { value: 'FAKE-sync-pass' } });
+    await fireEvent.click(button('확인'));
+    await waitFor(() => expect(keys[method]).toHaveBeenCalled());
+    await waitFor(() => expect(Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]')).every((input) => input.value === '')).toBe(true));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(keys.enable).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['create', '동기화 암호'],
+    ['create', '동기화 암호 확인'],
+    ['enter', '동기화 암호'],
+    ['change', '현재 동기화 암호'],
+    ['change', '새 동기화 암호'],
+    ['change', '새 동기화 암호 확인'],
+    ['lockpass', '이 기기 잠금 암호'],
+    ['enter-lock', '이 기기 잠금 암호'],
+  ])('빈 암호 칸을 제출하면 아무 일도 하지 않는다: %s, %s', async (kind, emptyField) => {
+    const keys = fakeKeys({ vault: kind === 'create' ? null : VAULT, remembered: kind === 'lockpass', states: kind === 'create' ? [] : [row({ notice: 'newer' })] });
+    await setup({ keys, secrets: { kis: KIS }, keyLock: kind === 'lockpass' || kind === 'enter-lock' });
+    if (kind === 'create') {
+      await openRisk();
+      await fireEvent.click(checkbox('위 내용을 이해했어요'));
+      await fireEvent.click(button('계속'));
+    } else await fireEvent.click(button(kind === 'change' ? '동기화 암호 바꾸기' : kind === 'enter' ? '입력' : '받기'));
+    for (const input of document.querySelectorAll<HTMLInputElement>('input[type="password"]')) {
+      await fireEvent.input(input, { target: { value: 'FAKE-sync-pass' } });
+    }
+    await fireEvent.input(screen.getByLabelText(emptyField), { target: { value: '' } });
+    await fireEvent.submit(button('확인').closest('form')!);
+    expect(screen.queryByRole('alert')).toBeNull();
+    for (const method of ['createVault', 'unlockVault', 'changePassphrase', 'prepareReceive', 'commitReceive'] as const) {
+      expect(keys[method]).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['available', 'newer', 'conflict', 'rollback'] as const)('받는 중에는 준비부터 저장까지 받기 단추를 끈다: %s', async (notice) => {
+    let prepare!: (v: { ok: true; overwrite: [] }) => void;
+    let commit!: (v: KeyResult) => void;
+    const keys = fakeKeys(
+      { vault: VAULT, remembered: true, states: [row({ notice })] },
+      {
+        prepareReceive: vi.fn(() => new Promise<{ ok: true; overwrite: [] }>((resolve) => (prepare = resolve))),
+        commitReceive: vi.fn(() => new Promise<KeyResult>((resolve) => (commit = resolve))),
+      },
+    );
+    await setup({ keys });
+    const receive = button(notice === 'available' || notice === 'newer' ? '받기' : '서버 키 받기') as HTMLButtonElement;
+    await fireEvent.click(receive);
+    expect(receive.disabled).toBe(true);
+    prepare({ ok: true, overwrite: [] });
+    await waitFor(() => expect(keys.commitReceive).toHaveBeenCalled());
+    expect(receive.disabled).toBe(true);
+    expect(keys.prepareReceive).toHaveBeenCalledTimes(1);
+    commit({ ok: true, notes: [] });
+    await waitFor(() => expect(receive.disabled).toBe(false));
   });
 
   it('받기: 이 기기 키 잠금이면 잠금 암호 칸이 함께 보이고, 틀리면 문구', async () => {
@@ -269,7 +373,6 @@ describe('KeySync', () => {
     await waitFor(() => expect(keys.wipe).toHaveBeenCalled());
   });
 
-
   it.each([
     new StoredKeysNotRemovedError(),
     new KeyLockNotSavedError('lock', 'cleared'),
@@ -316,6 +419,21 @@ describe('KeySync', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('암호 바꾸기: 같은 암호 오류를 새 암호 칸에 연결한다', async () => {
+    const keys = fakeKeys({ vault: VAULT }, { changePassphrase: vi.fn(async () => ({ ok: false as const, message: KEY_TEXT.samePass })) });
+    await setup({ keys });
+    await fireEvent.click(button('동기화 암호 바꾸기'));
+    for (const label of ['현재 동기화 암호', '새 동기화 암호', '새 동기화 암호 확인']) {
+      await fireEvent.input(screen.getByLabelText(label), { target: { value: 'FAKE-same-sync-pass' } });
+    }
+    await fireEvent.click(button('확인'));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(KEY_TEXT.samePass);
+    expect(screen.getByLabelText('새 동기화 암호').getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByLabelText('새 동기화 암호').getAttribute('aria-describedby')).toBe(alert.id);
+    expect(screen.getByLabelText('현재 동기화 암호').getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('동기화 암호를 모르는 잠금 기기는 받기 시트에서 두 암호를 함께 받는다', async () => {
     const keys = fakeKeys({ vault: VAULT, states: [row({ notice: 'newer', remoteRevision: 2 })] });
     await setup({ keys, keyLock: true });
@@ -330,12 +448,21 @@ describe('KeySync', () => {
   });
 
   it('받을 키 준비 뒤 화면을 떠나면 컨트롤러의 평문을 버린다', async () => {
-    const keys = fakeKeys({ vault: VAULT, remembered: true, states: [row({ notice: 'newer', remoteRevision: 2 })] });
-    await setup({ keys, keyLock: true });
+    const keys = fakeKeys(
+      { vault: VAULT, remembered: true, states: [row({ notice: 'newer', remoteRevision: 2 })] },
+      { prepareReceive: vi.fn(async () => ({ ok: true as const, overwrite: ['kis' as const] })) },
+    );
+    const confirmFn = vi.fn(() => {
+      expect(keys.prepareReceive).toHaveBeenCalledWith('p1');
+      expect(keys.cancelReceive).not.toHaveBeenCalled();
+      cleanup();
+      expect(keys.cancelReceive).toHaveBeenCalledTimes(1);
+      expect(keys.commitReceive).not.toHaveBeenCalled();
+      return false;
+    });
+    await setup({ keys, secrets: { kis: KIS }, confirmFn });
     await fireEvent.click(button('받기'));
-    await screen.findByLabelText('이 기기 잠금 암호');
-    cleanup();
-    expect(keys.cancelReceive).toHaveBeenCalled();
+    await waitFor(() => expect(confirmFn).toHaveBeenCalledWith(KEY_TEXT.overwrite(['kis'])));
     expect(keys.commitReceive).not.toHaveBeenCalled();
   });
 
@@ -352,6 +479,8 @@ describe('KeySync', () => {
     await fireEvent.click(checkbox('위 내용을 이해했어요'));
     await fireEvent.click(button('계속'));
     await screen.findByText('동기화 암호 정하기');
+    await fireEvent.input(screen.getByLabelText('동기화 암호'), { target: { value: 'short' } });
+    await fireEvent.input(screen.getByLabelText('동기화 암호 확인'), { target: { value: 'short' } });
     await fireEvent.click(button('확인'));
     await screen.findByRole('alert');
     await expectNoAxeViolations(document.body);

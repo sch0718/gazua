@@ -51,6 +51,7 @@
   let error = $state<string | null>(null);
   let errorField = $state<Field>(null);
   let busy = $state(false);
+  let receiving = $state(false);
   let message = $state<string | null>(null);
   let offerDelete = $state(false);
   /** 서버에 올리는 동작 중(켜기·이 기기 키 올리기·공급자 바꾸기). aria-live로 알린다(9절) */
@@ -61,7 +62,7 @@
   function invalid(field: Field) {
     return errorField === field && error ? { 'aria-invalid': 'true' as const, 'aria-describedby': errorId } : {};
   }
-  function fail(field: Field, text: string) {
+  function fail(field: Field, text: string | null) {
     errorField = field;
     error = text;
   }
@@ -159,33 +160,39 @@
     else void doReceive();
   }
   async function doReceive() {
-    const lp = lockPass === '' ? undefined : lockPass;
-    const prep = await sync.keys.prepareReceive(id);
-    if (!prep.ok) return afterFail(prep, { kind: 'receive' });
-    const ask =
-      st?.notice === 'rollback'
-        ? KEY_TEXT.rollbackReceive
-        : st?.notice === 'conflict'
-          ? KEY_TEXT.conflictReceive
-          : prep.overwrite.length > 0
-            ? KEY_TEXT.overwrite(prep.overwrite)
-            : null;
-    if (ask && !confirmFn(ask)) {
-      sync.keys.cancelReceive();
+    if (receiving) return;
+    receiving = true;
+    try {
+      const lp = lockPass === '' ? undefined : lockPass;
+      const prep = await sync.keys.prepareReceive(id);
+      if (!prep.ok) return afterFail(prep, { kind: 'receive' });
+      const ask =
+        st?.notice === 'rollback'
+          ? KEY_TEXT.rollbackReceive
+          : st?.notice === 'conflict'
+            ? KEY_TEXT.conflictReceive
+            : prep.overwrite.length > 0
+              ? KEY_TEXT.overwrite(prep.overwrite)
+              : null;
+      if (ask && !confirmFn(ask)) {
+        sync.keys.cancelReceive();
+        next = null;
+        closeNow();
+        return;
+      }
+      const r = await sync.keys.commitReceive(lp);
+      if (!r.ok && r.message === KEY_TEXT.wrongLockPass) {
+        lockPass = '';
+        if (sheet === null) open('lockpass');
+        return fail('lock', KEY_TEXT.wrongLockPass);
+      }
+      if (!r.ok) return afterFail(r, { kind: 'receive' });
       next = null;
       closeNow();
-      return;
+      report(r);
+    } finally {
+      receiving = false;
     }
-    const r = await sync.keys.commitReceive(lp);
-    if (!r.ok && r.message === KEY_TEXT.wrongLockPass) {
-      lockPass = '';
-      if (sheet === null) open('lockpass');
-      return fail('lock', KEY_TEXT.wrongLockPass);
-    }
-    if (!r.ok) return afterFail(r, { kind: 'receive' });
-    next = null;
-    closeNow();
-    report(r);
   }
   function uploadLocal() {
     if (!confirmFn(KEY_TEXT.uploadConfirm)) return;
@@ -206,25 +213,28 @@
   function pickProvider(p: KeyProvider, checked: boolean) {
     pick = checked ? PROVIDERS.filter((x) => x === p || pick.includes(x)) : pick.filter((x) => x !== p);
   }
-  async function setProvider(p: KeyProvider, checked: boolean) {
+  async function setProvider(p: KeyProvider, checked: boolean, input: HTMLInputElement) {
     if (!st) return;
     const chosen = st.providers;
     const list = checked ? PROVIDERS.filter((x) => x === p || chosen.includes(x)) : chosen.filter((x) => x !== p);
     uploading = true;
-    report(await sync.keys.setProviders(id, list).finally(() => (uploading = false)));
+    const r = await sync.keys.setProviders(id, list).finally(() => (uploading = false));
+    if (!r.ok) input.checked = chosen.includes(p);
+    report(r);
   }
 
   async function submitPass(e: SubmitEvent) {
     e.preventDefault();
     if (busy) return;
     const kind = sheet;
+    if ((kind === 'create' || kind === 'enter' || kind === 'change') && pass === '') return;
+    if ((kind === 'create' || kind === 'change') && pass2 === '') return;
+    if (kind === 'change' && current === '') return;
+    if ((kind === 'enter' || kind === 'lockpass') && needLock && lockPass === '') return;
     if (kind === 'create' || kind === 'change') {
       const problem = checkSyncPassphrase(pass, pass2);
       if (problem) return fail(problem === 'mismatch' ? 'pass2' : 'pass', PASSPHRASE_TEXT[problem]);
     }
-    if (kind === 'change' && current === '') return fail('current', KEY_TEXT.wrongPass);
-    if (kind === 'enter' && pass === '') return fail('pass', KEY_TEXT.wrongPass);
-    if ((kind === 'enter' || kind === 'lockpass') && needLock && lockPass === '') return fail('lock', KEY_TEXT.wrongLockPass);
     busy = true;
     error = null;
     errorField = null;
@@ -236,20 +246,20 @@
         if (!r.ok) {
           if (r.needsPass) {
             sheet = 'enter';
-            return fail('pass', r.message ?? KEY_TEXT.vaultExists);
+            return fail('pass', r.message);
           }
-          return fail(null, r.message ?? KEY_TEXT.server);
+          return fail(null, r.message);
         }
       } else if (kind === 'enter') {
         const r = await sync.keys.unlockVault(pass);
         pass = '';
-        if (!r.ok) return fail('pass', r.message ?? KEY_TEXT.wrongPass);
+        if (!r.ok) return fail('pass', r.message);
       } else if (kind === 'change') {
         const r = await sync.keys.changePassphrase(current, pass);
         current = '';
         pass = '';
         pass2 = '';
-        if (!r.ok) return fail(r.message === KEY_TEXT.wrongPass ? 'current' : null, r.message ?? KEY_TEXT.server);
+        if (!r.ok) return fail(r.message === KEY_TEXT.wrongPass ? 'current' : r.message === KEY_TEXT.samePass ? 'pass' : null, r.message);
         closeNow();
         report(r);
         return;
@@ -263,7 +273,7 @@
   }
 </script>
 
-{#snippet providerChecks(chosen: KeyProvider[], onpick: (p: KeyProvider, checked: boolean) => void, prefix: string)}
+{#snippet providerChecks(chosen: KeyProvider[], onpick: (p: KeyProvider, checked: boolean, input: HTMLInputElement) => void, prefix: string, pending: boolean = false)}
   <fieldset class="providers">
     <legend>올릴 키</legend>
     {#each PROVIDERS as p (p)}
@@ -275,9 +285,9 @@
           <input
             type="checkbox"
             {checked}
-            disabled={noKey || last}
+            disabled={pending || noKey || last}
             aria-describedby={noKey || last ? `${prefix}-${p}-why` : undefined}
-            onchange={(e) => onpick(p, e.currentTarget.checked)}
+            onchange={(e) => onpick(p, e.currentTarget.checked, e.currentTarget)}
           />
           {PROVIDER_LABEL[p]} 키
         </label>
@@ -294,6 +304,7 @@
   </fieldset>
 {/snippet}
 
+{#if view.support !== null}
 <section class="card keys" aria-labelledby="{uid}-title">
   <h3 id="{uid}-title">키 동기화 (암호화)</h3>
   {#if view.support === false}
@@ -317,7 +328,7 @@
       <p id="{uid}-why" class="hint">{offReason}</p>
     {/if}
     {#if on && st && st.revision > 0}
-      {@render providerChecks(st.providers, setProvider, `${uid}-on`)}
+      {@render providerChecks(st.providers, setProvider, `${uid}-on`, uploading)}
     {/if}
 
     {#if view.accountNotice === 'vault-changed'}
@@ -342,14 +353,14 @@
       {#if st.notice === 'available' || st.notice === 'newer'}
         <p class="notice" role="status">
           {st.notice === 'available' ? KEY_TEXT.available : KEY_TEXT.newer}
-          <button type="button" class="link" onclick={receive}>받기</button>
+          <button type="button" class="link" disabled={busy || receiving} onclick={receive}>받기</button>
         </p>
       {:else if st.notice === 'conflict' || st.notice === 'rollback'}
         <div class="notice" role="status">
           <p>{st.notice === 'conflict' ? KEY_TEXT.conflictNotice : KEY_TEXT.rollback}</p>
           <span class="actions">
             <button type="button" class="link" disabled={!canUpload} onclick={uploadLocal}>이 기기 키 올리기</button>
-            <button type="button" class="link" onclick={receive}>서버 키 받기</button>
+            <button type="button" class="link" disabled={busy || receiving} onclick={receive}>서버 키 받기</button>
           </span>
         </div>
       {:else if st.notice === 'missing-key'}
@@ -398,6 +409,7 @@
     {/if}
   {/if}
 </section>
+{/if}
 
 <Sheet open={sheet === 'risk'} title="키를 서버에 올리기 전에 확인해 주세요" onclose={close}>
   <div class="sheet-form">
