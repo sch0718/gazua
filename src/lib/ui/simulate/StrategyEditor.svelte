@@ -3,6 +3,7 @@
   // 전략 편집(스펙 7.3): 접힌 7개 구역 + 맨 아래 실행 버튼. 고치는 즉시 작업본에 반영하고 500ms 쉬면 저장한다.
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { UniverseItem } from '../../data/universe';
+  import { patternRefIssues } from '../../screen/validate';
   import { NAME_MAX } from '../../sim/defaults';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
@@ -120,7 +121,7 @@
 
   const names = $derived(universe ? Object.fromEntries(universe.map((u) => [u.s, u.n])) : {});
   const benchName = $derived(draft.benchmarks.symbol ? (names[draft.benchmarks.symbol] ?? null) : null);
-  const issues = $derived(strategyIssues(draft, app.watchlists));
+  const issues = $derived([...strategyIssues(draft, app.watchlists), ...patternRefIssues(draft, app.criteria)]);
   const issueRows = $derived(issues.map((issue, i) => ({ id: `ed-${uid}-issue-${i}`, issue })));
 
   // 분할 매수를 켜면 추가 매수가 자금 부족의 원인이므로 자금 경고를 분할 매수 구역에도 보인다(id는 겹치지 않게).

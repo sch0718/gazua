@@ -5,7 +5,7 @@ import { kstEpoch } from '../time/kst';
 import { MAX_BASKETS } from './baskets';
 import { newCriteria, POOL_THEMES_MAX } from './defaults';
 import type { SelectionCriteria } from './types';
-import { criteriaIssues, finOn, flowOn, sanitizeCriteria, strategyRuleIssues, usesFin, usesFlow } from './validate';
+import { criteriaIssues, finOn, flowOn, patternRefIssues, sanitizeCriteria, strategyRuleIssues, usesFin, usesFlow } from './validate';
 
 const NOW = kstEpoch('2026-10-16', '12:00:00');
 const RANGE = { from: '2021-03-02', to: '2026-10-15' };
@@ -808,4 +808,16 @@ describe('재무 조건: finOn·usesFin·criteriaIssues', () => {
     c.conditions.fin.profitable.on = true;
     expect(criteriaIssues(c, [], info(true))).toEqual([]);
   });
+});
+
+
+it('patternRefIssues: 반등 패턴으로 참조되는데 패턴 블록이 없으면 막지 않는 경고', () => {
+  const s = { ...newStrategy(0, null), id: 's1' };
+  const c = newCriteria(0, null);
+  c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } };
+  expect(patternRefIssues(s, [c])).toEqual([]);
+  s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+  expect(patternRefIssues(s, [c, c])).toEqual([
+    { section: 'entry', text: '이 전략을 반등 패턴으로 쓰는 선정 기준이 2개 있어요. 반등 패턴 블록을 넣어야 그 기준을 실행할 수 있어요', blocking: false },
+  ]);
 });

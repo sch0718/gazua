@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { itemsOf } from '../../sheets/testApp';
 import { MAX_STRATEGIES, NAME_MAX, newStrategy } from './defaults';
-import { resolveSymbols, strategyIssues } from './validate';
+import { resolveSymbols, ruleIssues, strategyIssues } from './validate';
 import { newStrategyV1, sanitizeStrategiesV1 as sanitizeStrategies } from './strategyV1';
 import { patternEntryOf } from './patternBlock';
 
@@ -326,5 +326,52 @@ describe('sanitizeStrategies: 있는 값을 바꾸면 repaired', () => {
     expect(syms(nine.slice(0, 8)).repaired).toBe(false);
     expect(syms(['005930', '005930']).repaired).toBe(true);
     expect(syms(['005930', 5]).repaired).toBe(true);
+  });
+});
+
+
+describe('전략 빌더 경고(§11)', () => {
+  const base = () => newStrategy(0, null);
+  const texts = (s: ReturnType<typeof base>) => ruleIssues(s).map((i) => [i.section, i.blocking, i.text]);
+  it('매수 묶음 없음·빈 묶음·패턴 2개', () => {
+    const a = base();
+    a.rules.buy = [];
+    expect(texts(a)).toContainEqual(['entry', true, '사는 조건이 없어요. 조건을 하나 이상 넣어 주세요']);
+    const b = base();
+    b.rules.buy.push({ conds: [] });
+    expect(texts(b)).toContainEqual(['entry', true, '빈 묶음이 있어요. 조건을 넣거나 묶음을 지워 주세요']);
+    const c = base();
+    c.rules.buy.push(structuredClone(c.rules.buy[0]));
+    expect(texts(c)).toContainEqual(['entry', true, '반등 패턴은 하나만 넣을 수 있어요']);
+  });
+  it('이평 교차 짧은 ≥ 긴은 막지 않는 경고(매수·매도 각 구역)', () => {
+    const s = base();
+    s.rules.buy = [{ conds: [{ kind: 'maCross', short: 60, long: 20, dir: 'golden' }] }];
+    s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maCross', short: 20, long: 20, dir: 'dead' }] }] };
+    expect(texts(s)).toContainEqual(['entry', false, '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요']);
+    expect(texts(s)).toContainEqual(['exit', false, '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요']);
+  });
+  it('조건 매도 켰는데 묶음 없음·빈 묶음', () => {
+    const s = base();
+    s.rules.sell.signal = { on: true, groups: [] };
+    expect(texts(s)).toContainEqual(['exit', true, '조건 매도에 조건을 넣거나 꺼 주세요']);
+    s.rules.sell.signal.groups = [{ conds: [] }];
+    expect(texts(s)).toContainEqual(['exit', true, '빈 묶음이 있어요. 조건을 넣거나 묶음을 지워 주세요']);
+  });
+  it('트레일링 ≤ 추가 간격, 파는 규칙 없음', () => {
+    const s = base();
+    s.scaleIn = { on: true, stepPct: 10, maxAdds: 2 };
+    s.rules.sell.trailing = { on: true, pct: 8 };
+    expect(texts(s)).toContainEqual(['exit', false, '추가 매수보다 트레일링이 먼저 일어나요. 추가 매수 간격을 트레일링 폭보다 작게 해 주세요']);
+    const n = base();
+    n.rules.sell.takeProfit.on = false;
+    n.rules.sell.stopLoss.on = false;
+    expect(texts(n)).toContainEqual(['exit', false, '파는 규칙이 없어요. 기간 끝까지 들고 있어요']);
+  });
+  it('균등 배분 + 분할 매수는 자금 경고', () => {
+    const s = { ...base(), universe: { kind: 'symbols' as const, symbols: ['005930'] } };
+    s.sizing = { mode: 'equal', pct: 10 };
+    s.scaleIn = { on: true, stepPct: 3, maxAdds: 2 };
+    expect(strategyIssues(s, { groups: [] } as never).map((i) => i.text)).toContain('균등 배분은 첫 매수에 몫을 다 써요. 추가 매수는 현금이 모자라 건너뛸 수 있어요');
   });
 });

@@ -2,8 +2,8 @@
 import type { Watchlists } from '../state/schema';
 import { addDays } from '../time/kst';
 import { MAX_SYMBOLS } from './defaults';
-import { patternEntryOf } from './patternBlock';
-import type { Strategy } from './types';
+import { patternCount, patternEntryOf } from './patternBlock';
+import type { CondGroup, Strategy } from './types';
 
 export type Issue = {
   section: 'universe' | 'period' | 'capital' | 'entry' | 'scaleIn' | 'exit' | 'benchmarks' | 'costs';
@@ -24,6 +24,14 @@ export function resolveSymbols(s: Strategy, w: Watchlists): string[] {
 /** 매수·분할 매수·매도 규칙(rules·scaleIn)만 본 경고. 종목 범위·기간을 쓰지 않아 선정 기준 ②도 쓴다. */
 export function ruleIssues(s: Strategy): Issue[] {
   const out: Issue[] = [];
+  const EMPTY_GROUP = '빈 묶음이 있어요. 조건을 넣거나 묶음을 지워 주세요';
+  const MA_ORDER = '짧은 이동평균 기간이 긴 이동평균보다 짧아야 해요';
+  const badCross = (groups: CondGroup[]) => groups.some((g) => g.conds.some((c) => c.kind === 'maCross' && c.short >= c.long));
+  const buy = s.rules.buy;
+  if (buy.length === 0) out.push({ section: 'entry', text: '사는 조건이 없어요. 조건을 하나 이상 넣어 주세요', blocking: true });
+  if (buy.some((g) => g.conds.length === 0)) out.push({ section: 'entry', text: EMPTY_GROUP, blocking: true });
+  if (patternCount(s) > 1) out.push({ section: 'entry', text: '반등 패턴은 하나만 넣을 수 있어요', blocking: true });
+  if (badCross(buy)) out.push({ section: 'entry', text: MA_ORDER, blocking: false });
   const p = patternEntryOf(s);
   if (p) {
     const t = p.triggers;
@@ -41,6 +49,14 @@ export function ruleIssues(s: Strategy): Issue[] {
     if (st.slice(0, -1).reduce((a, x) => a + x.sellPct, 0) >= 100)
       out.push({ section: 'exit', text: '마지막 단계 전에 모두 팔려서 뒤 단계가 실행되지 않아요', blocking: false });
   }
+  const { trailing, timeExit, signal } = s.rules.sell;
+  if (signal.on && signal.groups.length === 0) out.push({ section: 'exit', text: '조건 매도에 조건을 넣거나 꺼 주세요', blocking: true });
+  if (signal.on && signal.groups.some((g) => g.conds.length === 0)) out.push({ section: 'exit', text: EMPTY_GROUP, blocking: true });
+  if (signal.on && badCross(signal.groups)) out.push({ section: 'exit', text: MA_ORDER, blocking: false });
+  if (trailing.on && s.scaleIn.on && s.scaleIn.stepPct >= trailing.pct)
+    out.push({ section: 'exit', text: '추가 매수보다 트레일링이 먼저 일어나요. 추가 매수 간격을 트레일링 폭보다 작게 해 주세요', blocking: false });
+  if (!takeProfit.on && !stopLoss.on && !trailing.on && !timeExit.on && !signal.on)
+    out.push({ section: 'exit', text: '파는 규칙이 없어요. 기간 끝까지 들고 있어요', blocking: false });
   return out;
 }
 
@@ -58,5 +74,7 @@ export function strategyIssues(s: Strategy, w: Watchlists): Issue[] {
   const buys = 1 + (s.scaleIn.on ? s.scaleIn.maxAdds : 0); // 분할 매수를 껐으면 추가 매수는 없다
   if ((s.sizing.mode === 'fixed' || s.sizing.mode === 'equityPct') && s.sizing.pct * buys * n > 100)
     out.push({ section: 'capital', text: '모든 종목이 한꺼번에 사면 현금이 모자라요. 신호 일부를 건너뛸 수 있어요', blocking: false });
+  if (s.sizing.mode === 'equal' && s.scaleIn.on)
+    out.push({ section: 'capital', text: '균등 배분은 첫 매수에 몫을 다 써요. 추가 매수는 현금이 모자라 건너뛸 수 있어요', blocking: false });
   return out;
 }

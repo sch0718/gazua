@@ -1,6 +1,6 @@
 // 저장된 선정 기준의 검증과 편집 화면 경고. sim/validate.ts와 같은 규칙: 틀린 값은 기본값으로 되돌리고 repaired를 켠다.
 import { kstDate, kstEpoch } from '../time/kst';
-import { ruleIssues } from '../sim/validate';
+import { ruleIssues, type Issue as SimIssue } from '../sim/validate';
 import { patternEntryOf } from '../sim/patternBlock';
 import { sanitizeEntry } from '../sim/strategyV1';
 import type { Strategy } from '../sim/types';
@@ -400,4 +400,14 @@ export function criteriaIssues(
   if (!macroOn(macro) && !flowOn(c) && !finOn(c) && !Object.values(simple).some((x) => x.on))
     out.push({ section: 'conditions', text: '조건이 없으면 후보 범위의 모든 종목에서 정렬 순으로 골라요', blocking: false });
   return out;
+}
+
+/**
+ * 전략 편집 화면의 막지 않는 경고(§7): 이 전략을 반등 패턴으로 쓰는 선정 기준이 있는데 패턴 블록이 없다.
+ * ruleIssues는 전략만 받아 기준 목록을 모르므로 편집 화면이 따로 불러 같은 구역 경고에 붙인다.
+ */
+export function patternRefIssues(s: Strategy, criteria: SelectionCriteria[]): SimIssue[] {
+  if (patternEntryOf(s)) return [];
+  const n = criteria.filter((c) => c.conditions.rebound.on && c.conditions.rebound.pattern.from === 'strategy' && c.conditions.rebound.pattern.strategyId === s.id).length;
+  return n === 0 ? [] : [{ section: 'entry', text: `이 전략을 반등 패턴으로 쓰는 선정 기준이 ${n}개 있어요. 반등 패턴 블록을 넣어야 그 기준을 실행할 수 있어요`, blocking: false }];
 }
