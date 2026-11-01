@@ -187,6 +187,8 @@ describe('두 기기 왕복(설계 7.7)', () => {
 
     expect(await enable(b)).toEqual({ ok: true, notes: [] });
     expect(await state(b, id)).toMatchObject({ active: true, revision: 0, notice: 'conflict', remoteRevision: 1 });
+    await b.engine.keysNow();
+    expect((await state(b, id))?.notice).toBe('conflict');
     expect(s.requests.slice(requestCount).filter((r) => r.method === 'PUT')).toEqual([]);
     expect(keyRows(s)).toEqual(before);
   });
@@ -407,12 +409,20 @@ describe('두 기기 왕복(설계 7.7)', () => {
     const salt = randomId();
     const nextKey = await deriveVaultKey(PASS2, salt, KEY_ITER);
     expect(await a.engine.exclusive(() => a.keys.rekey({ key: nextKey, salt }))).toEqual({ ok: true, notes: [] });
+    // B가 키를 바꾸기 전에 새 기기가 rekey로 다시 봉한 원래 키를 받는다.
+    const c = await device(s);
+    c.app.switchProfile(id);
+    await c.engine.syncNow();
+    expect((await state(c, id))?.notice).toBe('available');
+    await expect(unlock(c, PASS)).rejects.toThrow(KEY_TEXT.wrongPass);
+    await unlock(c, PASS2);
+    expect(await receive(c)).toEqual({ ok: true, notes: [KEY_TEXT.received] });
+    expect(c.app.secrets?.kis).toEqual(KIS_A);
     await b.engine.keysNow();
     expect(b.vault.key).toBeNull();
     expect(await b.keyStore.getMeta('keyNotice')).toBe('vault-changed');
     expect(await state(b, id)).toMatchObject({ notice: null, revision: before.revision, syncedContentId: before.syncedContentId });
     await expect(unlock(b, PASS)).rejects.toThrow(KEY_TEXT.wrongPass);
-    expect(b.vault.key).toBeNull();
     await unlock(b, PASS2);
     // 컨트롤러의 remembered: true에 해당하는 현재 금고의 메모리 키.
     expect(b.vault.key).toMatchObject({ vaultId: a.vault.key!.vaultId, salt, vaultRevision: a.vault.key!.vaultRevision });
