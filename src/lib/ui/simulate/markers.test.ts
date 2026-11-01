@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Trade } from '../../sim/types';
-import { mergedMarkers, tradeMarkers, type ColorToken } from './markers';
+import { MARKER_COLOR, TRADE_LABEL, mergedMarkers, tradeMarkers, type ColorToken } from './markers';
 
 const bars = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'];
 const barOf = (d: string) => bars.indexOf(d);
@@ -31,5 +31,16 @@ describe('tradeMarkers', () => {
       { time: bars[2], position: 'aboveBar', shape: 'arrowDown', color: '#5b6069', text: '익절·손절' },
       { time: bars[3], position: 'aboveBar', shape: 'arrowDown', color: '#d4202f', text: '익절' },
     ]);
+  });
+});
+
+describe('새 매도 종류 표시', () => {
+  it('라벨과 섞인 색을 쓴다', () => {
+    expect(TRADE_LABEL.trail).toBe('트레일');
+    expect(TRADE_LABEL.time).toBe('기간');
+    expect(TRADE_LABEL.signalSell).toBe('조건');
+    expect(MARKER_COLOR.trail).toEqual(['--t2', '#5b6069']);
+    expect(MARKER_COLOR.time).toEqual(['--t2', '#5b6069']);
+    expect(MARKER_COLOR.signalSell).toEqual(['--t2', '#5b6069']);
   });
 });
