@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { FORBIDDEN_KEYS } from '../../src/lib/sync/forbidden';
 import { APP_OUTDATED_CODE } from '../../src/lib/sync/dto';
 import { sanitizeStrategiesV2 } from '../../src/lib/sim/strategyV2';
@@ -370,6 +372,20 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     expect((await j(await me.as('GET', '/v1/profiles/p1/revisions/1?docVersion=2'))).body).toEqual({ revision: 1, doc: docV2() });
   });
 
+  it('docVersion 없으면 버전 1로 동작하고, 현재 v2여도 과거 v1 리비전은 돌려준다', async () => {
+    const h = harness();
+    const me = await h.login();
+    const oldDoc = doc('과거');
+    expect((await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: oldDoc })).status).toBe(200);
+    expect(await j(await me.as('GET', '/v1/profiles/p1'))).toEqual({ status: 200, body: { revision: 1, doc: oldDoc } });
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-2', expectedRevision: 1, doc: docV2() })).status).toBe(200);
+    expect(docV(h)).toBe(2);
+    expect(await j(await me.as('GET', '/v1/profiles/p1'))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+    // §8.3의 저장 버전은 현재 색인이 아니라 요청한 리비전 본문의 v를 뜻한다.
+    expect(await j(await me.as('GET', '/v1/profiles/p1/revisions/1'))).toEqual({ status: 200, body: { revision: 1, doc: oldDoc } });
+    expect(await j(await me.as('GET', '/v1/profiles/p1/revisions/2'))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+  });
+
   it('요청 버전보다 높은 PUT은 충돌보다 먼저 거절한다', async () => {
     const h = harness();
     const me = await h.login();
@@ -403,10 +419,39 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     expect(ok).toEqual({ status: 200, body: { revision: 3, doc: docV2() } });
   });
 
-  it('docVersion 형식이 틀리면 422 invalid', async () => {
+  it.each([0, 1, 2])('삭제된 v2에 옛 앱이 v1 PUT(expectedRevision=%s)을 보내면 422보다 410 gone이 우선한다', async (expectedRevision) => {
     const h = harness();
     const me = await h.login();
-    expect(await j(await me.as('GET', '/v1/profiles/p1?docVersion=two'))).toEqual({ status: 422, body: { error: 'invalid', path: 'docVersion' } });
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() })).status).toBe(200);
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1 })).status).toBe(200);
+    const before = h.env.DB.raw.prepare("SELECT * FROM profile_index WHERE profile_id = 'p1'").get();
+    expect(before).toMatchObject({ doc_v: 2, deleted_at: h.clock.now, revision: 2 });
+    expect(await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-3', expectedRevision, doc: doc() }))).toEqual({
+      status: 410,
+      body: { error: 'gone', deletedAt: h.clock.now, purgeAt: h.clock.now + 30 * DAY, revision: 2 },
+    });
+    expect(h.env.DB.raw.prepare("SELECT * FROM profile_index WHERE profile_id = 'p1'").get()).toEqual(before);
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(2);
+  });
+
+  it('v2 복원 뒤 옛 앱이 같은 opId로 재시도하면 422이고 상태는 그대로다', async () => {
+    const h = harness();
+    const me = await h.login();
+    expect((await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-1', expectedRevision: 0, doc: docV2() })).status).toBe(200);
+    expect((await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1 })).status).toBe(200);
+    const restore = { opId: 'op-3' };
+    expect(await j(await me.as('POST', '/v1/profiles/p1/restore?docVersion=2', restore))).toEqual({ status: 200, body: { revision: 3, doc: docV2() } });
+    const before = h.env.DB.raw.prepare("SELECT * FROM profile_index WHERE profile_id = 'p1'").get();
+    expect(before).toMatchObject({ doc_v: 2, deleted_at: null, last_op_id: restore.opId });
+    expect(await j(await me.as('POST', '/v1/profiles/p1/restore', restore))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+    expect(h.env.DB.raw.prepare("SELECT * FROM profile_index WHERE profile_id = 'p1'").get()).toEqual(before);
+    expect(count(h, 'SELECT count(*) AS n FROM revisions')).toBe(3);
+  });
+
+  it.each(['two', '0', '01', '1000', ''])('docVersion=%s는 422 invalid(path docVersion)다', async (value) => {
+    const h = harness();
+    const me = await h.login();
+    expect(await j(await me.as('GET', `/v1/profiles/p1?docVersion=${value}`))).toEqual({ status: 422, body: { error: 'invalid', path: 'docVersion' } });
   });
 
   it('새로 만들기·갱신이 doc_v를 기록한다', async () => {
@@ -418,14 +463,25 @@ describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
     expect(docV(h)).toBe(2);
   });
 
-  it('마이그레이션 뒤 doc_v 없이 들어간 기존 행은 doc_v = 1이다', async () => {
-    const h = harness();
-    await h.login();
-    const uid = (h.env.DB.raw.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id;
-    h.env.DB.raw
-      .prepare('INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at) VALUES (?, ?, 1, ?, ?)')
-      .run(uid, 'old', 'op-old', 0);
-    expect((h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'old'").get() as { n: number }).n).toBe(1);
+  it('0003까지 적용한 DB의 기존 행은 0004 마이그레이션 뒤 doc_v = 1이다', () => {
+    const db = new DatabaseSync(':memory:');
+    const migration = (file: string) => readFileSync(new URL(`../migrations/${file}`, import.meta.url), 'utf8');
+    try {
+      db.exec('PRAGMA foreign_keys = ON');
+      for (const file of ['0001_init.sql', '0002_social_sessions.sql', '0003_key_vault.sql']) db.exec(migration(file));
+      expect((db.prepare('PRAGMA table_info(profile_index)').all() as { name: string }[]).map((column) => column.name)).not.toContain('doc_v');
+      db.prepare("INSERT INTO users (id, firebase_sub, email, created_at, last_seen_at) VALUES ('u1', 's1', 'a@example.test', 0, 0)").run();
+      db.prepare("INSERT INTO profile_index (user_id, profile_id, revision, last_op_id, updated_at) VALUES ('u1', 'old', 1, 'op-old', 0)").run();
+      db.exec(migration('0004_doc_version.sql'));
+      expect(db.prepare("SELECT profile_id, revision, last_op_id, doc_v FROM profile_index WHERE profile_id = 'old'").get()).toEqual({
+        profile_id: 'old',
+        revision: 1,
+        last_op_id: 'op-old',
+        doc_v: 1,
+      });
+    } finally {
+      db.close();
+    }
   });
 
   it('v2 위에 v1을 올리면 422로 거절하고 서버는 그대로다', async () => {
