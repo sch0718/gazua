@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newStrategy } from '../../sim/defaults';
 import type { Watchlists } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { fmtReturnPct, money, nearMissText, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, trendReturn } from './simText';
+import { fmtReturnPct, money, nearMissText, priceMarks, replayDate, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, tradeWhy, trendReturn } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -204,5 +204,43 @@ describe('nearMissText', () => {
     x.entry.decline.dropPct = { on: false, value: 10 };
     x.entry.decline.days = { on: true, value: 7 };
     expect(nearMissText({ maxDropPct: 30, declineDays: 0 }, x)).toBe('고점 뒤 하락이 7거래일 이상 이어진 적이 없었어요');
+  });
+});
+
+describe('재생 문구', () => {
+  it('replayDate: 점 날짜 + 요일', () => {
+    expect(replayDate('2024-03-15')).toBe('2024.03.15(금)');
+    expect(replayDate('2023-10-12')).toBe('2023.10.12(목)');
+  });
+
+  it('tradeWhy: 매수는 신호 + 매수, 추가는 추가 매수, 단계 익절은 (N% 매도)', () => {
+    const t = { date: '2024-03-14', symbol: 'X', price: 1, qty: 1, fee: 0, tax: 0 };
+    expect(tradeWhy({ ...t, kind: 'buy', reason: 'B 돌파' })).toBe('B 돌파 매수');
+    expect(tradeWhy({ ...t, kind: 'add', reason: '추가 매수' })).toBe('추가 매수');
+    expect(tradeWhy({ ...t, kind: 'take', stage: 1, reason: '1단계 익절 80%' })).toBe('1단계 익절(80% 매도)');
+    expect(tradeWhy({ ...t, kind: 'take', stage: 1, reason: '익절' })).toBe('익절');
+    expect(tradeWhy({ ...t, kind: 'gapStop', reason: '손절' })).toBe('손절');
+  });
+
+  it('priceMarks: 손절·다음 추가·평단·익절 순서, 범위는 표시 가격 최소·최대에 5% 여유, 점은 종가', () => {
+    const r = priceMarks({ stop: 95, nextAdd: 97, avgPrice: 100, takes: [{ stage: 1, price: 105 }, { stage: 2, price: 110 }], close: 102 });
+    expect(r.marks.map((m) => [m.kind, m.label, m.price])).toEqual([
+      ['stop', '손절', 95],
+      ['add', '다음 추가', 97],
+      ['avg', '평단', 100],
+      ['take', '익절 1', 105],
+      ['take', '익절 2', 110],
+    ]);
+    // 95~110에 여유 0.75씩 → 94.25~110.75
+    expect(r.marks[0].left).toBeCloseTo((0.75 / 16.5) * 100, 9);
+    expect(r.marks[4].left).toBeCloseTo((15.75 / 16.5) * 100, 9);
+    expect(r.dot).toBeCloseTo((7.75 / 16.5) * 100, 9);
+  });
+
+  it('priceMarks: 손절·다음 추가가 없으면 빼고, 익절 단계가 1 하나면 라벨은 익절', () => {
+    const r = priceMarks({ stop: null, nextAdd: null, avgPrice: 100, takes: [{ stage: 1, price: 115 }], close: 100 });
+    expect(r.marks.map((m) => m.label)).toEqual(['평단', '익절']);
+    const late = priceMarks({ stop: 100, nextAdd: null, avgPrice: 100, takes: [{ stage: 3, price: 115 }], close: 100 });
+    expect(late.marks.map((m) => m.label)).toEqual(['손절', '평단', '익절 3']);
   });
 });

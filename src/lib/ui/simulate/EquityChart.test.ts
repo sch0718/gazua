@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { render } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
+import { lwcCharts, lwcStubHooks, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
+import type { Trade } from '../../sim/types';
 import EquityChart from './EquityChart.svelte';
 import { doneState } from './resultFixture';
 
@@ -130,5 +131,125 @@ describe('EquityChart screenshot', () => {
     const shot = component.screenshot();
     expect(shot).not.toBeNull();
     expect(lwcCharts[0].screenshots).toEqual([[true, false]]);
+  });
+});
+
+describe('EquityChart 재생(upTo)', () => {
+  const days = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'];
+  // 전략 수익률 0·1·2·3·4%, 보유 0·−1·−2·−3·−4%
+  const equity = days.map((date, i) => ({ date, strategy: 10_000_000 * (1 + i / 100), hold: 10_000_000 * (1 - i / 100), index: null, benchmark: null, cash: 5_000_000 }));
+  const trades: Trade[] = [
+    { date: days[1], symbol: 'A', kind: 'buy', price: 100, qty: 1, fee: 0, tax: 0, reason: 'B 돌파' },
+    { date: days[1], symbol: 'A', kind: 'add', price: 97, qty: 1, fee: 0, tax: 0, reason: '추가 매수' },
+    { date: days[3], symbol: 'A', kind: 'take', stage: 1, price: 110, qty: 2, fee: 0, tax: 0, reason: '익절', pnlPct: 10 },
+  ];
+  const props = (upTo?: number) => ({ equity, initial: 10_000_000, trades, upTo });
+  const series = (k = 0) => lwcCharts[0].series[k];
+  const real = (k = 0) => (series(k).data as { value?: number }[]).filter((p) => p.value !== undefined);
+  type Provider = () => { priceRange: { minValue: number; maxValue: number } };
+  const autoscale = (k: number) => series(k).options.autoscaleInfoProvider as Provider | undefined;
+  const legendDate = () => document.querySelector('.legend .date')?.textContent;
+
+  it('upTo가 없으면 지금과 같다: 전체 점, 마커 없음, 세로축 자동', async () => {
+    render(EquityChart, props());
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(2));
+    expect(series().data).toHaveLength(5);
+    expect(real()).toHaveLength(5);
+    expect(series().markers).toEqual([]);
+    expect(autoscale(0)).toBeUndefined();
+    expect(legendDate()).toBe('2024.01.05');
+  });
+
+  it('upTo까지만 실제 값, 뒤는 값 없는 점으로 가로축 고정, 세로축은 전체 기간 최소·최대', async () => {
+    render(EquityChart, props(2));
+    await vi.waitFor(() => expect(real()).toHaveLength(3));
+    expect(series().data).toHaveLength(5);
+    expect(series().data[4]).toEqual({ time: days[4] });
+    expect(real(1)).toHaveLength(3);
+    const s = autoscale(0)!().priceRange;
+    expect(s.minValue).toBeCloseTo(0, 6);
+    expect(s.maxValue).toBeCloseTo(4, 6);
+    const h = autoscale(1)!().priceRange;
+    expect(h.minValue).toBeCloseTo(-4, 6);
+    expect(h.maxValue).toBeCloseTo(0, 6);
+    expect(legendDate()).toBe('2024.01.03');
+  });
+
+  it.each([
+    { upTo: -1, count: 1, date: '2024.01.01', markerCount: 0 },
+    { upTo: 99, count: 5, date: '2024.01.05', markerCount: 2 },
+  ])('upTo=$upTo가 범위 밖이면 차트와 범례 모두 첫날·마지막 날로 자른다', async ({ upTo, count, date, markerCount }) => {
+    // 마지막 날을 가리키는 크로스헤어도 자른 날짜를 넘어설 수 없다
+    lwcStubHooks.crosshairOnSetData = { time: days[4] as unknown as number };
+    try {
+      render(EquityChart, props(upTo));
+      await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(2));
+      expect(real()).toHaveLength(count);
+      expect(series().data).toHaveLength(days.length);
+      expect(series().markers).toHaveLength(markerCount);
+      expect(legendDate()).toBe(date);
+    } finally {
+      lwcStubHooks.crosshairOnSetData = null;
+    }
+  });
+
+  it('체결 마커: upTo 날짜까지만, 같은 날·같은 방향은 하나. upTo가 바뀌면 다시 넣는다', async () => {
+    const { rerender } = render(EquityChart, props(2));
+    await vi.waitFor(() => expect(series().markers).toHaveLength(1));
+    expect(series().markers).toEqual([{ time: days[1], position: 'belowBar', shape: 'arrowUp', color: '#5b47e0', text: '매수·추가' }]);
+    await rerender(props(3));
+    await vi.waitFor(() => expect(real()).toHaveLength(4));
+    expect((series().markers as { text: string }[]).map((m) => m.text)).toEqual(['매수·추가', '익절']);
+  });
+
+  it('재생 날짜가 그대로여도 테마가 바뀌면 체결 마커 색을 다시 넣는다', async () => {
+    const { rerender } = render(EquityChart, { ...props(2), theme: 'light' });
+    await vi.waitFor(() => expect(series().markers).toHaveLength(1));
+    expect(series().markers).toMatchObject([{ color: '#5b47e0' }]);
+    const root = document.documentElement.style;
+    root.setProperty('--accent', '#a093ff');
+    try {
+      await rerender({ ...props(2), theme: 'dark' });
+      expect(series().markers).toMatchObject([{ color: '#a093ff' }]);
+      expect(real()).toHaveLength(3);
+      expect(legendDate()).toBe('2024.01.03');
+    } finally {
+      root.removeProperty('--accent');
+    }
+  });
+
+  it('upTo가 숫자에서 undefined로 돌아오면 전체 점·마커 0개·세로축 자동으로 되돌린다', async () => {
+    const { rerender } = render(EquityChart, props(1));
+    await vi.waitFor(() => expect(real()).toHaveLength(2));
+    await rerender(props(undefined));
+    await vi.waitFor(() => expect(series().data).toHaveLength(5));
+    expect(real()).toHaveLength(5);
+    expect(series().markers).toEqual([]);
+    expect(autoscale(0)).toBeUndefined();
+    expect(autoscale(1)).toBeUndefined();
+    expect(legendDate()).toBe('2024.01.05');
+  });
+
+  it('범례: 크로스헤어가 upTo 뒤 날짜면 무시하고 upTo 날짜, 앞 날짜면 그 날짜', async () => {
+    // 가짜 차트는 setData 때 크로스헤어 구독자를 이 값으로 부른다
+    lwcStubHooks.crosshairOnSetData = { time: days[4] as unknown as number };
+    try {
+      const { rerender } = render(EquityChart, props(2));
+      await vi.waitFor(() => expect(real()).toHaveLength(3));
+      expect(legendDate()).toBe('2024.01.03');
+      lwcStubHooks.crosshairOnSetData = { time: days[1] as unknown as number };
+      await rerender(props(3));
+      await vi.waitFor(() => expect(legendDate()).toBe('2024.01.02'));
+    } finally {
+      lwcStubHooks.crosshairOnSetData = null;
+    }
+  });
+
+  it('curves 모드에는 upTo를 쓰지 않는다', async () => {
+    const points = [{ date: days[0], value: 10_000_000 }, { date: days[1], value: 11_000_000 }];
+    render(EquityChart, { initial: 10_000_000, curves: [{ id: 'a', name: '① 선정만', color: ['--accent', '#5b47e0'] as [string, string], width: 2, dashed: false, points }], upTo: 0 });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(1));
+    expect(real()).toHaveLength(2);
+    expect(autoscale(0)).toBeUndefined();
   });
 });

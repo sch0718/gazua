@@ -31,21 +31,24 @@
 
 <script lang="ts">
   // 자산 곡선(스펙 7.4-3): 전략·보유·지정 종목·지수를 초기 자금 대비 수익률(%)로. 크로스헤어로 그날 값을 보인다.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     ColorType,
     createChart,
+    createSeriesMarkers,
     CrosshairMode,
     LineSeries,
     LineStyle,
     type IChartApi,
     type ISeriesApi,
+    type ISeriesMarkersPluginApi,
     type LineWidth,
     type MouseEventParams,
     type Time,
   } from 'lightweight-charts';
-  import type { SimResult } from '../../sim/types';
+  import type { SimResult, Trade } from '../../sim/types';
   import LineSwatch from './LineSwatch.svelte';
+  import { tradeMarkers } from './markers';
   import { fmtReturnPct } from './simText';
 
   type Row = SimResult['equity'][number];
@@ -58,6 +61,8 @@
     curves,
     rebalanceDates,
     sampledNote,
+    upTo,
+    trades = [],
   }: {
     equity?: Row[];
     initial: number;
@@ -70,6 +75,10 @@
     rebalanceDates?: string[];
     /** 곡선을 솎은 공유의 안내 */
     sampledNote?: string;
+    /** 재생(설계 §4.3): equity 인덱스. 이 날까지만 그리고 그날까지의 체결 마커를 단다. 없으면 지금과 같다(curves 모드에는 쓰지 않는다) */
+    upTo?: number;
+    /** 재생 마커에 쓸 체결 */
+    trades?: Trade[];
   } = $props();
 
   const pct = (v: number) => (v / initial - 1) * 100;
@@ -97,7 +106,14 @@
   let el: HTMLDivElement;
   let hover = $state<string | null>(null);
   const lastDate = $derived(curves ? items.reduce((m, i) => (i.points.at(-1)!.date > m ? i.points.at(-1)!.date : m), '') : (equity.at(-1)?.date ?? ''));
-  const date = $derived(curves ? (hover && items.some((i) => i.points.some((p) => p.date === hover)) ? hover : lastDate) : (equity.find((e) => e.date === hover)?.date ?? lastDate));
+  // 재생 중(upTo)이면 범례 기본 날짜는 그날, 크로스헤어가 그보다 뒤를 가리키면 무시한다
+  const capDate = $derived(curves || upTo === undefined ? null : (equity[Math.max(0, Math.min(upTo, equity.length - 1))]?.date ?? null));
+  const date = $derived.by(() => {
+    if (curves) return hover && items.some((i) => i.points.some((p) => p.date === hover)) ? hover : lastDate;
+    const h = equity.find((e) => e.date === hover)?.date;
+    if (capDate !== null) return h !== undefined && h <= capDate ? h : capDate;
+    return h ?? lastDate;
+  });
   const valueAt = (i: Item): number | null => i.points.find((p) => p.date === date)?.value ?? null;
 
   // 범례 버튼으로 끈 선(곡선 여러 개일 때만)
@@ -106,6 +122,50 @@
 
   let chart = $state.raw<IChartApi | null>(null);
   let lines: { id: string; line: Item['line']; series: ISeriesApi<'Line'> }[] = [];
+
+  // 전략 선에 한 번 붙이는 체결 마커(curves 모드에는 없음)
+  let markers: ISeriesMarkersPluginApi<Time> | null = null;
+  // 지금 차트에 들어간 upTo. onMount의 전체 데이터는 undefined와 같다
+  let applied: number | undefined = undefined;
+
+  /** upTo까지 실제 값, 뒤는 값 없는 점(가로축 고정). 세로축은 전체 기간 최소·최대로 고정. undefined면 지금 화면으로 되돌린다 */
+  function applyCut(cut: number | undefined) {
+    if (cut === undefined) {
+      for (const l of lines) {
+        const it = items.find((i) => i.id === l.id)!;
+        l.series.setData(it.points.map((p) => ({ time: p.date as Time, value: p.value })));
+        l.series.applyOptions({ autoscaleInfoProvider: undefined });
+      }
+      markers?.setMarkers([]);
+      return;
+    }
+    const until = equity[Math.max(0, Math.min(cut, equity.length - 1))]?.date ?? '';
+    for (const l of lines) {
+      const it = items.find((i) => i.id === l.id)!;
+      const byDate = new Map(it.points.map((p) => [p.date, p.value]));
+      const values = it.points.map((p) => p.value);
+      const lo = Math.min(...values);
+      const hi = Math.max(...values);
+      l.series.setData(
+        equity.map((e) => {
+          const v = byDate.get(e.date);
+          return e.date <= until && v !== undefined ? { time: e.date as Time, value: v } : { time: e.date as Time };
+        }),
+      );
+      l.series.applyOptions({ autoscaleInfoProvider: () => ({ priceRange: { minValue: lo, maxValue: hi } }) });
+    }
+    const barOf = new Map(equity.map((e, i) => [e.date, i]));
+    markers?.setMarkers(tradeMarkers(trades.filter((t) => t.date <= until), (d) => barOf.get(d) ?? equity.length, 0, (t) => token(t[0], t[1])));
+  }
+
+  // 차트가 준비된 뒤 upTo를 늘 읽는다. 바뀔 때만 다시 넣는다
+  $effect(() => {
+    const cut = curves ? undefined : upTo;
+    const c = chart;
+    if (!c || cut === applied) return;
+    applied = cut;
+    untrack(() => applyCut(cut));
+  });
 
   function placeTicks() {
     const ts = chart?.timeScale();
@@ -136,6 +196,7 @@
     if (!c) return;
     c.applyOptions(chartColors());
     for (const { line, series } of lines) series.applyOptions({ color: token(...line.color) });
+    if (applied !== undefined) untrack(() => applyCut(applied));
   });
 
   onMount(() => {
@@ -173,6 +234,8 @@
       s.setData(it.points.map((p) => ({ time: p.date as Time, value: p.value })));
       return { id: it.id, line: l, series: s };
     });
+    // 마커는 한 번만 붙이고 이후에는 setMarkers만 부른다(재생 그날 체결, 같은 날·같은 방향만 하나로)
+    if (!curves && lines[0]) markers = createSeriesMarkers(lines[0].series, []);
     c.timeScale().fitContent();
     chart = c;
     if (rebalanceDates) {
@@ -184,6 +247,8 @@
       observer.disconnect();
       chart = null;
       lines = [];
+      markers = null;
+      applied = undefined;
       c.remove();
     };
   });

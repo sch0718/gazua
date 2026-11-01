@@ -70,7 +70,7 @@ export function createRunController(app: RunApp, opts: { now?: () => number } = 
     if (id !== runId) return;
     let result: SimResult;
     try {
-      result = simulate(input);
+      result = simulate(input, { timeline: true });
     } catch (e) {
       console.error('시뮬레이션 계산 실패', e);
       state = { kind: 'crash' };

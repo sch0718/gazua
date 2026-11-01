@@ -79,3 +79,17 @@ export function noTrades(s: DoneState, skipped: SimResult['skipped'] = []): void
   s.result.summary = { ...s.result.summary, roundTrips: 0, wins: 0, losses: 0, winRatePct: null, skippedSignals: skipped.length };
   s.result.nearMiss = skipped.length ? null : { maxDropPct: 8.2, declineDays: 0 };
 }
+
+/** 재생 기록(timeline)을 붙인다: equity와 같은 날짜, 둘째 날에만 삼성전자 보유, 첫날에 SK하이닉스 예약 */
+export function withTimeline(s: DoneState): void {
+  s.result.timeline = s.result.equity.map((e, i) => ({
+    date: e.date,
+    cash: e.cash,
+    value: e.strategy,
+    holdings:
+      i === 1
+        ? [{ symbol: '005930', qty: 14, avgPrice: 70_000, close: 71_000, value: 994_000, pnlPct: (71_000 / 70_000 - 1) * 100, stop: 66_500, nextAdd: null, takes: [{ stage: 1, price: 80_500 }], openDate: '2023-10-12' }]
+        : [],
+    pending: i === 0 ? [{ symbol: '000660', reason: 'B 돌파' }] : [],
+  }));
+}
