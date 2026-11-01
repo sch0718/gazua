@@ -281,6 +281,55 @@ describe('프로필 삭제·복구와 키 행(설계 2.6)', () => {
 describe('문서 버전(전략 빌더 §8.3, PR①)', () => {
   const docV = (h: ReturnType<typeof harness>) => (h.env.DB.raw.prepare("SELECT doc_v AS n FROM profile_index WHERE profile_id = 'p1'").get() as { n: number }).n;
 
+  it('옛 앱(쿼리 없음)은 v2 문서를 받지 못한다: GET·리비전 422', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    expect(await j(await me.as('GET', '/v1/profiles/p1'))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+    expect((await me.as('GET', '/v1/profiles/p1/revisions/1')).status).toBe(422);
+    expect(await j(await me.as('GET', '/v1/profiles/p1?docVersion=2'))).toEqual({ status: 200, body: { revision: 1, doc: docV2() } });
+    expect((await j(await me.as('GET', '/v1/profiles/p1/revisions/1?docVersion=2'))).body).toEqual({ revision: 1, doc: docV2() });
+  });
+
+  it('409 충돌 응답은 요청 버전보다 높은 문서를 빼고(null) 보낸다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-2', expectedRevision: 1, doc: docV2('A') });
+    const stale = await j(await me.as('PUT', '/v1/profiles/p1', { opId: 'op-3', expectedRevision: 1, doc: docV2('B') }));
+    expect(stale).toEqual({ status: 409, body: { error: 'conflict', revision: 2, doc: null } });
+    const fresh = await j(await me.as('PUT', '/v1/profiles/p1?docVersion=2', { opId: 'op-4', expectedRevision: 1, doc: docV2('B') }));
+    expect(fresh).toEqual({ status: 409, body: { error: 'conflict', revision: 2, doc: docV2('A') } });
+  });
+
+  it('deleteProfile의 409도 doc을 뺀다', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    // 같은 opId가 이미 PUT으로 반영된 경우(h.lastOpId === opId, 삭제 아님) → 409
+    const r = await j(await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 1 }));
+    expect(r.status).toBe(409);
+    expect(r.body.doc).toBeNull();
+  });
+
+  it('삭제된 v2 프로필: GET은 410(버전 검사 전), 옛 앱의 복원은 바꾸기 전에 422', async () => {
+    const h = harness();
+    const me = await h.login();
+    await me.as('PUT', '/v1/profiles/p1', { opId: 'op-1', expectedRevision: 0, doc: docV2() });
+    await me.as('DELETE', '/v1/profiles/p1', { opId: 'op-2', expectedRevision: 1 });
+    expect((await me.as('GET', '/v1/profiles/p1')).status).toBe(410);
+    expect(await j(await me.as('POST', '/v1/profiles/p1/restore', { opId: 'op-3' }))).toEqual({ status: 422, body: { error: APP_OUTDATED_CODE } });
+    expect((h.env.DB.raw.prepare("SELECT deleted_at AS d FROM profile_index WHERE profile_id = 'p1'").get() as { d: number | null }).d).not.toBeNull();
+    const ok = await j(await me.as('POST', '/v1/profiles/p1/restore?docVersion=2', { opId: 'op-3' }));
+    expect(ok).toEqual({ status: 200, body: { revision: 3, doc: docV2() } });
+  });
+
+  it('docVersion 형식이 틀리면 422 invalid', async () => {
+    const h = harness();
+    const me = await h.login();
+    expect(await j(await me.as('GET', '/v1/profiles/p1?docVersion=two'))).toEqual({ status: 422, body: { error: 'invalid', path: 'docVersion' } });
+  });
+
   it('새로 만들기·갱신이 doc_v를 기록한다', async () => {
     const h = harness();
     const me = await h.login();

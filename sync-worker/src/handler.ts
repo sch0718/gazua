@@ -21,6 +21,7 @@ import {
   listProfiles,
   listRevisions,
   putProfile,
+  requestDocVersion,
   restoreProfile,
 } from './profiles';
 import {
@@ -59,17 +60,32 @@ const ROUTES: [string, RegExp, string, Handler][] = [
   ],
   ['DELETE', /^\/v1\/sessions\/([^/]+)$/, '/v1/sessions/:id', authed(async ({ env, deps, ctx, params }) => ok({ revoked: await revokeSessions(env, deps, ctx, { id: params[0] }) }))],
   ['GET', /^\/v1\/profiles$/, '/v1/profiles', authed(async ({ env, ctx }) => ok({ profiles: await listProfiles(env, ctx) }))],
-  ['GET', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ env, ctx, params }) => ok(await getProfile(env, ctx, params[0])))],
-  ['PUT', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ req, env, deps, ctx, params }) => ok(await putProfile(env, ctx, params[0], await readJson(req), deps.now())))],
-  ['DELETE', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ req, env, deps, ctx, params }) => ok(await deleteProfile(env, ctx, params[0], await readJson(req), deps.now())))],
+  ['GET', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ env, ctx, params, url }) => ok(await getProfile(env, ctx, params[0], requestDocVersion(url))))],
+  [
+    'PUT',
+    /^\/v1\/profiles\/([^/]+)$/,
+    '/v1/profiles/:id',
+    authed(async ({ req, env, deps, ctx, params, url }) => ok(await putProfile(env, ctx, params[0], await readJson(req), deps.now(), requestDocVersion(url)))),
+  ],
+  [
+    'DELETE',
+    /^\/v1\/profiles\/([^/]+)$/,
+    '/v1/profiles/:id',
+    authed(async ({ req, env, deps, ctx, params, url }) => ok(await deleteProfile(env, ctx, params[0], await readJson(req), deps.now(), requestDocVersion(url)))),
+  ],
   [
     'POST',
     /^\/v1\/profiles\/([^/]+)\/restore$/,
     '/v1/profiles/:id/restore',
-    authed(async ({ req, env, deps, ctx, params }) => ok(await restoreProfile(env, ctx, params[0], await readJson(req), deps.now()))),
+    authed(async ({ req, env, deps, ctx, params, url }) => ok(await restoreProfile(env, ctx, params[0], await readJson(req), deps.now(), requestDocVersion(url)))),
   ],
   ['GET', /^\/v1\/profiles\/([^/]+)\/revisions$/, '/v1/profiles/:id/revisions', authed(async ({ env, ctx, params }) => ok({ revisions: await listRevisions(env, ctx, params[0]) }))],
-  ['GET', /^\/v1\/profiles\/([^/]+)\/revisions\/([^/]+)$/, '/v1/profiles/:id/revisions/:rev', authed(async ({ env, ctx, params }) => ok(await getRevision(env, ctx, params[0], params[1])))],
+  [
+    'GET',
+    /^\/v1\/profiles\/([^/]+)\/revisions\/([^/]+)$/,
+    '/v1/profiles/:id/revisions/:rev',
+    authed(async ({ env, ctx, params, url }) => ok(await getRevision(env, ctx, params[0], params[1], requestDocVersion(url)))),
+  ],
   ['GET', /^\/v1\/keys$/, '/v1/keys', authed(async ({ env, ctx }) => ok(await listKeys(env, ctx)))],
   // 두 DELETE는 본문을 읽지 않는다(readJson은 본문이 없으면 400 bad-json)
   ['DELETE', /^\/v1\/keys$/, '/v1/keys', authed(async ({ env, ctx }) => ok(await wipeKeys(env, ctx)))],
