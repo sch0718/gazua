@@ -5,7 +5,7 @@ import { profileKeys } from '../state/profileStore';
 import { createSafeStorage, type SafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { APP_OUTDATED_CODE } from './dto';
-import { docHash } from './hash';
+import { docHash, stableJson } from './hash';
 import { migrateStrategies } from './migrate';
 import { buildProfileDoc, profileDocBase } from './profileDoc';
 import { createMemorySyncStore } from './store';
@@ -30,6 +30,7 @@ describe('migrateStrategies(§8.3)', () => {
     const h2 = await docHash(buildProfileDoc(st, PID, '내 프로필'));
     expect(await store.state(PID)).toEqual({ profileId: PID, syncedRevision: 7, syncedHash: h2 });
     expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([v1]), v2: stableJson([toV2(v1)]) });
   });
   it('syncedHash가 H1이 아니면(이 기기에 확인 안 된 수정) 앞당기지 않는다', async () => {
     const { st, store, profiles } = setup();

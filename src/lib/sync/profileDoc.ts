@@ -2,7 +2,7 @@
 // 키·토큰·최근 종목·기기 전용 설정은 읽지도 쓰지도 않는다.
 import { loadBaskets } from '../screen/baskets';
 import { loadCriteria } from '../screen/criteriaStore';
-import { loadStrategies } from '../sim/strategyStore';
+import { loadStrategies, recordStrategySet } from '../sim/strategyStore';
 import { sanitizeStrategiesV1, toV2 } from '../sim/strategyV1';
 import { loadSettings, loadWatchlists, profileKeys } from '../state/profileStore';
 import { DEFAULT_PROFILE_NAME } from '../state/schema';
@@ -49,8 +49,13 @@ export function applyProfileDoc(st: SafeStorage, profileId: string, doc: Profile
   st.set(profileKeys.watchlists(profileId), doc.watchlists);
   if (doc.v === 1) {
     st.set(profileKeys.strategies(profileId), { strategies: doc.strategies });
-    st.set(profileKeys.strategySet(profileId), { strategies: sanitizeStrategiesV1({ strategies: doc.strategies }).strategies.map(toV2) });
-  } else st.set(profileKeys.strategySet(profileId), { strategies: doc.strategies });
+    const next = sanitizeStrategiesV1({ strategies: doc.strategies }).strategies.map(toV2);
+    st.set(profileKeys.strategySet(profileId), { strategies: next });
+    recordStrategySet(st, profileId, next, true);
+  } else {
+    st.set(profileKeys.strategySet(profileId), { strategies: doc.strategies });
+    recordStrategySet(st, profileId, doc.strategies);
+  }
   st.set(profileKeys.criteria(profileId), { criteria: doc.criteria });
   st.set(profileKeys.baskets(profileId), { baskets: doc.baskets });
 }

@@ -3,11 +3,13 @@ import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
 import type { LocalProfiles } from './engine';
 import { buildProfileDoc } from './profileDoc';
+import { migratedSyncedHash } from './migrate';
 
 export function appProfiles(app: App, storage: SafeStorage): LocalProfiles {
   return {
     list: () => app.meta.profiles.map((p) => ({ id: p.id, name: p.name })),
     read: (id) => buildProfileDoc(storage, id, app.meta.profiles.find((p) => p.id === id)?.name ?? ''),
+    migrateSyncedHash: (id, hash) => migratedSyncedHash(storage, id, app.meta.profiles.find((p) => p.id === id)?.name ?? '', hash),
     write: (id, doc) => app.applySyncedProfile(id, doc),
     remove: (id) => app.removeSyncedProfile(id),
     create(doc) {

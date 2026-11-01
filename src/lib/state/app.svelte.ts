@@ -23,7 +23,7 @@ import {
   storageIssuedAtStore,
   storageTokenStore,
 } from './profileStore';
-import { assertStrategyCap, loadStrategies } from '../sim/strategyStore';
+import { assertStrategyCap, loadStrategies, saveStrategies } from '../sim/strategyStore';
 import type { Strategy } from '../sim/types';
 import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
@@ -636,6 +636,7 @@ export function createApp(deps: AppDeps): App {
     remove(profileKeys.recent(id));
     remove(profileKeys.strategies(id));
     remove(profileKeys.strategySet(id));
+    remove(profileKeys.strategySetBase(id));
     remove(profileKeys.criteria(id));
     remove(profileKeys.baskets(id));
     remove(profileKeys.tokenIssuedAt(id, 'kis'));
@@ -659,7 +660,7 @@ export function createApp(deps: AppDeps): App {
   function onStorage(e: StorageEvent) {
     const id = activeId();
     // 다른 탭(동기화 적용 포함)이 이 프로필의 동기화 대상을 바꿨으면 다시 읽는다. 오래된 화면 상태로 덮어쓰지 않게.
-    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.strategySet(id), profileKeys.criteria(id), profileKeys.baskets(id)];
+    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.strategySet(id), profileKeys.strategySetBase(id), profileKeys.criteria(id), profileKeys.baskets(id)];
     if (e.key !== null && synced.some((k) => e.key === STORAGE_PREFIX + k)) {
       reloadSynced();
       return;
@@ -833,7 +834,8 @@ export function createApp(deps: AppDeps): App {
     setStrategies(list) {
       assertStrategyCap(list);
       strategies = list;
-      write(profileKeys.strategySet(activeId()), { strategies: list });
+      saveStrategies(storage, activeId(), list);
+      storageTick++;
       syncable('changed', activeId());
     },
 

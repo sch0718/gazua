@@ -9,6 +9,7 @@ import { FORBIDDEN_KEYS, JSON_DEPTH_MAX } from './forbidden';
 import { APP_OUTDATED_CODE, checkProfileDoc, PROFILE_DOC_MAX_BYTES, PROFILE_DOC_MAX_VERSION, PROFILE_DOC_VERSION, type ProfileDocV2 } from './dto';
 import { fullStrategyV2 } from '../sim/testStrategyV2';
 import { applyProfileDoc, buildProfileDoc } from './profileDoc';
+import { stableJson } from './hash';
 
 const NOW = Date.UTC(2026, 9, 25, 3);
 const PID = 'p-1';
@@ -243,6 +244,7 @@ describe('applyProfileDoc v1·v2(§8.2)', () => {
     applyProfileDoc(st, PID, d);
     expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: d.strategies });
     expect(st.get(profileKeys.strategies(PID), null)).toBeNull();
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([]), v2: stableJson(d.strategies) });
   });
   it('v1 문서는 옛 키에 v1, 새 키에 toV2 결과를 바로 쓴다', () => {
     const { st } = seeded();
@@ -251,6 +253,18 @@ describe('applyProfileDoc v1·v2(§8.2)', () => {
     applyProfileDoc(st, PID, d);
     expect(st.get(profileKeys.strategies(PID), null)).toEqual({ strategies: [v1] });
     expect(st.get(profileKeys.strategySet(PID), null)).toEqual({ strategies: [toV2(v1)] });
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([v1]), v2: stableJson([toV2(v1)]) });
+  });
+  it('v2 수신은 base.v1을 유지하고 새 전략이 뒤늦은 옛 키 수정에 덮이지 않는다', () => {
+    const { st } = seeded();
+    const old = { ...newStrategyV1(NOW, 'g0', '옛'), id: 'old' };
+    const v1 = { ...validDoc(), v: 1 as const, strategies: [old] };
+    applyProfileDoc(st, PID, v1);
+    st.set(profileKeys.strategies(PID), { strategies: [{ ...old, name: '옛 탭 수정' }] });
+    const v2 = { ...validDoc(), v: 2 as const, strategies: [fullStrategyV2()] };
+    applyProfileDoc(st, PID, v2);
+    expect(st.get(`p:${PID}:strategySetBase`, null)).toMatchObject({ v1: stableJson([old]), v2: stableJson(v2.strategies) });
+    expect(buildProfileDoc(st, PID, v2.name).strategies).toEqual(v2.strategies);
   });
   it('buildProfileDoc은 v2 문서를 만든다', () => {
     expect(validDoc().v).toBe(2);

@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createMemoryOrderCache } from '../perf/orderCache';
 import { newStrategy } from '../sim/defaults';
+import { newStrategyV1, toV2 } from '../sim/strategyV1';
+import { profileKeys } from './profileStore';
 import { buildProfileDoc } from '../sync/profileDoc';
 import { createApp, type App } from './app.svelte';
 import { lockSecrets } from './secrets';
@@ -96,6 +98,43 @@ describe('같은 ID 적용·삭제', () => {
 });
 
 describe('다른 탭의 쓰기', () => {
+  it.each(['strategies', 'strategySetBase'])('옛 키 원격 수정의 %s 이벤트로 저장소와 화면 전략을 다시 옮긴다', (suffix) => {
+    const { app, storage, backing } = make();
+    const id = app.meta.activeProfileId;
+    const old = { ...newStrategyV1(NOW, null, '옛'), id: 's1' };
+    app.applySyncedProfile(id, { ...buildProfileDoc(storage, id, '내 프로필'), v: 1, strategies: [old] });
+    const remote = { ...old, name: '원격 수정' };
+    seed(backing, profileKeys.strategies(id), { strategies: [remote] });
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_PREFIX + `p:${id}:${suffix}` }));
+    expect(app.strategies).toEqual([toV2(remote)]);
+    expect(storage.get(profileKeys.strategySet(id), null)).toEqual({ strategies: [toV2(remote)] });
+  });
+
+  it('앱에서 고친 전략은 옛 키 변경 이벤트 뒤에도 유지한다', () => {
+    const { app, storage, backing } = make();
+    const id = app.meta.activeProfileId;
+    const old = { ...newStrategyV1(NOW, null, '옛'), id: 's1' };
+    app.applySyncedProfile(id, { ...buildProfileDoc(storage, id, '내 프로필'), v: 1, strategies: [old] });
+    const edited = [{ ...app.strategies[0], name: '새 탭 수정' }];
+    app.setStrategies(edited);
+    seed(backing, profileKeys.strategies(id), { strategies: [{ ...old, name: '원격 수정' }] });
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_PREFIX + profileKeys.strategies(id) }));
+    expect(app.strategies).toEqual(edited);
+  });
+
+  it('프로필을 지우면 base 키도 지운다', () => {
+    const { app, storage } = make();
+    const p = app.addProfile('삭제 대상');
+    app.switchProfile(p.id);
+    app.setStrategies([newStrategy(NOW, null)]);
+    const key = `p:${p.id}:strategySetBase`;
+    storage.set(key, { v1: '[]', v2: '[]' });
+    expect(storage.get(key, null)).not.toBeNull();
+    app.deleteProfile(p.id);
+    expect(storage.get(key, null)).toBeNull();
+    expect(storage.readBacking(key, null)).toBeNull();
+  });
+
   it('이 프로필의 동기화 대상 키가 바뀌면 다시 읽는다', () => {
     const { app, backing } = make();
     const id = app.meta.activeProfileId;

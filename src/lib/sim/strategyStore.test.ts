@@ -6,6 +6,8 @@ import { MAX_STRATEGIES, newStrategy } from './defaults';
 import { newStrategyV1, toV2 } from './strategyV1';
 import { patternEntryOf } from './patternBlock';
 import { assertStrategyCap, loadStrategies, saveStrategies } from './strategyStore';
+import { stableJson } from '../sync/hash';
+import { FORBIDDEN_KEYS } from '../sync/forbidden';
 
 const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ ...newStrategy(1_700_000_000_000, 'g1', `전략 ${i}`), id: `s${i}` }));
 
@@ -114,12 +116,52 @@ describe('새 키 strategySet(§8.2)', () => {
     expect(trySet).toHaveBeenCalledTimes(2);
     expect(backing.dump()).toBe(before);
   });
-  it('새 키가 있으면 옛 키는 읽지 않는다', () => {
+  it('base 없는 새 키는 값을 유지하고 현재 두 목록으로 base만 만든다', () => {
     const st = make();
     st.set(profileKeys.strategies('p'), { strategies: [{ ...newStrategyV1(0, null, '옛'), id: 's1' }] });
     const v2 = toV2({ ...newStrategyV1(0, null, '새'), id: 's2' });
     st.set(profileKeys.strategySet('p'), { strategies: [v2] });
     expect(loadStrategies(st, 'p')).toEqual([v2]);
+    expect(st.get('p:p:strategySetBase', null)).toMatchObject({
+      v1: stableJson([{ ...newStrategyV1(0, null, '옛'), id: 's1' }]), v2: stableJson([v2]),
+    });
+  });
+  it('옛 키 없이 새 키만 있으면 빈 옛 목록으로 base를 만든다', () => {
+    const st = make();
+    const list = mk(1);
+    st.set(profileKeys.strategySet('p'), { strategies: list });
+    expect(loadStrategies(st, 'p')).toEqual(list);
+    expect(st.get('p:p:strategySetBase', null)).toMatchObject({ v1: stableJson([]), v2: stableJson(list) });
+  });
+  it('옮긴 뒤 옛 키만 바뀌면 다시 옮기고 base를 갱신한다', () => {
+    const st = make();
+    const old = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    st.set(profileKeys.strategies('p'), { strategies: [old] });
+    loadStrategies(st, 'p');
+    const remote = { ...old, name: '원격 수정' };
+    st.set(profileKeys.strategies('p'), { strategies: [remote] });
+    expect(loadStrategies(st, 'p')).toEqual([toV2(remote)]);
+    expect(st.get(profileKeys.strategySet('p'), null)).toEqual({ strategies: [toV2(remote)] });
+    expect(st.get('p:p:strategySetBase', null)).toMatchObject({ v1: stableJson([remote]), v2: stableJson([toV2(remote)]) });
+  });
+  it.each(['save', 'direct'])('새 키도 고쳤으면 옛 키가 바뀌어도 유지한다(%s)', (mode) => {
+    const backing = memoryBacking();
+    const st = createSafeStorage(backing);
+    const old = { ...newStrategyV1(0, null, '옛'), id: 's1' };
+    st.set(profileKeys.strategies('p'), { strategies: [old] });
+    const list = loadStrategies(st, 'p').map((s) => ({ ...s, name: '새 탭 수정' }));
+    if (mode === 'save') saveStrategies(st, 'p', list);
+    else st.set(profileKeys.strategySet('p'), { strategies: list });
+    expect(st.get('p:p:strategySetBase', null)).toMatchObject({
+      v1: stableJson([old]), v2: stableJson(mode === 'save' ? list : [toV2(old)]),
+    });
+    st.set(profileKeys.strategies('p'), { strategies: [{ ...old, name: '원격 수정' }] });
+    expect(loadStrategies(st, 'p')).toEqual(list);
+    expect(loadStrategies(createSafeStorage(backing), 'p')).toEqual(list);
+  });
+  it('새 저장 키와 base 필드가 금지 키와 겹치지 않는다', () => {
+    const forbidden = FORBIDDEN_KEYS.map((k) => k.toLowerCase());
+    for (const key of [profileKeys.strategySetBase('p').split(':').at(-1)!, 'v1', 'v2']) expect(forbidden).not.toContain(key.toLowerCase());
   });
   it('저장은 새 키에만 한다', () => {
     const st = make();

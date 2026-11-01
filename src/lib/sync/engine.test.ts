@@ -153,7 +153,7 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     d.storage.set(profileKeys.strategies('p1'), { strategies: remote.strategies });
     const state = { profileId: 'p1', syncedRevision: 2, syncedHash: await docHash(remote) };
     await d.store.putState(state);
-    expect(d.local.read('p1')).toEqual(before);
+    expect(d.local.read('p1')).toMatchObject({ strategies: [{ name: remote.strategies[0].name }] });
     expect(await docHash(before)).not.toBe(state.syncedHash);
 
     expect(before.v).toBe(2);
@@ -170,6 +170,29 @@ describe('전략 문서 버전과 옮기기(§8.3)', () => {
     ]);
     expect(await d.store.state('p1')).toEqual({ profileId: 'p1', syncedRevision: 3, syncedHash: await docHash(edited) });
     expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 3, doc: edited } });
+  });
+
+  it.each([false, true])('옛 탭이 받은 v1과 공유 확인 상태를 새 탭에서 다시 옮기고 낡은 v2를 PUT하지 않는다(시작 옮기기: %s)', async (migrate) => {
+    const d = await receiving();
+    await d.engine.pull();
+    const remote = doc();
+    remote.strategies[0].name = '다른 기기에서 고친 전략';
+    expect(await d.api.putProfile('p1', { opId: 'remote-2', expectedRevision: 1, doc: remote })).toEqual({ ok: true, data: { revision: 2 } });
+    d.storage.set(profileKeys.strategies('p1'), { strategies: remote.strategies });
+    await d.store.putState({ profileId: 'p1', syncedRevision: 2, syncedHash: await docHash(remote) });
+    const put = vi.spyOn(d.api, 'putProfile');
+    if (migrate) await d.engine.exclusive(() => migrateStrategies({ storage: d.storage, profiles: d.local.list(), store: d.store }));
+
+    await d.engine.syncNow();
+
+    const local = d.local.read('p1');
+    expect(local).toMatchObject({ v: 2, strategies: [{ name: remote.strategies[0].name }] });
+    expect(d.storage.get(profileKeys.strategySet('p1'), null)).toEqual({ strategies: local.strategies });
+    expect(put.mock.calls.filter(([id]) => id === 'p1')).toEqual([]);
+    expect(d.engine.status().conflicts).toEqual([]);
+    expect(await d.store.conflicts()).toEqual([]);
+    expect(await d.store.state('p1')).toEqual({ profileId: 'p1', syncedRevision: 2, syncedHash: await docHash(local) });
+    expect(await d.api.getProfile('p1')).toEqual({ ok: true, data: { revision: 2, doc: remote } });
   });
 
   it('새 키에서 실제로 고친 전략은 옛 키가 남아 있어도 v2로 PUT한다', async () => {

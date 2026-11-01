@@ -14,6 +14,8 @@ import type { Conflict, OutboxOp, ProfileSyncState, SyncStore } from './store';
 export interface LocalProfiles {
   list(): { id: string; name: string }[];
   read(id: string): ProfileDoc;
+  /** 옛 탭이 남긴 v1 확인 해시를 그 문서에서 옮긴 v2 해시로 앞당긴다. 실제 로컬 수정은 섞지 않는다. */
+  migrateSyncedHash?(id: string, hash: string): Promise<string | null>;
   /** 같은 ID에 쓴다. 없으면 추가한다. */
   write(id: string, doc: ProfileDoc): void;
   /** 지운다. 마지막 프로필이면 빈 기본 프로필을 먼저 만든다. */
@@ -194,6 +196,16 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
 
   // ── 큐에 넣기 ──────────────────────────────────────────
 
+  async function profileState(id: string): Promise<ProfileSyncState | undefined> {
+    const st = await store.state(id);
+    if (!st || st.deleted) return st;
+    const hash = await local.migrateSyncedHash?.(id, st.syncedHash);
+    if (!hash || hash === st.syncedHash) return st;
+    const next = { ...st, syncedHash: hash };
+    await store.putState(next);
+    return next;
+  }
+
   async function enqueueChanged(): Promise<void> {
     const conflicts = new Set((await store.conflicts()).map((c) => c.profileId));
     const ops = await store.ops();
@@ -201,7 +213,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       if (conflicts.has(p.id)) continue;
       const doc = local.read(p.id);
       const hash = await docHash(doc);
-      const st = await store.state(p.id);
+      const st = await profileState(p.id);
       const unsent = ops.filter((o) => o.profileId === p.id && o.sentAt === undefined);
       // 응답을 못 받은 업로드가 다른 내용이면, 그것이 다시 보내져 서버가 바뀐다. 지금 문서가 확인된 것과 같아도 뒤에 다시 올려야 한다.
       const sentOther = ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
@@ -288,7 +300,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const id = row.profileId;
       remoteIds.add(id);
       if (conflicts.has(id) || ops.some((o) => o.profileId === id && o.kind === 'delete')) continue;
-      const st = await store.state(id);
+      const st = await profileState(id);
 
       if (row.deletedAt !== null) {
         if (st?.deleted && st.syncedRevision >= row.revision) continue;
