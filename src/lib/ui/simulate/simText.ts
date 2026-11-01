@@ -124,6 +124,7 @@ export const replayDate = (d: string): string => `${dots(d)}(${WEEKDAY[kstWeekda
 export function tradeWhy(t: Trade): string {
   if (t.kind === 'buy') return `${t.reason} 매수`;
   if (t.kind === 'add') return '추가 매수';
+  if (t.kind === 'signalSell') return `${t.reason} 매도`;
   return t.reason.replace(/^(\d+단계 익절) (\d+)%$/, '$1($2% 매도)');
 }
 
@@ -133,24 +134,32 @@ export function tradeWhy(t: Trade): string {
 export const PRICE_BASIS_NOTE = '다음 거래일 기준';
 /** 분할 매수 끝나기 전(avgAfterScaleIn)이라 손절가가 없을 때 */
 export const STOP_PENDING_NOTE = '손절: 분할 매수 끝나면 정해져요';
+/** 손절을 끈 전략이라 손절가가 없을 때 */
+export const STOP_OFF_NOTE = '손절 꺼짐';
+/** 그날 종가 신호(조건 매도·기간 청산) → 다음 거래일 시가 매도 예약 */
+export const pendingSellText = (name: string, reason: string): string => `다음 거래일 시가에 팔아요: ${name} — ${reason}`;
+/** 기간 청산까지 남은 날. 다 찼으면 다음 거래일에 판다 */
+export const timeExitText = (heldDays: number, days: number): string =>
+  `보유 ${heldDays}거래일째 · ${days - heldDays > 0 ? `${days - heldDays}일 뒤 청산` : '다음 거래일 청산'}`;
 export const NO_HOLDINGS = '보유한 종목이 없어요';
 /** 그날 종가 신호 → 다음 거래일 시가 매수 예약 */
 export const pendingText = (name: string, reason: string): string => `다음 거래일 시가에 사요: ${name} — ${reason}`;
 
 export interface PriceMark {
   key: string;
-  kind: 'stop' | 'add' | 'avg' | 'take';
+  kind: 'stop' | 'trail' | 'add' | 'avg' | 'take';
   label: string;
   price: number;
   /** 막대 왼쪽에서의 위치(%) */
   left: number;
 }
 
-/** 가격 막대: 손절 · 다음 추가 · 평단 · 익절 눈금과 종가 점. 범위는 표시 가격(종가 포함)의 최소·최대에 여유 5% */
-export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'nextAdd' | 'avgPrice' | 'takes' | 'close'>): { marks: PriceMark[]; dot: number } {
+/** 가격 막대: 손절 · 트레일 · 다음 추가 · 평단 · 익절 눈금과 종가 점. 범위는 표시 가격(종가 포함)의 최소·최대에 여유 5% */
+export function priceMarks(h: Pick<HoldingFrame, 'stop' | 'trail' | 'nextAdd' | 'avgPrice' | 'takes' | 'close'>): { marks: PriceMark[]; dot: number } {
   const single = h.takes.length === 1 && h.takes[0].stage === 1;
   const raw: Omit<PriceMark, 'left'>[] = [
     ...(h.stop === null ? [] : [{ key: 'stop', kind: 'stop' as const, label: '손절', price: h.stop }]),
+    ...(h.trail === null ? [] : [{ key: 'trail', kind: 'trail' as const, label: '트레일', price: h.trail }]),
     ...(h.nextAdd === null ? [] : [{ key: 'add', kind: 'add' as const, label: '다음 추가', price: h.nextAdd }]),
     { key: 'avg', kind: 'avg' as const, label: '평단', price: h.avgPrice },
     ...h.takes.map((t) => ({ key: `take${t.stage}`, kind: 'take' as const, label: single ? '익절' : `익절 ${t.stage}`, price: t.price })),
@@ -215,7 +224,7 @@ export function nearMissText(nm: { maxDropPct: number; declineDays: number }, s:
   if (!p) return `가장 크게 빠진 때는 ${drop}였어요`;
   const { dropPct, days } = p.decline;
   if (dropPct.on && nm.maxDropPct < dropPct.value) return `고점 대비 가장 크게 빠진 때도 ${drop}라, 하락 조건(${dropPct.value}% 이상)에 닿지 않았어요`;
-  if (nm.declineDays > 0) return `충분히 떨어진 날은 ${nm.declineDays}일 있었지만, 그 뒤 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요`;
+  if (nm.declineDays > 0) return `충분히 떨어진 날은 ${nm.declineDays}일 있었지만, 그 뒤 반등 패턴 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요`;
   if (days.on) return `고점 뒤 하락이 ${days.value}거래일 이상 이어진 적이 없었어요`;
   return `가장 크게 빠진 때는 ${drop}였어요`;
 }

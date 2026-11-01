@@ -3,10 +3,10 @@
   // motion이면(하루만 움직였을 때) 새 보유 카드·새 체결 줄이 150ms 떠오른다. 아니면 duration 0이라 효과 없이 값만 바뀐다.
   // Svelte 5 전환은 기본이 local이라 {#if}/{:else} 분기가 새로 생길 때(보유 0→1, 체결 0→n) 돌지 않는다. 그래서 |global로 건다.
   import { fly } from 'svelte/transition';
-  import type { DayFrame, Skip, Trade } from '../../sim/types';
+  import type { DayFrame, Skip, Strategy, Trade } from '../../sim/types';
   import { fmtWon } from '../format';
   import HoldingCard from './HoldingCard.svelte';
-  import { NO_HOLDINGS, pendingText, replayDate, returnClass, skipReasonLabel, tradeWhy, trendReturn } from './simText';
+  import { NO_HOLDINGS, pendingSellText, pendingText, replayDate, returnClass, skipReasonLabel, tradeWhy, trendReturn } from './simText';
 
   let {
     frame,
@@ -14,6 +14,7 @@
     skipped,
     names,
     initial,
+    strategy,
     motion = false,
   }: {
     frame: DayFrame;
@@ -23,6 +24,7 @@
     skipped: Skip[];
     names: Record<string, string>;
     initial: number;
+    strategy: Strategy;
     motion?: boolean;
   } = $props();
 
@@ -56,11 +58,16 @@
   {:else}
     <ul class="cards" aria-label="보유 종목">
       {#each frame.holdings as h (h.symbol)}
-        <li in:fly|global={rise}><HoldingCard {h} name={nameOf(h.symbol)} {motion} /></li>
+        <li in:fly|global={rise}><HoldingCard {h} name={nameOf(h.symbol)} stopOn={strategy.rules.sell.stopLoss.on} timeExitDays={strategy.rules.sell.timeExit.on ? strategy.rules.sell.timeExit.days : null} {motion} /></li>
       {/each}
     </ul>
   {/if}
 
+  {#if frame.pendingSells.length > 0}
+    <ul class="lines" aria-label="다음 거래일 매도 예약">
+      {#each frame.pendingSells as p (p.symbol)}<li>{pendingSellText(nameOf(p.symbol), p.reason)}</li>{/each}
+    </ul>
+  {/if}
   {#if frame.pending.length > 0}
     <ul class="lines" aria-label="예약 매수">
       {#each frame.pending as p (p.symbol)}<li>{pendingText(nameOf(p.symbol), p.reason)}</li>{/each}

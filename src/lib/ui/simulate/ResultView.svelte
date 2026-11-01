@@ -232,7 +232,7 @@
     {#if canReplay && replay}
       <ReplayBar {replay} {dates} />
       {#if replay.touched && frame}
-        <DayPanel {frame} trades={dayTrades} skipped={daySkipped} names={meta.names} initial={meta.strategy.capital.initial} {motion} />
+        <DayPanel {frame} trades={dayTrades} skipped={daySkipped} names={meta.names} initial={meta.strategy.capital.initial} strategy={meta.strategy} {motion} />
       {:else}
         <button type="button" class="open-day" onclick={openDay}>그날 상황 보기</button>
       {/if}

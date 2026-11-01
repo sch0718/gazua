@@ -88,9 +88,11 @@ export interface HoldingFrame {
   value: number; // roundMoney(qty × close), equity 계산과 같은 값
   pnlPct: number; // (close / avgPrice − 1) × 100
   stop: number | null; // Position.stopPrice()
+  trail: number | null; // Position.trailPrice(), 다음 거래일 트레일 가격. 꺼지면 null
   nextAdd: number | null; // Position.nextAddPrice(), 그날 건너뛴 가격이어도 그대로
   takes: { stage: number; price: number }[]; // Position.takeLevels() 중 qty > 0
   openDate: string; // 이번 포지션의 첫 매수일
+  heldDays: number; // 시장 축 보유 거래일, 매수일 = 1(기간 청산과 같은 셈)
 }
 
 export interface DayFrame {
@@ -99,4 +101,5 @@ export interface DayFrame {
   value: number; // equity[i].strategy와 같음
   holdings: HoldingFrame[]; // 그룹 순서, 보유 중인 종목만
   pending: { symbol: string; reason: string }[]; // 그날 종가 신호 → 다음 거래일 시가 매수 예약
+  pendingSells: { symbol: string; reason: string }[]; // 그날 종가 → 다음 거래일 시가 매도 예약(조건 매도·기간 청산)
 }

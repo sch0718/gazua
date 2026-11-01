@@ -172,12 +172,14 @@ interface SymState {
 }
 
 /** 하루 끝 상태(설계 §2.1). 엔진 상태를 읽기만 하고, 가격은 반올림하지 않는다 */
-function dayFrame(date: string, cash: number, value: number, syms: SymState[]): DayFrame {
+function dayFrame(date: string, di: number, cash: number, value: number, syms: SymState[]): DayFrame {
   const holdings: HoldingFrame[] = [];
   const pending: DayFrame['pending'] = [];
+  const pendingSells: DayFrame['pendingSells'] = [];
   for (const st of syms) {
-    // 예약은 시가에 비우므로 하루 끝에 남은 것은 그날 종가 신호뿐이다
+    // 예약은 시가에 비우므로 하루 끝에 남은 것은 그날 종가 신호뿐이다(매도 예약은 봉이 없어 미룬 것도 남는다)
     if (st.pending) pending.push({ symbol: st.stock.symbol, reason: st.pending.reason });
+    if (st.pendingSell) pendingSells.push({ symbol: st.stock.symbol, reason: st.pendingSell.reason });
     const pos = st.pos;
     if (!pos || !st.rt) continue;
     const close = st.lastClose!;
@@ -189,15 +191,17 @@ function dayFrame(date: string, cash: number, value: number, syms: SymState[]): 
       value: roundMoney(pos.qty * close),
       pnlPct: (close / pos.avgPrice - 1) * 100,
       stop: pos.stopPrice(),
+      trail: pos.trailPrice(),
       nextAdd: pos.nextAddPrice(),
       takes: pos
         .takeLevels()
         .filter((t) => t.qty > 0)
         .map(({ stage, price }) => ({ stage, price })),
       openDate: st.rt.open,
+      heldDays: di - st.rt.openDay + 1,
     });
   }
-  return { date, cash, value, holdings, pending };
+  return { date, cash, value, holdings, pending, pendingSells };
 }
 
 export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult {
@@ -371,7 +375,7 @@ export function simulateCore(input: SimInput, opts: SimOptions = {}): CoreResult
     const value = roundMoney(wallet.cash + held);
     equity.push({ date, value, cash: wallet.cash });
     // 재생 기록: 그날 종가 처리를 마친 뒤의 상태를 읽기만 한다
-    if (timeline) timeline.push(dayFrame(date, wallet.cash, value, syms));
+    if (timeline) timeline.push(dayFrame(date, di, wallet.cash, value, syms));
   });
 
   const last = days.length - 1;

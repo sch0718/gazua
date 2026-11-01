@@ -3,7 +3,7 @@ import { newStrategy } from '../../sim/defaults';
 import { patternEntryOf } from '../../sim/patternBlock';
 import type { Watchlists } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { fmtReturnPct, money, nearMissText, priceMarks, replayDate, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, tradeWhy, trendReturn } from './simText';
+import { fmtReturnPct, money, nearMissText, pendingSellText, priceMarks, replayDate, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, timeExitText, tradeWhy, trendReturn } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -197,7 +197,7 @@ describe('nearMissText', () => {
     const x = s();
     patternEntryOf(x)!.decline.dropPct = { on: true, value: 10 };
     expect(nearMissText({ maxDropPct: 30, declineDays: 12 }, x)).toBe(
-      '충분히 떨어진 날은 12일 있었지만, 그 뒤 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요',
+      '충분히 떨어진 날은 12일 있었지만, 그 뒤 반등 패턴 ②의 사는 신호(연속 상승·돌파 등)가 한 번도 나오지 않았어요',
     );
   });
   it('③ 일수 조건 때문일 때', () => {
@@ -224,7 +224,7 @@ describe('재생 문구', () => {
   });
 
   it('priceMarks: 손절·다음 추가·평단·익절 순서, 범위는 표시 가격 최소·최대에 5% 여유, 점은 종가', () => {
-    const r = priceMarks({ stop: 95, nextAdd: 97, avgPrice: 100, takes: [{ stage: 1, price: 105 }, { stage: 2, price: 110 }], close: 102 });
+    const r = priceMarks({ trail: null, stop: 95, nextAdd: 97, avgPrice: 100, takes: [{ stage: 1, price: 105 }, { stage: 2, price: 110 }], close: 102 });
     expect(r.marks.map((m) => [m.kind, m.label, m.price])).toEqual([
       ['stop', '손절', 95],
       ['add', '다음 추가', 97],
@@ -239,9 +239,9 @@ describe('재생 문구', () => {
   });
 
   it('priceMarks: 손절·다음 추가가 없으면 빼고, 익절 단계가 1 하나면 라벨은 익절', () => {
-    const r = priceMarks({ stop: null, nextAdd: null, avgPrice: 100, takes: [{ stage: 1, price: 115 }], close: 100 });
+    const r = priceMarks({ trail: null, stop: null, nextAdd: null, avgPrice: 100, takes: [{ stage: 1, price: 115 }], close: 100 });
     expect(r.marks.map((m) => m.label)).toEqual(['평단', '익절']);
-    const late = priceMarks({ stop: 100, nextAdd: null, avgPrice: 100, takes: [{ stage: 3, price: 115 }], close: 100 });
+    const late = priceMarks({ trail: null, stop: 100, nextAdd: null, avgPrice: 100, takes: [{ stage: 3, price: 115 }], close: 100 });
     expect(late.marks.map((m) => m.label)).toEqual(['손절', '평단', '익절 3']);
   });
 });
@@ -253,5 +253,23 @@ describe('패턴 없는 v2 전략 문구', () => {
     x.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] }];
     expect(sectionSummary(x, 'entry', W, null)).toBe('조건 묶음 1개');
     expect(nearMissText({ maxDropPct: 12.3, declineDays: 0 }, x)).toBe('가장 크게 빠진 때는 12.3%였어요');
+  });
+});
+
+describe('전략 빌더 문구', () => {
+  it('tradeWhy: 조건 매도는 「… 매도」, 트레일·기간 청산은 사유 그대로', () => {
+    const t = { date: '2024-01-02', symbol: 'S0', price: 1, qty: 1, fee: 0, tax: 0 };
+    expect(tradeWhy({ ...t, kind: 'signalSell', reason: '데드크로스 20/60' })).toBe('데드크로스 20/60 매도');
+    expect(tradeWhy({ ...t, kind: 'trail', reason: '트레일링 −10%' })).toBe('트레일링 −10%');
+    expect(tradeWhy({ ...t, kind: 'time', reason: '보유 20일 청산' })).toBe('보유 20일 청산');
+  });
+  it('priceMarks: 트레일 눈금', () => {
+    const m = priceMarks({ stop: null, nextAdd: null, avgPrice: 100, takes: [], close: 105, trail: 99 }).marks;
+    expect(m.find((x) => x.kind === 'trail')).toMatchObject({ label: '트레일', price: 99 });
+  });
+  it('예약 매도·기간 청산 문구', () => {
+    expect(pendingSellText('삼성전자', '보유 20일 청산')).toBe('다음 거래일 시가에 팔아요: 삼성전자 — 보유 20일 청산');
+    expect(timeExitText(3, 20)).toBe('보유 3거래일째 · 17일 뒤 청산');
+    expect(timeExitText(20, 20)).toBe('보유 20거래일째 · 다음 거래일 청산');
   });
 });
