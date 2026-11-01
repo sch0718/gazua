@@ -172,6 +172,44 @@ describe('후보 범위', () => {
 });
 
 describe('반등 신호 패턴', () => {
+  it('반등 패턴이 없는 전략은 표시를 붙여 비활성화하고, 처음에는 패턴이 있는 전략을 고른다', async () => {
+    const { app, onRun } = setup({ strategies: ['신고가', '반등'] });
+    const withoutPattern = structuredClone(app.strategies[0]);
+    withoutPattern.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+    app.setStrategies([withoutPattern, app.strategies[1]]);
+    await settle();
+    await fireEvent.click(screen.getByRole('radio', { name: '전략에서 불러오기' }));
+    const option = screen.getByRole('option', { name: '신고가 (반등 패턴 없음)' }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect((screen.getByRole('option', { name: '반등' }) as HTMLOptionElement).disabled).toBe(false);
+    await fireEvent.click(runBtn());
+    expect(onRun.mock.calls[0][0].conditions.rebound.pattern).toEqual({ from: 'strategy', strategyId: 's1' });
+  });
+
+  it('저장된 전략 모두에 반등 패턴이 없으면 전략에서 불러오기를 비활성화한다', async () => {
+    const { app } = setup({ strategies: ['신고가'] });
+    const s = structuredClone(app.strategies[0]);
+    s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+    app.setStrategies([s]);
+    await settle();
+    expect(screen.getByRole('radio', { name: '전략에서 불러오기' }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('참조 중인 전략의 패턴이 없어지면 실행을 막고 직접 정하기로 고칠 수 있다', async () => {
+    const { app, onRun } = setup({ strategies: ['신고가'], crit: (c) => (c.conditions.rebound.pattern = { from: 'strategy', strategyId: 's0' }) });
+    const s = structuredClone(app.strategies[0]);
+    s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+    app.setStrategies([s]);
+    await settle();
+    expect(screen.getByRole('radio', { name: '전략에서 불러오기' }).getAttribute('aria-disabled')).toBeNull();
+    await fireEvent.click(runBtn());
+    expect(onRun).not.toHaveBeenCalled();
+    expect(document.activeElement?.textContent).toContain('고른 전략에 반등 패턴이 없어요');
+    await fireEvent.click(screen.getByRole('radio', { name: '직접 정하기' }));
+    await fireEvent.click(runBtn());
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
   it('직접 정하기 (default) shows the same buy section as the strategy editor', () => {
     setup({ strategies: ['눌림목'] });
     expect(screen.getByRole('radio', { name: '직접 정하기' }).getAttribute('aria-checked')).toBe('true');

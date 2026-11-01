@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { newStrategy } from '../sim/defaults';
+import { defaultPatternEntry, newStrategy } from '../sim/defaults';
 import { patternEntryOf } from '../sim/patternBlock';
 import { sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import { tradingDates } from '../sim/testBars';
 import { kstEpoch } from '../time/kst';
+import { newCriteria } from './defaults';
 import { MissingPatternError, MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, stableJson, tradingAxis } from './precompute';
 import { lastUsablePair, macroKnownFrom, rollingBeta } from './macro';
 import { DATES, FIN_BASE, lcg, mkFile, mkFileV2, mkFileV3, mkFileV4, mkStock, NOW, offCriteria, olsSlope, reboundAt, reboundEntry, sampleStdPct, usWeekdays, withFin, withFlow, ymd } from './testData';
+
+it('resolveReboundEntry: 전략의 패턴 블록, 없으면 MissingPatternError', () => {
+  const c = newCriteria(0, null);
+  c.conditions.rebound = { on: true, withinDays: 10, pattern: { from: 'strategy', strategyId: 's1' } };
+  const s = { ...newStrategy(0, null), id: 's1' };
+  expect(resolveReboundEntry(c, [s])).toEqual(defaultPatternEntry());
+  s.rules.buy = [{ conds: [{ kind: 'newHigh', days: 20 }] }];
+  expect(() => resolveReboundEntry(c, [s])).toThrow(MissingPatternError);
+  expect(() => resolveReboundEntry(c, [])).toThrow(MissingStrategyError);
+});
 
 describe('tradingAxis', () => {
   it('지수 날짜 ∪ 종목 날짜를 YYYY-MM-DD 오름차순으로 낸다', () => {

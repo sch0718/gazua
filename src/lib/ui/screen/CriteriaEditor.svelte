@@ -318,13 +318,14 @@
   // ── 반등 신호 패턴 ──
   const pattern = $derived(draft.conditions.rebound.pattern);
   const strategyIds = $derived(app.strategies.map((s) => s.id));
+  const withPattern = $derived(app.strategies.filter((s) => patternEntryOf(s) !== null));
   let customMemo: PatternEntry | null = untrack(() =>
     draft.conditions.rebound.pattern.from === 'custom' ? ($state.snapshot(draft.conditions.rebound.pattern.entry) as PatternEntry) : null,
   );
   function setPatternFrom(from: string) {
     if (from === pattern.from) return;
     if (from === 'strategy') {
-      const first = app.strategies[0];
+      const first = withPattern[0];
       if (!first) return;
       if (pattern.from === 'custom') customMemo = $state.snapshot(pattern.entry) as PatternEntry;
       for (const k of [...invalid.keys()]) if (k.startsWith('entry-')) invalid.delete(k); // 숨는 매수 칸의 틀린 글은 버린다
@@ -475,7 +476,7 @@
             value={pattern.from}
             onchange={setPatternFrom}
             options={[
-              { value: 'strategy', label: '전략에서 불러오기', disabled: app.strategies.length === 0 && pattern.from !== 'strategy' },
+              { value: 'strategy', label: '전략에서 불러오기', disabled: withPattern.length === 0 && pattern.from !== 'strategy' },
               { value: 'custom', label: '직접 정하기' },
             ]}
           />
@@ -493,7 +494,8 @@
             >
               {#if !known}<option value="" disabled selected>지워진 전략이에요. 다시 골라 주세요</option>{/if}
               {#each app.strategies as s (s.id)}
-                <option value={s.id} selected={known && s.id === pattern.strategyId}>{s.name}</option>
+                {@const ok = patternEntryOf(s) !== null}
+                <option value={s.id} disabled={!ok} selected={known && s.id === pattern.strategyId}>{s.name}{ok ? '' : ' (반등 패턴 없음)'}</option>
               {/each}
             </select>
           {:else if pattern.from === 'custom'}

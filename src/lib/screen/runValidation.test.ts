@@ -9,8 +9,8 @@ import { simulate } from '../sim/simulate';
 import type { PatternEntry, SimResult, Strategy } from '../sim/types';
 import { addDays } from '../time/kst';
 import { newCriteria } from './defaults';
-import { rebalanceDates, tradingAxis } from './precompute';
-import { errorCode, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
+import { MissingPatternError, rebalanceDates, tradingAxis } from './precompute';
+import { errorCode, ERROR_TEXT, preview, runValidation, ValidationError, type ValidationResult } from './runValidation';
 import type { Basket } from './baskets';
 import { macroKnownFrom } from './macro';
 import { NOW } from './testData';
@@ -41,6 +41,27 @@ function run(c: SelectionCriteria, strategies: Strategy[] = [], data = fixture, 
 const DATES = rebalanceDates(tradingAxis(fixture), { from: '2025-10-16', to: '2026-10-15' }, 'monthly');
 
 afterEach(() => vi.mocked(simulate).mockClear());
+
+it('errorCode: 패턴 블록 없음은 missing-pattern', () => {
+  expect(errorCode(new MissingPatternError())).toBe('missing-pattern');
+  expect(ERROR_TEXT['missing-pattern']).toBe('반등 패턴에 고른 전략에 반등 패턴이 없어요');
+});
+
+it('② 균등 배분은 누적 종목 수 대신 한 번에 고르는 수로 총자산을 나눈다', () => {
+  const s = newStrategy(NOW, null);
+  s.sizing = { mode: 'equal', pct: 10 };
+  const c = crit((c) => {
+    c.trading.strategyId = s.id;
+    c.rank.take = 4;
+    c.rank.by = 'return';
+  });
+  const equal = run(c, [s]);
+  expect(new Set(equal.rebalances.flatMap((r) => r.picked.map((p) => p.symbol))).size).toBeGreaterThan(4);
+  expect(equal.trading!.trades).toBeGreaterThan(0);
+  expect(s.sizing).toEqual({ mode: 'equal', pct: 10 });
+  s.sizing = { mode: 'equityPct', pct: 25 };
+  expect(equal.trading).toEqual(run(c, [s]).trading);
+});
 
 describe('runValidation', () => {
   it('결과 모양: 재선정·오늘 선별·①·지수·비교 종목·시장별·해석 메모', () => {
