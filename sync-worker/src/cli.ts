@@ -2,6 +2,7 @@
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
 import { base64url, errorBody, HttpError, json, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from './env';
+import type { AuthContext } from './session';
 
 export const CLI_GRANT_TTL = 10 * 60 * 1000;
 export const POLL_INTERVAL_MS = 5000;
@@ -123,4 +124,29 @@ export function cliEntry(req: Request, url: URL): string | null {
 export async function handleCli(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
   void url;
   return createDevice(req, env, deps, await readJson(req, 4096));
+}
+
+/**
+ * 앱 세션 사용자가 코드를 확인(approve 없음: 조회만)하거나 승인·거절한다.
+ * 없음·만료·이미 처리된 코드는 모두 422 invalid-code(어느 경우인지 알려 주지 않는다).
+ */
+export async function approveCli(env: SyncEnv, deps: SyncDeps, ctx: AuthContext, body: unknown) {
+  const b = isRecord(body) ? body : {};
+  if (typeof b.userCode !== 'string') throw new HttpError(422, 'invalid', { path: 'userCode' });
+  const code = normalizeUserCode(b.userCode);
+  if (code === null) throw new HttpError(422, 'invalid-code');
+  if (b.approve !== undefined && typeof b.approve !== 'boolean') throw new HttpError(422, 'invalid', { path: 'approve' });
+  const now = deps.now();
+  const row = await env.DB.prepare(
+    `SELECT id, label, created_at AS createdAt, geo FROM cli_grants WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
+  )
+    .bind(code, now)
+    .first<{ id: string; label: string; createdAt: number; geo: string | null }>();
+  if (!row) throw new HttpError(422, 'invalid-code');
+  if (b.approve === undefined) return { label: row.label, createdAt: row.createdAt, geo: row.geo };
+  const r = await env.DB.prepare(`UPDATE cli_grants SET status = ?, user_id = ? WHERE id = ? AND status = 'pending' AND expires_at > ?`)
+    .bind(b.approve ? 'approved' : 'denied', ctx.userId, row.id, now)
+    .run();
+  if (r.meta.changes === 0) throw new HttpError(422, 'invalid-code');
+  return { label: row.label, createdAt: row.createdAt };
 }

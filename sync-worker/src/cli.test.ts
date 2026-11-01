@@ -190,3 +190,74 @@ describe('POST /v1/cli/device', () => {
     expect((await j(await device(h, '203.0.113.6'))).body.userCode).toBe('HHHH-HHHH');
   });
 });
+
+describe('POST /v1/cli/approve', () => {
+  async function pending(h: Harness, cf?: { country?: string; city?: string }) {
+    const me = await h.login();
+    const d = (await j(await device(h, '203.0.113.5', 'gazua@macbook', cf))).body;
+    return { me, d };
+  }
+
+  it('조회는 상태를 바꾸지 않고 label·createdAt·geo를 돌려준다', async () => {
+    const h = harness();
+    const { me, d } = await pending(h, { country: 'KR', city: 'Seoul' });
+    const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode }));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now, geo: 'KR · Seoul' });
+    expect(rows(h, 'SELECT status, user_id FROM cli_grants')).toEqual([{ status: 'pending', user_id: null }]);
+  });
+
+  it('소문자·하이픈 없는 코드도 받는다. geo가 없으면 null', async () => {
+    const h = harness();
+    const { me, d } = await pending(h);
+    const typed = (d.userCode as string).replace('-', '').toLowerCase();
+    const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: typed }));
+    expect(r.body.geo).toBeNull();
+  });
+
+  it('approve:true는 approved + 승인한 사용자를 기록, 응답은 {label, createdAt}', async () => {
+    const h = harness();
+    const { me, d } = await pending(h);
+    const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true }));
+    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now });
+    const userId = (rows(h, 'SELECT id FROM users')[0] as { id: string }).id;
+    expect(rows(h, 'SELECT status, user_id FROM cli_grants')).toEqual([{ status: 'approved', user_id: userId }]);
+  });
+
+  it('approve:false는 denied', async () => {
+    const h = harness();
+    const { me, d } = await pending(h);
+    expect((await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: false })).status).toBe(200);
+    expect(rows(h, 'SELECT status FROM cli_grants')).toEqual([{ status: 'denied' }]);
+  });
+
+  it('없는 코드·틀린 모양·이미 처리·만료는 422 invalid-code', async () => {
+    const h = harness();
+    const { me, d } = await pending(h);
+    for (const userCode of ['ZZZZ-ZZZZ', 'abc', 'AEIO-UAEI', '']) {
+      const r = await j(await me.as('POST', '/v1/cli/approve', { userCode }));
+      expect(r).toMatchObject({ status: 422, body: { error: 'invalid-code' } });
+    }
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true });
+    expect((await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: false })).status).toBe(422);
+    expect((await me.as('POST', '/v1/cli/approve', { userCode: d.userCode })).status).toBe(422);
+    const h2 = harness();
+    const p2 = await pending(h2);
+    h2.clock.now += 600_000;
+    expect((await p2.me.as('POST', '/v1/cli/approve', { userCode: p2.d.userCode, approve: true })).status).toBe(422);
+  });
+
+  it('approve가 불리언이 아니면 422 invalid', async () => {
+    const h = harness();
+    const { me, d } = await pending(h);
+    const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: 'yes' }));
+    expect(r).toMatchObject({ status: 422, body: { error: 'invalid' } });
+  });
+
+  it('앱 세션 없이는 승인하지 못한다', async () => {
+    const h = harness();
+    const d = (await j(await device(h))).body;
+    expect((await h.call('POST', '/v1/cli/approve', { body: { userCode: d.userCode, approve: true } })).status).toBe(401);
+    expect(rows(h, 'SELECT status FROM cli_grants')).toEqual([{ status: 'pending' }]);
+  });
+});
