@@ -16,6 +16,10 @@ import type { AuthClient } from './auth';
 import { createSyncController, describeFail, SHARE_TOO_LARGE_TEXT, type SyncController } from './controller.svelte';
 import { createMemorySyncStore, type SyncStore } from './store';
 import { SESSION_HEADER } from './api';
+import { APP_OUTDATED_CODE } from './dto';
+import { docHash } from './hash';
+import { buildProfileDoc, profileDocBase } from './profileDoc';
+import { profileKeys } from '../state/profileStore';
 
 const CONFIG = { apiUrl: SYNC_BASE, social: null, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
 
@@ -54,6 +58,21 @@ async function setup(s: TestServer, opts: { auth?: AuthClient & { signedIn: bool
 }
 
 describe('SyncController', () => {
+  it('attach에서 첫 동기화 전에 옮기기 해시를 앞당긴다', async () => {
+    const s = testServer();
+    const storage = createSafeStorage(memoryBacking());
+    const store = createMemorySyncStore();
+    const app = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache() });
+    const id = app.meta.activeProfileId;
+    const name = app.meta.profiles.find((p) => p.id === id)!.name;
+    storage.set(profileKeys.strategies(id), { strategies: [] });
+    await store.putState({ profileId: id, syncedRevision: 7, syncedHash: await docHash({ v: 1, ...profileDocBase(storage, id, name), strategies: [] }) });
+    const sync = createSyncController({ config: CONFIG, storage, auth: fakeAuth(s), store: async () => store, fetchImpl: s.fetch });
+    cleanups.push(() => { sync.destroy(); app.destroy(); });
+    await sync.attach(app);
+    expect(await store.state(id)).toEqual({ profileId: id, syncedRevision: 7, syncedHash: await docHash(buildProfileDoc(storage, id, name)) });
+  });
+
   it('설정이 없으면 아무것도 하지 않는다', async () => {
     const sync: SyncController = createSyncController({ config: null, storage: createSafeStorage(memoryBacking()) });
     expect(sync.configured).toBe(false);
@@ -299,6 +318,10 @@ describe('SyncController', () => {
 });
 
 describe('describeFail', () => {
+  it('APP_OUTDATED_CODE는 앱 갱신 안내로 보인다', () => {
+    expect(describeFail({ ok: false, kind: 'invalid', code: APP_OUTDATED_CODE })).toBe('앱을 새로 고쳐 주세요. 새 버전에서 만든 데이터가 있어요.');
+  });
+
   it('too-large는 공유 요청이면 공유 문구, 프로필 동기화면 프로필 문구', () => {
     const f = { ok: false, kind: 'invalid', code: 'too-large' } as const;
     expect(describeFail(f, 'share')).toBe('공유 내용이 너무 커요(100 KB). 기간이나 종목을 줄여 주세요');

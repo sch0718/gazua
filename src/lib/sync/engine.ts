@@ -5,7 +5,7 @@
 // - 원격 적용은 같은 ID를 쓰고, 이 기기의 기존 프로필을 동의 없이 덮어쓰지 않는다.
 import type { ApiFail, SyncApi } from './api';
 import { docName } from './profileDoc';
-import type { ProfileDoc } from './dto';
+import { APP_OUTDATED_CODE, PROFILE_DOC_VERSION, type ProfileDoc } from './dto';
 import { docHash } from './hash';
 import type { Conflict, OutboxOp, ProfileSyncState, SyncStore } from './store';
 
@@ -107,6 +107,8 @@ export function suffixed(name: string, suffix: string): string {
   return docName(`${[...docName(name)].slice(0, room).join('').trim()}${suffix}`);
 }
 const MAX_BACKOFF = 5 * 60 * 1000;
+/** 이 앱보다 높은 버전 문서를 만났을 때의 안내 */
+export const APP_OUTDATED_TEXT = '앱을 새로 고쳐 주세요. 새 버전에서 만든 데이터가 있어요.';
 /** 두 문서가 같은지(동기, 그 사이 다른 코드가 끼어들지 않는다). */
 const sameDoc = (a: ProfileDoc, b: ProfileDoc) => JSON.stringify(a) === JSON.stringify(b);
 /** 응답을 못 받은 업로드 중 지금 문서와 다른 것이 있나. 있으면 마지막 확인 해시만으로 "안 바뀜"이라 보면 안 된다. */
@@ -247,6 +249,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           });
         } else if (r.kind === 'invalid') {
           await store.putState({ ...(st ?? { profileId: op.profileId, syncedRevision: 0, syncedHash: '' }), rejectedHash: op.hash, rejectedCode: r.code });
+          if (r.code === APP_OUTDATED_CODE && !status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
         } else {
           return failed(r);
         }
@@ -305,13 +308,23 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const got = await api.getProfile(id);
       if (!got.ok) {
         if (got.kind === 'gone' || got.kind === 'not-found') continue;
+        if (got.kind === 'invalid' && got.code === APP_OUTDATED_CODE) {
+          if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+          continue;
+        }
         return failed(got);
+      }
+      // 이 앱보다 높은 버전 문서는 쓰지 않는다(Worker가 막지만 한 번 더, §8.3).
+      if (typeof got.data.doc.v !== 'number' || got.data.doc.v > PROFILE_DOC_VERSION) {
+        if (!status.notices.includes(APP_OUTDATED_TEXT)) emit({ notices: [...status.notices, APP_OUTDATED_TEXT] });
+        continue;
       }
       const remoteHash = await docHash(got.data.doc);
       if (!localIds.has(id)) {
         local.write(id, got.data.doc);
         if (local.durable && !local.durable()) return 'error';
-        await setSynced(id, got.data.revision, remoteHash);
+        // v1을 옮긴 것만으로 올리지 않게 적용한 로컬 v2의 해시를 확인한다(§8.3).
+        await setSynced(id, got.data.revision, got.data.doc.v === 1 ? await docHash(local.read(id)) : remoteHash);
         continue;
       }
       const doc = local.read(id);
@@ -336,8 +349,10 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
           local.write(id, got.data.doc);
           if (local.durable && !local.durable()) return 'error';
         }
+        // 대기 작업을 정리하는 동안 생긴 실제 수정을 확인 해시에 섞지 않는다.
+        const syncedHash = got.data.doc.v === 1 ? await docHash(local.read(id)) : remoteHash;
         await dropOps(id);
-        await setSynced(id, got.data.revision, remoteHash);
+        await setSynced(id, got.data.revision, syncedHash);
         continue;
       }
       await dropOps(id);
@@ -488,7 +503,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
             }
             local.write(profileId, c.remote);
             if (unsaved()) return stop();
-            await setSynced(profileId, c.remoteRevision, remoteHash);
+            await setSynced(profileId, c.remoteRevision, c.remote.v === 1 ? await docHash(local.read(profileId)) : remoteHash);
           } else return;
         } else {
           if (choice === 'restore') {

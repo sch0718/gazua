@@ -4,6 +4,21 @@ import { deviceApi, testServer } from '../../../sync-worker/test/server';
 import { doc, docV2 } from '../../../sync-worker/test/docs';
 
 describe('createSyncApi', () => {
+  it('프로필 요청에 docVersion=2를 붙인다(§8.3)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}'));
+    const api = createSyncApi('https://sync.example.test', { idToken: async () => 't', sessionId: async () => 's' }, fetchImpl);
+    await Promise.allSettled([
+      api.getProfile('p1'),
+      api.putProfile('p1', { opId: 'o', expectedRevision: 0, doc: {} as never }),
+      api.deleteProfile('p1', { opId: 'o', expectedRevision: 1 }),
+      api.restoreProfile('p1', 'o'),
+      api.getRevision('p1', 3),
+    ]);
+    const urls = vi.mocked(fetchImpl as typeof fetch).mock.calls.map(([u]) => String(u));
+    expect(urls).toHaveLength(5);
+    for (const u of urls) expect(new URL(u).searchParams.get('docVersion')).toBe('2');
+  });
+
   it('지정한 세션만 철회할 때 현재 세션과 Google 토큰을 보내지 않아요', async () => {
     const creds = { idToken: vi.fn(async () => 'current-token'), sessionId: vi.fn(async () => 'current-session') };
     const fetchImpl = vi.fn(async () => new Response('{}'));

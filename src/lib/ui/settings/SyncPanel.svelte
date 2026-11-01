@@ -2,7 +2,7 @@
   // 설정 › 동기화(제안서 7절 1단계): Google·카카오·네이버 로그인, 동기화 켜기·상태, 충돌 사본 고르기. 기기·삭제한 프로필·과거 버전·내 공유는 SyncManage.
   import type { App } from '../../state/app.svelte';
   import type { SyncController } from '../../sync/controller.svelte';
-  import type { ProfileDoc } from '../../sync/dto';
+  import { APP_OUTDATED_CODE, type ProfileDoc } from '../../sync/dto';
   import type { Resolution } from '../../sync/engine';
   import type { Conflict } from '../../sync/store';
   import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
@@ -135,7 +135,7 @@
     {#each status.notices as n, i (i)}
       <p class="warn">{n} <button type="button" class="link" onclick={() => sync.clearNotices()}>닫기</button></p>
     {/each}
-    {#each status.rejected as r (r.profileId)}
+    {#each status.rejected.filter((r) => r.code !== APP_OUTDATED_CODE) as r (r.profileId)}
       <p class="warn">「{profileName(r.profileId, '프로필')}」을 서버가 받지 않았어요({r.code === 'too-large' ? '256 KiB 초과' : r.code}). 줄이면 다시 보내요.</p>
     {/each}
     {#if status.enabled}
