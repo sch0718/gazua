@@ -1,5 +1,7 @@
 // 시뮬레이션 화면의 문구. 목업의 한 줄 요약과 같은 말투로 쓴다.
 import { patternEntryOf } from '../../sim/patternBlock';
+import { condReason } from '../../sim/rules';
+import type { PatternEntry } from '../../sim/strategyV2';
 import { resolveSymbols, type Issue } from '../../sim/validate';
 import type { HoldingFrame, Skip, Strategy, Trade } from '../../sim/types';
 import { addDays, kstDate, kstWeekday } from '../../time/kst';
@@ -47,10 +49,8 @@ export function money(n: number): string {
   return `${parts.join(' ')} 원`;
 }
 
-function entrySummary(s: Strategy): string {
-  const p = patternEntryOf(s);
-  if (!p) return `조건 묶음 ${s.rules.buy.length}개`;
-  const { decline, triggers: t, filter } = p;
+export function patternSummary(e: PatternEntry): string {
+  const { decline, triggers: t, filter } = e;
   const down: string[] = [];
   if (decline.dropPct.on) down.push(`고점 대비 ${decline.dropPct.value}% 하락`);
   if (decline.days.on) down.push(`${decline.days.value}일 하락`);
@@ -67,18 +67,41 @@ function entrySummary(s: Strategy): string {
 /** 손절 기준 표시 문구(편집 세그먼트와 같은 말) */
 export const STOP_BASIS_LABEL = { avgAfterScaleIn: '분할 후 평단', avgAlways: '매번 평단', firstBuy: '첫 매수가' } as const;
 
-function exitSummary(s: Strategy): string {
-  const { stages: takeProfit, afterFirstTake } = s.rules.sell.takeProfit;
-  const { stopLoss } = s.rules.sell;
-  const n = takeProfit.length;
-  // 마지막 단계는 남은 것 전부: 단계가 하나면 전량, 여럿이면 나머지
-  const amount = (sellPct: number, i: number) => (i === n - 1 ? (n === 1 ? '전량' : '나머지') : `${sellPct}%`);
-  const tp = n ? '익절 ' + takeProfit.map((t, i) => `+${t.pct}%에 ${amount(t.sellPct, i)}`).join(' → ') : '익절 없음';
+/** 40자(공유 사유·카드 줄 상한)를 넘으면 39자 + … */
+export const cutText = (text: string, max = 40): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+/** 매수 조건 한 줄: 묶음은 「또는」, 조건은 「+」. 패턴 블록 하나뿐이면 지금 패턴 문구 */
+export function buyRulesSummary(s: Strategy): string {
+  const g = s.rules.buy;
+  if (g.length === 0) return '사는 조건 없음';
+  if (g.length === 1 && g[0].conds.length === 1 && g[0].conds[0].kind === 'pattern') return patternSummary(g[0].conds[0].entry);
+  return g.map((x) => x.conds.map(condReason).join(' + ') || '빈 묶음').join(' 또는 ');
+}
+
+/** 매도 한 줄: 켜진 것만 「·」로 */
+export function sellRulesSummary(s: Strategy): string {
+  const { takeProfit, stopLoss, trailing, timeExit, signal } = s.rules.sell;
+  const parts: string[] = [];
+  if (takeProfit.on) {
+    const n = takeProfit.stages.length;
+    // 마지막 단계는 남은 것 전부: 단계가 하나면 전량, 여럿이면 나머지
+    const amount = (sellPct: number, i: number) => (i === n - 1 ? (n === 1 ? '전량' : '나머지') : `${sellPct}%`);
+    parts.push('익절 ' + takeProfit.stages.map((t, i) => `+${t.pct}%에 ${amount(t.sellPct, i)}`).join(' → '));
+  }
   // 분할 매수를 끄면 세 기준이 같으므로 기준을 뺀다
-  const basis = s.scaleIn.on ? ` ${STOP_BASIS_LABEL[stopLoss.basis]}` : '';
-  let out = `${tp} · 손절 ${MINUS}${stopLoss.pct}%${basis}`;
-  if (afterFirstTake === 'breakeven') out += ' · 1단계 뒤 본전 손절';
-  return out;
+  if (stopLoss.on) parts.push(`손절 ${MINUS}${stopLoss.pct}%${s.scaleIn.on ? ` ${STOP_BASIS_LABEL[stopLoss.basis]}` : ''}`);
+  if (takeProfit.on && takeProfit.afterFirstTake === 'breakeven') parts.push('1단계 뒤 본전 손절');
+  if (trailing.on) parts.push(`트레일링 ${MINUS}${trailing.pct}%`);
+  if (timeExit.on) parts.push(`${timeExit.days}일 청산`);
+  if (signal.on) parts.push(`조건 매도 ${signal.groups.length}묶음`);
+  return parts.length ? parts.join(' · ') : '파는 규칙 없음';
+}
+
+/** 자금 배분 문구(§10.6) */
+export function sizingText(s: Strategy): string {
+  const { mode, pct } = s.sizing;
+  if (mode === 'equal') return '종목마다 같은 금액';
+  return `회당 ${mode === 'fixed' ? '처음 자금' : mode === 'equityPct' ? '총자산' : '남은 현금'} ${pct}%`;
 }
 
 /** 편집 화면에서 접힌 구역의 한 줄 요약. benchName은 지정 종목의 이름(모르면 null이라 종목 코드). */
@@ -89,13 +112,13 @@ export function sectionSummary(s: Strategy, section: Issue['section'], w: Watchl
     case 'period':
       return `${dots(s.period.from)} ~ ${dots(s.period.to)}`;
     case 'capital':
-      return `${money(s.capital.initial)} · 회당 ${s.sizing.pct}%`;
+      return `${money(s.capital.initial)} · ${sizingText(s)}`;
     case 'entry':
-      return entrySummary(s);
+      return buyRulesSummary(s);
     case 'scaleIn':
       return s.scaleIn.on ? `${s.scaleIn.stepPct}% 내릴 때마다 최대 ${s.scaleIn.maxAdds}번 더` : '끔';
     case 'exit':
-      return exitSummary(s);
+      return sellRulesSummary(s);
     case 'benchmarks': {
       const name = s.benchmarks.symbol ? (benchName ?? s.benchmarks.symbol) : null;
       return ['같은 종목 사서 보유', s.benchmarks.index, name].filter(Boolean).join(' · ');

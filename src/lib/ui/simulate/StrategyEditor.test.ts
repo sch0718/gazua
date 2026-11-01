@@ -73,11 +73,11 @@ describe('StrategyEditor 구역', () => {
     expect(saved(app).rules.buy[0].conds).toEqual([{ kind: 'rsi', period: 14, op: 'below', level: 30 }]);
   });
 
-  it('패턴 블록이 없으면 묶음 수를 보여 주고 패턴 칸을 열지 않는다', async () => {
+  it('패턴 블록이 없으면 매수 조건을 보여 주고 패턴 칸을 열지 않는다', async () => {
     setup((s) => {
       s.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] }];
     });
-    expect(screen.getByText('조건 묶음 1개')).toBeTruthy();
+    expect(screen.getByText('RSI14 30 아래')).toBeTruthy();
     await openSection('매수');
     expect(screen.queryByRole('radiogroup', { name: '전 고점' })).toBeNull();
   });

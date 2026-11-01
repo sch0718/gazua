@@ -3,7 +3,7 @@ import { newStrategy } from '../../sim/defaults';
 import { patternEntryOf } from '../../sim/patternBlock';
 import type { Watchlists } from '../../state/schema';
 import { kstEpoch } from '../../time/kst';
-import { fmtReturnPct, money, nearMissText, pendingSellText, priceMarks, replayDate, resultHeadline, returnClass, sectionSummary, skipReasonLabel, startsLate, strategyLine, timeExitText, tradeWhy, trendReturn } from './simText';
+import { buyRulesSummary, cutText, fmtReturnPct, money, nearMissText, pendingSellText, priceMarks, replayDate, resultHeadline, returnClass, sectionSummary, sellRulesSummary, sizingText, skipReasonLabel, startsLate, strategyLine, timeExitText, tradeWhy, trendReturn } from './simText';
 
 const NOW = Date.UTC(2026, 9, 12, 1); // 2026-10-12 KST
 const W: Watchlists = {
@@ -56,7 +56,7 @@ describe('sectionSummary (default strategy)', () => {
   it('universe: group name · count', () => expect(sum('universe')).toBe('반도체 · 2종목'));
   it('period and capital', () => {
     expect(sum('period')).toBe('2023.10.11 ~ 2026.10.11');
-    expect(sum('capital')).toBe('1,000만 원 · 회당 10%');
+    expect(sum('capital')).toBe('1,000만 원 · 회당 처음 자금 10%');
   });
   it('entry', () => expect(sum('entry')).toBe('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 B 돌파'));
   it('scaleIn off', () => expect(sum('scaleIn')).toBe('끔'));
@@ -86,7 +86,7 @@ describe('sectionSummary (default strategy)', () => {
     ];
     y.rules.sell.stopLoss = { on: true, pct: 7, basis: 'firstBuy' };
     y.benchmarks.symbol = null;
-    expect(sectionSummary(y, 'capital', W, null)).toBe('1,500만 원 · 회당 10%');
+    expect(sectionSummary(y, 'capital', W, null)).toBe('1,500만 원 · 회당 처음 자금 10%');
     expect(sectionSummary(y, 'entry', W, null)).toBe(
       '7일 하락 뒤 → A 돌파 또는 20일선 돌파 또는 5·20 골든크로스 · 60일선 위',
     );
@@ -248,10 +248,10 @@ describe('재생 문구', () => {
 
 
 describe('패턴 없는 v2 전략 문구', () => {
-  it('매수 묶음 수와 일반 하락 문구를 보여 준다', () => {
+  it('매수 조건과 일반 하락 문구를 보여 준다', () => {
     const x = s();
     x.rules.buy = [{ conds: [{ kind: 'rsi', period: 14, op: 'below', level: 30 }] }];
-    expect(sectionSummary(x, 'entry', W, null)).toBe('조건 묶음 1개');
+    expect(sectionSummary(x, 'entry', W, null)).toBe('RSI14 30 아래');
     expect(nearMissText({ maxDropPct: 12.3, declineDays: 0 }, x)).toBe('가장 크게 빠진 때는 12.3%였어요');
   });
 });
@@ -271,5 +271,44 @@ describe('전략 빌더 문구', () => {
     expect(pendingSellText('삼성전자', '보유 20일 청산')).toBe('다음 거래일 시가에 팔아요: 삼성전자 — 보유 20일 청산');
     expect(timeExitText(3, 20)).toBe('보유 3거래일째 · 17일 뒤 청산');
     expect(timeExitText(20, 20)).toBe('보유 20거래일째 · 다음 거래일 청산');
+  });
+});
+
+describe('전략 요약(§10.6)', () => {
+  const base = () => newStrategy(0, null);
+  it('매수: 패턴 블록만 있으면 지금 문구, 묶음은 「또는」, 조건은 「+」', () => {
+    const s = base();
+    expect(buyRulesSummary(s)).toBe('고점 대비 10% 하락 뒤 → 3일 연속 상승 또는 B 돌파');
+    s.rules.buy = [
+      { conds: [{ kind: 'rsi', period: 14, level: 30, op: 'crossUp' }, { kind: 'maPrice', period: 120, side: 'above' }] },
+      { conds: [{ kind: 'newHigh', days: 60 }] },
+    ];
+    expect(buyRulesSummary(s)).toBe('RSI14 30 상향 돌파 + 종가 120일선 위 또는 60일 신고가');
+    s.rules.buy = [];
+    expect(buyRulesSummary(s)).toBe('사는 조건 없음');
+  });
+  it('매도: 켜진 것만, 모두 꺼지면 「파는 규칙 없음」', () => {
+    const s = base();
+    expect(sellRulesSummary(s)).toBe('익절 +15%에 전량 · 손절 −5%');
+    s.rules.sell.trailing = { on: true, pct: 10 };
+    s.rules.sell.timeExit = { on: true, days: 20 };
+    s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maCross', short: 20, long: 60, dir: 'dead' }] }] };
+    expect(sellRulesSummary(s)).toBe('익절 +15%에 전량 · 손절 −5% · 트레일링 −10% · 20일 청산 · 조건 매도 1묶음');
+    s.rules.sell = { ...s.rules.sell, takeProfit: { ...s.rules.sell.takeProfit, on: false }, stopLoss: { ...s.rules.sell.stopLoss, on: false }, trailing: { on: false, pct: 10 }, timeExit: { on: false, days: 20 }, signal: { on: false, groups: [] } };
+    expect(sellRulesSummary(s)).toBe('파는 규칙 없음');
+  });
+  it('배분 문구', () => {
+    const s = base();
+    expect(sizingText(s)).toBe('회당 처음 자금 10%');
+    s.sizing = { mode: 'equityPct', pct: 5 };
+    expect(sizingText(s)).toBe('회당 총자산 5%');
+    s.sizing = { mode: 'cashPct', pct: 20 };
+    expect(sizingText(s)).toBe('회당 남은 현금 20%');
+    s.sizing = { mode: 'equal', pct: 10 };
+    expect(sizingText(s)).toBe('종목마다 같은 금액');
+  });
+  it('cutText: 40자를 넘으면 39자 + …', () => {
+    expect(cutText('가'.repeat(41))).toBe(`${'가'.repeat(39)}…`);
+    expect(cutText('가'.repeat(40))).toBe('가'.repeat(40));
   });
 });
