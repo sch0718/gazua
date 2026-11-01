@@ -65,6 +65,8 @@ export function parseHash(hash: string): Route | null {
       return { name: 'help' };
     }
   }
+  // gazua login의 일회성 동기화 구역 이동. hashFor는 #/settings를 유지한다.
+  if (/^#\/settings\/sync\/?$/.test(hash)) return { name: 'settings', section: 'sync' };
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };
   if (/^#\/onboarding\/?$/.test(hash)) return { name: 'onboarding' };
   return null;

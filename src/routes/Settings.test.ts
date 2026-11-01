@@ -8,6 +8,7 @@ import type { Settings as SettingsT } from '../lib/state/schema';
 import { kstEpoch } from '../lib/time/kst';
 import { dismissSnackbar } from '@sch0718/ui-svelte';
 import Settings from './Settings.svelte';
+import { fakeSync } from '../lib/ui/settings/testSync';
 
 const NOW = kstEpoch('2026-10-12', '10:00:00');
 const barEnd = createRawSnippet(() => ({ render: () => '<span></span>' }));
@@ -104,5 +105,24 @@ describe('Settings help', () => {
     expect(screen.getByText('메뉴에 처음 들어갈 때 안내가 다시 떠요')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '도움말 보기' }));
     expect(app.route).toEqual({ name: 'help' });
+  });
+});
+
+
+describe('Settings 동기화 구역', () => {
+  const account = { provider: 'google' as const, id: 'me@example.test', display: 'me@example.test' };
+  function setupSync(enabled: boolean) {
+    const app = makeTestApp({ groups: [{ id: 'g1', name: '내 관심', items: [] }], now: NOW });
+    apps.push(app);
+    app.navigate({ name: 'settings', section: 'sync' });
+    render(Settings, { app, barEnd, sync: fakeSync({ account, status: { enabled, phase: 'idle' } }) });
+  }
+  it('section이 sync이면 CLI 코드 칸에 초점을 둔다', async () => {
+    setupSync(true);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('CLI 코드')));
+  });
+  it('CLI 코드 칸이 없으면 구역 제목에 초점을 둔다', async () => {
+    setupSync(false);
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('동기화·공유'));
   });
 });

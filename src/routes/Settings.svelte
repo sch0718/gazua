@@ -32,8 +32,10 @@
     if (!section) return;
     const h = document.getElementById(SECTION_IDS[section]);
     if (!h) return;
-    h.scrollIntoView?.({ block: 'start' });
-    h.focus({ preventScroll: true });
+    // gazua login에서 왔으면 코드 입력 칸, 없으면 구역 제목에 초점을 둔다.
+    const target = (section === 'sync' ? document.getElementById('cli-code') : null) ?? h;
+    target.scrollIntoView?.({ block: 'start' });
+    target.focus({ preventScroll: true });
   });
 
   const THEMES = [

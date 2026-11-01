@@ -8,6 +8,7 @@
   import { isInAppBrowser, PROVIDER_NAMES, type LoginProvider } from '../../sync/social';
   import SyncManage from './SyncManage.svelte';
   import KeySync from './KeySync.svelte';
+  import CliConnect from './CliConnect.svelte';
 
   let { app, sync, userAgent = navigator.userAgent }: { app: App; sync: SyncController; userAgent?: string } = $props();
 
@@ -140,6 +141,7 @@
     {/each}
     {#if status.enabled}
       <KeySync {app} {sync} />
+      <CliConnect {sync} />
     {/if}
   {/if}
   {#if sync.error}

@@ -84,6 +84,19 @@ export interface ShareRow {
   expiresAt: number;
   revokedAt: number | null;
 }
+export interface CliApproveInfo {
+  label: string;
+  createdAt: number;
+  /** 조회 응답에만 있다. 요청 위치를 모르면 null */
+  geo?: string | null;
+}
+export interface CliTokenRow {
+  id: string;
+  label: string;
+  createdAt: number;
+  lastUsedAt: number;
+  expiresAt: number;
+}
 export interface SharedRead {
   kind: ShareKind;
   title: string;
@@ -109,6 +122,10 @@ export interface SyncApi {
   createShare(body: { sourceProfileId: string; kind: ShareKind; snapshot: ShareSnapshot; ttlDays: number }): Promise<ApiResult<{ id: string; capability: string; expiresAt: number }>>;
   listShares(): Promise<ApiResult<{ shares: ShareRow[] }>>;
   revokeShare(id: string): Promise<ApiResult<{ revoked: boolean }>>;
+  /** approve가 없으면 조회만, true/false면 승인·거절 */
+  cliApprove(userCode: string, approve?: boolean): Promise<ApiResult<CliApproveInfo>>;
+  cliTokens(): Promise<ApiResult<{ tokens: CliTokenRow[] }>>;
+  cliRevoke(id: string): Promise<ApiResult<{ revoked: boolean }>>;
   readShare(capability: string): Promise<ApiResult<SharedRead>>;
   listKeys(): Promise<ApiResult<{ keyVault: unknown; keyBlobs: unknown }>>;
   getKeyBlob(id: string): Promise<ApiResult<unknown>>;
@@ -158,6 +175,9 @@ export function createSyncApi(
     createShare: (body) => send('POST', '/v1/shares', { body }),
     listShares: () => send('GET', '/v1/shares'),
     revokeShare: (id) => send('DELETE', `/v1/shares/${enc(id)}`),
+    cliApprove: (userCode, approve) => send('POST', '/v1/cli/approve', { body: approve === undefined ? { userCode } : { userCode, approve } }),
+    cliTokens: () => send('GET', '/v1/cli/tokens'),
+    cliRevoke: (id) => send('DELETE', `/v1/cli/tokens/${enc(id)}`),
     readShare: (capability) =>
       send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),
     listKeys: () => send('GET', '/v1/keys'),

@@ -4,7 +4,7 @@ import { showSnackbar } from '@sch0718/ui-svelte';
 import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
-import { createSyncApi, type ApiFail, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
+import { createSyncApi, type ApiFail, type CliTokenRow, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
 import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
 import { APP_OUTDATED_TEXT, createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
@@ -112,6 +112,11 @@ export interface SyncAccount {
   display: string;
 }
 
+export type CliApproveResult =
+  | { ok: true; info: { label: string; createdAt: number; geo: string | null } }
+  | { ok: false; reason: 'invalid-code' | 'outdated' | 'error' };
+export type CliTokensResult = { ok: true; tokens: CliTokenRow[] } | { ok: false; reason: 'outdated' | 'error' };
+
 export interface SyncController {
   readonly configured: boolean;
   readonly providers: { google: boolean; kakao: boolean; naver: boolean };
@@ -150,6 +155,10 @@ export interface SyncController {
   shares(): Promise<ShareRow[] | null>;
   createShare(profileId: string, kind: ShareKind, snapshot: ShareSnapshot, ttlDays: number): Promise<{ url: string; expiresAt: number } | null>;
   revokeShare(id: string): Promise<boolean>;
+  /** 422 invalid-code·404(옛 Worker)는 배너 없이 사유로 돌려준다 */
+  cliApprove(userCode: string, approve?: boolean): Promise<CliApproveResult>;
+  cliTokens(): Promise<CliTokensResult>;
+  cliRevoke(id: string): Promise<boolean>;
   clearError(): void;
   clearNotices(): void;
   destroy(): void;
@@ -979,6 +988,32 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         return { url: `${location.origin}${location.pathname}#/s/${r.capability}`, expiresAt: r.expiresAt };
       }, null),
     revokeShare: (id) => guarded(async () => (api ? ok(await api.revokeShare(id)) !== null : false), false),
+    cliApprove: (userCode, approve) =>
+      guarded<CliApproveResult>(
+        async () => {
+          if (!api) return { ok: false, reason: 'error' };
+          const r = await api.cliApprove(userCode, approve);
+          if (r.ok) return { ok: true, info: { label: r.data.label, createdAt: r.data.createdAt, geo: r.data.geo ?? null } };
+          if (r.kind === 'invalid' && r.code === 'invalid-code') return { ok: false, reason: 'invalid-code' };
+          if (r.kind === 'not-found') return { ok: false, reason: 'outdated' };
+          ok(r); // 세션 실패·일반 오류는 기존 관리 요청과 같은 방식으로 처리한다.
+          return { ok: false, reason: 'error' };
+        },
+        { ok: false, reason: 'error' },
+      ),
+    cliTokens: () =>
+      guarded<CliTokensResult>(
+        async () => {
+          if (!api) return { ok: false, reason: 'error' };
+          const r = await api.cliTokens();
+          if (r.ok) return { ok: true, tokens: r.data.tokens };
+          if (r.kind === 'not-found') return { ok: false, reason: 'outdated' };
+          ok(r);
+          return { ok: false, reason: 'error' };
+        },
+        { ok: false, reason: 'error' },
+      ),
+    cliRevoke: (id) => guarded(async () => (api ? ok(await api.cliRevoke(id)) !== null : false), false),
     clearError() {
       error = null;
     },

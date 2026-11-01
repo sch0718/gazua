@@ -3,71 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
 import type { App } from '../../state/app.svelte';
-import type { SyncController } from '../../sync/controller.svelte';
-import type { SyncStatus } from '../../sync/engine';
 import { buildProfileDoc } from '../../sync/profileDoc';
 import { createSafeStorage } from '../../state/storage';
 import { memoryBacking } from '../../state/testStorage';
 import SyncPanel from './SyncPanel.svelte';
+import { fakeSync } from './testSync';
+import { expectNoAxeViolations } from '../../share/testAxe';
 import { APP_OUTDATED_CODE } from '../../sync/dto';
 
-const STATUS: SyncStatus = { enabled: false, phase: 'off', pending: 0, conflicts: [], rejected: [], lastSyncAt: null, notices: [], volatile: false };
-
-function fakeSync(over: Partial<Omit<SyncController, 'status'>> & { status?: Partial<SyncStatus> } = {}): SyncController {
-  const { status, ...rest } = over;
-  return {
-    configured: true,
-    providers: { google: true, kakao: false, naver: false },
-    account: null,
-    status: { ...STATUS, ...status },
-    busy: false,
-    error: null,
-    api: null,
-    attach: vi.fn(),
-    onSyncableChange: vi.fn(),
-    signIn: vi.fn(async () => {}),
-    signInWith: vi.fn(async () => {}),
-    completeSocialSignIn: vi.fn(async () => ({ ok: false, provider: null, reason: 'no-pending' })),
-    signOut: vi.fn(async () => {}),
-    preview: vi.fn(async () => ({ upload: ['내 프로필'], download: 2 })),
-    setEnabled: vi.fn(async () => {}),
-    syncNow: vi.fn(async () => {}),
-    resolve: vi.fn(async () => {}),
-    remoteProfiles: vi.fn(async () => []),
-    restoreDeleted: vi.fn(async () => true),
-    revisions: vi.fn(async () => []),
-    restoreRevision: vi.fn(async () => null),
-    sessions: vi.fn(async () => []),
-    revokeSession: vi.fn(async () => true),
-    shares: vi.fn(async () => []),
-    createShare: vi.fn(async () => null),
-    revokeShare: vi.fn(async () => true),
-    clearError: vi.fn(),
-    clearNotices: vi.fn(),
-    destroy: vi.fn(),
-    // KeySync가 해제될 때 cancelReceive를 부른다(받기 확인 사이 평문을 버림). 화면이 부르는 메서드는 모두 vi.fn으로 둔다
-    keys: {
-      view: { support: true, vault: null, accountNotice: null, states: [], problem: null, remembered: false, persistent: true, uploaded: [] },
-      createVault: vi.fn(async () => ({ ok: true, notes: [] })),
-      unlockVault: vi.fn(async () => ({ ok: true, notes: [] })),
-      enable: vi.fn(async () => ({ ok: true, notes: [] })),
-      setProviders: vi.fn(async () => ({ ok: true, notes: [] })),
-      prepareReceive: vi.fn(async () => ({ ok: true, overwrite: [] })),
-      commitReceive: vi.fn(async () => ({ ok: true, notes: [] })),
-      cancelReceive: vi.fn(),
-      uploadLocal: vi.fn(async () => ({ ok: true, notes: [] })),
-      disable: vi.fn(async () => ({ ok: true, notes: [] })),
-      changePassphrase: vi.fn(async () => ({ ok: true, notes: [] })),
-      wipe: vi.fn(async () => ({ ok: true, notes: [] })),
-      forget: vi.fn(),
-      dismiss: vi.fn(async () => {}),
-      dismissAccount: vi.fn(async () => {}),
-    } as unknown as SyncController['keys'],
-    onSecretsChange: vi.fn(),
-    onLock: vi.fn(),
-    ...rest,
-  } as SyncController;
-}
 
 let apps: App[] = [];
 function app() {
@@ -301,5 +244,52 @@ describe('공용 기기 로그아웃 안내', () => {
     await rerender({ app: a, sync: { ...sync, account: null } });
     if (provider === 'google') expect(screen.queryByText(text)).toBeNull();
     else expect((await screen.findByRole('status')).textContent).toBe(text);
+  });
+});
+
+
+describe('CLI 연결', () => {
+  const SESSION = { id: 'aaaaaaaaaaaa', label: '이 노트북', createdAt: 1, lastUsedAt: 2, expiresAt: Date.UTC(2026, 11, 1), current: true };
+  const OTHER = { ...SESSION, id: 'bbbbbbbbbbbb', label: '잃어버린 폰', current: false };
+  const TOKEN = { id: 't1', label: 'gazua@macbook', createdAt: 1, lastUsedAt: Date.UTC(2026, 10, 1), expiresAt: Date.UTC(2027, 1, 1) };
+  const signedIn = { account: { provider: 'google' as const, id: 'me@example.test', display: 'me@example.test' }, status: { enabled: true, phase: 'idle' as const } };
+  const open = async () => {
+    const details = screen.getByText('로그인한 기기').closest('details')!;
+    details.open = true;
+    await fireEvent(details, new Event('toggle'));
+  };
+  it('동기화가 켜져 있으면 CLI 연결 칸을 보이고, 꺼져 있으면 보이지 않는다', () => {
+    render(SyncPanel, { app: app(), sync: fakeSync(signedIn) });
+    expect(screen.getByLabelText('CLI 코드')).toBeTruthy();
+    cleanup();
+    render(SyncPanel, { app: app(), sync: fakeSync({ account: signedIn.account }) });
+    expect(screen.queryByLabelText('CLI 코드')).toBeNull();
+  });
+  it('로그인한 기기 아래에 CLI 묶음을 보이고 연결 끊기는 확인 뒤에 철회한다', async () => {
+    const cliTokens = vi.fn(async () => ({ ok: true as const, tokens: [TOKEN] }));
+    const sync = fakeSync({ ...signedIn, sessions: vi.fn(async () => [SESSION, OTHER]), cliTokens });
+    render(SyncPanel, { app: app(), sync });
+    await open();
+    await waitFor(() => expect(screen.getByText('gazua@macbook')).toBeTruthy());
+    expect(screen.getByText('읽기 전용 CLI')).toBeTruthy();
+    expect(screen.getByText('CLI 연결은 따로 끊어요')).toBeTruthy();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'gazua@macbook CLI 연결 끊기' }));
+    expect(sync.cliRevoke).toHaveBeenCalledWith('t1');
+    await waitFor(() => expect(cliTokens).toHaveBeenCalledTimes(2));
+    confirm.mockRestore();
+  });
+  it('서버가 CLI 경로를 모르면 「서버 업데이트가 필요해요」를 보인다', async () => {
+    const sync = fakeSync({ ...signedIn, sessions: vi.fn(async () => [SESSION]), cliTokens: vi.fn(async () => ({ ok: false as const, reason: 'outdated' as const })) });
+    render(SyncPanel, { app: app(), sync });
+    await open();
+    await waitFor(() => expect(screen.getAllByText('서버 업데이트가 필요해요').length).toBeGreaterThan(0));
+  });
+  it('axe 위반 0: 기기·CLI 목록을 펼친 상태', async () => {
+    const sync = fakeSync({ ...signedIn, sessions: vi.fn(async () => [SESSION, OTHER]), cliTokens: vi.fn(async () => ({ ok: true as const, tokens: [TOKEN] })) });
+    const { container } = render(SyncPanel, { app: app(), sync });
+    await open();
+    await waitFor(() => expect(screen.getByText('gazua@macbook')).toBeTruthy());
+    await expectNoAxeViolations(container);
   });
 });
