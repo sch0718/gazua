@@ -7,7 +7,7 @@
   import { NAME_MAX } from '../../sim/defaults';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
-  import { strategyIssues, type Issue } from '../../sim/validate';
+  import { resolveSymbols, strategyIssues, type Issue } from '../../sim/validate';
   import type { App } from '../../state/app.svelte';
   import { sharedUniverse } from '../../../sheets/universeSource';
   import { showSnackbar } from '@sch0718/ui-svelte';
@@ -228,7 +228,7 @@
       {#if key === 'universe'}
         <UniverseSection {app} s={draft} {update} {names} {loadItems} />
       {:else if key === 'period'}
-        <PeriodSection s={draft} {update} />
+        <PeriodSection s={draft} {update} count={resolveSymbols(draft, app.watchlists).length} />
       {:else if key === 'entry'}
         <BuyRulesSection s={draft} {update} />
       {:else if key === 'scaleIn'}

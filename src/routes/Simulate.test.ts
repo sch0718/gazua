@@ -99,6 +99,7 @@ describe('Simulate list', () => {
   it('＋ 새 전략 saves one strategy and opens it', async () => {
     const app = setup();
     await fireEvent.click(screen.getByRole('button', { name: '＋ 새 전략' }));
+    await fireEvent.click(screen.getByRole('button', { name: /하락 후 반등/ }));
     expect(app.strategies).toHaveLength(1);
     expect(location.hash).toBe(`#/simulate/${app.strategies[0].id}`);
     expect(app.route).toEqual({ name: 'simulate', strategyId: app.strategies[0].id });
@@ -260,8 +261,10 @@ describe('Simulate list', () => {
   it('new strategies are numbered: 새 전략, 새 전략 2', async () => {
     const app = setup();
     await fireEvent.click(screen.getByRole('button', { name: '＋ 새 전략' }));
+    await fireEvent.click(screen.getByRole('button', { name: /하락 후 반등/ }));
     app.navigate({ name: 'simulate' });
     await fireEvent.click(await screen.findByRole('button', { name: '＋ 새 전략' }));
+    await fireEvent.click(screen.getByRole('button', { name: /하락 후 반등/ }));
     expect(app.strategies.map((s) => s.name)).toEqual(['새 전략', '새 전략 2']);
   });
 
@@ -603,7 +606,7 @@ describe('Simulate run states', () => {
     await screen.findByRole('button', { name: '진단 열기' }, { timeout: 5000 });
     // 규칙으로 가서 사는 신호를 모두 끈다(막는 경고)
     await fireEvent.click(screen.getByRole('button', { name: '규칙' }));
-    const head = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
+    const head = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수 조건')!;
     await fireEvent.click(head());
     await fireEvent.click(screen.getByRole('switch', { name: '저점 뒤 연속 상승 사용' }));
     await fireEvent.click(screen.getByRole('switch', { name: '전 고점 돌파 사용' }));
@@ -619,7 +622,7 @@ describe('Simulate run states', () => {
   }, 15000);
 
   const NO_SIGNAL = '사는 신호가 하나도 켜져 있지 않아요. 반등 패턴 ②에서 하나 이상 켜 주세요';
-  const entryHead = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수')!;
+  const entryHead = () => screen.getAllByRole('button').find((b) => b.hasAttribute('aria-expanded') && b.querySelector('b')?.textContent === '매수 조건')!;
   async function turnOffBuySignals() {
     await fireEvent.click(entryHead());
     await fireEvent.click(screen.getByRole('switch', { name: '저점 뒤 연속 상승 사용' }));

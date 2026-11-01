@@ -531,7 +531,7 @@ describe('편집 행 (설정 .row 패턴)', () => {
         .map((id) => document.getElementById(id)?.textContent?.trim());
     const cap = screen.getByRole('textbox', { name: '처음 자금' });
     expect(described(cap)).toEqual(['원', '= 1,000만 원']);
-    const per = screen.getByRole('textbox', { name: '회당 매수 비중' });
+    const per = screen.getByRole('textbox', { name: '회당 비율' });
     expect(described(per)).toEqual(['% (처음 자금 대비)']);
     await fireEvent.input(per, { target: { value: '0' } });
     expect(described(per)).toEqual(['% (처음 자금 대비)', '1~100 사이로 적어 주세요']);
@@ -683,10 +683,10 @@ describe('편집 행 (설정 .row 패턴)', () => {
     expect(patternEntryOf(saved(app))!.triggers.reboundDays.value).toBe(3);
   });
 
-  it('기간·자금 문구: 회당 매수 비중 · % (처음 자금 대비), 날짜 칸은 카드 안에 맞춘다', async () => {
+  it('기간·자금 문구: 회당 비율 · % (처음 자금 대비), 날짜 칸은 카드 안에 맞춘다', async () => {
     setup();
     await openSection('기간·자금');
-    expect(screen.getByRole('textbox', { name: '회당 매수 비중' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '회당 비율' })).toBeTruthy();
     expect(screen.getByText('% (처음 자금 대비)')).toBeTruthy();
     const dates = /\.dates\s*\{([^}]*)\}/.exec(periodSource)?.[1] ?? '';
     expect(dates).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/);
@@ -884,5 +884,37 @@ describe('매수 조건 묶음(§10.2)', () => {
     expect(screen.getByRole('group', { name: '매수 묶음 1' })).toBeTruthy();
     vi.useRealTimers(); // axe 내부 타이머가 실행되도록 한다.
     await expectNoAxeViolations(view.container);
+  });
+});
+
+describe('매도 토글·배분(§10.3·§10.4)', () => {
+  it('트레일링·기간 청산·조건 매도를 켜고 손절을 끈다', async () => {
+    const { app } = setup();
+    await openSection('매도');
+    await fireEvent.click(screen.getByRole('switch', { name: '손절 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '트레일링 스톱 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '기간 청산 사용' }));
+    await fireEvent.click(screen.getByRole('switch', { name: '조건 매도 사용' }));
+    await settle();
+    const sell = saved(app).rules.sell;
+    expect([sell.stopLoss.on, sell.trailing.on, sell.timeExit.on, sell.signal.on]).toEqual([false, true, true, true]);
+    expect(sell.signal.groups).toEqual([{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }]);
+    expect(screen.getByRole('group', { name: '매도 묶음 1' })).toBeTruthy();
+  });
+  it('매도·기간·자금 구역을 펼쳐도 axe 위반이 없다', async () => {
+    const { view } = setup((s) => (s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 20, side: 'below' }] }] }));
+    await openSection('매도');
+    await openSection('기간·자금');
+    vi.useRealTimers(); // axe 내부 타이머를 실행한다.
+    await expectNoAxeViolations(view.container);
+  });
+  it('배분 방식: 균등이면 비율 칸을 숨기고 안내', async () => {
+    const { app } = setup();
+    await openSection('기간·자금');
+    await fireEvent.click(screen.getByRole('radio', { name: '균등' }));
+    await settle();
+    expect(saved(app).sizing.mode).toBe('equal');
+    expect(screen.queryByLabelText('회당 비율')).toBeNull();
+    expect(screen.getByText(/처음 자금 ÷ 종목 수/)).toBeTruthy();
   });
 });
