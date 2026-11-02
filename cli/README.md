@@ -3,7 +3,7 @@
 터미널 AI 도구가 가즈아의 데이터를 읽고 계산하게 해 주는 명령줄 도구예요. 앱과 같은 엔진·같은 데이터를 쓰고, 출력은 JSON 한 줄이에요.
 
 - 읽을 수 있는 것: 동기화한 프로필·관심 그룹·전략, 증권사 시세, 토스 보유, 전략 신호, 시뮬레이션 요약.
-- 할 수 없는 것: **주문**과 모든 쓰기. 서버(Worker)는 CLI 토큰으로 `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회만 받아요. 증권사 호출도 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로를 막아요. 주문·MCP는 다음 단계예요.
+- 할 수 없는 것: **주문**과 모든 쓰기. 서버(Worker)는 CLI 토큰으로 `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회만 받아요. 증권사 호출도 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로를 막아요. 주문은 다음 단계예요.
 
 ## 설치
 
@@ -65,7 +65,47 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 
 `signals`의 기준 봉은 마지막 완성 일봉이에요. `--today`가 없으면 어제까지, `--today`면 그 venue 마감 뒤(KRX 15:30·통합 20:00 KST)이고 오늘이 거래일일 때만 오늘까지예요. 토스는 통합 일봉이라 늘 20:00 기준이에요. 판정은 매수·매도 조건과 손절·익절·트레일링·기간 청산 가격만 계산하고 주문하지 않아요. 앱의 시뮬레이션과 다른 점은 출력의 `notes`에 적혀 있어요.
 
+## MCP 서버
+
+Claude Code 같은 MCP 클라이언트가 셸 대신 도구 호출로 같은 데이터를 읽게 해요. CLI와 같은 번들이고, 결과는 CLI의 JSON과 같아요. 읽기 전용이라 주문·쓰기 도구는 없어요.
+
+```bash
+gazua mcp [--env-file <경로>] [--verbose]
+```
+
+| 도구 | 인자 | CLI 대응 |
+|---|---|---|
+| `profiles` | 없음 | `gazua profiles` |
+| `watchlists` | `profile?` | `gazua watchlists` |
+| `strategies` | `profile?`, `raw?` | `gazua strategies` |
+| `quote` | `symbols`(필수, 문자열 배열), `provider?` | `gazua quote` |
+| `holdings` | `provider?` | `gazua holdings` |
+| `signals` | `strategy`(필수), `profile?`, `provider?`, `today?` | `gazua signals` |
+| `simulate` | `strategy`(필수), `profile?`, `provider?`, `from?`, `to?` | `gazua simulate` |
+
+- 인자 이름은 CLI 옵션과 같아요. 명령을 실행하다 난 오류의 코드·메시지는 CLI 그대로예요(예: 「--profile로 골라 주세요」는 `profile` 인자를 주라는 뜻). 인자 모양이 틀리면(모르는 인자, 틀린 형, 빠진 필수 인자) MCP용 문구의 `invalid-args`예요.
+- 실패한 도구 호출은 `isError: true`와 CLI의 `{"ok":false,"error":…}`를 돌려줘요. 모르는 도구 이름(`login`·`logout` 포함)은 JSON-RPC 오류 `-32602`예요.
+- 로그인은 도구가 아니에요. 사람이 터미널에서 `gazua login`을 한 번 해 두면, 서버를 다시 띄우지 않아도 다음 호출부터 통해요.
+- 증권사 키는 서버를 띄울 때의 환경변수나 `--env-file`로만 받아요. 키를 바꾸면 서버를 다시 띄워요.
+- 호출은 한 번에 하나씩 차례로 돌아요. 진행 로그(`--verbose`)는 표준 오류로 나가요.
+- 지원하는 MCP 프로토콜 버전은 `2025-06-18`·`2024-11-05`예요.
+
+### Claude Code에 등록
+
+```bash
+corepack pnpm --filter gazua-cli build
+claude mcp add gazua -- node /절대/경로/gazua/cli/dist/gazua.mjs mcp --env-file /절대/경로/broker.env
+```
+
+- `broker.env`에는 `KIS_APP_KEY=…`처럼 위 「증권사 키」 표의 환경변수를 적어요. 파일 권한은 600으로 두세요.
+- `claude mcp add gazua -e TOSS_CLIENT_ID=… -e TOSS_CLIENT_SECRET=… -- …`로도 넘길 수 있지만, 그러면 키가 Claude Code 설정 파일에 들어가요. `--env-file`을 권해요.
+- `gazua`를 전역 링크했다면 `claude mcp add gazua -- gazua mcp --env-file /절대/경로/broker.env`.
+- 등록을 확인하려면 `claude mcp list`. 지우려면 `claude mcp remove gazua`.
+- CLI용 토스 키 분리 경고는 MCP에도 그대로예요. MCP 서버와 CLI는 같은 토큰 파일·잠금을 써서 서로의 토큰을 무효로 만들지 않아요.
+
 ## 출력
+
+CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍스트로 돌려줘요.
 
 표준 출력에는 JSON 한 줄만 나와요. 진행 안내는 표준 오류예요.
 

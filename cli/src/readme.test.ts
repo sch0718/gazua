@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MESSAGES } from './errors';
 import { COMMANDS } from './main';
+import { TOOLS } from './mcp/tools';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const readme = read('../README.md');
@@ -34,6 +35,12 @@ describe('cli/README.md', () => {
   it('읽기 전용(주문 없음)과 비밀값 출력 금지를 밝힌다', () => {
     expect(readme).toContain('주문');
     expect(readme).toContain('[숨김]');
+  });
+
+  it('MCP 절: gazua mcp, Claude Code 등록 명령, 도구 7개, login 제외 안내', () => {
+    for (const s of ['## MCP 서버', 'gazua mcp', 'claude mcp add', '--env-file', '-32602']) expect(readme, s).toContain(s);
+    for (const t of TOOLS) expect(readme, t.name).toContain(`\`${t.name}\``);
+    expect(readme).toContain('gazua login');
   });
 });
 

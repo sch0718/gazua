@@ -51,16 +51,18 @@
 - `cli/` 워크스페이스에 읽기 전용 `gazua` 진입점이 있어요(`cli/src/main.ts`). PR #63(`729e072`)으로 병합됐어요.
 - 동기화 API(`sync-worker`)는 브라우저의 Origin 검사·`X-Gazua-Session` 세션과 별도로 CLI 기기 코드 로그인·읽기 전용 토큰 인증을 지원해요(`sync-worker/src/cli.ts`). 로그인은 사람이 앱에서 기기 코드를 승인해야 끝나요.
 - 공급자 코드(`src/lib/providers/toss.ts`·`kis.ts`)를 Node에서도 재사용해요. CLI는 프록시와 같은 허용 목록을 적용해 증권사를 직접 호출해요(`cli/src/direct.ts`).
+- 같은 코어를 감싸는 읽기 전용 MCP 서버 `gazua mcp`(stdio, 도구 7개)가 있어요. 설계는 `docs/superpowers/specs/2026-11-02-readonly-mcp-design.md`예요.
 - 프록시는 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
 - 「주문 없음」은 최초 설계부터의 결정이에요(`docs/superpowers/specs/2026-10-11-stock-compare-design.md` §1.3, `docs/proposals/2026-10-25-server-and-db.md`).
 
-### 단계 A: 읽기 전용 CLI (구현됨)
+### 단계 A: 읽기 전용 CLI·MCP (구현됨)
 
 - `gazua profiles`·`watchlists`·`strategies`: 동기화한 프로필·관심 그룹·전략 조회
 - `gazua quote`: 시세 조회, `gazua holdings`: 토스 국내 보유 수량·평단 조회(KIS 보유 조회는 지원하지 않아요)
 - `gazua signals`·`simulate`: 전략 신호 계산과 시뮬레이션 요약
 - 기계가 읽기 좋은 JSON 출력(기본 한 줄)
 - `gazua login`·`logout`: 기기 코드 로그인과 토큰 철회
+- `gazua mcp`: CLI 읽기 명령과 일대일인 MCP 도구 7개(`login`·`logout` 제외). Claude Code 등록 방법은 `cli/README.md`의 「MCP 서버」 절에 있어요.
 - 설치·명령·제약·배포 순서는 `cli/README.md`, 설계는 `docs/superpowers/specs/2026-11-01-readonly-cli-design.md`에 있어요. 운영 Worker에는 D1 `0005` 마이그레이션·`CLI_IP_SALT` 시크릿과 함께 배포했어요(2026-11-01).
 
 ### 단계 B: 주문 제안·모의투자
