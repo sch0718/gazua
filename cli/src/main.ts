@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { parseArgv } from './args';
 import { profiles, strategies, watchlists } from './commands/data';
+import { drive } from './commands/drive';
 import { login, logout } from './commands/login';
 import { holdings, quote } from './commands/market';
 import { signals } from './commands/signals';
@@ -24,6 +25,7 @@ export const COMMANDS: Record<string, Command> = {
   holdings,
   signals,
   simulate: simulateCmd,
+  drive,
 };
 
 /** 증권사 키를 담는 환경변수. 명령 검증보다 먼저 출력 거르기에 등록해, 인자 오류 메시지가 입력을 되풀이해도 키가 나가지 않게 한다 */

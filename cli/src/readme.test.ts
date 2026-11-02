@@ -31,6 +31,12 @@ describe('cli/README.md', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
+  it('Drive 전달: --keep·환경변수·0006 배포 순서가 있다', () => {
+    for (const s of ['--keep', 'GAZUA_DRIVE_CLIENT_ID', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_DRIVE_PORT', 'http://127.0.0.1:53682/', '0006_market_files.sql']) expect(readme, s).toContain(s);
+    const order = ['0006_market_files.sql', 'Worker 배포', '앱 배포'].map((s) => readme.indexOf(s));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
   it('읽기 전용(주문 없음)과 비밀값 출력 금지를 밝힌다', () => {
     expect(readme).toContain('주문');
     expect(readme).toContain('[숨김]');
