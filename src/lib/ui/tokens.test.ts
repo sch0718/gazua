@@ -61,6 +61,12 @@ describe('tokens.css', () => {
     expect(block('html,\nbody')).toContain('overscroll-behavior-y: contain');
   });
 
+  it('placeholder uses --t3 (AA on every surface) instead of the browser default (#757575, 4.3:1 on --bg)', () => {
+    const rule = block('::placeholder');
+    expect(rule).toMatch(/color:\s*var\(--t3\)/);
+    expect(rule).toMatch(/opacity:\s*1/);
+  });
+
   it('swaps up/down under .global-colors', () => {
     expect(block(':root.global-colors')).toMatch(/--up: #0a7d0a/);
   });

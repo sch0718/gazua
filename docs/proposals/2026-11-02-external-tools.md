@@ -1,8 +1,8 @@
 # 외부 도구 적용 검토: impeccable · hyperframes · TradingAgents
 
-> 검토: 2026-11-02 · Claude와 Codex(`gpt-6.1-sol` high) 교차 검증 · 설치·실측은 하지 않았어요
+> 검토: 2026-11-02 · Claude와 Codex(`gpt-6.1-sol` high) 교차 검증 · impeccable만 2026-11-03에 가즈아에서 시범 적용했어요(1절 「가즈아 시범 결과」)
 
-- 「프로젝트 도구 검토」 세션에서 정리한 향후 적용 방안을 옮겨 적었어요. 지금은 기록만 하고, 설치나 코드 변경은 하지 않았어요.
+- 「프로젝트 도구 검토」 세션에서 정리한 향후 적용 방안을 옮겨 적었어요. impeccable은 2026-11-03에 가즈아에 설치해 실측했고, 나머지 둘은 아직 기록만 했어요.
 - impeccable과 hyperframes는 repass·landmark와 같은 방식으로 쓰는 세 프로젝트 공통안이에요. TradingAgents는 가즈아에만 해당하고, 통합하지 않고 아이디어만 빌려요.
 - 적용 순서는 정하지 않았어요. 시작할 때 이 문서를 근거로 별도 설계를 써요.
 
@@ -38,6 +38,80 @@
 ### 가즈아에서 특히 쓸모 있는 곳
 
 전략 빌더 편집기처럼 조건을 많이 넣는 화면이에요. harden과 clarify로 빈 상태, 오류 문구, 좁은 화면을 점검하기 좋아요.
+
+### 가즈아 시범 결과 (2026-11-03)
+
+설계는 `docs/superpowers/specs/2026-11-03-impeccable-trial-design.md`예요.
+
+**설치 확인**
+
+- `impeccable@4.8.0`(엔진 `@impeccable/cli-<os>-<arch>@0.1.18`)을 devDependency로 버전을 고정해 설치했어요. 전역 설치는 하지 않았어요.
+- 설치 스크립트가 없어요. 엔진 바이너리 sha256이 패키지에 든 체크섬과 같았어요.
+- 설치와 `detect` 실행 전후 비교 결과예요.
+  - 저장소: `package.json`·`pnpm-lock.yaml`만 바뀌었어요.
+  - 홈: `~/.claude`·`~/.codex`·`~/.cursor`의 설정 파일 17개 해시가 같았고, `~/.impeccable`도 생기지 않았어요.
+- 텔레메트리는 디자인 방향 받기(roll API)에만 있어요. `lint:design`에는 `DO_NOT_TRACK=1 IMPECCABLE_NO_TELEMETRY=1`을 붙였어요.
+- 스킬·훅(`impeccable install`·`skills`)과 LLM 명령(audit·critique·harden·clarify)은 쓰지 않았어요. 이 명령들은 스킬이 있어야 도는데, 스킬을 깔면 훅 설정을 쓰기 때문이에요. 전략 편집기는 같은 관점으로 직접 읽어 점검했어요.
+
+**검사 방식별 결과**
+
+| 방식 | 대상 | 지적 |
+|---|---|---|
+| `pnpm lint:design`(`src` 484파일은 정규식, `index.html`은 HTML 엔진) | 소스 | 1건 |
+| `.svelte`를 HTML 엔진으로 | 소스 | 2건 |
+| 렌더 화면(`detect --cdp`) | 화면 11개 × 폰 375·데스크톱 1440 | 26건(고유 7건) |
+
+**분류와 오탐률:** 원인(규칙 × 원본) 단위로 고유 10건이에요.
+
+| # | 규칙 | 원본 | 나온 검사 | 분류 |
+|---|---|---|---|---|
+| 1 | `side-tab` | `ResultView.svelte` 지난 결과 왼쪽 강조선 | 정규식 | 취향 |
+| 2 | `tight-leading` | `CompareChart.svelte` 한 줄짜리 차트 끝 라벨 | HTML 엔진 | 오탐 |
+| 3 | `tiny-text` | `ChartPanel.svelte` 범례 11.5px | HTML 엔진 | 취향 |
+| 4 | `undersized-ui-text` | `@sch0718/ui-svelte` `Badge` 10px | 렌더 | 취향 |
+| 5 | `undersized-ui-text` | `@sch0718/ui-svelte` `Segmented` 보조 글자 10px | 렌더 | 취향 |
+| 6 | `repeating-stripes-gradient` | `ChartPanel.svelte` 범례 빗금(거래 불가·단일가 표시) | 렌더 | 오탐 |
+| 7 | `nested-cards` | `CondGroupCard.svelte` 조건 묶음 카드 | 렌더 | 취향 |
+| 8 | `first-viewport-column-overflow` | `Simulate.svelte` 데스크톱 편집기·결과 나란히 배치 | 렌더 | 오탐 |
+| 9 | `flat-type-hierarchy` | `Performance.svelte` 제목 13·15px | 렌더 | 취향 |
+| 10 | `low-contrast` | `ConnectionForm.svelte` 프록시 주소 입력 placeholder, 브라우저 기본색 `--bg` 위 4.3:1(WCAG 1.4.3 미달) | 렌더 | **실제** |
+
+- 합계는 실제 1건(10%), 오탐 3건(30%), 취향 6건(60%)이에요. 지적마다의 근거는 설계 문서 「분류」 표에 있어요.
+- 10번은 axe e2e가 placeholder를 보지 않아 놓친 문제예요.
+- 고칠 지적의 비율(정밀도)이 10%예요. 정적 검사(`lint:design`)만 보면 고칠 지적이 0건이고, 실제 문제 1건은 렌더 스캔에서만 나왔어요.
+- 전략 편집기에서 나온 지적은 조건 묶음 카드 중첩(취향)과 데스크톱 배치(오탐)뿐이에요. 직접 점검(오류 문구, 빈 상태, 한도 안내, 좁은 화면)에서도 분명한 결함은 없었어요.
+
+**고친 것과 기준선**
+
+- `src/lib/ui/tokens.css`에 전역 `::placeholder { color: var(--t3); opacity: 1; }`를 넣었어요. 다시 스캔하니 설정 화면의 `low-contrast`가 0건이었어요. 프록시 주소 입력이 보이고 색이 `--t3`인 것도 확인했어요.
+- 기준선은 `ResultView.svelte`의 `side-tab` 줄 끝 인라인 주석 하나예요(`impeccable-disable-line side-tab -- 사유`).
+  - `side-tab`은 값 단위 무시(`ignores add-value`)를 받지 않아요.
+  - `"*" --file`로 넣으면 그 파일 전체가 가려져서, 줄 단위 주석을 골랐어요.
+  - 그래서 `.impeccable/config.json`은 만들지 않았어요.
+- HTML 엔진 지적(2·3번)과 렌더 스캔 지적(4~9번)은 위 분류표가 기준선이에요. 다시 돌릴 때 `--json` 결과의 규칙 ID와 원본을 이 표와 맞춰 봐요.
+
+**다시 돌리는 법**
+
+- 렌더 스캔
+  1. `pnpm build` 뒤 `vite preview --port 4174 --strictPort`로 띄워요.
+  2. Playwright Chromium을 `--remote-debugging-port=9333`으로 띄워요. e2e와 같은 설정(`ko-KR`, `Asia/Seoul`, 서비스 워커 차단, 시계 고정, 메뉴 안내 본 것으로)을 써요.
+  3. 폰 375×812(`isMobile`)와 데스크톱 1440×900에서 화면에 들어가요. 순서는 온보딩 → `데모로 둘러보기` → `예시 그룹 불러오기` → 시뮬레이션 → `＋ 새 전략` → `하락 후 반등` → 모든 구역 펼침 → 실행 결과 → `#/performance`·`#/settings`·`#/help`예요.
+  4. 화면마다 `DO_NOT_TRACK=1 IMPECCABLE_NO_TELEMETRY=1 pnpm exec impeccable detect --json --cdp 9333`을 돌려요. `--cdp`는 지금 보이는 페이지를 이동하지 않고 검사해요.
+- HTML 엔진: 저장소 루트에 `.impeccable/config.local.json`을 `{"detector":{"extensions":[{"ext":".svelte","engine":"html"}]}}`로 잠깐 만들고 `pnpm lint:design`을 돌린 뒤 지워요.
+
+**공용화**
+
+- 세 저장소에 맞추는 일(버전 고정·스크립트·무시 규칙)과 공용 위치로 옮기는 일은 이 측정 결과를 보고 따로 정해요. 이번 시범은 가즈아 한 저장소의 측정과 명백한 수정까지만 했어요.
+- 판단에 쓸 사실은 다음과 같아요.
+  - 정적 검사(`lint:design`)에서 고칠 지적은 0건이었어요.
+  - 실제 문제 1건은 렌더 스캔에서만 나왔어요.
+  - 정밀도는 10%였어요.
+
+**후속**
+
+- placeholder는 공용 패키지 `@sch0718/ui-svelte`에 지정이 없어 브라우저 기본색이 남은 것이에요. 가즈아는 `tokens.css`에서 정했어요. `Badge`·`Segmented` 10px는 공용 패키지 기본 스타일이에요. 둘 다 공용 패키지에서 다룰지는 공용화와 함께 따로 정해요.
+- 360px 프로젝트(`phone-narrow`)가 `simulate.spec.ts`를 돌리지 않아요. 360px에서는 전략 편집기의 모든 구역 펼침 점검이 비어 있어요.
+- 조건 묶음 사이 「또는」이 `aria-hidden`이라, 화면 읽기 프로그램에서는 묶음끼리의 관계가 덜 드러나요(분명한 결함은 아니라 기록만 해요).
 
 ## 2. hyperframes — 데모 영상 자동 생성 (세 프로젝트 공통, 가즈아가 시범 1순위)
 

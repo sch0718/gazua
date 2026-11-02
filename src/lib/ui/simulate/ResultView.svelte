@@ -301,7 +301,7 @@
   }
   /* 지난 실행의 결과: 투명도 대신 왼쪽 강조선(글자 대비·거래 차트 시트는 그대로) */
   .result.stale {
-    border-left: 3px solid var(--accent);
+    border-left: 3px solid var(--accent); /* impeccable-disable-line side-tab -- 지난 실행 결과 표시(투명도 대신 고른 강조선) */
   }
   .share {
     margin-left: auto;
