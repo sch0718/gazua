@@ -4,7 +4,7 @@
 
 **Goal:** 점검표 「일부」 항목의 빠진 검산·누출 테스트(설계 `docs/superpowers/specs/2026-11-03-backtest-checklist-design.md` T1~T3)를 넣고 점검 문서를 실제 결과와 맞춘다.
 
-**Architecture:** 엔진 코드는 바꾸지 않는다. 테스트 파일 3개를 새로 만든다. 지금 엔진이 맞으면 새 테스트는 처음부터 통과하므로, TDD의 「빨강」은 **엔진을 일부러 망가뜨려 테스트가 깨지는 것을 확인하고 되돌리는 단계**로 대신한다. 이 되돌림은 반드시 `git diff --stat src/lib/sim src/lib/screen`이 테스트 파일만 보이는지로 확인한다.
+**Architecture:** 엔진 코드는 바꾸지 않는다. 테스트 파일 3개를 새로 만든다. 지금 엔진이 맞으면 새 테스트는 처음부터 통과하므로, TDD의 「빨강」은 **엔진을 일부러 망가뜨려 테스트가 깨지는 것을 확인하고 되돌리는 단계**로 대신한다. 이 되돌림은 반드시 `git diff --stat -- src/lib/sim src/lib/screen ':!*.test.ts'` 출력이 비어 있는지로 확인한다.
 
 **Tech Stack:** TypeScript, Vitest(`corepack pnpm test` = `TZ=America/New_York vitest run`), svelte-check(`corepack pnpm check`).
 
@@ -432,8 +432,15 @@ Expected: 3 passed. 「헛돌지 않는다」만 실패하면 `CASES`의 재선�
 
 - [ ] **Step 3: 망가뜨려 빨강 확인**
 
-`src/lib/screen/select.ts`의 `barsAt`에서 `const prevDay = pre.axis[ai - 1];`를 `const prevDay = pre.axis[ai];`(재선정일 당일 봉 사용)로 바꾸고 돌린다.
-Expected: `재선정일 바로 전날` FAIL. `git checkout -- src/lib/screen/select.ts`로 되돌리고 다시 통과를 확인한다.
+`src/lib/screen/select.ts`의 `barsAt`에서 종목별 인덱스 계산을 d의 봉을 쓰도록 바꾼다(전날 봉이 있는 종목은 d의 봉 인덱스를 돌려준다).
+
+```ts
+    const i = lowerBound(st.d, d);
+    return i >= 1 && st.d[i - 1] === prevDay && st.d[i] === d ? i : -1;
+```
+
+(`prevDay = pre.axis[ai]`로 바꾸는 방법은 쓰지 않는다. 그러면 모든 종목의 인덱스가 −1이 되어 선별이 비고, 누출 단언이 아니라 「헛돌지 않는다」만 깨진다.)
+Expected: `재선정일 바로 전날` 테스트가 **`rebalances` 비교(`toEqual`)에서** 실패한다. 실패 메시지가 그 단언인지 확인한다. 「헛돌지 않는다」와 「바꾸기가 먹었다」는 이때도 통과해야 한다. `git checkout -- src/lib/screen/select.ts`로 되돌리고 다시 통과를 확인한다.
 
 - [ ] **Step 4: 커밋**
 
@@ -457,7 +464,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 점검 문서 갱신**
 
-「이번에 추가한 테스트」 표의 각 줄을 실제 `describe`·`it` 이름과 맞춘다. 첫 문단에 망가뜨리기 확인 결과를 한 줄씩 더한다(무엇을 망가뜨렸고 어느 테스트가 깨졌는지). Task 2 Step 2에서 전략 값을 조정했으면 그 값을 표에 적을 필요는 없다.
+「이번에 추가한 테스트」 표의 각 줄을 실제 `describe`·`it` 이름과 맞춘다. 첫 문단에 망가뜨리기 확인 결과를 한 줄씩 더한다(무엇을 망가뜨렸고 어느 테스트가 깨졌는지). Task 2 Step 2에서 전략 값을 조정했으면 그 값을 표에 적을 필요는 없다. 2절·4절 끝의 「이번에 한 일」 문장도 실제 파일명과 테스트 이름에 맞춘다. 판정(일부·없음)은 그대로 둔다.
 
 - [ ] **Step 2: 전체 테스트와 타입 검사**
 
