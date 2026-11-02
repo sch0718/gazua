@@ -15,7 +15,7 @@
 - 고정 문구(그대로): `⚠️ 참고 의견이며 매매 신호가 아니에요. 개선 아이디어의 효과는 가즈아 전략 빌더에서 바꿔 시뮬레이션으로만 확인하세요.`
 - 부르는 MCP 도구: `strategies`·`simulate`·`signals`, 그리고 프로필이 여럿일 때만 `profiles`. 주문·쓰기·파일 쓰기 없음.
 - 추가 `simulate`는 원래 전략의 앞·뒤 반 기간 분할(365일 이상일 때) 2번까지.
-- 런타임 의존성·lockfile 변경 없음. 새 코드는 테스트 파일 하나(`cli/src/skill.test.ts`)뿐이고 번들(`cli/src/main.ts`)에 들어가지 않는다.
+- 런타임 의존성·lockfile 변경 없음. 새 코드는 테스트뿐이고(`cli/src/skill.test.ts` 신설, `cli/src/readme.test.ts`에 검사 추가) 번들(`cli/src/main.ts`)에 들어가지 않는다.
 - 사용자에게 보이는 글은 한국어(해요체 문서, 스킬 지시문은 해라체도 됨). 실계정 로그인·외부 서버 연결 없음.
 - 검증 명령: `corepack pnpm --filter gazua-cli test`, `corepack pnpm --filter gazua-cli check`.
 

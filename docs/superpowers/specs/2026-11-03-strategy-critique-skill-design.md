@@ -130,7 +130,7 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 - `demo-run.md`의 첫 비어 있지 않은 줄과 마지막 비어 있지 않은 줄이 고정 문구이고, 그 안의 조건식 JSON이 전부 범위 검사를 통과함.
   - 추출: 코드 펜스(```json)마다 JSON을 파싱하고, 같은 아이디어의 「바꿀 곳」 줄에서 필드 경로를 읽어요. `sanitizeStrategiesV2`는 `{ strategies: [...] }` 전체만 받고 조건 하나를 검사하는 내보낸 함수가 없으므로(`sanitizeCond`는 비공개), 테스트가 데모 `strategies.json`의 첫 전략을 복사해 그 자리에 넣은 뒤 통과시켜요.
   - `Cond`(`kind` 있음): `rules.buy`면 `rules.buy[묶음 번호]`의 `conds`에, `rules.sell.signal`이면 `rules.sell.signal.groups`의 묶음에 넣고 `repaired: false`를 확인해요(매도 쪽은 `pattern` 불가가 이 경로로 걸러져요).
-  - 매도 규칙 JSON(`kind` 없음): 「바꿀 곳」의 필드(`takeProfit`·`stopLoss`·`trailing`·`timeExit`)에 통째로 넣고 `repaired: false`를 확인해요.
+  - 매도 규칙 JSON(`kind` 없음): 「바꿀 곳」의 필드(`takeProfit`·`stopLoss`·`trailing`·`timeExit`·`signal`)에 적은 키만 합쳐 넣고(빠진 키는 원래 값) `repaired: false`를 확인해요. 꺼진 조건 매도를 켤 때는 `signal`에 `on`·`groups`를 함께 내요.
   - 「바꿀 곳」이 없거나 필드를 알 수 없으면 그 자체로 실패예요.
   - 「조건 추가」는 그 묶음 `conds` 끝에 덧붙이고, 「새 묶음」은 `{ conds: [cond] }`를 끝에 더하고, 「조건 교체」는 그 자리를 바꿔요. 결과가 묶음 한도를 넘으면 `repaired: true`라 실패예요.
 - 고정 문구 비교는 줄 앞의 `> `(인용 표시)를 벗긴 뒤 해요. §3.5의 문구 자체(⚠️부터)가 기준이에요.
