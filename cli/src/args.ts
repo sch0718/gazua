@@ -13,6 +13,7 @@ export interface Args {
   envFile?: string;
   from?: string;
   to?: string;
+  keep?: number;
   pretty: boolean;
   verbose: boolean;
   today: boolean;
@@ -40,6 +41,7 @@ export function parseArgv(argv: string[]): Args {
           'env-file': { type: 'string' },
           from: { type: 'string' },
           to: { type: 'string' },
+          keep: { type: 'string' },
           pretty: { type: 'boolean' },
           verbose: { type: 'boolean' },
           today: { type: 'boolean' },
@@ -57,6 +59,12 @@ export function parseArgv(argv: string[]): Args {
     const d = v[k];
     if (typeof d === 'string' && !realDate(d)) throw bad(`--${k}는 달력에 있는 YYYY-MM-DD여야 해요`);
   }
+  const keepRaw = v.keep as string | undefined;
+  let keep: number | undefined;
+  if (keepRaw !== undefined) {
+    keep = Number(keepRaw);
+    if (!Number.isInteger(keep) || keep < 1 || keep > 5) throw bad('--keep은 1~5 사이 정수예요');
+  }
   const [command = '', ...positionals] = parsed.positionals;
   const str = (k: string) => (typeof v[k] === 'string' ? (v[k] as string) : undefined);
   return {
@@ -70,6 +78,7 @@ export function parseArgv(argv: string[]): Args {
     ...(str('env-file') !== undefined && { envFile: str('env-file') }),
     ...(str('from') !== undefined && { from: str('from') }),
     ...(str('to') !== undefined && { to: str('to') }),
+    ...(keep !== undefined && { keep }),
     pretty: v.pretty === true,
     verbose: v.verbose === true,
     today: v.today === true,

@@ -31,6 +31,22 @@ describe('parseArgv', () => {
   });
 });
 
+describe('--keep', () => {
+  it('1~5 정수만 받는다', () => {
+    expect(parseArgv(['x', '--keep', '3'])).toMatchObject({ keep: 3 });
+    expect(parseArgv(['x']).keep).toBeUndefined();
+    for (const k of ['0', '6', 'x', '1.5']) {
+      try {
+        parseArgv(['x', '--keep', k]);
+        expect.unreachable();
+      } catch (e) {
+        expect((e as CliError).code).toBe('invalid-args');
+        expect((e as CliError).message).toBe('--keep은 1~5 사이 정수예요');
+      }
+    }
+  });
+});
+
 describe('날짜 인자는 실제 달력으로 검사한다', () => {
   it('윤년: 2028-02-29는 통과, 2026-02-29는 거절(종료 코드 2)', async () => {
     expect(parseArgv(['simulate', '--from', '2028-02-29', '--to', '2028-12-31'])).toMatchObject({ from: '2028-02-29', to: '2028-12-31' });

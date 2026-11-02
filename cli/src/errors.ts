@@ -28,6 +28,14 @@ export const MESSAGES = {
   upstream: '증권사 응답에 문제가 있어요',
   timeout: '증권사 응답이 늦어요',
   'app-outdated': '서버 문서가 이 CLI보다 새로워요. CLI를 업데이트해 주세요',
+  'drive-not-configured': 'Drive 설정이 없어요. GAZUA_DRIVE_CLIENT_ID·GAZUA_DRIVE_CLIENT_SECRET를 알려 주세요',
+  'drive-login-required': 'Drive 로그인이 필요해요. gazua drive login을 실행해 주세요',
+  'drive-login-timeout': 'Google 로그인을 기다리다 시간이 지났어요(5분). gazua drive login을 다시 실행해 주세요',
+  'drive-denied': 'Google에서 Drive 권한을 허용하지 않았어요',
+  'drive-quota': 'Drive 공간이나 요청 한도에 걸렸어요. 잠시 뒤 다시 시도해 주세요',
+  'drive-failed': 'Drive 요청이 실패했어요',
+  'market-file-invalid': '올릴 수 없는 시장 파일이에요',
+  'market-limit': 'Drive 보관본이 서버 한도(10개)에 찼어요. 앱 설정 › 데이터의 「Drive 보관본 지우기」로 비운 뒤 다시 올려 주세요',
   internal: '예상하지 못한 오류예요',
 } as const;
 

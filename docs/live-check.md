@@ -304,3 +304,14 @@
 - **어떻게**: 0003을 적용한 운영 D1과 새 Worker에서 허용 목록의 별도 검증용 **계정**을 써요(금고는 계정당 하나예요). 살아 있는 블롭을 하나 이상 만든 뒤 `GET /v1/keys`의 salt·vaultRevision과 블롭 상태를 메모리에 기억해요. 새 salt와 올바르게 다시 봉한 블롭으로 rekey 본문을 만들되, 살아 있는 블롭 하나를 `keyBlobs`에서 빼고 `POST /v1/keys/rekey`로 보내 `409 conflict`를 받아요. batch를 되돌리지 않으면 409 대신 200이 올 수 있어요(이미 반영된 salt로 판단하는 재요청 성공 처리 때문이에요). HTTP 상태만으로 통과를 판정하지 않아요. 그 뒤 `GET /v1/keys`에서 salt·vaultRevision이 요청 전 그대로인지 확인해요. 목록과 각 `GET /v1/keys/:id`도 메모리에서 비교해 모든 블롭이 그대로인지 봐요. 끝나면 검증 계정으로 `DELETE /v1/keys`를 보내 금고를 정리하고, `GET /v1/keys`가 `keyVault: null`과 빈 `keyBlobs`를 돌려주는지 확인해요. 키·토큰·동기화 암호·salt·암호문은 기록하지 않고 통과 여부만 남겨요.
 - **바꿀 곳**: `sync-worker/src/keys.ts`의 `rekey` batch와 `key_guard` 감시 문장이에요.
 - 결과: 미확인 — 실제 D1 CHECK 실패 시 batch 전체 되돌림 __
+
+## ㉜ 시장 파일 Drive 받기
+
+- **무엇을**: 설정 › 데이터 › Drive 전달(`MarketDrive.svelte`)을 실제 Google 계정으로 봐요(설계: docs/superpowers/specs/2026-11-02-market-drive-design.md).
+  - 받기를 누르면 GIS 토큰 팝업이 열리는지, 운영 CSP가 `accounts.google.com`·`www.googleapis.com` 연결을 막지 않아 콘솔에 CSP 위반이 없는지.
+  - 받은 파일의 크기·해시가 manifest와 같은지(다르면 저장하지 않고 안내가 나오는지).
+  - 업로드한 계정과 다른 Google 계정으로 받으면 404 안내가 나오는지(appDataFolder 파일은 계정·클라이언트마다 따로예요).
+- **함께 볼 것**: 휴대폰 브라우저에서 팝업이 차단되지 않는지, 수십 MB 파일을 받을 때 메모리와 진행 표시, `pnpm collect -- --drive`와 `gazua drive upload`로 올린 뒤 앱 목록에 바로 보이는지.
+- **어떻게**: `0006_market_files.sql` 적용과 Worker·앱 배포(`VITE_GOOGLE_DRIVE_CLIENT_ID` 포함) 뒤, CLI로 `gazua drive login`·`gazua drive upload`를 하고 앱 설정에서 받아요. 토큰·파일 내용은 여기에 적지 않아요.
+- **바꿀 곳**: CSP는 `index.html`·배포 헤더, 받기 흐름은 `MarketDrive.svelte`와 `src/lib/marketData/`예요.
+- 결과: GIS 팝업 __ / CSP 위반 __ / 크기·해시 __ / 다른 계정 404 안내 __ / 휴대폰 __

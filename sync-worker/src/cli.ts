@@ -1,7 +1,9 @@
-// 읽기 전용 CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 읽기 전용 허용 목록.
+// CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 범위별 허용 목록.
+// 범위는 read(프로필 읽기)와 market-upload(시장 파일 manifest 목록·등록·삭제, 설계 2026-11-02-market-drive) 둘이다.
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
 import { base64url, errorBody, HttpError, json, parseAccountList, parseAllowList, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
+import { deleteMarketFile, listMarketFiles, putMarketFile } from './market';
 import { getProfile, listProfiles, requestDocVersion } from './profiles';
 import type { AuthContext } from './session';
 
@@ -25,6 +27,11 @@ export const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 const USER_CODE_RE = /^[BCDFGHJKLMNPQRSTVWXZ]{8}$/;
 
 type Row = Record<string, unknown>;
+export const CLI_SCOPES = ['read', 'market-upload'] as const;
+export type CliTokenScope = (typeof CLI_SCOPES)[number];
+const MARKET_FILES_RE = /^\/v1\/market\/files$/;
+const MARKET_FILE_RE = /^\/v1\/market\/files\/([^/]+)$/;
+
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function expandV6(ip: string): string[] | null {
@@ -92,9 +99,17 @@ function checkLabel(body: unknown): string {
   return label;
 }
 
+/** 요청 본문의 scope. 없으면 read, 모르는 값은 422 */
+function checkScope(body: unknown): CliTokenScope {
+  const s = isRecord(body) ? body.scope : undefined;
+  if (s === undefined) return 'read';
+  if (typeof s === 'string' && (CLI_SCOPES as readonly string[]).includes(s)) return s as CliTokenScope;
+  throw new HttpError(422, 'invalid', { path: 'scope' });
+}
+
 const INSERT_GRANT = `
-  INSERT INTO cli_grants (id, device_hash, user_code, label, ip_hash, status, user_id, interval_ms, last_polled_at, consumed_token_hash, geo, created_at, expires_at)
-  SELECT ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, NULL, ?, ?, ?
+  INSERT INTO cli_grants (id, device_hash, user_code, label, ip_hash, status, user_id, interval_ms, last_polled_at, consumed_token_hash, geo, created_at, expires_at, scope)
+  SELECT ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, NULL, ?, ?, ?, ?
   WHERE (SELECT count(*) FROM cli_grants WHERE ip_hash = ? AND created_at > ?) < ?
     AND (SELECT count(*) FROM cli_grants WHERE status = 'pending' AND expires_at > ?) < ?`;
 
@@ -105,6 +120,7 @@ export async function createDevice(req: Request, env: SyncEnv, deps: SyncDeps, b
   const salt = env.CLI_IP_SALT;
   if (!salt) throw new HttpError(503, 'cli-disabled');
   const label = checkLabel(body);
+  const scope = checkScope(body);
   const now = deps.now();
   const ip = await ipHash(salt, normalizeIp(req.headers.get('CF-Connecting-IP')));
   const deviceCode = base64url(deps.random(32));
@@ -114,7 +130,7 @@ export async function createDevice(req: Request, env: SyncEnv, deps: SyncDeps, b
     const userCode = makeUserCode(deps.random);
     try {
       const r = await env.DB.prepare(INSERT_GRANT)
-        .bind(deps.uuid(), deviceHash, userCode, label, ip, POLL_INTERVAL_MS, geo, now, now + CLI_GRANT_TTL, ip, now - IP_WINDOW_MS, IP_LIMIT, now, PENDING_LIMIT)
+        .bind(deps.uuid(), deviceHash, userCode, label, ip, POLL_INTERVAL_MS, geo, now, now + CLI_GRANT_TTL, scope, ip, now - IP_WINDOW_MS, IP_LIMIT, now, PENDING_LIMIT)
         .run();
       if (r.meta.changes === 0) return json(429, errorBody('rate-limited'), { 'Retry-After': '60' });
       return json(200, { deviceCode, userCode: formatUserCode(userCode), verifyUrl: verifyUrl(env), interval: POLL_INTERVAL_MS / 1000, expiresIn: CLI_GRANT_TTL / 1000 });
@@ -129,15 +145,15 @@ export async function createDevice(req: Request, env: SyncEnv, deps: SyncDeps, b
  * 기기 코드를 폴링한다. 승인된 코드는 조건부 UPDATE와 EXISTS 조건 INSERT를 한 batch로 처리한다.
  * consumed_token_hash를 다시 읽어 내 해시일 때만 토큰을 돌려줘 겹친 폴링 중 하나만 받도록 한다.
  */
-export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Promise<{ token: string; tokenId: string; expiresAt: number }> {
+export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Promise<{ token: string; tokenId: string; expiresAt: number; scope: string }> {
   const b = isRecord(body) ? body : {};
   if (typeof b.deviceCode !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(b.deviceCode)) throw new HttpError(422, 'invalid', { path: 'deviceCode' });
   const now = deps.now();
   const g = await env.DB.prepare(
-    `SELECT id, status, user_id AS userId, label, interval_ms AS intervalMs, expires_at AS expiresAt FROM cli_grants WHERE device_hash = ?`,
+    `SELECT id, status, user_id AS userId, label, scope, interval_ms AS intervalMs, expires_at AS expiresAt FROM cli_grants WHERE device_hash = ?`,
   )
     .bind(await sha256Hex(b.deviceCode))
-    .first<{ id: string; status: string; userId: string | null; label: string; intervalMs: number; expiresAt: number }>();
+    .first<{ id: string; status: string; userId: string | null; label: string; scope: string; intervalMs: number; expiresAt: number }>();
   if (!g) throw new HttpError(404, 'unknown-device');
   if (g.status === 'consumed' || g.expiresAt <= now) throw new HttpError(410, 'expired');
   if (g.status === 'denied') throw new HttpError(403, 'denied');
@@ -165,26 +181,34 @@ export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Pr
     ).bind(hash, g.id, now),
     env.DB.prepare(
       `INSERT INTO cli_tokens (id, token_hash, user_id, label, scope, created_at, last_used_at, expires_at, revoked_at)
-       SELECT ?, ?, ?, ?, 'read', ?, ?, ?, NULL WHERE EXISTS (SELECT 1 FROM cli_grants WHERE id = ? AND consumed_token_hash = ?)`,
-    ).bind(tokenId, hash, g.userId, g.label, now, now, expiresAt, g.id, hash),
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, NULL WHERE EXISTS (SELECT 1 FROM cli_grants WHERE id = ? AND consumed_token_hash = ?)`,
+    ).bind(tokenId, hash, g.userId, g.label, g.scope, now, now, expiresAt, g.id, hash),
   ]);
   const mine = await env.DB.prepare('SELECT consumed_token_hash AS hash FROM cli_grants WHERE id = ?').bind(g.id).first<{ hash: string | null }>();
   if (mine?.hash !== hash) throw new HttpError(410, 'expired');
-  return { token, tokenId, expiresAt };
+  return { token, tokenId, expiresAt, scope: g.scope };
 }
 
 /**
  * CLI 토큰으로 허용하는 요청(라우터 전, 정확 일치). 그 밖은 null → 403 cli-scope.
  * 메서드는 req.method 그대로 비교한다(HEAD를 GET으로 보지 않는다). 쿼리는 docVersion이 정확히 하나, 정확히 '2'일 때만.
  */
-export function cliScope(method: string, url: URL): 'profiles' | 'profile' | 'logout' | null {
+export function cliScope(method: string, url: URL, scope: string): 'profiles' | 'profile' | 'logout' | 'market-list' | 'market-put' | 'market-delete' | null {
   const path = url.pathname;
+  if (method === 'DELETE' && LOGOUT_RE.test(path)) return 'logout';
+  if (scope === 'market-upload') {
+    if (url.search !== '') return null;
+    if (method === 'GET' && MARKET_FILES_RE.test(path)) return 'market-list';
+    if (method === 'POST' && MARKET_FILES_RE.test(path)) return 'market-put';
+    if (method === 'DELETE' && MARKET_FILE_RE.test(path)) return 'market-delete';
+    return null;
+  }
+  if (scope !== 'read') return null;
   if (method === 'GET' && PROFILES_RE.test(path)) return 'profiles';
   if (method === 'GET' && PROFILE_RE.test(path)) {
     const v = url.searchParams.getAll('docVersion');
     return v.length === 1 && v[0] === '2' ? 'profile' : null;
   }
-  if (method === 'DELETE' && LOGOUT_RE.test(path)) return 'logout';
   return null;
 }
 
@@ -194,6 +218,7 @@ interface TokenRow {
   expiresAt: number;
   revokedAt: number | null;
   lastUsedAt: number;
+  scope: string;
   sub: string;
   email: string;
 }
@@ -204,12 +229,12 @@ function stillAllowed(env: SyncEnv, row: TokenRow): boolean {
   return parseAllowList(env.ALLOWED_EMAILS).has(row.email.toLowerCase());
 }
 
-/** Authorization: Gazua-CLI <토큰> 요청을 인증하고 읽기 전용 허용 목록만 통과시킨다 */
+/** Authorization: Gazua-CLI <토큰> 요청을 인증하고 토큰 범위의 허용 목록만 통과시킨다 */
 async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
   const token = (req.headers.get('Authorization') ?? '').slice('Gazua-CLI '.length);
   if (!CLI_TOKEN_RE.test(token)) throw new HttpError(401, 'cli-token');
   const row = await env.DB.prepare(
-    `SELECT t.id, t.user_id AS userId, t.expires_at AS expiresAt, t.revoked_at AS revokedAt, t.last_used_at AS lastUsedAt, u.firebase_sub AS sub, u.email
+    `SELECT t.id, t.user_id AS userId, t.expires_at AS expiresAt, t.revoked_at AS revokedAt, t.last_used_at AS lastUsedAt, t.scope, u.firebase_sub AS sub, u.email
      FROM cli_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ?`,
   )
     .bind(await sha256Hex(token))
@@ -218,7 +243,7 @@ async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: U
   if (!row || row.revokedAt !== null) throw new HttpError(401, 'cli-token-revoked');
   if (row.expiresAt <= now) throw new HttpError(401, 'cli-token-expired');
   if (!stillAllowed(env, row)) throw new HttpError(403, 'not-allowed');
-  const scope = cliScope(req.method, url);
+  const scope = cliScope(req.method, url, row.scope);
   if (scope === null) throw new HttpError(403, 'cli-scope');
   if (now - row.lastUsedAt >= CLI_TOUCH_INTERVAL) {
     await env.DB.prepare('UPDATE cli_tokens SET last_used_at = ? WHERE id = ?').bind(now, row.id).run();
@@ -229,6 +254,12 @@ async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: U
   }
   // 읽기 전용 호출은 기존 핸들러를 그대로 부른다(세션이 없어 sessionHash는 비운다)
   const ctx = { userId: row.userId, sessionHash: '', user: { sub: row.sub, email: row.email, authTime: now } } as AuthContext;
+  if (scope === 'market-list') return json(200, { files: await listMarketFiles(env, ctx) });
+  if (scope === 'market-put') return json(200, await putMarketFile(env, deps, ctx, await readJson(req, 4096)));
+  if (scope === 'market-delete') {
+    await deleteMarketFile(env, ctx, decodeURIComponent(MARKET_FILE_RE.exec(url.pathname)![1]));
+    return json(200, { deleted: true });
+  }
   if (scope === 'profiles') return json(200, { profiles: await listProfiles(env, ctx) });
   const id = decodeURIComponent(PROFILE_RE.exec(url.pathname)![1]);
   return json(200, await getProfile(env, ctx, id, requestDocVersion(url)));
@@ -236,11 +267,11 @@ async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: U
 
 export async function listCliTokens(env: SyncEnv, ctx: AuthContext, now: number) {
   const { results } = await env.DB.prepare(
-    `SELECT id, label, created_at AS createdAt, last_used_at AS lastUsedAt, expires_at AS expiresAt
+    `SELECT id, label, created_at AS createdAt, last_used_at AS lastUsedAt, expires_at AS expiresAt, scope
      FROM cli_tokens WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? ORDER BY last_used_at DESC, created_at DESC`,
   )
     .bind(ctx.userId, now)
-    .all<{ id: string; label: string; createdAt: number; lastUsedAt: number; expiresAt: number }>();
+    .all<{ id: string; label: string; createdAt: number; lastUsedAt: number; expiresAt: number; scope: string }>();
   return results;
 }
 
@@ -278,15 +309,15 @@ export async function approveCli(env: SyncEnv, deps: SyncDeps, ctx: AuthContext,
   if (b.approve !== undefined && typeof b.approve !== 'boolean') throw new HttpError(422, 'invalid', { path: 'approve' });
   const now = deps.now();
   const row = await env.DB.prepare(
-    `SELECT id, label, created_at AS createdAt, geo FROM cli_grants WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
+    `SELECT id, label, created_at AS createdAt, geo, scope FROM cli_grants WHERE user_code = ? AND status = 'pending' AND expires_at > ?`,
   )
     .bind(code, now)
-    .first<{ id: string; label: string; createdAt: number; geo: string | null }>();
+    .first<{ id: string; label: string; createdAt: number; geo: string | null; scope: string }>();
   if (!row) throw new HttpError(422, 'invalid-code');
-  if (b.approve === undefined) return { label: row.label, createdAt: row.createdAt, geo: row.geo };
+  if (b.approve === undefined) return { label: row.label, createdAt: row.createdAt, geo: row.geo, scope: row.scope };
   const r = await env.DB.prepare(`UPDATE cli_grants SET status = ?, user_id = ? WHERE id = ? AND status = 'pending' AND expires_at > ?`)
     .bind(b.approve ? 'approved' : 'denied', ctx.userId, row.id, now)
     .run();
   if (r.meta.changes === 0) throw new HttpError(422, 'invalid-code');
-  return { label: row.label, createdAt: row.createdAt };
+  return { label: row.label, createdAt: row.createdAt, scope: row.scope };
 }

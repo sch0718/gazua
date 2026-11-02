@@ -32,6 +32,12 @@ describe('cli/README.md', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
+  it('Drive 전달: --keep·환경변수·0006 배포 순서가 있다', () => {
+    for (const s of ['--keep', 'GAZUA_DRIVE_CLIENT_ID', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_DRIVE_PORT', 'http://127.0.0.1:53682/', '0006_market_files.sql']) expect(readme, s).toContain(s);
+    const order = ['0006_market_files.sql', 'Worker 배포', '앱 배포'].map((s) => readme.indexOf(s));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
   it('읽기 전용(주문 없음)과 비밀값 출력 금지를 밝힌다', () => {
     expect(readme).toContain('주문');
     expect(readme).toContain('[숨김]');
@@ -54,5 +60,9 @@ describe('.github/workflows/ci.yml', () => {
 describe('sync-worker/README.md', () => {
   it('CLI 경로와 0005, CLI_IP_SALT를 적는다', () => {
     for (const s of ['/v1/cli/device', '/v1/cli/token', '/v1/cli/approve', '/v1/cli/tokens', '0005_cli.sql', 'CLI_IP_SALT', 'Gazua-CLI']) expect(workerReadme, s).toContain(s);
+  });
+
+  it('시장 파일 manifest 경로와 0006, market-upload 범위를 적는다', () => {
+    for (const s of ['/v1/market/files', '0006_market_files.sql', 'market-upload']) expect(workerReadme, s).toContain(s);
   });
 });

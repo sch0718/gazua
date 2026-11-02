@@ -59,17 +59,41 @@ export interface AuthFile {
 
 export const authPath = (dir: string): string => join(dir, 'auth.json');
 
-export function readAuth(dir: string): { auth: AuthFile | null; warnings: string[] } {
-  const raw = readJsonFile<Partial<AuthFile>>(authPath(dir));
+function readAuthAt(dir: string, file: string): { auth: AuthFile | null; warnings: string[] } {
+  const raw = readJsonFile<Partial<AuthFile>>(join(dir, file));
   const valid =
     raw !== null && raw.v === 1 && typeof raw.server === 'string' && typeof raw.token === 'string' && typeof raw.tokenId === 'string' && typeof raw.label === 'string' && typeof raw.expiresAt === 'number';
-  return { auth: valid ? (raw as AuthFile) : null, warnings: permissionWarnings(dir, ['auth.json']) };
+  return { auth: valid ? (raw as AuthFile) : null, warnings: permissionWarnings(dir, [file]) };
 }
+
+export const readAuth = (dir: string): { auth: AuthFile | null; warnings: string[] } => readAuthAt(dir, 'auth.json');
 
 export const writeAuth = (dir: string, auth: AuthFile): void => writeJsonFile(authPath(dir), auth);
 
-export function removeAuth(dir: string): boolean {
-  if (!existsSync(authPath(dir))) return false;
-  rmSync(authPath(dir), { force: true });
+function removeAt(path: string): boolean {
+  if (!existsSync(path)) return false;
+  rmSync(path, { force: true });
   return true;
 }
+
+export const removeAuth = (dir: string): boolean => removeAt(authPath(dir));
+
+// Drive 시장 파일 전달용: market-upload 범위 CLI 토큰(drive-auth.json)과 Google refresh token(drive.json)
+export const driveAuthPath = (dir: string): string => join(dir, 'drive-auth.json');
+export const driveTokenPath = (dir: string): string => join(dir, 'drive.json');
+export const readDriveAuth = (dir: string): { auth: AuthFile | null; warnings: string[] } => readAuthAt(dir, 'drive-auth.json');
+export const writeDriveAuth = (dir: string, auth: AuthFile): void => writeJsonFile(driveAuthPath(dir), auth);
+export const removeDriveAuth = (dir: string): boolean => removeAt(driveAuthPath(dir));
+
+export interface DriveTokenFile {
+  v: 1;
+  clientId: string;
+  refreshToken: string;
+  createdAt: number;
+}
+export function readDriveToken(dir: string): DriveTokenFile | null {
+  const raw = readJsonFile<Partial<DriveTokenFile>>(driveTokenPath(dir));
+  return raw !== null && raw.v === 1 && typeof raw.clientId === 'string' && typeof raw.refreshToken === 'string' && typeof raw.createdAt === 'number' ? (raw as DriveTokenFile) : null;
+}
+export const writeDriveToken = (dir: string, t: DriveTokenFile): void => writeJsonFile(driveTokenPath(dir), t);
+export const removeDriveToken = (dir: string): boolean => removeAt(driveTokenPath(dir));

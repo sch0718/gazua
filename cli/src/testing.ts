@@ -65,7 +65,10 @@ export function fakeFetch(handler: (call: FakeCall) => FakeReply | undefined | P
     const r = await handler(call);
     if (r instanceof Error) throw r;
     const reply = r ?? { status: 404, body: { error: 'unrouted' } };
-    return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'content-type': 'application/json', ...reply.headers } });
+    const status = reply.status ?? 200;
+    // 204·205는 본문이 있으면 Response가 던진다
+    const payload = status === 204 || status === 205 ? null : JSON.stringify(reply.body ?? {});
+    return new Response(payload, { status, headers: { 'content-type': 'application/json', ...reply.headers } });
   }) as typeof fetch;
   return Object.assign(f, { calls });
 }
@@ -112,3 +115,17 @@ export function syncServer(profiles: Record<string, { doc: unknown; revision?: n
     return undefined;
   });
 }
+
+/** validateMarketData를 통과하는 가장 작은 v1 시장 파일 */
+export const tinyMarket = (o: Record<string, unknown> = {}) => ({
+  format: 'gazua-market-data',
+  version: 1,
+  collectedAt: '2026-10-31T18:00:00+09:00',
+  source: 'kis',
+  adjusted: true,
+  range: { from: '2026-10-30', to: '2026-10-31' },
+  sectors: [],
+  stocks: [{ s: '005930', n: '삼성전자', m: 'KOSPI', t: 'STOCK', sec: ['', '', ''], shares: 1, managed: false, halted: false, d: ['20261030', '20261031'], o: [1, 1], h: [1, 1], l: [1, 1], c: [1, 1], v: [1, 1], tv: [1, 1] }],
+  indices: [],
+  ...o,
+});

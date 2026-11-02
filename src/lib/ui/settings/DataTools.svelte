@@ -5,6 +5,9 @@
   import { exportFileName } from '../../state/exportImport';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import { fmtMB } from '../format';
+  import type { SyncController } from '../../sync/controller.svelte';
+  import { readDriveClientId } from '../../marketData/driveConfig';
+  import MarketDrive from './MarketDrive.svelte';
   import { openMarketData, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
 
   let {
@@ -15,6 +18,8 @@
     confirmFn = (m: string) => window.confirm(m),
     marketData = openMarketData(),
     marketImportDeps,
+    sync,
+    driveClientId = readDriveClientId(),
   }: {
     app: App;
     download?: (filename: string, text: string) => void;
@@ -25,6 +30,9 @@
     marketData?: MarketDataStore;
     /** 시장 데이터 가져오기의 풀기·공간 확인 주입(테스트용). 기본은 브라우저 구현. */
     marketImportDeps?: ImportDeps;
+    /** 있으면(그리고 Drive 클라이언트 ID가 있으면) Drive 전달 영역을 보인다. */
+    sync?: SyncController;
+    driveClientId?: string | null;
   } = $props();
 
   const uid = Math.random().toString(36).slice(2, 8);
@@ -235,6 +243,10 @@
       onchange={onMarketFile}
     />
   </div>
+
+  {#if sync && driveClientId}
+    <MarketDrive {sync} {marketData} localInfo={marketInfo} onImported={(i) => (marketInfo = i)} clientId={driveClientId} />
+  {/if}
 
   <div class="row">
     <div class="text">

@@ -33,6 +33,7 @@ import {
   revokeSessions,
   type AuthContext,
 } from './session';
+import { deleteMarketFile, listMarketFiles, wipeMarketFiles } from './market';
 import { createShare, listShares, readShare, revokeShare } from './shares';
 
 type Handler = (a: { req: Request; env: SyncEnv; deps: SyncDeps; params: string[]; url: URL }) => Promise<Response>;
@@ -100,6 +101,9 @@ const ROUTES: [string, RegExp, string, Handler][] = [
     authed(async ({ req, env, deps, ctx, params }) => ok(await putKeyBlob(env, ctx, checkKeyId(params[0]), await readJson(req, KEY_BODY_MAX.blob), deps.now()))),
   ],
   ['DELETE', /^\/v1\/keys\/([^/]+)$/, '/v1/keys/:id', authed(async ({ env, deps, ctx, params }) => ok(await deleteKeyBlob(env, ctx, params[0], deps.now())))],
+  ['GET', /^\/v1\/market\/files$/, '/v1/market/files', authed(async ({ env, ctx }) => ok({ files: await listMarketFiles(env, ctx) }))],
+  ['DELETE', /^\/v1\/market\/files$/, '/v1/market/files', authed(async ({ env, ctx }) => ok(await wipeMarketFiles(env, ctx)))],
+  ['DELETE', /^\/v1\/market\/files\/([^/]+)$/, '/v1/market/files/:id', authed(async ({ env, ctx, params }) => (await deleteMarketFile(env, ctx, params[0]), ok({ deleted: true })))],
   ['POST', /^\/v1\/shares$/, '/v1/shares', authed(async ({ req, env, deps, ctx }) => ok(await createShare(env, deps, ctx, await readJson(req, 110 * 1024))))],
   ['GET', /^\/v1\/shares$/, '/v1/shares', authed(async ({ env, ctx }) => ok({ shares: await listShares(env, ctx) }))],
   ['DELETE', /^\/v1\/shares\/([^/]+)$/, '/v1/shares/:id', authed(async ({ env, deps, ctx, params }) => (await revokeShare(env, ctx, params[0], deps.now()), ok({ revoked: true })))],

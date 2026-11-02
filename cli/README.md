@@ -39,6 +39,8 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 | `KIS_APP_KEY`, `KIS_APP_SECRET` | 한국투자증권 |
 | `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` | 토스증권 |
 
+Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
+
 `--provider kis|toss`를 주지 않으면 키가 있는 쪽을 쓰고, 둘 다 있으면 `toss`예요.
 
 **CLI용 토스 앱을 따로 만드세요. 앱과 같은 토스 키를 쓰면 토큰이 서로 무효가 돼요.** 토스는 같은 앱(client ID)으로 새 토큰을 받으면 앞 토큰이 무효가 될 수 있어서, 가즈아 앱과 CLI가 같은 키를 쓰면 서로의 토큰을 계속 무효로 만들어요. 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 쓰세요(콘솔에서 앱을 여러 개 만들 수 있는지는 확인이 필요해요).
@@ -49,7 +51,7 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 
 ## 명령
 
-공통 옵션: `--profile <이름|ID>`, `--pretty`(들여쓴 JSON), `--verbose`(진행 로그를 표준 오류로), `--env-file <경로>`. 프로필이 여럿인데 `--profile`이 없으면 `profile-required`와 목록이 나와요.
+공통 옵션: `--profile <이름|ID>`, `--keep <1~5>`(`drive upload`에서 Drive에 남길 보관본 수, 기본 2), `--pretty`(들여쓴 JSON), `--verbose`(진행 로그를 표준 오류로), `--env-file <경로>`. 프로필이 여럿인데 `--profile`이 없으면 `profile-required`와 목록이 나와요.
 
 | 명령 | 하는 일 | 동기화 | 증권사 |
 |---|---|---|---|
@@ -61,6 +63,10 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 | `gazua quote <종목…>` | 현재가 | | ○ |
 | `gazua holdings` | 토스 국내 보유(수량·평단) | | 토스 |
 | `gazua signals --strategy <이름\|ID> [--today]` | 조건 신호 + (토스) 보유 기준 매도 판정 | ○ | ○ |
+| `gazua drive login` | 시장 파일 업로드용 서버 로그인 + Google 로그인 | ○ | |
+| `gazua drive upload <파일> [--keep N]` | 시장 파일을 Drive에 올리고 서버에 등록 | ○ | |
+| `gazua drive status` | Drive 로그인 상태와 올린 시장 파일 목록 | ○ | |
+| `gazua drive logout` | 서버·Google 접근 철회 + 파일 삭제 | ○ | |
 | `gazua simulate --strategy <이름\|ID> [--from YYYY-MM-DD --to YYYY-MM-DD]` | 시뮬레이션 요약 | ○ | ○ |
 
 `signals`의 기준 봉은 마지막 완성 일봉이에요. `--today`가 없으면 어제까지, `--today`면 그 venue 마감 뒤(KRX 15:30·통합 20:00 KST)이고 오늘이 거래일일 때만 오늘까지예요. 토스는 통합 일봉이라 늘 20:00 기준이에요. 판정은 매수·매도 조건과 손절·익절·트레일링·기간 청산 가격만 계산하고 주문하지 않아요. 앱의 시뮬레이션과 다른 점은 출력의 `notes`에 적혀 있어요.
@@ -137,7 +143,36 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | `ip-not-allowed`, `invalid-credentials`, `token-throttled`, `token-contended`, `upstream`, `timeout` | 증권사 오류 그대로 |
 | `token-busy` | 같은 기기의 다른 gazua 실행이 쥔 토큰 잠금을 30초 안에 얻지 못함 |
 | `app-outdated` | 서버 문서가 이 CLI보다 새로움 → CLI 업데이트 |
+| `drive-not-configured` | Drive 설정이 없음: Drive 설정(`GAZUA_DRIVE_CLIENT_ID`·`GAZUA_DRIVE_CLIENT_SECRET`)이 필요 |
+| `drive-login-required` | Drive 로그인이 필요함 → `gazua drive login` |
+| `drive-login-timeout` | Google 로그인을 5분 안에 마치지 못함 |
+| `drive-denied` | Google에서 Drive 권한을 허용하지 않음 |
+| `drive-quota` | Drive 공간이나 요청 한도에 걸림 |
+| `drive-failed` | Drive 요청 실패(서버 시장 파일 경로의 500 포함) |
+| `market-file-invalid` | 올릴 수 없는 시장 파일 |
+| `market-limit` | Drive 보관본이 서버 한도(10개)에 참 → 앱에서 보관본 지우기 |
 | `internal` | 그 밖 |
+
+## Drive 전달
+
+수집한 시장 파일(`market-data-*.json.gz`)을 내 Google Drive의 앱 전용 폴더(appDataFolder)에 올리고, 앱이 설정 › 데이터에서 받게 해요. 업로드는 사람이 실행한 명령으로만 해요.
+
+| 환경변수 | 쓰임 |
+|---|---|
+| `GAZUA_DRIVE_CLIENT_ID`, `GAZUA_DRIVE_CLIENT_SECRET` | Google OAuth 클라이언트(데스크톱 앱 유형) |
+| `GAZUA_DRIVE_PORT` | 로그인 콜백 포트(기본 53682) |
+
+설정 순서:
+
+1. Google Cloud 콘솔에서 Drive API를 켜고 OAuth 클라이언트(데스크톱 앱)를 만들어요. 범위는 `drive.appdata`만 써요.
+2. 승인된 리디렉션 URI에 `http://127.0.0.1:53682/`를 등록해요. `GAZUA_DRIVE_PORT`로 포트를 바꾸면 그 주소(`http://127.0.0.1:<포트>/`)도 등록해야 해요.
+3. 위 두 환경변수(또는 `--env-file`)를 넣고 `gazua drive login`을 실행해요. 앱의 설정 › 동기화·공유 › CLI 연결에 코드를 넣고, 브라우저에서 Google 권한을 허용해요.
+4. `gazua drive upload ~/gazua-data/market-data-20261031.json.gz`로 올려요. 같은 파일이 이미 올라가 있으면 다시 올리지 않고, 최근 `--keep`개(기본 2)만 남기고 지워요.
+5. 앱 설정 › 데이터에서 Drive의 시장 파일을 받아요.
+
+`gazua drive login`이 받는 CLI 토큰은 시장 파일 목록을 올리고 지우는 데만 쓸 수 있고, 프로필·키는 읽지 못해요.
+
+배포 순서: D1에 `0006_market_files.sql` 적용 → Worker 배포 → 앱 배포. 앱이 먼저 나가면 시장 파일 목록 요청이 실패해요.
 
 ## 저장 파일
 
@@ -146,6 +181,8 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | 파일 | 내용 |
 |---|---|
 | `auth.json` | 서버 주소와 CLI 토큰 |
+| `drive-auth.json` | 시장 파일 업로드 전용 CLI 토큰(`gazua drive login`) |
+| `drive.json` | Google 갱신 토큰(Drive appDataFolder 접근) |
 | `tokens-kis.json`, `tokens-toss.json` | 증권사 접근 토큰 캐시(공급자마다 하나, 키 해시·발급 시각 포함, 키 원문 없음) |
 | `kis.lock.db`, `toss.lock.db` | SQLite 토큰 발급 잠금 DB(600, 프로세스 종료 시 잠금 자동 해제, 파일 유지) |
 | `orders-<키 해시>-<계좌 해시>.json` | 토스 주문 이력 캐시(`signals`의 첫 매수일 계산용) |

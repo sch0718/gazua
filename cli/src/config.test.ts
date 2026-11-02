@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { authPath, configDir, ensureDir, permissionWarnings, readAuth, readJsonFile, removeAuth, writeAuth, writeJsonFile } from './config';
+import { authPath, configDir, driveAuthPath, driveTokenPath, readDriveAuth, readDriveToken, removeDriveAuth, removeDriveToken, writeDriveAuth, writeDriveToken, ensureDir, permissionWarnings, readAuth, readJsonFile, removeAuth, writeAuth, writeJsonFile } from './config';
 import { cleanupDirs, tempDir } from './testing';
 
 afterEach(cleanupDirs);
@@ -92,5 +92,31 @@ describe('auth.json', () => {
     expect(readAuth(dir).auth).toBeNull();
     writeJsonFile(authPath(dir), { ...AUTH, v: 2 });
     expect(readAuth(dir).auth).toBeNull();
+  });
+});
+
+describe('drive-auth.json·drive.json', () => {
+  it('drive.json: 모드 600, 같은 값, 모양이 틀리면 null, 지우기 true/false', () => {
+    const dir = tempDir();
+    const t = { v: 1 as const, clientId: 'cid', refreshToken: 'rt', createdAt: 5 };
+    expect(readDriveToken(dir)).toBeNull();
+    writeDriveToken(dir, t);
+    expect(statSync(driveTokenPath(dir)).mode & 0o777).toBe(0o600);
+    expect(readDriveToken(dir)).toEqual(t);
+    writeJsonFile(driveTokenPath(dir), { ...t, refreshToken: 3 });
+    expect(readDriveToken(dir)).toBeNull();
+    expect(removeDriveToken(dir)).toBe(true);
+    expect(removeDriveToken(dir)).toBe(false);
+  });
+
+  it('drive-auth.json은 auth.json과 섞이지 않는다', () => {
+    const dir = tempDir();
+    writeDriveAuth(dir, AUTH);
+    expect(existsSync(driveAuthPath(dir))).toBe(true);
+    expect(existsSync(authPath(dir))).toBe(false);
+    expect(readDriveAuth(dir).auth).toEqual(AUTH);
+    expect(readAuth(dir).auth).toBeNull();
+    expect(removeDriveAuth(dir)).toBe(true);
+    expect(removeDriveAuth(dir)).toBe(false);
   });
 });

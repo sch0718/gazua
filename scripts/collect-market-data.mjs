@@ -1,8 +1,10 @@
 // 전 종목 일봉을 KIS에서 모아 시장 데이터 파일(market-data-YYYYMMDD.json.gz)로 만든다.
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
+//   GAZUA_DRIVE_CLIENT_ID=... GAZUA_DRIVE_CLIENT_SECRET=... pnpm collect -- --update <파일> --drive
 // 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않는다. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
 // v4(종목별 재무 fin): docs/superpowers/specs/2026-10-17-fundamental-criteria-design.md 2.2·5장
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -599,13 +601,14 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
 }
 
 export function parseArgs(argv) {
-  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null };
+  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false };
   const args = argv.filter((a) => a !== '--');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--paper') o.paper = true;
     else if (a === '--no-flows') o.flows = false;
     else if (a === '--no-fins') o.fins = false;
+    else if (a === '--drive') o.drive = true;
     else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update') {
       const v = args[++i];
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
@@ -624,6 +627,30 @@ export function parseArgs(argv) {
   return o;
 }
 
+/**
+ * --drive: 수집이 끝난 파일을 CLI(gazua drive upload)로 본인 Drive에 올린다(설계 2026-11-02-market-drive 7절, D11).
+ * 일봉을 받지 못한 종목이 있으면 올리지 않는다. KIS 키는 자식에 넘기지 않는다.
+ */
+export function runDriveUpload(file, summary, deps = {}) {
+  const { spawn = spawnSync, env = process.env, cliPath = join(REPO_ROOT, 'cli', 'dist', 'gazua.mjs'), exists = existsSync, error = (s) => console.error(s) } = deps;
+  const retry = `파일은 ${file}에 있어요. \`gazua drive upload ${file}\`로 다시 올릴 수 있어요`;
+  if (summary.failed.length > 0) {
+    error(`일봉 실패 ${summary.failed.length}종목이 있어 Drive에 올리지 않았어요. --update로 다시 받거나, 이대로 올리려면 \`gazua drive upload ${file}\`를 실행해 주세요`);
+    return 1;
+  }
+  if (!exists(cliPath)) {
+    error(`먼저 pnpm -C cli build를 실행해 주세요. ${retry}`);
+    return 1;
+  }
+  const childEnv = { ...env };
+  delete childEnv.KIS_APP_KEY;
+  delete childEnv.KIS_APP_SECRET;
+  const r = spawn(process.execPath, [cliPath, 'drive', 'upload', file], { stdio: 'inherit', env: childEnv });
+  if (r.status === 0) return 0;
+  error(retry);
+  return 1;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const appKey = process.env.KIS_APP_KEY;
@@ -635,7 +662,8 @@ async function main() {
   log('종목 마스터를 받아요');
   const master = await loadMaster();
   const client = createKisClient({ appKey, appSecret, paper: opts.paper });
-  await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log });
+  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log });
+  if (opts.drive) process.exitCode = runDriveUpload(summary.path, summary);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

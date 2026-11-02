@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
@@ -60,6 +61,24 @@ describe('market data store', () => {
     const res = await store.importFile(file(), { estimate: roomy });
     expect(enc).not.toHaveBeenCalled();
     expect(res).toMatchObject({ ok: true, info: { bytes: gunzipSync(gz).byteLength } });
+  });
+
+  it('가져온 Blob의 SHA-256을 요약에 남긴다', async () => {
+    const store = openMarketData();
+    const blob = file();
+    const res = await store.importFile(blob, { decompress, estimate: roomy });
+    const expected = createHash('sha256').update(Buffer.from(await blob.arrayBuffer())).digest('hex');
+    expect(res).toMatchObject({ ok: true, info: { sha256: expected } });
+    expect((await store.info())?.sha256).toBe(expected);
+  });
+
+  it('이미 확인한 해시(deps.sha256)가 있으면 다시 계산하지 않고 그 값을 남긴다', async () => {
+    const store = openMarketData();
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+    const res = await store.importFile(file(), { decompress, estimate: roomy, sha256: 'e'.repeat(64) });
+    expect(res).toMatchObject({ ok: true, info: { sha256: 'e'.repeat(64) } });
+    expect(digest).not.toHaveBeenCalled();
+    digest.mockRestore();
   });
 
   it('takes the byte count from the decompress dependency when it gives one, and counts UTF-8 bytes of a plain string', async () => {

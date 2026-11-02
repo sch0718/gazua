@@ -26,6 +26,7 @@ import {
   type SavedVault,
   type VaultKey,
 } from './keySync';
+import { checkMarketFiles, type MarketFileRow } from '../marketData/manifest';
 import { checkVaultHead, KEY_ITER, type KeyProvider } from './keyWire';
 import { PROVIDER_NAMES, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
 import type { SocialProvider } from '@sch0718/firebase-session/client';
@@ -113,8 +114,9 @@ export interface SyncAccount {
 }
 
 export type CliApproveResult =
-  | { ok: true; info: { label: string; createdAt: number; geo: string | null } }
+  | { ok: true; info: { label: string; createdAt: number; geo: string | null; scope: 'read' | 'market-upload' } }
   | { ok: false; reason: 'invalid-code' | 'outdated' | 'error' };
+export type MarketFilesResult = { ok: true; files: MarketFileRow[] } | { ok: false; reason: 'signed-out' | 'outdated' | 'error' };
 export type CliTokensResult = { ok: true; tokens: CliTokenRow[] } | { ok: false; reason: 'outdated' | 'error' };
 
 export interface SyncController {
@@ -155,6 +157,9 @@ export interface SyncController {
   shares(): Promise<ShareRow[] | null>;
   createShare(profileId: string, kind: ShareKind, snapshot: ShareSnapshot, ttlDays: number): Promise<{ url: string; expiresAt: number } | null>;
   revokeShare(id: string): Promise<boolean>;
+  /** 시장 파일 manifest(설계 2026-11-02-market-drive). 404는 옛 Worker */
+  marketFiles(): Promise<MarketFilesResult>;
+  wipeMarketFiles(): Promise<boolean>;
   /** 422 invalid-code·404(옛 Worker)는 배너 없이 사유로 돌려준다 */
   cliApprove(userCode: string, approve?: boolean): Promise<CliApproveResult>;
   cliTokens(): Promise<CliTokensResult>;
@@ -993,7 +998,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         async () => {
           if (!api) return { ok: false, reason: 'error' };
           const r = await api.cliApprove(userCode, approve);
-          if (r.ok) return { ok: true, info: { label: r.data.label, createdAt: r.data.createdAt, geo: r.data.geo ?? null } };
+          if (r.ok) return { ok: true, info: { label: r.data.label, createdAt: r.data.createdAt, geo: r.data.geo ?? null, scope: r.data.scope === 'market-upload' ? 'market-upload' : 'read' } };
           if (r.kind === 'invalid' && r.code === 'invalid-code') return { ok: false, reason: 'invalid-code' };
           if (r.kind === 'not-found') return { ok: false, reason: 'outdated' };
           ok(r); // 세션 실패·일반 오류는 기존 관리 요청과 같은 방식으로 처리한다.
@@ -1013,6 +1018,22 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         },
         { ok: false, reason: 'error' },
       ),
+    marketFiles: () =>
+      guarded<MarketFilesResult>(
+        async () => {
+          if (!api || account === null) return { ok: false, reason: 'signed-out' };
+          const r = await api.marketFiles();
+          if (r.ok) {
+            const files = checkMarketFiles(r.data.files);
+            return files ? { ok: true, files } : { ok: false, reason: 'error' };
+          }
+          if (r.kind === 'not-found' || (r.kind === 'server' && r.status === 500)) return { ok: false, reason: 'outdated' };
+          ok(r);
+          return { ok: false, reason: 'error' };
+        },
+        { ok: false, reason: 'error' },
+      ),
+    wipeMarketFiles: () => guarded(async () => (api && account !== null ? ok(await api.wipeMarketFiles()) !== null : false), false),
     cliRevoke: (id) => guarded(async () => (api ? ok(await api.cliRevoke(id)) !== null : false), false),
     clearError() {
       error = null;

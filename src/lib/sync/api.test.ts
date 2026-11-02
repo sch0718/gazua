@@ -19,6 +19,18 @@ describe('createSyncApi', () => {
     for (const u of urls) expect(new URL(u).searchParams.get('docVersion')).toBe('2');
   });
 
+  it('marketFiles·wipeMarketFiles는 /v1/market/files를 GET·DELETE한다', async () => {
+    const calls: [string, string][] = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([init?.method ?? 'GET', String(url)]);
+      return new Response(JSON.stringify(init?.method === 'DELETE' ? { deleted: 2 } : { files: [] }), { status: 200 });
+    }) as typeof fetch;
+    const api = createSyncApi('https://sync.test', { idToken: async () => 't', sessionId: async () => 's' }, fetchImpl);
+    expect(await api.marketFiles()).toMatchObject({ ok: true, data: { files: [] } });
+    expect(await api.wipeMarketFiles()).toMatchObject({ ok: true, data: { deleted: 2 } });
+    expect(calls).toEqual([['GET', 'https://sync.test/v1/market/files'], ['DELETE', 'https://sync.test/v1/market/files']]);
+  });
+
   it('지정한 세션만 철회할 때 현재 세션과 Google 토큰을 보내지 않아요', async () => {
     const creds = { idToken: vi.fn(async () => 'current-token'), sessionId: vi.fn(async () => 'current-session') };
     const fetchImpl = vi.fn(async () => new Response('{}'));
@@ -58,9 +70,9 @@ describe('createSyncApi', () => {
     const s = testServer();
     const { api } = await deviceApi(s);
     const dev = (await (await s.h.call('POST', '/v1/cli/device', { origin: null, token: null, body: { label: 'gazua@mac' }, headers: { 'CF-Connecting-IP': '203.0.113.5' } })).json()) as { userCode: string; deviceCode: string };
-    expect(await api.cliApprove(dev.userCode)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: null } });
+    expect(await api.cliApprove(dev.userCode)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: null, scope: 'read' } });
     expect(await api.cliApprove('ZZZZ-ZZZZ')).toMatchObject({ ok: false, kind: 'invalid', code: 'invalid-code' });
-    expect(await api.cliApprove(dev.userCode, true)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now } });
+    expect(await api.cliApprove(dev.userCode, true)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, scope: 'read' } });
     const tok = (await (await s.h.call('POST', '/v1/cli/token', { origin: null, token: null, body: { deviceCode: dev.deviceCode } })).json()) as { tokenId: string };
     expect(await api.cliTokens()).toMatchObject({ ok: true, data: { tokens: [{ id: tok.tokenId, label: 'gazua@mac' }] } });
     expect(await api.cliRevoke(tok.tokenId)).toEqual({ ok: true, data: { revoked: true } });

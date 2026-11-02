@@ -125,7 +125,7 @@
 
         <section aria-labelledby="set-data">
           <h2 id="set-data" tabindex="-1">데이터</h2>
-          <DataTools {app} />
+          <DataTools {app} {sync} />
         </section>
 
         <section aria-labelledby="set-help">

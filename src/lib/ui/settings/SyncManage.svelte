@@ -105,7 +105,7 @@
         <ul>
           {#each cli as t (t.id)}
             <li>
-              <span><b>{t.label}</b> <small>읽기 전용 CLI</small><br /><small>마지막 사용 {fmt(t.lastUsedAt)} · {fmt(t.expiresAt)}에 만료</small></span>
+              <span><b>{t.label}</b> <small>{t.scope === 'market-upload' ? '시장 파일 올리기 CLI' : '읽기 전용 CLI'}</small><br /><small>마지막 사용 {fmt(t.lastUsedAt)} · {fmt(t.expiresAt)}에 만료</small></span>
               <button type="button" class="btn" aria-label="{t.label} CLI 연결 끊기" onclick={() => revokeCli(t)}>연결 끊기</button>
             </li>
           {/each}
