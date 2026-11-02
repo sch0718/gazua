@@ -105,3 +105,10 @@ body {
 .down {
   color: var(--down);
 }
+
+/* 입력 placeholder: 브라우저 기본색(#757575)은 --bg 위 4.3:1이라 AA 미달 → 모든 면에서 AA인 --t3.
+   Firefox는 placeholder에 불투명도를 따로 줘서 1로 맞춘다(공용 기본 스타일에는 placeholder 지정이 없다). */
+::placeholder {
+  color: var(--t3);
+  opacity: 1;
+}
