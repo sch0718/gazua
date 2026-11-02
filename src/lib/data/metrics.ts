@@ -1,3 +1,5 @@
+import { rollingStdPct } from '../sim/indicators';
+
 export interface Candle {
   t: number;
   o: number;
@@ -72,4 +74,23 @@ export function rvolIntraday(candles1m: Candle[], avgDailyVolume: number | null)
 /** P * shares / 1e12 (조 원). */
 export function marketCapTrillion(closes: Point[], shares: number): Point[] {
   return closes.map(({ t, v }) => ({ t, v: v === null ? null : (v * shares) / 1e12 }));
+}
+
+const TRADING_DAYS_PER_YEAR = 252;
+
+/**
+ * 변동성(연환산 %): 최근 window개 일간 수익률의 표본 표준편차 × √252. 선정 기준·시뮬레이션 결과의 변동성과 같은 식이다.
+ * 봉 i의 창(i−window..i 종가)에 0 이하·유한하지 않은 종가가 있거나 종가가 모자라면 null.
+ */
+export function annualizedVolPct(closes: number[], window: number): (number | null)[] {
+  const std = rollingStdPct(closes, window);
+  return closes.map((_, i) => {
+    const s = std[i];
+    if (s === null) return null;
+    for (let k = i - window; k <= i; k++) {
+      const c = closes[k];
+      if (!Number.isFinite(c) || c <= 0) return null;
+    }
+    return s * Math.sqrt(TRADING_DAYS_PER_YEAR);
+  });
 }

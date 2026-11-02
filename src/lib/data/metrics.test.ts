@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  annualizedVolPct,
   changePct,
   drawdownPct,
   excessPct,
@@ -127,6 +128,29 @@ describe('METRICS registry', () => {
     expect(byId.mcap).toEqual({ shares: true });
     expect(byId.volatility.minPeriodDays).toBeGreaterThan(0);
     expect(byId.rsi.minPeriodDays).toBeGreaterThan(0);
+  });
+});
+
+describe('annualizedVolPct', () => {
+  it('일간 수익률 표본 표준편차 × √252 (%)', () => {
+    const out = annualizedVolPct([100, 110, 99], 2);
+    expect(out.slice(0, 2)).toEqual([null, null]);
+    expect(out[2]).toBeCloseTo(Math.sqrt(0.02) * Math.sqrt(252) * 100, 8);
+  });
+  it('수익률이 일정하면 0, 종가가 window+1개보다 적으면 null', () => {
+    const closes = Array.from({ length: 21 }, (_, i) => 100 * 1.01 ** i);
+    const out = annualizedVolPct(closes, 20);
+    expect(out.slice(0, 20).every((v) => v === null)).toBe(true);
+    expect(out[20]).toBeCloseTo(0, 8);
+  });
+  it('창 안에 0 이하·유한하지 않은 종가가 있으면 그 창의 봉만 null', () => {
+    const out = annualizedVolPct([100, 0, 100, 101, 102, 103], 2);
+    // 봉 2·3은 창(i−2..i)에 0이 있다. 봉 4·5는 창이 0을 벗어났다.
+    expect(out[2]).toBeNull();
+    expect(out[3]).toBeNull();
+    expect(out[4]).not.toBeNull();
+    expect(Number.isFinite(out[5]!)).toBe(true);
+    expect(annualizedVolPct([100, 101, Number.NaN, 102], 2)[3]).toBeNull();
   });
 });
 
