@@ -83,7 +83,7 @@ gazua mcp [--env-file <경로>] [--verbose]
 | `signals` | `strategy`(필수), `profile?`, `provider?`, `today?` | `gazua signals` |
 | `simulate` | `strategy`(필수), `profile?`, `provider?`, `from?`, `to?` | `gazua simulate` |
 
-- 인자 이름은 CLI 옵션과 같아요. 오류 코드·메시지도 CLI 그대로예요(예: 「--profile로 골라 주세요」는 `profile` 인자를 주라는 뜻).
+- 인자 이름은 CLI 옵션과 같아요. 명령을 실행하다 난 오류의 코드·메시지는 CLI 그대로예요(예: 「--profile로 골라 주세요」는 `profile` 인자를 주라는 뜻). 인자 모양이 틀리면(모르는 인자, 틀린 형, 빠진 필수 인자) MCP용 문구의 `invalid-args`예요.
 - 실패한 도구 호출은 `isError: true`와 CLI의 `{"ok":false,"error":…}`를 돌려줘요. 모르는 도구 이름(`login`·`logout` 포함)은 JSON-RPC 오류 `-32602`예요.
 - 로그인은 도구가 아니에요. 사람이 터미널에서 `gazua login`을 한 번 해 두면, 서버를 다시 띄우지 않아도 다음 호출부터 통해요.
 - 증권사 키는 서버를 띄울 때의 환경변수나 `--env-file`로만 받아요. 키를 바꾸면 서버를 다시 띄워요.
