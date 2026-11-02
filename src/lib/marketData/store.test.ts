@@ -72,6 +72,15 @@ describe('market data store', () => {
     expect((await store.info())?.sha256).toBe(expected);
   });
 
+  it('이미 확인한 해시(deps.sha256)가 있으면 다시 계산하지 않고 그 값을 남긴다', async () => {
+    const store = openMarketData();
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+    const res = await store.importFile(file(), { decompress, estimate: roomy, sha256: 'e'.repeat(64) });
+    expect(res).toMatchObject({ ok: true, info: { sha256: 'e'.repeat(64) } });
+    expect(digest).not.toHaveBeenCalled();
+    digest.mockRestore();
+  });
+
   it('takes the byte count from the decompress dependency when it gives one, and counts UTF-8 bytes of a plain string', async () => {
     const store = openMarketData();
     const text = await decompress(file());

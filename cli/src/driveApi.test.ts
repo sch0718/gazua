@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDriveApi } from './driveApi';
 import { cleanupDirs, fakeFetch, makeIo } from './testing';
 import { createRedactor } from './output';
@@ -36,6 +36,26 @@ describe('createDriveApi', () => {
     const t = tokens();
     expect(await createDriveApi(ctxWith(f), t.token).get('X1234567890')).toEqual({ id: 'X1234567890' });
     expect(t.calls).toEqual([false, true]);
+  });
+  it('401 뒤 이어지는 429는 백오프를 처음부터 하고 강제 갱신은 401 직후 한 번만 한다', async () => {
+    const replies = [{ status: 401, body: {} }, { status: 429, body: {} }, { body: { id: 'X1234567890' } }];
+    const f = fakeFetch(() => replies.shift());
+    const ctx = ctxWith(f);
+    const slept: number[] = [];
+    ctx.sleep = async (ms) => void slept.push(ms);
+    const t = tokens();
+    expect(await createDriveApi(ctx, t.token).get('X1234567890')).toEqual({ id: 'X1234567890' });
+    expect(t.calls).toEqual([false, true, false]);
+    expect(slept).toEqual([1000]);
+  });
+  it('업로드 PUT의 시간 제한은 파일 크기에 맞춰 늘린다(초당 64 KiB, 최소 10분)', async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const inner = fakeFetch((c) => (c.method === 'POST' ? { headers: { Location: 'https://www.googleapis.com/upload/drive/v3/files?upload_id=u1' }, body: {} } : { body: { id: 'NEWID12345' } }));
+    const f = (async (u: RequestInfo | URL, init?: RequestInit) => (seen.push(init?.signal ?? undefined), inner(u, init))) as typeof fetch;
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    await createDriveApi(ctxWith(f), tokens().token).upload({ name: 'a.json.gz', sha256: 's' }, new Uint8Array(512 * 1024 * 1024));
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([10 * 60 * 1000, 8192 * 1000]);
+    spy.mockRestore();
   });
   it('429·5xx는 1·2·4초 백오프로 세 번까지, 그래도 429면 drive-quota', async () => {
     const f = fakeFetch(() => ({ status: 429, body: {} }));

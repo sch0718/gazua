@@ -78,7 +78,7 @@
        ├ GET  /v1/market/files            (Gazua-CLI market-upload 토큰)
        ├ 같은 sha256이 있고 Drive에 그 파일이 있으면 올리기 생략
        ├ Drive resumable 업로드(appDataFolder) → md5 비교
-       ├ POST /v1/market/files            (manifest 등록·같은 sha256이면 갱신)
+       ├ POST /v1/market/files            (올렸을 때만. manifest 등록·같은 sha256이면 갱신)
        └ 정리: keep 밖 manifest 삭제 → Drive 파일 삭제 → 목록에 없는 1시간 지난 Drive 파일 삭제
 
 폰: 설정 › 데이터

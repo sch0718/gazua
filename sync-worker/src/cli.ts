@@ -1,4 +1,5 @@
-// 읽기 전용 CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 읽기 전용 허용 목록.
+// CLI(설계 2026-11-01-readonly-cli): 기기 코드 로그인, CLI 토큰 인증, 범위별 허용 목록.
+// 범위는 read(프로필 읽기)와 market-upload(시장 파일 manifest 목록·등록·삭제, 설계 2026-11-02-market-drive) 둘이다.
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
 import { base64url, errorBody, HttpError, json, parseAccountList, parseAllowList, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
@@ -228,7 +229,7 @@ function stillAllowed(env: SyncEnv, row: TokenRow): boolean {
   return parseAllowList(env.ALLOWED_EMAILS).has(row.email.toLowerCase());
 }
 
-/** Authorization: Gazua-CLI <토큰> 요청을 인증하고 읽기 전용 허용 목록만 통과시킨다 */
+/** Authorization: Gazua-CLI <토큰> 요청을 인증하고 토큰 범위의 허용 목록만 통과시킨다 */
 async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: URL): Promise<Response> {
   const token = (req.headers.get('Authorization') ?? '').slice('Gazua-CLI '.length);
   if (!CLI_TOKEN_RE.test(token)) throw new HttpError(401, 'cli-token');

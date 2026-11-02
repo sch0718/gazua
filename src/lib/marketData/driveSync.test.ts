@@ -23,6 +23,8 @@ describe('fetchFromDrive', () => {
     const { d, importFile } = deps();
     expect(await fetchFromDrive(row(), d)).toMatchObject({ ok: true });
     expect(importFile).toHaveBeenCalledTimes(1);
+    // 확인한 해시를 넘겨 importFile이 수백 MB를 다시 해시하지 않게 한다
+    expect(importFile).toHaveBeenCalledWith(expect.any(Blob), expect.objectContaining({ sha256: 'c'.repeat(64) }));
   });
   it('크기나 해시가 다르면 mismatch이고 저장하지 않는다', async () => {
     const a = deps();

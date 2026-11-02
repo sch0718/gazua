@@ -157,10 +157,10 @@ export interface SyncController {
   shares(): Promise<ShareRow[] | null>;
   createShare(profileId: string, kind: ShareKind, snapshot: ShareSnapshot, ttlDays: number): Promise<{ url: string; expiresAt: number } | null>;
   revokeShare(id: string): Promise<boolean>;
-  /** 422 invalid-code·404(옛 Worker)는 배너 없이 사유로 돌려준다 */
   /** 시장 파일 manifest(설계 2026-11-02-market-drive). 404는 옛 Worker */
   marketFiles(): Promise<MarketFilesResult>;
   wipeMarketFiles(): Promise<boolean>;
+  /** 422 invalid-code·404(옛 Worker)는 배너 없이 사유로 돌려준다 */
   cliApprove(userCode: string, approve?: boolean): Promise<CliApproveResult>;
   cliTokens(): Promise<CliTokensResult>;
   cliRevoke(id: string): Promise<boolean>;

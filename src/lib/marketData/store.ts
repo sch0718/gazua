@@ -44,6 +44,8 @@ export interface ImportDeps {
   estimate?: () => Promise<{ quota?: number; usage?: number }>;
   /** gzip을 풀어 JSON 텍스트를 돌려준다. 풀린 바이트 수를 함께 주면 그 값을 쓴다. 기본값은 브라우저의 DecompressionStream. */
   decompress?: (file: Blob) => Promise<string | { text: string; bytes: number }>;
+  /** 이미 확인한 파일 해시(Drive 받기). 있으면 수백 MB를 다시 해시하지 않고 이 값을 남긴다. */
+  sha256?: string;
 }
 
 export interface MarketDataStore {
@@ -239,7 +241,7 @@ export function openMarketData(): MarketDataStore {
     // 해시를 못 구해도(환경 제약 등) 가져오기 자체는 막지 않는다. 이 경우 요약에 sha256이 없다.
     let sha256: string | undefined;
     try {
-      sha256 = await sha256Hex(file);
+      sha256 = deps.sha256 ?? (await sha256Hex(file));
     } catch {
       sha256 = undefined;
     }

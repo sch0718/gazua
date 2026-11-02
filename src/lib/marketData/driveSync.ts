@@ -25,7 +25,8 @@ export async function fetchFromDrive(row: MarketFileRow, deps: DriveDeps, onProg
     return { ok: false, reason: dl.kind };
   }
   if (dl.blob.size !== row.size || (await (deps.digest ?? sha256Hex)(dl.blob)) !== row.sha256) return { ok: false, reason: 'mismatch' };
-  const r = await deps.store.importFile(dl.blob, deps.importDeps);
+  // 위에서 manifest와 같음을 확인한 해시라 importFile이 다시 계산하지 않게 넘긴다
+  const r = await deps.store.importFile(dl.blob, { ...deps.importDeps, sha256: row.sha256 });
   if (r.ok) return r;
   return r.reason === 'quota' ? { ok: false, reason: 'quota-device', neededMb: r.neededMb } : { ok: false, reason: r.reason };
 }

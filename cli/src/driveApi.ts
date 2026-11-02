@@ -6,7 +6,9 @@ const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const QUERY = "appProperties has { key='gazua' and value='market-data' }";
 const BACKOFF_MS = [1000, 2000, 4000];
-const TIMEOUT_MS = 10 * 60 * 1000; // 수백 MB 업로드
+const TIMEOUT_MS = 10 * 60 * 1000;
+// 업로드 PUT은 느린 회선(초당 64 KiB)에서도 끝나게 크기에 맞춰 늘린다
+const UPLOAD_BYTES_PER_SEC = 64 * 1024;
 
 export interface DriveFileInfo {
   id: string;
@@ -23,22 +25,27 @@ export interface DriveApi {
 }
 
 export function createDriveApi(ctx: Ctx, token: (force?: boolean) => Promise<string>): DriveApi {
-  async function call(method: string, url: string, init: { headers?: Record<string, string>; body?: BodyInit } = {}): Promise<Response> {
+  async function call(method: string, url: string, init: { headers?: Record<string, string>; body?: BodyInit; timeoutMs?: number } = {}): Promise<Response> {
     let refreshed = false;
-    for (let attempt = 0; ; attempt++) {
-      const t = await token(refreshed);
+    let force = false;
+    let retries = 0;
+    for (;;) {
+      // 강제 갱신은 401 직후 한 번만. 401 재시도는 백오프 횟수에 세지 않는다
+      const t = await token(force);
+      force = false;
       let res: Response;
       try {
-        res = await ctx.fetch(url, { method, body: init.body, headers: { ...init.headers, Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+        res = await ctx.fetch(url, { method, body: init.body, headers: { ...init.headers, Authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(init.timeoutMs ?? TIMEOUT_MS) });
       } catch {
         throw new CliError('network');
       }
       if (res.status === 401 && !refreshed) {
         refreshed = true;
+        force = true;
         continue;
       }
-      if ((res.status === 429 || res.status >= 500) && attempt < BACKOFF_MS.length) {
-        await ctx.sleep(BACKOFF_MS[attempt]);
+      if ((res.status === 429 || res.status >= 500) && retries < BACKOFF_MS.length) {
+        await ctx.sleep(BACKOFF_MS[retries++]);
         continue;
       }
       return res;
@@ -67,7 +74,11 @@ export function createDriveApi(ctx: Ctx, token: (force?: boolean) => Promise<str
       if (!start.ok) throw await failOf(start);
       const session = start.headers.get('Location');
       if (!session?.startsWith('https://www.googleapis.com/')) throw new CliError('drive-failed', 'Drive 업로드 주소를 받지 못했어요');
-      const put = await call('PUT', session, { headers: { 'Content-Type': 'application/gzip' }, body: bytes as BodyInit });
+      const put = await call('PUT', session, {
+        headers: { 'Content-Type': 'application/gzip' },
+        body: bytes as BodyInit,
+        timeoutMs: Math.max(TIMEOUT_MS, Math.ceil(bytes.byteLength / UPLOAD_BYTES_PER_SEC) * 1000),
+      });
       if (!put.ok) throw await failOf(put);
       return (await json(put)) as unknown as DriveFileInfo;
     },
