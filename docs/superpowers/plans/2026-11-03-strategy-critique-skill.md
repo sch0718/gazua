@@ -433,7 +433,7 @@ describe('examples/demo-run.md', () => {
     expect(ideas.length).toBeLessThanOrEqual(4);
     for (const idea of ideas) {
       const where = /\*\*바꿀 곳:\*\* `([^`]+)` (조건 추가|새 묶음|조건 교체|값 바꾸기)/.exec(idea);
-      const fences = [...idea.matchAll(/```json\n(.+)\n```/g)];
+      const fences = [...idea.matchAll(FENCE)]; // FENCE = new RegExp('`{3}json\\n(.+)\\n`{3}', 'g')
       expect(where, idea.slice(0, 80)).not.toBeNull();
       expect(fences.length, idea.slice(0, 80)).toBe(1);
       const s = apply(where![1], where![2], JSON.parse(fences[0][1]));

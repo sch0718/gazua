@@ -206,3 +206,61 @@ describe('SKILL.md', () => {
     expect(md()).toContain('reference/conditions.md');
   });
 });
+
+/** 한 줄짜리 json 코드 펜스. 소스에 백틱 세 개를 쓰지 않으려고 문자열로 만든다 */
+const FENCE = new RegExp('`{3}json\\n(.+)\\n`{3}', 'g');
+
+describe('examples/demo-run.md', () => {
+  const md = () => read('examples/demo-run.md');
+  const strip = (l: string) => l.replace(/^>\s?/, '').trim();
+
+  it('첫 줄과 마지막 줄이 고정 문구다', () => {
+    const ls = md().split('\n').filter((l) => l.trim() !== '');
+    expect(strip(ls[0])).toBe(FIXED);
+    expect(strip(ls[ls.length - 1])).toBe(FIXED);
+  });
+
+  it('강세·약세·리스크·정리 절이 차례로 있다', () => {
+    const at = ['## 강세', '## 약세', '## 리스크', '## 정리'].map((h) => md().indexOf(`\n${h}`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  /** 아이디어 하나를 데모 전략 조립본에 적용한다(스펙 §5 추출 규칙) */
+  function apply(where: string, action: string, value: Record<string, unknown>): StrategyV2 {
+    const s = structuredClone(assembled());
+    const groupsOf = (side: string) => (side === 'buy' ? s.rules.buy : s.rules.sell.signal.groups);
+    let m: RegExpExecArray | null;
+    if ((m = /^rules\.(buy|sell\.signal\.groups)\[(\d+)\]\.conds\[(\d+)\]$/.exec(where)) && action === '조건 교체') {
+      const g = groupsOf(m[1] === 'buy' ? 'buy' : 'sell')[Number(m[2])];
+      if (!g || Number(m[3]) >= g.conds.length) throw new Error(`없는 자리: ${where}`);
+      g.conds[Number(m[3])] = value as Cond;
+    } else if ((m = /^rules\.(buy|sell\.signal\.groups)\[(\d+)\]$/.exec(where)) && action === '조건 추가') {
+      const g = groupsOf(m[1] === 'buy' ? 'buy' : 'sell')[Number(m[2])];
+      if (!g) throw new Error(`없는 묶음: ${where}`);
+      g.conds.push(value as Cond);
+    } else if ((m = /^rules\.(buy|sell\.signal\.groups)$/.exec(where)) && action === '새 묶음') {
+      groupsOf(m[1] === 'buy' ? 'buy' : 'sell').push({ conds: [value as Cond] });
+    } else if ((m = /^rules\.sell\.(takeProfit|stopLoss|trailing|timeExit|signal)$/.exec(where)) && action === '값 바꾸기') {
+      const sell = s.rules.sell as unknown as Record<string, Record<string, unknown>>;
+      sell[m[1]] = { ...sell[m[1]], ...value };
+    } else {
+      throw new Error(`알 수 없는 바꿀 곳: ${where} ${action}`);
+    }
+    return s;
+  }
+
+  it('아이디어가 2~4개이고, 각 조건식을 데모 전략에 넣어도 엔진이 고치지 않는다', () => {
+    const ideas = md().split(/\n### 아이디어 \d+/).slice(1);
+    expect(ideas.length).toBeGreaterThanOrEqual(2);
+    expect(ideas.length).toBeLessThanOrEqual(4);
+    for (const idea of ideas) {
+      const where = /\*\*바꿀 곳:\*\* `([^`]+)` (조건 추가|새 묶음|조건 교체|값 바꾸기)/.exec(idea);
+      const fences = [...idea.matchAll(FENCE)];
+      expect(where, idea.slice(0, 80)).not.toBeNull();
+      expect(fences.length, idea.slice(0, 80)).toBe(1);
+      const s = apply(where![1], where![2], JSON.parse(fences[0][1]));
+      expect(repaired(s), `${where![1]} ${fences[0][1]}`).toBe(false);
+    }
+  });
+});

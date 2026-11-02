@@ -28,7 +28,7 @@ MCP 서버가 없으면 같은 JSON을 내는 CLI(gazua strategies --raw, gazua 
 2. `strategies`(raw: true)에서 그 전략의 `rules`를 읽는다.
 3. `simulate`(from·to 없이)와 `signals`를 부른다. 기간은 `simulate` 결과의 `data.period`로만 안다(`strategies`에는 기간이 없다).
 4. `data.summary`가 `null`이면 데이터가 없다는 이유(`notes`·`failed`)를 알리고 멈춘다.
-5. 일수 = `period.to` − `period.from`(달력 일수). 365 이상이면 `mid = from + floor(일수/2)`일로 두고 앞 반(`from`~`mid`), 뒤 반(`mid` 다음 날~`to`)으로 `simulate`를 두 번 더 부른다.
+5. 일수 = `period.to` − `period.from`(달력 일수). 365 이상이면 `mid = from + floor(일수/2)`일로 두고 앞 반(`from`~`mid`), 뒤 반(`mid` 다음 날~`to`)으로 `simulate`를 두 번 더 부른다. 반 기간 결과는 처음 자금·빈 포지션으로 새로 돌린 별도 시뮬레이션이다. 전체와 합산·연결하지 말고, 구간마다 전략이 기준선보다 나았는지만 비교한다.
 6. 아래 「출력 틀」을 순서대로 채운다.
 
 ## 오류
@@ -66,7 +66,7 @@ MCP 서버가 없으면 같은 JSON을 내는 CLI(gazua strategies --raw, gazua 
 
 조건식은 `reference/conditions.md`의 종류·범위·묶음 한도 안에서만 낸다. 새 `pattern`(반등 패턴)은 제안하지 않는다. 종목·기간·비중·비용 바꾸기는 조건식이 아니므로 아이디어로 내지 않고 정리의 「확인 필요」에 둔다.
 
-「바꿀 곳」은 경로와 동작을 이 표에서 고른다. `n`·`m`은 0부터인 배열 번호이고, 편집기의 「묶음 k」는 k = n + 1이다.
+「바꿀 곳」은 경로와 동작을 이 표에서 고른다. `n`·`m`은 0부터인 배열 번호이고, 편집기의 「묶음 k」는 k = n + 1이다. 괄호 안 편집기 이름은 화면 문구 그대로 쓴다: 매수는 「매수 묶음 k › ＋ 조건 › (조건 종류의 편집기 이름)」, 조건 매도는 「조건 매도 묶음 k › ＋ 조건 › …」, 새 묶음은 「＋ 또는 묶음」, 매도 규칙은 `reference/conditions.md` 「매도 규칙 모양」의 편집기 칸.
 
 | 경로 | 동작 | JSON |
 |---|---|---|
