@@ -74,6 +74,26 @@ describe('CompareChart start value', () => {
   });
 });
 
+describe('CompareChart unit: 축 표기와 기준선', () => {
+  const priceLines = () => lwcCharts[0].series.flatMap((s) => s.priceLines.map((l) => l.price));
+  const format = (v: number) =>
+    (lwcCharts[0].options.localization as { priceFormatter: (v: number) => string }).priceFormatter(v);
+
+  it("unit '' (RSI): 축은 소수 첫째 자리, 기준선은 50", async () => {
+    render(CompareChartFixture, { series: [input('A', 1)], sessions, unit: '' });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series.length).toBeGreaterThan(0));
+    expect(format(62.44)).toBe('62.4');
+    expect(priceLines()).toEqual([50]);
+  });
+
+  it("unit '%abs' (변동성): 축은 부호 없는 %, 기준선 없음", async () => {
+    render(CompareChartFixture, { series: [input('A', 1)], sessions, unit: '%abs' });
+    await vi.waitFor(() => expect(lwcCharts[0]?.series.length).toBeGreaterThan(0));
+    expect(format(32.104)).toBe('32.10%');
+    expect(priceLines()).toEqual([]);
+  });
+});
+
 describe('CompareChart zoom and pan (spec §7.6: 두 손가락 = 확대, 가로 스와이프 = 이동)', () => {
   const laneRects = (c: HTMLElement) =>
     [...c.querySelectorAll('g[data-lane] rect')].map((r) => ({

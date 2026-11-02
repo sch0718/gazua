@@ -178,6 +178,18 @@ describe('metricPoints', () => {
     const short = series({ candles: inPeriod, daily: [...warm.slice(-3), ...inPeriod] });
     expect(metricPoints(short, 'volatility', { period: M1 }).every((p) => p.v === null)).toBe(true);
     expect(metricPoints(short, 'rsi', { period: M1 }).every((p) => p.v === null)).toBe(true);
+    // 경계: 워밍업이 RSI 12개·변동성 18개면 기간 앞 2개 봉만 null이고 그 뒤는 전체 종가로 계산한 값과 같다.
+    for (const [metric, n, calc] of [
+      ['rsi', 12, (c: number[]) => rsi(c, 14)],
+      ['volatility', 18, (c: number[]) => annualizedVolPct(c, 20)],
+    ] as const) {
+      const w = warm.slice(-n);
+      const expected = calc([...w, ...inPeriod].map((c) => c.c)).slice(n);
+      const got = metricPoints(series({ candles: inPeriod, daily: [...w, ...inPeriod] }), metric, { period: M1 }).map((p) => p.v);
+      expect(got.slice(0, 2)).toEqual([null, null]);
+      expect(got.slice(2)).toEqual(expected.slice(2));
+      expect(got.slice(2).every((v) => v !== null)).toBe(true);
+    }
     expect(values(metricPoints(series(), 'volatility', { period: D1 }))).toEqual([null, null, null]);
     expect(values(metricPoints(series(), 'rsi', { period: D1 }))).toEqual([null, null, null]);
   });

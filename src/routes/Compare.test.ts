@@ -1095,7 +1095,7 @@ describe('비교 카드 캡처와 표시 지표', () => {
     const req = await share();
     req.capture!();
     const cells = texts.slice(3, -1).filter((_, i) => i % 2 === 1);
-    expect(cells.map((t) => t.text).every((t) => pattern.test(t))).toBe(true);
+    for (const t of cells) expect(t.text).toMatch(pattern);
     expect(cells.map((t) => t.color)).toEqual(Array(4).fill('#111111'));
   });
 
