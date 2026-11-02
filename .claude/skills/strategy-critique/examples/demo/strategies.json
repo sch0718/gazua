@@ -1,0 +1,65 @@
+{
+  "ok": true,
+  "data": {
+    "strategies": [
+      {
+        "id": "demo1",
+        "name": "데모 RSI 반등",
+        "universe": {
+          "kind": "group",
+          "groupId": "g0",
+          "symbols": [
+            "005930",
+            "000660"
+          ]
+        },
+        "buy": "RSI14 30 상향 돌파",
+        "sell": "익절 +15%에 전량",
+        "sizing": "회당 총자산 30%",
+        "rules": {
+          "buy": [
+            {
+              "conds": [
+                {
+                  "kind": "rsi",
+                  "period": 14,
+                  "level": 30,
+                  "op": "crossUp"
+                }
+              ]
+            }
+          ],
+          "sell": {
+            "takeProfit": {
+              "on": true,
+              "stages": [
+                {
+                  "pct": 15,
+                  "sellPct": 100
+                }
+              ],
+              "afterFirstTake": "keep"
+            },
+            "stopLoss": {
+              "on": false,
+              "pct": 7,
+              "basis": "avgAlways"
+            },
+            "trailing": {
+              "on": false,
+              "pct": 10
+            },
+            "timeExit": {
+              "on": false,
+              "days": 20
+            },
+            "signal": {
+              "on": false,
+              "groups": []
+            }
+          }
+        }
+      }
+    ]
+  }
+}
