@@ -188,3 +188,21 @@ describe('reference/conditions.md', () => {
     expect(section(md(), '묶음 한도')).toContain(`묶음은 최대 ${MAX_GROUPS}개, 묶음마다 조건은 최대 ${MAX_CONDS}개`);
   });
 });
+
+describe('SKILL.md', () => {
+  const md = () => read('SKILL.md');
+  it('frontmatter name이 strategy-critique이고 description이 있다', () => {
+    expect(md()).toMatch(/^---\nname: strategy-critique\ndescription: .+\n---\n/);
+  });
+  it('고정 문구가 그대로 있다', () => {
+    expect(md()).toContain(FIXED);
+  });
+  it('「부르는 도구」 절의 MCP 도구 이름이 strategies·simulate·signals·profiles뿐이다', () => {
+    const names = new Set(TOOLS.map((t) => t.name));
+    const used = new Set([...section(md(), '부르는 도구').matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((n) => names.has(n)));
+    expect([...used].sort()).toEqual(['profiles', 'signals', 'simulate', 'strategies']);
+  });
+  it('조건식 참조표를 가리킨다', () => {
+    expect(md()).toContain('reference/conditions.md');
+  });
+});
