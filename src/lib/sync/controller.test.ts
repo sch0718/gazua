@@ -283,16 +283,31 @@ describe('SyncController', () => {
     const s = testServer();
     const store = createMemorySyncStore();
     const storage = createSafeStorage(memoryBacking());
-    let release: (() => void) | null = null;
+    // syncNow의 목록 요청 하나만 붙잡는다. 로그아웃(DELETE)이나 재로그인 뒤 동기화가 대신 붙잡히면 아무도 풀지 못해 멈춘다.
     let hold = false;
+    let release = () => {};
+    let caught!: (session: string | null) => void;
+    const held = new Promise<string | null>((r) => (caught = r));
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (hold) {
+      if (hold && (init?.method ?? 'GET') === 'GET' && String(input).endsWith('/v1/profiles')) {
         hold = false;
-        await new Promise<void>((r) => (release = r));
+        const gate = new Promise<void>((r) => (release = r));
+        caught(new Headers(init?.headers).get(SESSION_HEADER));
+        await gate;
       }
       return s.fetch(input, init);
     }) as typeof fetch;
+    // 토큰 서명이 늦어 목록 요청이 늦게 나가도 붙잡힐 때까지 기다리는지 본다(전체 실행의 부하에서 나던 멈춤).
+    let slowToken = false;
     const auth = fakeAuth(s);
+    const idToken = auth.idToken;
+    auth.idToken = async (force) => {
+      if (slowToken) {
+        slowToken = false;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return idToken(force);
+    };
     const sync = createSyncController({ config: CONFIG, storage, auth, store: async () => store, fetchImpl, now: () => s.h.clock.now, deviceLabel: () => '테스트' });
     const app: App = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache(), onSyncableChange: (e) => sync.onSyncableChange(e) });
     await sync.attach(app);
@@ -302,14 +317,16 @@ describe('SyncController', () => {
     });
     await sync.signIn();
     await sync.setEnabled(true);
+    const previous = await store.getMeta<{ id: string }>('session');
     hold = true;
+    slowToken = true;
     const late = sync.syncNow(); // 이 요청은 이전 세션으로 나가 늦게 돌아온다
-    await new Promise((r) => setTimeout(r, 0));
+    expect(await held).toBe(previous?.id);
     await sync.signOut();
     const again = sync.signIn(); // 새 세션을 만든 뒤 동기화는 앞 요청을 기다린다
     let fresh: { id: string } | undefined;
     while (!(fresh = await store.getMeta<{ id: string }>('session'))) await new Promise((r) => setTimeout(r, 0));
-    release!();
+    release();
     await late;
     await again;
     expect(sync.account).toEqual({ provider: 'google', id: ME, display: ME });
