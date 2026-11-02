@@ -54,4 +54,8 @@ describe('sync-worker/README.md', () => {
   it('CLI 경로와 0005, CLI_IP_SALT를 적는다', () => {
     for (const s of ['/v1/cli/device', '/v1/cli/token', '/v1/cli/approve', '/v1/cli/tokens', '0005_cli.sql', 'CLI_IP_SALT', 'Gazua-CLI']) expect(workerReadme, s).toContain(s);
   });
+
+  it('시장 파일 manifest 경로와 0006, market-upload 범위를 적는다', () => {
+    for (const s of ['/v1/market/files', '0006_market_files.sql', 'market-upload']) expect(workerReadme, s).toContain(s);
+  });
 });

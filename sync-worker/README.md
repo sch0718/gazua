@@ -52,7 +52,10 @@ Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보�
 | `POST /v1/cli/token` | CLI용. `{ deviceCode }` → `400 pending`·`400 slow_down`·`403 denied`·`410 expired`·`404 unknown-device`, 승인되면 `{ token, tokenId, expiresAt }`를 **한 번만** 줘요 |
 | `POST /v1/cli/approve` | 앱 세션. `{ userCode }`는 조회(상태 그대로, `{ label, createdAt, geo }`), `{ userCode, approve }`는 승인·거절. 코드가 맞지 않으면 `422 invalid-code` |
 | `GET /v1/cli/tokens`, `DELETE /v1/cli/tokens/:id` | 앱 세션. 살아 있는 CLI 토큰 목록과 철회 |
-| CLI 토큰(`Authorization: Gazua-CLI <토큰>`) | `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, `DELETE /v1/cli/token`(자기 토큰 철회)만 통과해요. 그 밖은 라우터 전에 `403 cli-scope`예요. 토큰은 90일 고정이고 D1에는 해시만 둬요 |
+| `GET /v1/market/files`, `DELETE /v1/market/files` | 앱 세션. Drive에 올라간 시장 파일의 manifest(파일 ID·크기·해시·수집 범위 등, 파일 본문은 없어요) 목록과 모두 지우기 |
+| `DELETE /v1/market/files/:id` | 앱 세션. manifest 한 건 지우기(Drive 파일은 앱·CLI가 따로 지워요) |
+| `POST /v1/market/files` | CLI 토큰(`market-upload` 범위)만. 올린 시장 파일을 manifest에 등록해요 |
+| CLI 토큰(`Authorization: Gazua-CLI <토큰>`) | `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, `DELETE /v1/cli/token`(자기 토큰 철회)만 통과해요(기본 `read` 범위). `gazua drive login`이 받는 `market-upload` 범위 토큰은 `GET`·`POST /v1/market/files`, `DELETE /v1/market/files/:id`, `DELETE /v1/cli/token`만 통과해요. 그 밖은 라우터 전에 `403 cli-scope`예요. 토큰은 90일 고정이고 D1에는 해시만 둬요 |
 
 capability는 256비트(base64url 43자)예요. 만들 때 한 번만 돌려주고 D1에는 해시만 둬요. 링크는 `https://<앱>/#/s/<capability>`이고, fragment라서 서버 로그·Referer에 남지 않아요. 로그에는 `메서드 경로패턴 상태 시간`만 남겨요.
 
@@ -223,6 +226,14 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
 4. 확인: 앱의 설정 › 동기화·공유 › CLI 연결에 `gazua login` 코드를 넣어 승인되는지 봐요. 승인 대기(`cli_grants`)는 만료 하루 뒤, 토큰(`cli_tokens`)은 만료·철회 30일 뒤 Cron이 지워요.
 
 무료 한도: 로그인 1회는 요청 약 125건·D1 쓰기 약 125행이고, 명령 1회는 프로필 목록 1 + 문서 N 요청이에요. 숫자는 Cloudflare 공개 요금표 기준이라 배포 전 계정 화면에서 다시 확인하세요.
+
+## 시장 파일 Drive 전달 배포 (`0006_market_files.sql`)
+
+설계: `docs/superpowers/specs/2026-11-02-market-drive-design.md`. 순서는 **0006 적용 → Worker 배포 → 앱 배포**예요.
+
+1. 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`. `0006_market_files.sql`이 시장 파일 manifest 표를 더해요(표만 더해서 지금 Worker·앱은 영향이 없어요).
+2. Worker 배포: `corepack pnpm --filter sync-worker run deploy`. `/v1/market/files`와 CLI `market-upload` 범위가 생겨요.
+3. 앱 배포: 설정 › 데이터 › Drive 전달이 보여요. 앱 빌드에 `VITE_GOOGLE_DRIVE_CLIENT_ID`(웹 OAuth 클라이언트)를 넣어야 받기가 켜져요.
 
 ## 무료 한도 아끼기
 

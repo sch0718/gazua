@@ -40,6 +40,22 @@ corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 - 앱에서는 설정 › 데이터 › `시장 데이터 가져오기`로 파일을 골라요. 파일은 이 기기의 IndexedDB에만 저장돼요.
 - 한계: 지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 업종·상장주식수는 수집일 기준이에요.
 
+### Drive 전달(선택)
+
+수집한 파일을 내 Google Drive 앱 전용 폴더(appDataFolder)에 올려 다른 기기에서 받게 할 수 있어요. 시장 파일은 공개 배포하지 않고 본인 Drive에만 둬요.
+
+```bash
+# 처음 한 번: 서버 로그인 + Google 로그인(설정은 cli/README.md의 「Drive 전달」)
+corepack pnpm --filter gazua-cli exec gazua drive login
+# 수집을 마치고 바로 올려요.
+corepack pnpm collect -- --years 5 --drive
+```
+
+- 받는 쪽은 앱의 설정 › 데이터 › Drive 전달이에요. 목록에서 파일을 골라 받으면 기존 가져오기와 같은 검증을 거쳐 이 기기에 저장돼요.
+- `--drive`는 일봉을 받지 못한 종목이 하나라도 있으면 올리지 않아요(설계 D11). 실패한 수집 파일이 다른 기기로 퍼지지 않게 하려는 거예요.
+- Drive에는 기본 2개만 남기고 오래된 것부터 지워요(`gazua drive upload <파일> --keep N`, 1~5).
+- 직접 올릴 때는 `gazua drive upload <파일>`, 상태는 `gazua drive status`, 끊을 때는 `gazua drive logout`이에요. 자세한 내용은 [cli/README.md](../cli/README.md)를 보세요.
+
 ## 개발
 
 Node 22 이상이 필요해요. 패키지 관리자는 `package.json`의 `packageManager`가 정한 pnpm이에요.
