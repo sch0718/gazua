@@ -206,7 +206,7 @@ describe('POST /v1/cli/approve', () => {
     const { me, d } = await pending(h, { country: 'KR', city: 'Seoul' });
     const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode }));
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now, geo: 'KR · Seoul' });
+    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now, geo: 'KR · Seoul', scope: 'read' });
     expect(rows(h, 'SELECT status, user_id FROM cli_grants')).toEqual([{ status: 'pending', user_id: null }]);
   });
 
@@ -218,11 +218,11 @@ describe('POST /v1/cli/approve', () => {
     expect(r.body.geo).toBeNull();
   });
 
-  it('approve:true는 approved + 승인한 사용자를 기록, 응답은 {label, createdAt}', async () => {
+  it('approve:true는 approved + 승인한 사용자를 기록, 응답은 {label, createdAt, scope}', async () => {
     const h = harness();
     const { me, d } = await pending(h);
     const r = await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true }));
-    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now });
+    expect(r.body).toEqual({ label: 'gazua@macbook', createdAt: h.clock.now, scope: 'read' });
     const userId = (rows(h, 'SELECT id FROM users')[0] as { id: string }).id;
     expect(rows(h, 'SELECT status, user_id FROM cli_grants')).toEqual([{ status: 'approved', user_id: userId }]);
   });
@@ -528,7 +528,7 @@ describe('앱용 CLI 토큰 목록·철회', () => {
     const b = await connect(h, a.me, 'gazua@pc');
     await a.me.as('DELETE', `/v1/cli/tokens/${b.tokenId}`);
     const r = await j(await a.me.as('GET', '/v1/cli/tokens'));
-    expect(r.body.tokens).toEqual([{ id: a.tokenId, label: 'gazua@mac', createdAt: expect.any(Number), lastUsedAt: expect.any(Number), expiresAt: expect.any(Number) }]);
+    expect(r.body.tokens).toEqual([{ id: a.tokenId, label: 'gazua@mac', createdAt: expect.any(Number), lastUsedAt: expect.any(Number), expiresAt: expect.any(Number), scope: 'read' }]);
     expect(JSON.stringify(r.body)).not.toContain(a.token);
   });
 
@@ -541,5 +541,72 @@ describe('앱용 CLI 토큰 목록·철회', () => {
     expect((await a.me.as('DELETE', `/v1/cli/tokens/${a.tokenId}`)).status).toBe(200);
     expect((await a.me.as('DELETE', '/v1/cli/tokens/nope')).status).toBe(404);
     expect((await j(await other.as('GET', '/v1/cli/tokens'))).body.tokens).toEqual([]); // 남의 토큰은 목록에도 없다
+  });
+});
+
+describe('market-upload 범위', () => {
+  const marketBody = {
+    driveFileId: 'drive-file-0001', name: 'market-data-20261031.json.gz', sha256: 'b'.repeat(64), size: 10, version: 4,
+    collectedAt: '2026-10-31T18:00:00+09:00', range: { from: '2021-10-31', to: '2026-10-31' }, stocks: 1,
+  };
+  async function connectScoped(h: Harness, scope?: string) {
+    const me = await h.login();
+    const d = (await j(await cliCall(h, 'POST', '/v1/cli/device', { body: scope ? { label: 'gazua-drive@mac', scope } : { label: 'gazua@mac' }, ip: '203.0.113.5' }))).body;
+    const look = (await j(await me.as('POST', '/v1/cli/approve', { userCode: d.userCode }))).body;
+    await me.as('POST', '/v1/cli/approve', { userCode: d.userCode, approve: true });
+    h.clock.now += 5000;
+    const t = (await j(await poll(h, d.deviceCode))).body;
+    return { me, look, t };
+  }
+
+  it('scope 없이 요청하면 read, market-upload면 승인 조회·토큰 응답·토큰 목록에 범위가 보인다', async () => {
+    const h = harness();
+    const read = await connectScoped(h);
+    expect(read.look.scope).toBe('read');
+    expect(read.t.scope).toBe('read');
+    const up = await connectScoped(h, 'market-upload');
+    expect(up.look.scope).toBe('market-upload');
+    expect(up.t.scope).toBe('market-upload');
+    expect(rows(h, 'SELECT scope FROM cli_tokens ORDER BY created_at').map((r) => r.scope)).toEqual(['read', 'market-upload']);
+    const list = (await j(await up.me.as('GET', '/v1/cli/tokens'))).body.tokens;
+    expect(list.map((t: any) => t.scope).sort()).toEqual(['market-upload', 'read']);
+  });
+
+  it('알 수 없는 scope는 422 invalid path scope', async () => {
+    const h = harness();
+    const r = await j(await cliCall(h, 'POST', '/v1/cli/device', { body: { label: 'x', scope: 'write' }, ip: '203.0.113.5' }));
+    expect(r).toMatchObject({ status: 422, body: { error: 'invalid', path: 'scope' } });
+  });
+
+  it('market-upload 토큰은 manifest 목록·등록·삭제와 로그아웃만 된다', async () => {
+    const h = harness();
+    const { t } = await connectScoped(h, 'market-upload');
+    const put = await j(await cliCall(h, 'POST', '/v1/market/files', { token: t.token, body: marketBody }));
+    expect(put.status).toBe(200);
+    expect((await j(await cliCall(h, 'GET', '/v1/market/files', { token: t.token }))).body.files).toHaveLength(1);
+    for (const [m, p] of [['GET', '/v1/profiles'], ['GET', '/v1/profiles/p1?docVersion=2'], ['DELETE', '/v1/market/files'], ['GET', '/v1/keys']] as const) {
+      expect((await j(await cliCall(h, m, p, { token: t.token }))).body.error, `${m} ${p}`).toBe('cli-scope');
+    }
+    expect((await cliCall(h, 'DELETE', `/v1/market/files/${put.body.id}`, { token: t.token })).status).toBe(200);
+    expect((await cliCall(h, 'DELETE', '/v1/cli/token', { token: t.token })).status).toBe(200);
+  });
+
+  it('read 토큰은 market 경로가 403 cli-scope', async () => {
+    const h = harness();
+    const { t } = await connectScoped(h);
+    for (const [m, p] of [['GET', '/v1/market/files'], ['POST', '/v1/market/files'], ['DELETE', '/v1/market/files/x']] as const) {
+      expect((await j(await cliCall(h, m, p, { token: t.token, body: m === 'POST' ? marketBody : undefined }))).body.error).toBe('cli-scope');
+    }
+  });
+
+  it('market-upload 등록 한도 429 market-limit', async () => {
+    const h = harness();
+    const { t } = await connectScoped(h, 'market-upload');
+    for (let i = 0; i < 10; i++) {
+      const b = { ...marketBody, sha256: i.toString(16).padStart(64, '0') };
+      expect((await cliCall(h, 'POST', '/v1/market/files', { token: t.token, body: b })).status).toBe(200);
+    }
+    const over = await j(await cliCall(h, 'POST', '/v1/market/files', { token: t.token, body: { ...marketBody, sha256: 'f'.repeat(64) } }));
+    expect(over).toMatchObject({ status: 429, body: { error: 'market-limit' } });
   });
 });

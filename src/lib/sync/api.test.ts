@@ -58,9 +58,9 @@ describe('createSyncApi', () => {
     const s = testServer();
     const { api } = await deviceApi(s);
     const dev = (await (await s.h.call('POST', '/v1/cli/device', { origin: null, token: null, body: { label: 'gazua@mac' }, headers: { 'CF-Connecting-IP': '203.0.113.5' } })).json()) as { userCode: string; deviceCode: string };
-    expect(await api.cliApprove(dev.userCode)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: null } });
+    expect(await api.cliApprove(dev.userCode)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: null, scope: 'read' } });
     expect(await api.cliApprove('ZZZZ-ZZZZ')).toMatchObject({ ok: false, kind: 'invalid', code: 'invalid-code' });
-    expect(await api.cliApprove(dev.userCode, true)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now } });
+    expect(await api.cliApprove(dev.userCode, true)).toEqual({ ok: true, data: { label: 'gazua@mac', createdAt: s.h.clock.now, scope: 'read' } });
     const tok = (await (await s.h.call('POST', '/v1/cli/token', { origin: null, token: null, body: { deviceCode: dev.deviceCode } })).json()) as { tokenId: string };
     expect(await api.cliTokens()).toMatchObject({ ok: true, data: { tokens: [{ id: tok.tokenId, label: 'gazua@mac' }] } });
     expect(await api.cliRevoke(tok.tokenId)).toEqual({ ok: true, data: { revoked: true } });
