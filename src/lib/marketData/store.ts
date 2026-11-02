@@ -32,6 +32,8 @@ export interface MarketDataInfo {
   finStocks?: number;
   /** 가져올 때마다 새로 정하는 표. 테마별 종목 키가 이 요약과 같은 가져오기에서 쓰였는지 가린다. */
   importId?: string;
+  /** 가져온 gzip 파일의 SHA-256. 이 필드가 생기기 전 요약에는 없다. */
+  sha256?: string;
 }
 
 export type ImportResult =
@@ -114,6 +116,12 @@ const themeSymbolsOf = (t: { code: string; symbols: string[] }[]): Record<string
   Object.fromEntries(t.map((x) => [x.code, x.symbols]));
 
 const newImportId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+/** Blob 바이트의 SHA-256 소문자 hex. Drive 받기 비교와 같은 파일 판별에 쓴다 */
+export async function sha256Hex(blob: Blob): Promise<string> {
+  const d = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const defaultEstimate = async () => (await navigator.storage?.estimate?.()) ?? {};
 
@@ -228,6 +236,14 @@ export function openMarketData(): MarketDataStore {
     const check = validateMarketData(parsed);
     if (!check.ok) return { ok: false, reason: check.reason };
 
+    // 해시를 못 구해도(환경 제약 등) 가져오기 자체는 막지 않는다. 이 경우 요약에 sha256이 없다.
+    let sha256: string | undefined;
+    try {
+      sha256 = await sha256Hex(file);
+    } catch {
+      sha256 = undefined;
+    }
+
     // 풀린 크기의 1.2배가 여유 공간보다 크면 쓰기 전에 거절한다. 지금 저장된 파일은 교체되니 그 크기는 되돌려 셈한다.
     const needed = rawBytes * NEED_FACTOR;
     const neededMb = Math.ceil(needed / 1024 / 1024);
@@ -257,6 +273,7 @@ export function openMarketData(): MarketDataStore {
       hasFin: finStocks > 0,
       finStocks,
       importId: newImportId(),
+      ...(sha256 && { sha256 }),
       hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();
