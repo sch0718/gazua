@@ -29,24 +29,29 @@ function run(data: MarketDataFile): ValidationResult {
   return r;
 }
 
-/** t 뒤의 봉만 종목·지수마다 다른 배율로 바꾼다. 날짜 배열은 그대로 둔다 */
+/** 종목·날짜마다 다른 결정적 흔들림(±7%). 미래 봉끼리의 비율(수익률·지표·순위)도 바뀌게 한다 */
+const wiggle = (i: number, k: number) => 1 + (0.07 * (((i * 7 + k) % 5) - 2)) / 2;
+
+/** t 뒤의 봉만 종목·지수·날짜마다 다른 배율로 바꾼다. 같은 날 o·h·l·c에는 같은 배율을 곱해 봉 모양을 지킨다. 날짜 배열은 그대로 둔다 */
 function mutateAfter(f: MarketDataFile, t: string): MarketDataFile {
   const g = structuredClone(f);
   const key = ymd(t);
   g.stocks.forEach((s, k) => {
-    const p = 1.3 + (k % 7) * 0.11;
+    const base = 1.3 + (k % 7) * 0.11;
     const q = 0.4 + (k % 5) * 0.3;
     s.d.forEach((d, i) => {
       if (d <= key) return;
+      const p = base * wiggle(i, k);
       for (const x of ['o', 'h', 'l', 'c'] as const) s[x][i] *= p;
-      s.v[i] *= q;
-      s.tv[i] *= p * q;
+      s.v[i] *= q * wiggle(i, k + 3);
+      s.tv[i] *= p * q * wiggle(i, k + 3);
     });
   });
   g.indices.forEach((x, k) => {
-    const p = 0.7 + k * 0.2;
+    const base = 0.7 + k * 0.2;
     x.d.forEach((d, i) => {
       if (d <= key) return;
+      const p = base * wiggle(i, k + 11);
       x.o[i] *= p;
       x.c[i] *= p;
     });
