@@ -320,7 +320,7 @@ describe('SyncController', () => {
     const { sync } = await setup(s);
     await sync.signIn();
     const dev = (await (await s.h.call('POST', '/v1/cli/device', { origin: null, token: null, body: { label: 'gazua@mac' }, headers: { 'CF-Connecting-IP': '203.0.113.5' }, cf: { country: 'KR', city: 'Seoul' } })).json()) as { userCode: string; deviceCode: string };
-    expect(await sync.cliApprove(dev.userCode)).toEqual({ ok: true, info: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: 'KR · Seoul' } });
+    expect(await sync.cliApprove(dev.userCode)).toEqual({ ok: true, info: { label: 'gazua@mac', createdAt: s.h.clock.now, geo: 'KR · Seoul', scope: 'read' } });
     expect(await sync.cliApprove('ZZZZ-ZZZZ')).toEqual({ ok: false, reason: 'invalid-code' });
     expect(sync.error).toBeNull();
     expect((await sync.cliApprove(dev.userCode, true)).ok).toBe(true);
@@ -340,6 +340,83 @@ describe('SyncController', () => {
     expect(await sync.cliTokens()).toEqual({ ok: false, reason: 'outdated' });
   });
 
+});
+
+describe('marketFiles', () => {
+  const ROW = {
+    id: 'm1',
+    createdAt: 1,
+    updatedAt: 2,
+    name: 'market-data-20261031.json.gz',
+    sha256: 'a'.repeat(64),
+    size: 1234,
+    version: 4,
+    collectedAt: '2026-10-31T18:00:00+09:00',
+    range: { from: '2021-10-31', to: '2026-10-31' },
+    stocks: 2600,
+    driveFileId: '1AbC_def-GHIjkl',
+  };
+  /** /v1/market/files 요청만 가로채 응답을 바꾼다 */
+  function market(s: TestServer, respond: (init?: RequestInit) => Response) {
+    const real = s.fetch;
+    const paths: string[] = [];
+    s.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      if (new URL(req.url).pathname !== '/v1/market/files') return real(input, init);
+      paths.push(req.method);
+      return respond(init);
+    }) as typeof fetch;
+    return paths;
+  }
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+  it('로그인 전에는 signed-out이고 API를 부르지 않는다', async () => {
+    const s = testServer();
+    const calls = market(s, () => json({ files: [] }));
+    const { sync } = await setup(s);
+    expect(sync.account).toBeNull();
+    expect(await sync.marketFiles()).toEqual({ ok: false, reason: 'signed-out' });
+    expect(await sync.wipeMarketFiles()).toBe(false);
+    expect(calls).toEqual([]);
+  });
+  it('로그아웃 뒤에도 signed-out이다', async () => {
+    const s = testServer();
+    const calls = market(s, () => json({ files: [] }));
+    const { sync } = await setup(s);
+    await sync.signIn();
+    await sync.signOut();
+    expect(await sync.marketFiles()).toEqual({ ok: false, reason: 'signed-out' });
+    expect(await sync.wipeMarketFiles()).toBe(false);
+    expect(calls).toEqual([]);
+  });
+  it('서버 404·500은 outdated이고 전역 오류를 남기지 않는다', async () => {
+    for (const status of [404, 500]) {
+      const s = testServer();
+      market(s, () => json({ error: 'x' }, status));
+      const { sync } = await setup(s);
+      await sync.signIn();
+      expect(await sync.marketFiles()).toEqual({ ok: false, reason: 'outdated' });
+      expect(sync.error).toBeNull();
+    }
+  });
+  it('모양이 틀리면 error, 맞으면 행을 돌려준다', async () => {
+    const s = testServer();
+    let files: unknown = [{}];
+    market(s, () => json({ files }));
+    const { sync } = await setup(s);
+    await sync.signIn();
+    expect(await sync.marketFiles()).toEqual({ ok: false, reason: 'error' });
+    files = [ROW];
+    expect(await sync.marketFiles()).toEqual({ ok: true, files: [ROW] });
+  });
+  it('wipeMarketFiles는 성공하면 true', async () => {
+    const s = testServer();
+    const calls = market(s, () => json({ deleted: 1 }));
+    const { sync } = await setup(s);
+    await sync.signIn();
+    expect(await sync.wipeMarketFiles()).toBe(true);
+    expect(calls).toEqual(['DELETE']);
+  });
 });
 
 describe('describeFail', () => {

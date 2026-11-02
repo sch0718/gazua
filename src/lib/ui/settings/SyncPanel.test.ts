@@ -265,6 +265,13 @@ describe('CLI 연결', () => {
     render(SyncPanel, { app: app(), sync: fakeSync({ account: signedIn.account }) });
     expect(screen.queryByLabelText('CLI 코드')).toBeNull();
   });
+  it('시장 파일 올리기 범위 토큰은 그 이름으로 보인다', async () => {
+    const cliTokens = vi.fn(async () => ({ ok: true as const, tokens: [{ ...TOKEN, scope: 'market-upload' }] }));
+    render(SyncPanel, { app: app(), sync: fakeSync({ ...signedIn, sessions: vi.fn(async () => [SESSION, OTHER]), cliTokens }) });
+    await open();
+    await waitFor(() => expect(screen.getByText('시장 파일 올리기 CLI')).toBeTruthy());
+    expect(screen.queryByText('읽기 전용 CLI')).toBeNull();
+  });
   it('로그인한 기기 아래에 CLI 묶음을 보이고 연결 끊기는 확인 뒤에 철회한다', async () => {
     const cliTokens = vi.fn(async () => ({ ok: true as const, tokens: [TOKEN] }));
     const sync = fakeSync({ ...signedIn, sessions: vi.fn(async () => [SESSION, OTHER]), cliTokens });
@@ -272,6 +279,7 @@ describe('CLI 연결', () => {
     await open();
     await waitFor(() => expect(screen.getByText('gazua@macbook')).toBeTruthy());
     expect(screen.getByText('읽기 전용 CLI')).toBeTruthy();
+    expect(screen.queryByText('시장 파일 올리기 CLI')).toBeNull();
     expect(screen.getByText('CLI 연결은 따로 끊어요')).toBeTruthy();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     await fireEvent.click(screen.getByRole('button', { name: 'gazua@macbook CLI 연결 끊기' }));

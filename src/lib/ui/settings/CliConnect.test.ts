@@ -7,7 +7,7 @@ import CliConnect from './CliConnect.svelte';
 
 afterEach(cleanup);
 const NOW = Date.UTC(2026, 10, 1, 3, 2, 0);
-const found = (geo: string | null = 'KR · Seoul'): CliApproveResult => ({ ok: true, info: { label: 'gazua@macbook', createdAt: NOW - 120_000, geo } });
+const found = (geo: string | null = 'KR · Seoul'): CliApproveResult => ({ ok: true, info: { label: 'gazua@macbook', createdAt: NOW - 120_000, geo, scope: 'read' } });
 function setup(handler: (code: string, approve?: boolean) => CliApproveResult) {
   const cliApprove = vi.fn(async (code: string, approve?: boolean) => handler(code, approve));
   const sync = { cliApprove } as unknown as SyncController;
@@ -39,6 +39,13 @@ describe('CliConnect', () => {
     expect(cliApprove).toHaveBeenCalledWith('BCDF-GHJK');
     expect(body()).toContain('gazua@macbook');
     expect(body()).toContain('에서 요청했어요(KR · Seoul, 2분 전). 관심 그룹·전략을 읽을 수 있고, 바꾸거나 주문할 수는 없어요. 직접 실행한 명령에서 나온 코드만 승인하세요.');
+  });
+  it('시장 파일 올리기 범위면 제목과 설명이 다르다', async () => {
+    setup(() => ({ ok: true, info: { label: 'gazua-drive@mac', createdAt: NOW - 60_000, geo: null, scope: 'market-upload' } }));
+    await type('bcdfghjk');
+    await fireEvent.click(confirmBtn());
+    await screen.findByText('시장 파일 올리기를 허락할까요?');
+    expect(body()).toContain('시장 파일 목록을 올리고 지울 수 있어요. 관심 그룹·전략·키는 읽지 못해요.');
   });
   it('허락하면 approve:true로 보내고 터미널로 돌아가라고 알린다', async () => {
     const { cliApprove } = setup(() => found());

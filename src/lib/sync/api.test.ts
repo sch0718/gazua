@@ -19,6 +19,18 @@ describe('createSyncApi', () => {
     for (const u of urls) expect(new URL(u).searchParams.get('docVersion')).toBe('2');
   });
 
+  it('marketFiles·wipeMarketFiles는 /v1/market/files를 GET·DELETE한다', async () => {
+    const calls: [string, string][] = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([init?.method ?? 'GET', String(url)]);
+      return new Response(JSON.stringify(init?.method === 'DELETE' ? { deleted: 2 } : { files: [] }), { status: 200 });
+    }) as typeof fetch;
+    const api = createSyncApi('https://sync.test', { idToken: async () => 't', sessionId: async () => 's' }, fetchImpl);
+    expect(await api.marketFiles()).toMatchObject({ ok: true, data: { files: [] } });
+    expect(await api.wipeMarketFiles()).toMatchObject({ ok: true, data: { deleted: 2 } });
+    expect(calls).toEqual([['GET', 'https://sync.test/v1/market/files'], ['DELETE', 'https://sync.test/v1/market/files']]);
+  });
+
   it('지정한 세션만 철회할 때 현재 세션과 Google 토큰을 보내지 않아요', async () => {
     const creds = { idToken: vi.fn(async () => 'current-token'), sessionId: vi.fn(async () => 'current-session') };
     const fetchImpl = vi.fn(async () => new Response('{}'));

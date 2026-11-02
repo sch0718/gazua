@@ -89,6 +89,8 @@ export interface CliApproveInfo {
   createdAt: number;
   /** 조회 응답에만 있다. 요청 위치를 모르면 null */
   geo?: string | null;
+  /** 0006 이전 서버는 주지 않는다(= read) */
+  scope?: 'read' | 'market-upload';
 }
 export interface CliTokenRow {
   id: string;
@@ -96,6 +98,7 @@ export interface CliTokenRow {
   createdAt: number;
   lastUsedAt: number;
   expiresAt: number;
+  scope?: string;
 }
 export interface SharedRead {
   kind: ShareKind;
@@ -125,6 +128,9 @@ export interface SyncApi {
   /** approve가 없으면 조회만, true/false면 승인·거절 */
   cliApprove(userCode: string, approve?: boolean): Promise<ApiResult<CliApproveInfo>>;
   cliTokens(): Promise<ApiResult<{ tokens: CliTokenRow[] }>>;
+  marketFiles(): Promise<ApiResult<{ files: unknown }>>;
+  /** 본문 없음 */
+  wipeMarketFiles(): Promise<ApiResult<{ deleted: number }>>;
   cliRevoke(id: string): Promise<ApiResult<{ revoked: boolean }>>;
   readShare(capability: string): Promise<ApiResult<SharedRead>>;
   listKeys(): Promise<ApiResult<{ keyVault: unknown; keyBlobs: unknown }>>;
@@ -177,6 +183,8 @@ export function createSyncApi(
     revokeShare: (id) => send('DELETE', `/v1/shares/${enc(id)}`),
     cliApprove: (userCode, approve) => send('POST', '/v1/cli/approve', { body: approve === undefined ? { userCode } : { userCode, approve } }),
     cliTokens: () => send('GET', '/v1/cli/tokens'),
+    marketFiles: () => send('GET', '/v1/market/files'),
+    wipeMarketFiles: () => send('DELETE', '/v1/market/files'),
     cliRevoke: (id) => send('DELETE', `/v1/cli/tokens/${enc(id)}`),
     readShare: (capability) =>
       send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),

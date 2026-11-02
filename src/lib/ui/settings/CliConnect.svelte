@@ -5,7 +5,7 @@
   import { agoText, cliCodeComplete, formatCliCode } from '../../sync/cliCode';
 
   let { sync, now = () => Date.now() }: { sync: SyncController; now?: () => number } = $props();
-  type Info = { code: string; label: string; createdAt: number; geo: string | null };
+  type Info = { code: string; label: string; createdAt: number; geo: string | null; scope: 'read' | 'market-upload' };
   const FAIL_TEXT = {
     'invalid-code': '코드가 맞지 않거나 시간이 지났어요. `gazua login`을 다시 실행해 주세요',
     outdated: '서버 업데이트가 필요해요',
@@ -75,10 +75,14 @@
   {/if}
 </div>
 
-<Sheet open={info !== null} title="읽기 전용 접근을 허락할까요?" onclose={() => (info = null)}>
+<Sheet open={info !== null} title={info?.scope === 'market-upload' ? '시장 파일 올리기를 허락할까요?' : '읽기 전용 접근을 허락할까요?'} onclose={() => (info = null)}>
   {#if info}
     <div class="sheet-form">
-      <p><code>{info.label}</code>에서 요청했어요({detail}). 관심 그룹·전략을 읽을 수 있고, 바꾸거나 주문할 수는 없어요. 직접 실행한 명령에서 나온 코드만 승인하세요.</p>
+      {#if info.scope === 'market-upload'}
+        <p><code>{info.label}</code>에서 요청했어요({detail}). 시장 파일 목록을 올리고 지울 수 있어요. 관심 그룹·전략·키는 읽지 못해요. 직접 실행한 명령에서 나온 코드만 승인하세요.</p>
+      {:else}
+        <p><code>{info.label}</code>에서 요청했어요({detail}). 관심 그룹·전략을 읽을 수 있고, 바꾸거나 주문할 수는 없어요. 직접 실행한 명령에서 나온 코드만 승인하세요.</p>
+      {/if}
       <div class="actions">
         <button type="button" class="btn" disabled={busy} onclick={() => decide(false)}>거절</button>
         <button type="button" class="btn primary" disabled={busy} onclick={() => decide(true)}>허락</button>
