@@ -111,7 +111,7 @@ claude mcp add gazua -- node /절대/경로/gazua/cli/dist/gazua.mjs mcp --env-f
 
 ## 전략 비판 스킬
 
-저장소에 Claude Code 프로젝트 스킬 `.claude/skills/strategy-critique/`가 있어요. 위 MCP 서버를 등록한 뒤 이 저장소에서 Claude Code를 열고 「데모 RSI 반등 전략 약점 따져 줘」처럼 요청하면 써요.
+저장소에 Claude Code 프로젝트 스킬 `.claude/skills/strategy-critique/`가 있어요. 위 MCP 서버를 등록한 뒤 이 저장소에서 Claude Code를 열고 「『내 전략 이름』 전략 약점 따져 줘」처럼 요청하면 써요.
 
 - 결과는 **참고 의견이며 매매 신호가 아니에요.** 출력 처음과 끝에 이 문구가 고정으로 들어가요. 종목을 사거나 팔라는 말은 하지 않아요.
 - 부르는 도구는 `strategies`(원 규칙까지)·`simulate`(전체 기간, 1년 이상이면 앞·뒤 반 두 번 더)·`signals`, 프로필이 여럿일 때만 `profiles`예요. 주문·쓰기·파일 쓰기는 없어요.

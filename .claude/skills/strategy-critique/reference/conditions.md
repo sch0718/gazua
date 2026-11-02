@@ -9,7 +9,7 @@
 | `maPrice` | 이동평균 위·아래 | 종가가 `period`일 이동평균보다 위(`above`)·아래(`below`) | `{"kind":"maPrice","period":20,"side":"above"}` |
 | `maCross` | 이평 교차 | `short`일선이 `long`일선을 위로(`golden`)·아래로(`dead`) 뚫은 날 | `{"kind":"maCross","short":20,"long":60,"dir":"golden"}` |
 | `rsi` | RSI | `period`일 RSI가 `level`보다 위·아래(`above`·`below`), 또는 위로·아래로 지난 날(`crossUp`·`crossDown`) | `{"kind":"rsi","period":14,"level":30,"op":"crossUp"}` |
-| `volume` | 거래량 | 거래량이 `days`일 평균의 `ratio`배 이상 | `{"kind":"volume","days":20,"ratio":1.5}` |
+| `volume` | 거래량 | 당일 거래량이 직전 `days`일(당일 제외) 평균의 `ratio`배 이상 | `{"kind":"volume","days":20,"ratio":1.5}` |
 | `change` | N일 등락률 | `days`일 전 종가 대비 등락률이 `pct`% 이상(`above`)·이하(`below`) | `{"kind":"change","days":5,"pct":-10,"op":"below"}` |
 | `fromHigh` | 고점 대비 하락 | 종가가 `days`일 최고 종가보다 `pct`% 이상 낮음 | `{"kind":"fromHigh","days":60,"pct":20}` |
 | `newHigh` | 신고가 돌파 | 종가가 직전 `days`일 최고 종가를 넘음 | `{"kind":"newHigh","days":60}` |

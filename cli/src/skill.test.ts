@@ -184,6 +184,29 @@ describe('reference/conditions.md', () => {
     }
   });
 
+  it('고르는 값이 엔진이 받는 값과 같다(표에 없는 값은 고친다)', () => {
+    const values = (key: string) => {
+      const row = section(md(), '고르는 값').split('\n').find((l) => l.includes(`\`${key}\``));
+      return [...(row?.split('|')[2] ?? '').matchAll(/`(\w+)`/g)].map((m) => m[1]);
+    };
+    const cases: [string, (s: StrategyV2, v: string) => void][] = [
+      ['maPrice.side', (s, v) => (s.rules.buy = [{ conds: [{ ...defaultCond('maPrice'), side: v } as Cond] }])],
+      ['change.op', (s, v) => (s.rules.buy = [{ conds: [{ ...defaultCond('change'), op: v } as Cond] }])],
+      ['maCross.dir', (s, v) => (s.rules.buy = [{ conds: [{ ...defaultCond('maCross'), dir: v } as Cond] }])],
+      ['rsi.op', (s, v) => (s.rules.buy = [{ conds: [{ ...defaultCond('rsi'), op: v } as Cond] }])],
+      ['stopLoss.basis', (s, v) => ((s.rules.sell.stopLoss as { basis: string }).basis = v)],
+      ['takeProfit.afterFirstTake', (s, v) => ((s.rules.sell.takeProfit as { afterFirstTake: string }).afterFirstTake = v)],
+    ];
+    for (const [key, set] of cases) {
+      expect(values(key).length, key).toBeGreaterThan(0);
+      for (const v of [...values(key), 'unknown']) {
+        const s = demoStrategy();
+        set(s, v);
+        expect(repaired(s), `${key}=${v}`).toBe(v === 'unknown');
+      }
+    }
+  });
+
   it('묶음 한도가 엔진과 같다', () => {
     expect(section(md(), '묶음 한도')).toContain(`묶음은 최대 ${MAX_GROUPS}개, 묶음마다 조건은 최대 ${MAX_CONDS}개`);
   });
