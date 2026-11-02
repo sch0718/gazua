@@ -42,7 +42,7 @@ MCP를 쓰는 AI 도구(Claude Code 등)가 CLI를 셸로 부르지 않고 도�
 - `cli/src/fileLock.ts`: 공급자별 SQLite 잠금, 같은 프로세스 대기(`active` 맵).
 - `cli/src/direct.ts`: 허용 목록 밖 경로는 `path-blocked`.
 
-명령 함수는 `Ctx`만 받으므로, MCP 서버는 도구 인자로 `Args`를 만들고 CLI와 같은 방식으로 `Ctx`를 만들어 `COMMANDS[name]`을 부르면 돼요.
+명령 함수는 `Ctx`만 받으므로, MCP 서버는 도구 인자로 `Args`를 만들고 CLI와 같은 방식으로 `Ctx`를 만들어 `COMMANDS[name]`을 부르면 돼요. 다만 이름은 먼저 MCP 도구 표(§3.2)에서 `Object.hasOwn`으로 찾고, 표에 있는 이름만 `COMMANDS`에서 꺼내요(§3.5). `COMMANDS`에는 `login`·`logout`이 있어서예요.
 
 ## 3. 설계
 
@@ -50,10 +50,11 @@ MCP를 쓰는 AI 도구(Claude Code 등)가 CLI를 셸로 부르지 않고 도�
 
 | 파일 | 변경 |
 |---|---|
-| `cli/src/main.ts` | `run`의 「명령 실행 → `Result`」 부분을 `execute(cmd, args, io, redact)`로 떼어 내 CLI와 MCP가 같이 써요. 출력은 지금과 같아요. `loadEnvFile`·`SECRET_ENV` 등록도 함께 내보내요. 첫 인자가 `mcp`면 `serveMcp`로 넘겨요 |
+| `cli/src/execute.ts`(새) | `COMMANDS`·`SECRET_ENV`·`loadEnvFile`과, `run`에서 떼어 낸 「명령 실행 → `Result`」 함수 `execute(cmd, args, io, redact)`를 둬요. CLI(`main.ts`)와 MCP(`mcp/*`)가 둘 다 이 모듈만 import해서 순환 import가 없어요(`main.ts`가 `mcp/server.ts`를 import하고 `mcp/*`가 `main.ts`를 import하면, 진입점이 `main.ts`인 번들에서 `mcp/*`가 먼저 평가돼 최상위의 `COMMANDS` 읽기가 초기화 전 접근 오류로 깨져요). 의존 방향: `main.ts` → `mcp/server.ts` → `execute.ts`, `main.ts` → `execute.ts` |
+| `cli/src/main.ts` | `run`이 `execute`를 써요. 출력은 지금과 같아요. 기존 테스트의 `import { COMMANDS } from './main'`이 그대로 되도록 `COMMANDS`를 다시 내보내요. 분기는 `run`이 아니라 `isMain` 블록에서 해요: `process.argv.slice(2)`의 첫 인자가 `mcp`면 `run` 대신 `serveMcp(argv, io, readline.createInterface({ input: process.stdin, crlfDelay: Infinity }))`를 부르고, 돌려받은 종료 코드를 `process.exitCode`에 넣어요. `Io`·`run`의 모양은 바꾸지 않아요(`Io`에는 표준 입력이 없어요). 서버 옵션은 `mcp` 뒤에만 와요(§3.6). `gazua --env-file x mcp`처럼 옵션이 앞에 오면 지금처럼 `run`이 받아 「알 수 없는 명령이에요: mcp」(`invalid-args`)로 끝나요 |
 | `cli/src/mcp/protocol.ts`(새) | 줄 단위 JSON-RPC 처리: 한 줄 해석, 요청·알림 구분, 응답·오류 만들기. 입출력을 주입받는 순수 모듈 |
 | `cli/src/mcp/tools.ts`(새) | 도구 7개의 정의(이름·설명·`inputSchema`·`annotations`)와 「도구 인자 → `argv`」 변환 |
-| `cli/src/mcp/server.ts`(새) | `serveMcp(argv, io, input)`: 서버 옵션 해석, `initialize`·`tools/list`·`tools/call`·`ping` 분기, 호출을 차례로 실행 |
+| `cli/src/mcp/server.ts`(새) | `serveMcp(argv: string[], io: Io, input: AsyncIterable<string>): Promise<number>`: `argv`는 `mcp`를 포함한 그대로, `input`은 표준 입력의 줄 단위 비동기 반복자(테스트는 배열·생성기로 주입). 서버 옵션 해석(§3.6), `initialize`·`tools/list`·`tools/call`·`ping` 분기, 호출을 차례로 실행. 입력이 끝나면 0, 시작 실패면 2를 돌려줘요 |
 | `cli/src/mcp/*.test.ts`(새) | §5 |
 | `cli/src/bundle.test.ts` | 번들을 `mcp`로 띄워 `initialize`·`tools/list`·`tools/call` 왕복 |
 | `cli/src/readme.test.ts` | README에 MCP 절·도구 이름·등록 명령이 있는지 |
@@ -76,10 +77,10 @@ MCP를 쓰는 AI 도구(Claude Code 등)가 CLI를 셸로 부르지 않고 도�
 
 변환과 검증:
 
-1. 인자 객체는 JSON 객체여야 하고(`arguments`가 없으면 `{}`), 스키마에 없는 키·틀린 형(문자열 자리에 숫자 등)·빠진 필수 인자는 `invalid-args`예요. 형 검사는 도구 정의의 작은 표로 직접 해요(JSON Schema 검증기를 들이지 않아요).
+1. `arguments`가 없으면 `{}`로 다뤄요. `arguments`가 JSON 객체가 아닌 경우(`null`·배열·숫자 등), 스키마에 없는 키·틀린 형(문자열 자리에 숫자 등)·빠진 필수 인자는 모두 `invalid-args` 도구 결과(`isError: true`, §3.5)예요. 형 검사는 도구 정의의 작은 표로 직접 해요(JSON Schema 검증기를 들이지 않아요).
 2. 통과한 인자를 `argv`로 바꿔요: 값은 `--이름=값` 한 토큰으로(값이 `-`로 시작해도 옵션으로 읽히지 않게), 불리언은 `true`일 때만 `--이름`, 종목은 맨 뒤 `--` 다음에 둬요. 예: `{symbols:["005930"],provider:"kis"}` → `["quote","--provider=kis","--","005930"]`.
 3. `parseArgv(argv)`로 CLI와 같은 검사(`provider` 값, 달력 날짜)를 거쳐 `Args`를 얻어요.
-4. 서버 수준 옵션(`envFile`·`verbose`)은 도구 인자로 받지 않아요. `server`·`label`·`pretty`도 없어요.
+4. 서버 수준 옵션(`envFile`·`verbose`)은 도구 인자로 받지 않아요. `server`·`label`·`pretty`도 없어요. `parseArgv`가 만든 호출별 `Args`의 `verbose`는 서버 시작 때 해석한 `verbose` 값으로 덮어쓴 뒤 `execute(cmd, args, io, redact)`에 넘겨요. `execute`는 CLI와 같이 `args.verbose`로 `ctx.log`와 모르는 오류 스택의 표준 오류 출력을 제어해요.
 
 오류 메시지는 CLI 문구 그대로예요(예: 「--profile로 골라 주세요」). 도구 설명에 「인자 이름은 CLI 옵션과 같아요」라고 적어 AI 도구가 옮겨 읽게 해요. 메시지를 MCP용으로 따로 두면 오류 코드표가 둘이 돼요.
 
@@ -92,25 +93,26 @@ MCP를 쓰는 AI 도구(Claude Code 등)가 CLI를 셸로 부르지 않고 도�
 
 - 전송: stdio. 한 줄에 JSON-RPC 메시지 하나(UTF-8, 끝 `\n`). 표준 출력에는 프로토콜 메시지만 써요. 진행 안내(`ctx.say`)·`--verbose` 로그는 표준 오류예요.
 - 서버를 띄우는 동안 `console.log`·`console.info`·`console.debug`를 표준 오류로 돌려 앱 코드가 표준 출력을 더럽히지 못하게 해요(지금 `src/lib`에는 없지만 방어).
-- `initialize`: 클라이언트의 `protocolVersion`이 지원 목록(`2025-06-18`·`2025-03-26`·`2024-11-05`)에 있으면 그 값을, 없으면 `2025-06-18`을 돌려줘요. `capabilities: { tools: {} }`, `serverInfo: { name: "gazua", version: <cli/package.json의 version> }`, `instructions`: 「가즈아 읽기 전용 도구예요. 주문·쓰기는 없어요. 로그인은 사람이 터미널에서 gazua login으로 해요. 결과는 gazua CLI의 JSON과 같아요.」
+- `initialize`: 클라이언트의 `protocolVersion`이 지원 목록(`2025-06-18`·`2024-11-05`)에 있으면 그 값을, 없으면 `2025-06-18`을 돌려줘요. `capabilities: { tools: {} }`, `serverInfo: { name: "gazua", version: <cli/package.json의 version> }`, `2025-03-26`은 지원 목록에서 뺐어요. 그 버전은 JSON-RPC 배치 수신을 필수로 정했고(`2025-06-18`에서 다시 뺌), 이 서버는 배열 묶음을 `-32600`으로 거절해요. 배치를 그 버전에서만 구현하면 처리 경로가 둘이 되고, 알려진 차이로 두면 규격 위반을 안고 가요. `2025-03-26`을 보낸 클라이언트는 `2025-06-18`을 받고 이어 갈지 스스로 정해요(규격의 협상 절차). `instructions`: 「가즈아 읽기 전용 도구예요. 주문·쓰기는 없어요. 로그인은 사람이 터미널에서 gazua login으로 해요. 결과는 gazua CLI의 JSON과 같아요.」
 - `notifications/initialized`·그 밖의 알림(`id` 없음): 응답하지 않아요.
 - `ping`: `{}`.
 - `tools/list`: 도구 7개. 커서는 쓰지 않아요(`nextCursor` 없음).
 - `tools/call`: §3.5.
-- 모르는 메서드 `-32601`, 해석할 수 없는 줄 `-32700`(`id: null`), JSON-RPC 모양이 아닌 메시지(배열 묶음 포함) `-32600`, 모르는 도구 이름·`params` 모양 틀림 `-32602`.
-- 표준 입력이 닫히면 진행 중인 호출을 끝내고 종료해요(종료 코드 0).
+- 모르는 메서드 `-32601`, 해석할 수 없는 줄 `-32700`(`id: null`), JSON-RPC 모양이 아닌 메시지(배열 묶음 포함) `-32600`, 모르는 도구 이름·`params` 모양 틀림 `-32602`. `tools/call`에서 `params` 모양 틀림은 `params` 자체가 JSON 객체가 아니거나 `name`이 문자열이 아닌 경우(누락 포함)예요. 알려진 도구의 `arguments` 검증 실패는 §3.2의 `invalid-args` 도구 결과로 돌려줘요. 예를 들어 `params: {"name":"quote","arguments":5}`는 JSON-RPC 오류가 아니라 `isError: true`인 도구 결과예요.
+- 표준 입력이 닫히면 새 줄은 더 받지 않고, 이미 받은 요청은 진행 중인 것과 줄 서 있는 것 모두 받은 차례대로 실행해 응답을 쓴 뒤 종료해요(종료 코드 0). 받은 요청을 버리는 것은 취소 처리라 범위 밖이에요(§1.2).
 
 ### 3.5 도구 실행
 
 `tools/call` 하나마다:
 
-1. 앞 호출이 끝날 때까지 기다려요(§1.1 「호출 처리」).
-2. 새 `Redactor`를 만들고 증권사 키 환경변수(`SECRET_ENV`)를 등록해요. 호출마다 새로 만들어 앞 호출의 비밀값 목록이 섞이지 않게 하지만, 키는 매번 다시 등록해요.
-3. §3.2로 `Args`를 만들어요. 실패하면 `invalid-args` 결과.
-4. CLI와 같은 `execute`로 명령을 실행해 `Result`를 얻어요(`ok`/`fail`, `warnings`).
-5. `redact.apply(result)`를 `JSON.stringify`(들여쓰기 없음)해 `{ content: [{ type: "text", text }], isError: !result.ok }`로 돌려줘요.
+1. `name`을 도구 표(§3.2)에서 `Object.hasOwn`으로 찾아요. 표에 없으면(`login`·`logout`·`__proto__`·`constructor` 포함) 명령을 실행하지 않고 `-32602`로 끝내요. `COMMANDS` 조회는 이 확인 뒤에만 해요.
+2. 앞 호출이 끝날 때까지 기다려요(§1.1 「호출 처리」).
+3. 새 `Redactor`를 만들고 증권사 키 환경변수(`SECRET_ENV`)를 등록해요. 호출마다 새로 만들어 앞 호출의 비밀값 목록이 섞이지 않게 하지만, 키는 매번 다시 등록해요.
+4. §3.2로 `Args`를 만들어요. 실패하면 `invalid-args` 결과.
+5. CLI와 같은 `execute`로 명령을 실행해 `Result`를 얻어요(`ok`/`fail`, `warnings`).
+6. `redact.apply(result)`를 `JSON.stringify`(들여쓰기 없음)해 `{ content: [{ type: "text", text }], isError: !result.ok }`로 돌려줘요.
 
-명령이 던진 모르는 오류는 CLI처럼 `internal`로 바꾸고 원문을 내보내지 않아요. 서버 프로세스는 계속 돌아요.
+명령이 던진 모르는 오류는 CLI처럼 `internal`로 바꾸고 도구 결과에는 원문을 내보내지 않아요. 서버의 `--verbose`가 켜져 있으면 CLI와 같이 오류 스택을 호출별 `Redactor`로 거른 뒤 표준 오류에 써요. 서버 프로세스는 계속 돌아요.
 
 `annotations`: 모두 `readOnlyHint: true`. 증권사·동기화 서버를 부르므로 `openWorldHint: true`. `destructiveHint`·`idempotentHint`는 적지 않아요(읽기 전용이면 의미가 없어요).
 
@@ -120,7 +122,7 @@ MCP를 쓰는 AI 도구(Claude Code 등)가 CLI를 셸로 부르지 않고 도�
 gazua mcp [--env-file <경로>] [--verbose]
 ```
 
-- `parseArgv`로 해석한 뒤 `envFile`·`verbose` 말고 다른 옵션이나 위치 인자가 있으면 `invalid-args`로 시작하지 않아요.
+- 옵션은 `mcp` 뒤에 둬요(§3.1의 분기 기준). `serveMcp`가 받은 `argv`를 `parseArgv`로 해석한 뒤 `envFile`·`verbose` 말고 다른 옵션이나 `mcp` 뒤의 위치 인자가 있으면 `invalid-args`로 시작하지 않아요.
 - 시작 실패(인자 오류, `--env-file` 읽기 실패)는 표준 오류에 CLI와 같은 JSON 한 줄을 쓰고 종료 코드 2로 끝나요. 표준 출력은 프로토콜 전용이라 쓰지 않아요.
 - `--env-file`은 시작할 때 한 번 읽어요(CLI의 `loadEnvFile`, 이미 있는 환경변수는 덮어쓰지 않음). 키를 바꾸면 서버를 다시 띄워요.
 
@@ -144,17 +146,21 @@ claude mcp add gazua -- node /절대/경로/gazua/cli/dist/gazua.mjs mcp --env-f
 ## 5. 테스트 (vitest, fetch 흉내)
 
 - `mcp/protocol.test.ts`: 한 줄 해석, 알림 무응답, `-32700`·`-32600`(배열 포함)·`-32601`, 응답 `id` 보존.
+- 순환 import 방지: `mcp/*`와 `execute.ts`는 `main.ts`를 import하지 않음(파일 내용 검사). 번들 실행 테스트(`bundle.test.ts`)가 CLI 명령과 `mcp` 둘 다 뜨는지 확인.
 - `mcp/tools.test.ts`: 도구 이름이 `COMMANDS`에서 `login`·`logout`을 뺀 것과 정확히 같음. 모든 도구 `readOnlyHint: true`. 인자 → `argv` 변환(값이 `-`로 시작, `--` 뒤 종목), 모르는 키·틀린 형·빠진 필수·틀린 날짜·틀린 `provider`는 `invalid-args`. `inputSchema`의 키 목록과 검증 표가 같음.
 - `mcp/server.test.ts`(주입한 입력 줄 → 출력 줄):
   - `initialize` 버전 협상(지원·미지원), `serverInfo.version`이 `package.json`과 같음, `ping`, `tools/list`.
   - `tools/call`의 결과 텍스트가 같은 인자의 CLI `run` 표준 출력과 같음(`profiles`·`quote` 등, 가짜 동기화 서버·증권사).
   - 실패는 `isError: true`와 CLI와 같은 오류 JSON(`not-logged-in`, `profile-required`의 `data.profiles`).
+  - `tools/call`에서 `params`가 객체가 아니거나 `name`이 문자열이 아니면(누락 포함) `-32602`. `params: {"name":"quote","arguments":5}`와 `arguments`가 `null`·배열인 경우는 JSON-RPC `result`에 `isError: true`, 결과 텍스트에 `error.code: "invalid-args"`. `arguments`를 생략하면 `{}`로 검증(`profiles`는 성공, `quote`는 필수 인자 누락으로 `invalid-args`).
+  - `tools/call`의 `name`이 `login`·`logout`·`__proto__`·`constructor`·없는 이름이면 `-32602`이고 명령이 실행되지 않음(가짜 fetch 호출 0회, `logout`이면 `auth.json`이 그대로).
   - 증권사 키 환경변수 값이 결과·표준 오류에 나오지 않음(`[숨김]`).
   - 병렬로 보낸 호출 두 개가 겹치지 않고 차례로 돌며 응답 `id`가 맞음.
   - 명령이 모르는 오류를 던져도 `internal` 결과를 돌려주고 다음 호출을 받음.
+  - 서버의 `--verbose`가 켜져 있으면 도구 호출의 `ctx.log`와 모르는 오류 스택이 비밀값 거르기를 거친 뒤 표준 오류에 나오고, 꺼져 있으면 나오지 않음. 두 경우 모두 표준 출력에는 JSON-RPC만 나옴.
   - 서버 실행 중 `console.log`가 표준 출력이 아니라 표준 오류로 감.
   - 시작 옵션: 허용 밖 옵션·위치 인자는 종료 코드 2와 표준 오류 JSON, `--env-file`의 키를 쓰고 거름.
-  - 입력이 닫히면 진행 중 호출의 응답을 쓴 뒤 끝남.
+  - 입력이 닫히면 진행 중 호출과 줄 선 호출의 응답을 받은 차례대로 모두 쓴 뒤 0으로 끝남(`tools/call` 두 줄을 넣고 바로 입력을 닫는 사례).
 - `main.test.ts`: `execute`로 떼어 낸 뒤에도 기존 테스트 그대로 통과(동작 변화 없음).
 - `bundle.test.ts`: 빌드한 번들을 `node gazua.mjs mcp`로 띄워 `initialize` → `tools/list`(7개) → `tools/call quote`(가짜 fetch 사전 로드) 왕복, 표준 출력의 모든 줄이 JSON-RPC.
 - `readme.test.ts`: MCP 절에 `gazua mcp`, `claude mcp add`, 도구 이름 7개.
