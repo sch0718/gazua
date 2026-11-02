@@ -144,3 +144,47 @@ function section(md: string, title: string): string {
   const end = rest.search(/\n## /);
   return end < 0 ? rest : rest.slice(0, end);
 }
+
+describe('reference/conditions.md', () => {
+  const md = () => read('reference/conditions.md');
+  const kindRows = () => [...section(md(), '조건 종류').matchAll(/^\| `(\w+)` \| ([^|]+?) \|/gm)].map((m) => ({ kind: m[1], label: m[2] }));
+  const rangeRows = () =>
+    [...section(md(), '숫자 범위').matchAll(/^\| `([\w.[\]]+)` \| `(\w+)` \| (정수|소수) \| (-?[\d.]+) \| (-?[\d.]+) \|/gm)].map((m) => ({ target: m[1], param: m[2], int: m[3] === '정수', min: Number(m[4]), max: Number(m[5]) }));
+  const isKind = (t: string) => COND_KINDS.some((k) => k.kind === t);
+
+  /** 데모 전략 하나의 한 값만 바꾼다. 조건은 매수 묶음 하나에 그 조건만 둔다 */
+  function withValue(target: string, param: string, v: number): StrategyV2 {
+    const s = demoStrategy();
+    if (isKind(target)) s.rules.buy = [{ conds: [{ ...defaultCond(target as Cond['kind']), [param]: v } as Cond] }];
+    else if (target === 'takeProfit.stages[]') s.rules.sell.takeProfit.stages = param === 'sellPct' ? [{ pct: 10, sellPct: v }, { pct: 20, sellPct: 100 }] : [{ pct: v, sellPct: 100 }];
+    else (s.rules.sell as unknown as Record<string, Record<string, number>>)[target][param] = v;
+    return s;
+  }
+
+  it('조건 종류와 편집기 이름이 COND_KINDS와 같다(순서 포함)', () => {
+    expect(kindRows()).toEqual(COND_KINDS.map((k) => ({ kind: k.kind, label: k.label })));
+  });
+
+  it('pattern을 뺀 조건의 숫자 인자가 모두 표에 있다', () => {
+    for (const { kind } of COND_KINDS.filter((k) => k.kind !== 'pattern')) {
+      const numeric = Object.entries(defaultCond(kind)).filter(([, v]) => typeof v === 'number').map(([k]) => k).sort();
+      expect(rangeRows().filter((r) => r.target === kind).map((r) => r.param).sort(), kind).toEqual(numeric);
+    }
+    for (const t of ['takeProfit.stages[]', 'stopLoss', 'trailing', 'timeExit']) expect(rangeRows().some((r) => r.target === t), t).toBe(true);
+  });
+
+  it('표의 최소·최대는 엔진이 고치지 않고, 그 밖은 고친다', () => {
+    expect(repaired(demoStrategy())).toBe(false);
+    for (const r of rangeRows()) {
+      const step = r.int ? 1 : 0.5;
+      expect(repaired(withValue(r.target, r.param, r.min)), `${r.target}.${r.param}=${r.min}`).toBe(false);
+      expect(repaired(withValue(r.target, r.param, r.max)), `${r.target}.${r.param}=${r.max}`).toBe(false);
+      expect(repaired(withValue(r.target, r.param, r.min - step)), `${r.target}.${r.param}=${r.min - step}`).toBe(true);
+      expect(repaired(withValue(r.target, r.param, r.max + step)), `${r.target}.${r.param}=${r.max + step}`).toBe(true);
+    }
+  });
+
+  it('묶음 한도가 엔진과 같다', () => {
+    expect(section(md(), '묶음 한도')).toContain(`묶음은 최대 ${MAX_GROUPS}개, 묶음마다 조건은 최대 ${MAX_CONDS}개`);
+  });
+});
