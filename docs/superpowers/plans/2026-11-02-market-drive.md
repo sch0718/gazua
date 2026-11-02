@@ -585,6 +585,8 @@ describe('market-upload 범위', () => {
 
 흐름 테스트(`흐름: device → …`)의 토큰 응답 검사는 `scope: 'read'`를 더해도 `toBe`가 아니라 개별 필드 검사라 그대로 둔다.
 
+- `src/lib/sync/api.test.ts`의 `CLI 연결: 조회 → 거절·승인 → 토큰 목록 → 끊기` 테스트에서 승인 조회·승인 결정 응답의 `data` 기대값(현재 61·63행)에 각각 `scope: 'read'`를 더한다. 이 테스트는 실제 sync-worker 핸들러를 쓰므로 Task 3에서 함께 고친다(Task 4로 미루면 Task 3 커밋에서 루트 테스트가 깨진다).
+
 - [ ] **Step 2: 실패 확인**
 
 Run: `pnpm --filter sync-worker test -- cli`
@@ -654,13 +656,13 @@ export function cliScope(method: string, url: URL, scope: string): 'profiles' | 
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `pnpm --filter sync-worker test`
+Run: `pnpm --filter sync-worker test && pnpm vitest run src/lib/sync/api.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add sync-worker/src/cli.ts sync-worker/src/cli.test.ts
+git add sync-worker/src/cli.ts sync-worker/src/cli.test.ts src/lib/sync/api.test.ts
 git commit -m "feat(sync-worker): CLI 토큰에 시장 파일 올리기 전용 범위(market-upload)를 더함"
 ```
 
@@ -702,7 +704,6 @@ it('marketFiles·wipeMarketFiles는 /v1/market/files를 GET·DELETE한다', asyn
 
 기존 정확 일치(`toEqual`) 기대값도 함께 고친다.
 
-- `src/lib/sync/api.test.ts`의 `CLI 연결: 조회 → 거절·승인 → 토큰 목록 → 끊기` 테스트에서 승인 조회·승인 결정 응답의 `data` 기대값(현재 61·63행)에 각각 `scope: 'read'`를 더한다. 이 테스트는 실제 테스트 서버를 사용하므로 Task 3에서 바뀐 응답을 그대로 받는다.
 - `src/lib/sync/controller.test.ts`의 `CLI 연결: 조회·승인·목록·끊기와 실패 사유` 테스트에서 승인 조회 결과의 `info` 기대값(현재 323행)에 `scope: 'read'`를 더한다. 기존 `geo`는 유지하고 Task 4의 컨트롤러 반환값과 맞춘다.
 
 `src/lib/sync/controller.test.ts`에:
