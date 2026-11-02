@@ -40,6 +40,7 @@
 | `src/lib/marketData/driveConfig.ts`, `gis.ts`, `driveClient.ts`, `driveSync.ts` (새) | 앱 Drive 받기 |
 | `src/lib/ui/settings/MarketDrive.svelte` (새), `DataTools.svelte`, `src/routes/Settings.svelte` | 설정 화면 |
 | `drive-csp.config.ts` (새), `vite.config.ts`, `src/vite-env.d.ts` | CSP·빌드 변수 |
+| `.github/workflows/deploy.yml` | 저장소 Actions Variable을 앱 빌드 환경변수로 전달 |
 | `cli/src/args.ts`, `errors.ts`, `config.ts`, `syncClient.ts`, `main.ts` | CLI 공통 |
 | `cli/src/googleAuth.ts`, `driveApi.ts`, `marketFile.ts`, `commands/drive.ts` (새) | CLI Drive |
 | `scripts/collect-market-data.mjs` | `--drive` |
@@ -110,6 +111,12 @@ describe('checkMarketMeta', () => {
   });
   it.each([
     [{ from: '2026-02-30', to: '2026-10-31' }],
+    [{ from: '2026-13-01', to: '2026-10-31' }],
+    [{ from: '2026-00-10', to: '2026-10-31' }],
+    [{ from: '2026-10-32', to: '2026-10-31' }],
+    [{ from: '2026-01-01', to: '2026-13-01' }],
+    [{ from: '2026-01-01', to: '2026-00-10' }],
+    [{ from: '2026-01-01', to: '2026-10-32' }],
     [{ from: '2026-10-31', to: '2026-10-30' }],
     [{ from: '20261031', to: '2026-10-31' }],
     [{ from: '2026-10-31' }],
@@ -181,7 +188,11 @@ const META_KEYS = ['name', 'sha256', 'size', 'version', 'collectedAt', 'range', 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const intIn = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 /** 달력에 있는 YYYY-MM-DD(2026-02-30은 아니다) */
-const realDate = (d: unknown): d is string => typeof d === 'string' && DATE_RE.test(d) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+const realDate = (d: unknown): d is string => {
+  if (typeof d !== 'string' || !DATE_RE.test(d)) return false;
+  const time = Date.parse(`${d}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === d;
+};
 const bad = (path: string) => ({ ok: false as const, code: 'invalid' as const, path });
 
 function metaFields(v: Record<string, unknown>): ManifestCheck<MarketFileMeta> {
@@ -566,7 +577,13 @@ describe('market-upload 범위', () => {
 });
 ```
 
-`approve` 결정 응답의 기존 테스트(`approve:true는 … 응답은 {label, createdAt}`)는 `{ label, createdAt, scope: 'read' }`로 기대값을 고친다. 흐름 테스트(`흐름: device → …`)의 토큰 응답 검사는 `scope: 'read'`를 더해도 `toBe`가 아니라 개별 필드 검사라 그대로 둔다.
+기존 `sync-worker/src/cli.test.ts`의 정확 일치(`toEqual`) 기대값도 기본 범위에 맞춰 고친다.
+
+- 승인 조회 테스트(`조회는 상태를 바꾸지 않고 label·createdAt·geo를 돌려준다`, 현재 209행)의 응답 기대값에 `scope: 'read'`를 더한다. 기존 `geo`와 상태 불변 검사는 유지한다.
+- 승인 결정 테스트(`approve:true는 … 응답은 {label, createdAt}`, 현재 225행)는 `{ label, createdAt, scope: 'read' }`로 기대값을 고친다.
+- 토큰 목록 테스트(`살아 있는 내 토큰만 목록에 나오고 원문은 없다`, 현재 531행)의 행 기대값에 `scope: 'read'`를 더한다. 기존 토큰 메타데이터와 원문 비노출 검사는 유지한다.
+
+흐름 테스트(`흐름: device → …`)의 토큰 응답 검사는 `scope: 'read'`를 더해도 `toBe`가 아니라 개별 필드 검사라 그대로 둔다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -683,17 +700,22 @@ it('marketFiles·wipeMarketFiles는 /v1/market/files를 GET·DELETE한다', asyn
 
 (`creds()`는 같은 파일에 이미 있는 자격 증명 도우미 이름을 쓴다. 없으면 파일 위쪽의 `createSyncApi` 호출 예를 그대로 따른다.)
 
+기존 정확 일치(`toEqual`) 기대값도 함께 고친다.
+
+- `src/lib/sync/api.test.ts`의 `CLI 연결: 조회 → 거절·승인 → 토큰 목록 → 끊기` 테스트에서 승인 조회·승인 결정 응답의 `data` 기대값(현재 61·63행)에 각각 `scope: 'read'`를 더한다. 이 테스트는 실제 테스트 서버를 사용하므로 Task 3에서 바뀐 응답을 그대로 받는다.
+- `src/lib/sync/controller.test.ts`의 `CLI 연결: 조회·승인·목록·끊기와 실패 사유` 테스트에서 승인 조회 결과의 `info` 기대값(현재 323행)에 `scope: 'read'`를 더한다. 기존 `geo`는 유지하고 Task 4의 컨트롤러 반환값과 맞춘다.
+
 `src/lib/sync/controller.test.ts`에:
 
 ```ts
 describe('marketFiles', () => {
-  it('로그인 전에는 signed-out, 서버 404는 outdated, 모양이 틀리면 error, 맞으면 행', async () => {
+  it('로그인 전에는 signed-out, 서버 404·500은 outdated, 모양이 틀리면 error, 맞으면 행', async () => {
     // 기존 controller 테스트의 로그인 도우미로 api를 붙인 컨트롤러를 만든다(파일 안 다른 describe의 setup 재사용)
   });
 });
 ```
 
-위 케이스를 파일 안의 기존 `setup`/`signedIn` 도우미로 채운다. 기대값: 로그인 전 `{ ok: false, reason: 'signed-out' }`; `api.marketFiles`가 `{ ok: false, kind: 'not-found' }`면 `{ ok: false, reason: 'outdated' }`; `{ files: [{}] }`면 `{ ok: false, reason: 'error' }`; 정상 행 하나면 `{ ok: true, files: [row] }`. `wipeMarketFiles`는 성공 시 `true`.
+위 케이스를 파일 안의 기존 `setup`/`signedIn` 도우미로 채운다. 기대값: 로그인 전 `{ ok: false, reason: 'signed-out' }`; `api.marketFiles`가 `{ ok: false, kind: 'not-found' }` 또는 `{ ok: false, kind: 'server', status: 500 }`이면 `{ ok: false, reason: 'outdated' }`이며 전역 오류를 남기지 않는다(spec 9절의 0006 미적용 응답 포함); `{ files: [{}] }`면 `{ ok: false, reason: 'error' }`; 정상 행 하나면 `{ ok: true, files: [row] }`. `wipeMarketFiles`는 성공 시 `true`. 설정이 있어 `api`가 생성됐어도 로그인 전·로그아웃 뒤(`account === null`)에는 `marketFiles`가 `signed-out`, `wipeMarketFiles`가 `false`를 돌려주며, 두 API 메서드를 호출하지 않는지 확인한다. `api`는 로그인 상태가 아니라 설정 유무로 생성되므로 두 메서드 모두 `account`도 검사한다.
 
 `src/lib/ui/settings/CliConnect.test.ts`에:
 
@@ -761,19 +783,19 @@ export type CliApproveResult =
     marketFiles: () =>
       guarded<MarketFilesResult>(
         async () => {
-          if (!api) return { ok: false, reason: 'signed-out' };
+          if (!api || account === null) return { ok: false, reason: 'signed-out' };
           const r = await api.marketFiles();
           if (r.ok) {
             const files = checkMarketFiles(r.data.files);
             return files ? { ok: true, files } : { ok: false, reason: 'error' };
           }
-          if (r.kind === 'not-found') return { ok: false, reason: 'outdated' };
+          if (r.kind === 'not-found' || (r.kind === 'server' && r.status === 500)) return { ok: false, reason: 'outdated' };
           ok(r);
           return { ok: false, reason: 'error' };
         },
         { ok: false, reason: 'error' },
       ),
-    wipeMarketFiles: () => guarded(async () => (api ? ok(await api.wipeMarketFiles()) !== null : false), false),
+    wipeMarketFiles: () => guarded(async () => (api && account !== null ? ok(await api.wipeMarketFiles()) !== null : false), false),
 ```
 
 `cliApprove` 성공 분기를 `{ ok: true, info: { label, createdAt, geo: r.data.geo ?? null, scope: r.data.scope === 'market-upload' ? 'market-upload' : 'read' } }`로 바꾼다.
@@ -1320,7 +1342,7 @@ git commit -m "feat(market-drive): 앱의 GIS 토큰·Drive 받기·검증 교�
 
 **Files:**
 - Create: `src/lib/ui/settings/MarketDrive.svelte`, `src/lib/ui/settings/MarketDrive.test.ts`, `drive-csp.config.ts`, `drive-csp.config.test.ts`
-- Modify: `src/lib/ui/settings/DataTools.svelte` (props에 `sync?`, `driveClientId?`, `drive?`), `src/routes/Settings.svelte:128` (`<DataTools {app} {sync} />`), `vite.config.ts:8,25` (플러그인)
+- Modify: `src/lib/ui/settings/DataTools.svelte` (props에 `sync?`, `driveClientId?`, `drive?`), `src/routes/Settings.svelte:128` (`<DataTools {app} {sync} />`), `vite.config.ts:8,25` (플러그인), `vitest.config.ts` (Drive CSP 테스트 포함), `tsconfig.json` (Drive CSP 구현·테스트 포함), `.github/workflows/deploy.yml` (`pnpm build`의 env)
 
 **Interfaces:**
 - Consumes: Task 4 `SyncController.marketFiles/wipeMarketFiles`, `account`; Task 6 `createDriveAuth`, `loadGis`, `fetchFromDrive`, `wipeDrive`, `readDriveClientId`, `DriveOutcome`; Task 5 `MarketDataInfo.sha256`
@@ -1344,11 +1366,13 @@ git commit -m "feat(market-drive): 앱의 GIS 토큰·Drive 받기·검증 교�
 
 두 번째 행이 있으면 `<details><summary>이전 파일</summary>` 안에 `수집 {날짜} · {N}종목` + `이전 파일 받기` 버튼. `{M} MB`는 `(size / 1048576).toFixed(1)`. 날짜는 `collectedAt.slice(0, 10)`.
 
-실패 문구(`role="alert"`): `denied` → `Google에서 Drive 권한을 허용해야 받을 수 있어요`; `not-ready` → `Google 로그인 준비 중이에요. 한 번 더 눌러 주세요`; `not-found` → `Drive에서 파일을 찾지 못했어요. 맥에서 올린 Google 계정과 같은지 확인해 주세요`; `mismatch` → `받은 파일이 손상됐어요. 다시 받아 주세요`; `auth` → `Google 로그인이 끝났어요. 다시 눌러 주세요`; `quota` → `Drive 요청 한도에 걸렸어요. 잠시 뒤 다시 시도해 주세요`; `offline` → `Drive에 연결할 수 없어요`; `quota-device` → `기기 공간이 부족해요(약 {neededMb} MB 필요)`; `version-newer` → `앱보다 새 형식의 파일이에요. 앱을 새로 고쳐 주세요`; `format`·`corrupt` → `시장 데이터 파일 형식이 아니에요`; `failed`·그 밖 → `Drive에서 받지 못했어요`; `cancelled` → 문구 없음. 성공하면 `onImported(info)` 후 `status` 문구 `Drive에서 받았어요`.
+실패 문구(`role="alert"`): `denied` → `Google에서 Drive 권한을 허용해야 받을 수 있어요`; `not-ready` → `Google 로그인 준비 중이에요. 한 번 더 눌러 주세요`; `not-found` → `Drive에서 파일을 찾지 못했어요. 맥에서 올린 Google 계정과 같은지 확인해 주세요`; `mismatch` → `받은 파일이 손상됐어요. 다시 받아 주세요`; `auth` → `Google 로그인이 끝났어요. 다시 눌러 주세요`; `quota` → `Drive 요청 한도에 걸렸어요. 잠시 뒤 다시 시도해 주세요`; `offline` → `Drive에 연결할 수 없어요`; `quota-device` → `기기 공간이 부족해요(약 {neededMb} MB 필요)`; `version-newer` → `앱보다 새 형식의 파일이에요. 앱을 새로 고쳐 주세요`; `format`·`corrupt` → `시장 데이터 파일 형식이 아니에요`; `failed`·그 밖 → `Drive에서 받지 못했어요`; `cancelled` → 문구 없음. 성공하면 `onImported(info)` 후 `status` 문구 `Drive에서 받았어요`. `fetchFromDrive`가 예외를 던지면(예: `importFile`의 용량 초과 외 쓰기 오류) `busy`를 풀고 `Drive에서 받지 못했어요`를 띄운다.
 
-지우기: `confirmFn('Drive의 시장 파일을 모두 지울까요? 이 기기의 시장 데이터는 남아요.')`가 참일 때 `wipeDrive(files, { …, wipeManifest: () => sync.wipeMarketFiles() })` → 성공 `Drive 보관본을 지웠어요`, 실패는 위 실패 문구(서버 실패는 `Drive 목록을 비우지 못했어요`). 끝나면 목록을 다시 읽는다.
+지우기: `confirmFn('Drive의 시장 파일을 모두 지울까요? 이 기기의 시장 데이터는 남아요.')`가 참일 때 `wipeDrive(files, { …, wipeManifest: () => sync.wipeMarketFiles() })` → 성공 `Drive 보관본을 지웠어요`, 실패는 위 실패 문구(서버 실패와 예외는 `Drive 목록을 비우지 못했어요`, 예외 때도 `busy`를 푼다). 끝나면 목록을 다시 읽는다.
 
-GIS 미리 불러오기: 목록에 행이 있으면 `$effect`로 `preload()`(기본 `loadGis`)를 한 번 부르고 실패는 무시한다.
+목록 읽기: `sync.account`를 `$effect`로 관찰해, 이미 로그인한 채 화면을 열었거나 같은 화면에서 로그인하면 `load()`를 부른다. `untrack`으로 목록 읽기 내부의 상태가 effect의 의존성에 섞이지 않게 한다. 로그인 전에는 목록을 읽지 않는다.
+
+GIS 미리 불러오기: 목록에 행이 있으면 `$effect`로 `preload()`(기본 `loadGis`)를 한 번 부르고 실패는 무시한다. 받기·지우기 클릭 결과가 `not-ready`이면 `preload()`를 다시 부르고, 완료(실패 포함) 뒤 `busy`를 풀고 「Google 로그인 준비 중이에요. 한 번 더 눌러 주세요」를 보인다(설계 D8). 로딩 뒤 토큰 요청을 자동으로 재시도하지 않는다. 다음 클릭에서 `auth.token()`을 바로 불러 팝업을 연다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1370,7 +1394,7 @@ const row = (n: number, o: Partial<MarketFileRow> = {}): MarketFileRow => ({
 });
 const local = (o: Partial<MarketDataInfo> = {}): MarketDataInfo => ({ collectedAt: '2026-10-30T18:00:00+09:00', stocks: 2600, range: { from: '2021-10-30', to: '2026-10-30' }, ...o });
 
-function setup(o: { files?: MarketFilesResult; account?: unknown; info?: MarketDataInfo | null; token?: any; fetchImpl?: typeof fetch; confirm?: boolean } = {}) {
+function setup(o: { files?: MarketFilesResult; account?: unknown; info?: MarketDataInfo | null; token?: any; fetchImpl?: typeof fetch; confirm?: boolean; digest?: (b: Blob) => Promise<string>; preload?: () => Promise<void> } = {}) {
   const marketFiles = vi.fn(async () => o.files ?? { ok: true as const, files: [row(1), row(0)] });
   const wipeMarketFiles = vi.fn(async () => true);
   const sync = { account: o.account === undefined ? { provider: 'google', id: 'me', display: 'me' } : o.account, marketFiles, wipeMarketFiles } as unknown as SyncController;
@@ -1378,11 +1402,11 @@ function setup(o: { files?: MarketFilesResult; account?: unknown; info?: MarketD
   const onImported = vi.fn();
   const forget = vi.fn();
   const auth = { token: vi.fn(async () => o.token ?? { ok: true, token: 't' }), forget };
-  const preload = vi.fn(async () => {});
+  const preload = vi.fn(o.preload ?? (async () => {}));
   const fetchImpl = o.fetchImpl ?? ((async () => new Response(new Uint8Array(3 * 1048576), { status: 200 })) as typeof fetch);
   render(MarketDrive, {
     sync, marketData: { importFile } as unknown as MarketDataStore, localInfo: o.info === undefined ? local() : o.info, onImported, clientId: 'cid',
-    fetchImpl, auth, preload, confirmFn: () => o.confirm ?? true, digest: async () => row(1).sha256,
+    fetchImpl, auth, preload, confirmFn: () => o.confirm ?? true, digest: o.digest ?? (async () => row(1).sha256),
   });
   return { marketFiles, wipeMarketFiles, importFile, onImported, auth, preload };
 }
@@ -1399,6 +1423,36 @@ describe('MarketDrive', () => {
     expect(screen.getByRole('button', { name: 'Drive에서 받기' })).toBeTruthy();
     await waitFor(() => expect(preload).toHaveBeenCalledTimes(1));
     await expectNoAxeViolations(document.body);
+  });
+  it.each(['Drive에서 받기', 'Drive 보관본 지우기'])('%s: GIS 미리 불러오기 실패 뒤 클릭으로 불러오고 다음 클릭에서 진행한다', async (buttonName) => {
+    let finishLoading!: () => void;
+    const retry = new Promise<void>((resolve) => { finishLoading = resolve; });
+    const preload = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('gis-load'))
+      .mockReturnValueOnce(retry);
+    const fetchImpl = (async (_u: string, init?: RequestInit) => init?.method === 'DELETE'
+      ? new Response(null, { status: 204 })
+      : new Response(new Uint8Array(3 * 1048576), { status: 200 })) as typeof fetch;
+    const { auth, importFile, wipeMarketFiles } = setup({ preload, fetchImpl });
+    await waitFor(() => expect(preload).toHaveBeenCalledTimes(1));
+    auth.token.mockResolvedValueOnce({ ok: false, reason: 'not-ready' });
+    const button = await screen.findByRole('button', { name: buttonName });
+    await fireEvent.click(button);
+    await waitFor(() => expect(preload).toHaveBeenCalledTimes(2));
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(auth.token).toHaveBeenCalledTimes(1);
+    expect(importFile).not.toHaveBeenCalled();
+    expect(wipeMarketFiles).not.toHaveBeenCalled();
+    finishLoading();
+    expect((await screen.findByRole('alert')).textContent).toBe('Google 로그인 준비 중이에요. 한 번 더 눌러 주세요');
+    const retryButton = await screen.findByRole('button', { name: buttonName });
+    expect((retryButton as HTMLButtonElement).disabled).toBe(false);
+    expect(auth.token).toHaveBeenCalledTimes(1);
+    await fireEvent.click(retryButton);
+    await waitFor(() => expect(buttonName === 'Drive에서 받기' ? importFile : wipeMarketFiles).toHaveBeenCalledTimes(1));
+    expect(auth.token).toHaveBeenCalledTimes(2);
+    expect(preload).toHaveBeenCalledTimes(2);
   });
   it('같은 sha256이면 같다고 보이고 받기 버튼이 없다', async () => {
     setup({ info: local({ sha256: row(1).sha256 }) });
@@ -1436,7 +1490,7 @@ describe('MarketDrive', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Drive에서 파일을 찾지 못했어요. 맥에서 올린 Google 계정과 같은지 확인해 주세요');
   });
   it('이전 파일 받기는 두 번째 행을 받는다', async () => {
-    const { importFile } = setup({ info: local({ sha256: row(1).sha256 }) });
+    const { importFile } = setup({ info: local({ sha256: row(1).sha256 }), digest: async () => row(0).sha256 });
     await fireEvent.click(await screen.findByRole('button', { name: '이전 파일 받기' }));
     await waitFor(() => expect(importFile).toHaveBeenCalled());
   });
@@ -1484,6 +1538,10 @@ describe('CSP and Google Identity Services', () => {
 });
 ```
 
+`vitest.config.ts`의 기존 `test.include` 배열에 `'drive-csp.config.test.ts'`를 더한다. 루트 설정 테스트는 개별 파일로 등록하므로 Step 2의 실행 전에 포함해야 CSP 테스트가 실제로 실행된다. 기존 항목은 유지한다.
+
+`tsconfig.json`의 기존 `include` 배열에 `"drive-csp.config.ts"`, `"drive-csp.config.test.ts"`를 더한다. 기존 카카오 CSP 파일처럼 `pnpm check`의 검사 대상에 포함한다.
+
 `DataTools.test.ts`에: `sync`가 없거나 `driveClientId`가 없으면 `Drive에서 받기` 영역이 없다는 테스트 한 개(`screen.queryByText(/Drive/)`가 null).
 
 - [ ] **Step 2: 실패 확인**
@@ -1523,12 +1581,18 @@ export function driveCspPlugin(): Plugin {
 
 `vite.config.ts`: `import { driveCspPlugin } from './drive-csp.config';`, plugins 배열에서 `kakaoCspPlugin()` 앞에 `driveCspPlugin()`.
 
+`.github/workflows/deploy.yml`: `pnpm build` 단계의 기존 `env`에 다음 항목을 더한다. spec 12-4의 공개 client ID는 저장소 Actions Variables에 설정하며, 워크플로가 이를 빌드 환경변수로 전달해야 Drive 영역과 CSP가 활성화된다. 값이 비면 기존 설계대로 Drive 기능이 꺼진다.
+
+```yaml
+          VITE_GOOGLE_DRIVE_CLIENT_ID: ${{ vars.VITE_GOOGLE_DRIVE_CLIENT_ID }}
+```
+
 `MarketDrive.svelte`(DataTools의 `.row`·`.btn` 스타일을 그대로 복사해 쓴다):
 
 ```svelte
 <script lang="ts">
   // 시장 파일 Drive 전달(설계 2026-11-02-market-drive 8.3). 맥에서 올린 파일을 받기만 한다.
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import { fetchFromDrive, wipeDrive, type DriveOutcome } from '../../marketData/driveSync';
   import { createDriveAuth, loadGis, type DriveAuth } from '../../marketData/gis';
   import type { MarketFileRow } from '../../marketData/manifest';
@@ -1574,7 +1638,9 @@ export function driveCspPlugin(): Plugin {
     const r = await sync.marketFiles();
     view = r.ok ? { kind: 'files', files: r.files } : r.reason === 'outdated' ? { kind: 'outdated' } : { kind: 'error' };
   }
-  onMount(() => void load());
+  $effect(() => {
+    if (sync.account) untrack(() => void load());
+  });
   $effect(() => {
     if (!preloaded && view.kind === 'files' && view.files.length > 0) {
       preloaded = true;
@@ -1600,12 +1666,17 @@ export function driveCspPlugin(): Plugin {
     progress = null;
     fetchFromDrive(row, { fetch: fetchImpl, auth, store: marketData, importDeps, digest }, (done, total) => {
       progress = total ? Math.floor((done / total) * 100) : null;
-    }).then((r: DriveOutcome) => {
+    }).then(async (r: DriveOutcome) => {
+      if (!r.ok && r.reason === 'not-ready') await preload().catch(() => {});
       busy = false;
       if (r.ok) {
         onImported(r.info);
         note = { kind: 'ok', text: 'Drive에서 받았어요' };
       } else if (r.reason !== 'cancelled') note = { kind: 'error', text: failText(r) };
+    }).catch(() => {
+      // importFile은 용량 초과가 아닌 쓰기 오류를 다시 던진다. 받는 중 상태에 멈추지 않게 푼다
+      busy = false;
+      note = { kind: 'error', text: 'Drive에서 받지 못했어요' };
     });
   }
 
@@ -1615,10 +1686,14 @@ export function driveCspPlugin(): Plugin {
     busy = true;
     note = null;
     wipeDrive(view.files, { fetch: fetchImpl, auth, store: marketData, wipeManifest: () => sync.wipeMarketFiles() }).then(async (r) => {
+      if (!r.ok && r.reason === 'not-ready') await preload().catch(() => {});
       busy = false;
       if (r.ok) note = { kind: 'ok', text: 'Drive 보관본을 지웠어요' };
       else if (r.reason !== 'cancelled') note = { kind: 'error', text: failText(r) };
       await load();
+    }).catch(() => {
+      busy = false;
+      note = { kind: 'error', text: 'Drive 목록을 비우지 못했어요' };
     });
   }
 </script>
@@ -1683,7 +1758,7 @@ Expected: PASS
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add src/lib/ui/settings/MarketDrive.svelte src/lib/ui/settings/MarketDrive.test.ts src/lib/ui/settings/DataTools.svelte src/lib/ui/settings/DataTools.test.ts src/routes/Settings.svelte drive-csp.config.ts drive-csp.config.test.ts vite.config.ts
+git add src/lib/ui/settings/MarketDrive.svelte src/lib/ui/settings/MarketDrive.test.ts src/lib/ui/settings/DataTools.svelte src/lib/ui/settings/DataTools.test.ts src/routes/Settings.svelte drive-csp.config.ts drive-csp.config.test.ts vite.config.ts vitest.config.ts tsconfig.json .github/workflows/deploy.yml
 git commit -m "feat(settings): 설정 › 데이터에 Drive에서 시장 파일 받기와 보관본 지우기를 더함"
 ```
 
@@ -1758,6 +1833,8 @@ it('market 메서드: 목록 검사, 등록, 삭제, 429 market-limit, 422 marke
 });
 ```
 
+`syncClient.test.ts`에 회귀 검증을 더한다. `fakeFetch`로 `/v1/market/files`에 HTTP 500을 돌려주고 `marketFiles()`가 `{ code: 'drive-failed' }`로 실패하는지 확인한다(spec 9절, 0006 미적용). 같은 500을 기존 `profiles()`에 돌려주면 `{ code: 'internal' }`을 유지하는지도 확인한다.
+
 `config.test.ts`에: `writeDriveToken` → 파일 모드 600, `readDriveToken`이 같은 값, 모양이 틀리면 null, `removeDriveToken` true/false. `writeDriveAuth`/`readDriveAuth`가 `drive-auth.json`을 쓰고 `auth.json`과 섞이지 않는다.
 
 `args` 테스트에: `--keep 3` → `keep: 3`, `--keep 0`·`--keep 6`·`--keep x` → `invalid-args`.
@@ -1831,7 +1908,8 @@ export type PollResult = { kind: 'token'; token: string; tokenId: string; expire
   marketFiles(): Promise<MarketFileRow[]>;
   registerMarketFile(b: MarketFileBody): Promise<MarketFileRow>;
   deleteMarketFile(id: string): Promise<void>;
-// Where에 'market' 추가. failFrom 앞부분에
+// Where에 'market' 추가. failFrom의 code 선언 뒤, 기존 상태 분기 앞에
+  if (where === 'market' && status === 500) return new CliError('drive-failed');
   if (where === 'market' && status === 429 && code === 'market-limit') return new CliError('market-limit');
   if (where === 'market' && status === 422) return new CliError('market-file-invalid', `서버가 시장 파일 정보를 받지 않았어요(${typeof body.path === 'string' ? body.path : code || '422'})`);
 // 구현
@@ -1856,7 +1934,7 @@ export type PollResult = { kind: 'token'; token: string; tokenId: string; expire
     },
 ```
 
-404(`where === 'market'`)는 기존 규칙대로 `server-outdated`가 된다.
+404(`where === 'market'`)는 기존 규칙대로 `server-outdated`가 된다. 500은 spec 9절에 따라 `drive-failed`로 매핑한다(0006 미적용 포함). 다른 요청의 기존 오류 매핑은 유지한다.
 
 `main.ts`: `SECRET_ENV`에 `'GAZUA_DRIVE_CLIENT_SECRET'`.
 
@@ -2431,6 +2509,7 @@ git commit -m "feat(cli): Drive appDataFolder REST와 올릴 시장 파일 사�
 **Files:**
 - Create: `cli/src/commands/drive.ts`, `cli/src/commands/drive.test.ts`
 - Modify: `cli/src/main.ts` (`COMMANDS`에 `drive`), `cli/README.md`(명령 표·환경변수·배포 순서)
+- Modify: `cli/src/testing.ts` (`fakeFetch`의 204 응답 본문을 `null`로 생성)
 
 **Interfaces:**
 - Consumes: Task 8 `readDriveAuth`/`writeDriveAuth`/`removeDriveAuth`/`readDriveToken`/`writeDriveToken`/`removeDriveToken`, `SyncClient.device/token/marketFiles/registerMarketFile/deleteMarketFile/revoke`; Task 9 `driveClientFrom`, `googleLogin`, `refreshAccess`, `revokeGoogle`, `WaitForCallback`; Task 10 `createDriveApi`, `readMarketFile`
@@ -2880,6 +2959,13 @@ export const drive: Command = async (ctx) => {
 
 주의: `parseArgv`는 `command`가 첫 위치 인자이므로 `gazua drive upload <파일>`에서 `positionals`는 `['upload', '<파일>']`이다(위 코드가 `[0]`·`[1]`을 쓰는 이유).
 
+`cli/src/testing.ts`의 `fakeFetch`에서 응답 생성 줄을 아래로 바꾼다. 204는 본문이 없어야 하므로 JSON 문자열을 넘기면 `Response` 생성자가 던지고, `createDriveApi`가 이를 `network` 오류로 처리한다. 위 `world`의 DELETE 응답(204)과 정리 테스트의 기대값은 유지한다.
+
+```ts
+    const status = reply.status ?? 200;
+    return new Response(status === 204 ? null : JSON.stringify(reply.body ?? {}), { status, headers: { 'content-type': 'application/json', ...reply.headers } });
+```
+
 `main.ts`: `import { drive } from './commands/drive';`, `COMMANDS`에 `drive`.
 
 `cli/README.md`: 명령 표에 `gazua drive login`·`gazua drive upload <파일> [--keep N]`·`gazua drive status`·`gazua drive logout` 행, 환경변수 절에 `GAZUA_DRIVE_CLIENT_ID`·`GAZUA_DRIVE_CLIENT_SECRET`·`GAZUA_DRIVE_PORT`, 옵션 절에 `--keep`, 「Drive 전달」 절(spec 12절 1~7단계 요약, 리디렉션 URI `http://127.0.0.1:53682/`, 포트를 바꾸면 그 주소도 등록, `0006_market_files.sql` 적용 → Worker 배포 → 앱 배포 순서, 이 토큰은 시장 파일 목록만 올리고 지우며 프로필·키는 읽지 못함). `readme.test.ts`에 `--keep`·`GAZUA_DRIVE_CLIENT_ID`·`0006_market_files.sql` 포함 검사를 한 줄 더한다.
@@ -2999,13 +3085,13 @@ export function runDriveUpload(file, summary, deps = {}) {
 }
 ```
 
-`main`의 `await collect(…)` 줄을 `const { file, summary } = await collect(…);`로 바꾸고 뒤에:
+`main`의 `await collect(…)` 줄을 `const { summary } = await collect(…);`로 바꾸고 뒤에:
 
 ```js
-  if (opts.drive) process.exitCode = runDriveUpload(file, summary);
+  if (opts.drive) process.exitCode = runDriveUpload(summary.path, summary);
 ```
 
-(`collect`가 돌려주는 `file`이 절대 경로인지 확인한다. 상대 경로면 `resolve(file)`로 넘긴다. 파일 머리 주석에 `--drive` 사용 예 한 줄: `//   GAZUA_DRIVE_CLIENT_ID=... GAZUA_DRIVE_CLIENT_SECRET=... pnpm collect -- --update <파일> --drive`.)
+(`collect`가 돌려주는 `file`은 시장 데이터 본문 객체이고, 저장한 파일 경로는 `summary.path`다. `assertOutAllowed`가 `resolve(out)`으로 만든 출력 디렉터리에 파일 이름을 붙이므로 `summary.path`는 이미 절대 경로다. 파일 머리 주석에 `--drive` 사용 예 한 줄: `//   GAZUA_DRIVE_CLIENT_ID=... GAZUA_DRIVE_CLIENT_SECRET=... pnpm collect -- --update <파일> --drive`.)
 
 - [ ] **Step 4: 통과 확인**
 
