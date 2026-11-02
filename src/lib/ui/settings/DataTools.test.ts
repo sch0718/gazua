@@ -3,7 +3,7 @@ import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { IDBFactory } from 'fake-indexeddb';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeTestApp } from '../../../sheets/testApp';
@@ -36,6 +36,15 @@ afterEach(() => {
 });
 
 describe('DataTools', () => {
+  it('sync나 driveClientId가 없으면 Drive 영역이 없다', async () => {
+    await setup();
+    expect(screen.queryByText(/Drive/)).toBeNull();
+    cleanup();
+    const app = makeTestApp({ groups: [], now: NOW, settings: { provider: 'kis' } });
+    apps.push(app);
+    render(DataTools, { app, estimate: async () => 0, sync: { account: null } as never, driveClientId: null });
+    expect(screen.queryByText(/Drive/)).toBeNull();
+  });
   it('exports without keys by default; 키 포함 shows a warning and includes them', async () => {
     const { download } = await setup();
     await fireEvent.click(screen.getByRole('button', { name: '내보내기' }));

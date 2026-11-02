@@ -5,6 +5,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
 import { firebaseAuthHelper, firebaseCsp } from '@sch0718/firebase-session/vite';
 import { devCsp } from '@sch0718/vite-app';
+import { driveCspPlugin } from './drive-csp.config';
 import { kakaoCspPlugin } from './kakao-csp.config';
 import { pwaOptions } from './pwa.config';
 
@@ -22,5 +23,5 @@ export default defineConfig({
     },
   },
   // 개발 서버만 로컬 http 프록시(Node 컨테이너·wrangler dev)를 connect-src에 더한다. 연결 폼의 normalizeProxyUrl도 같은 규칙이다.
-  plugins: [svelte(), VitePWA(pwaOptions), devCsp(), firebaseCsp(), kakaoCspPlugin(), firebaseAuthHelper()],
+  plugins: [svelte(), VitePWA(pwaOptions), devCsp(), firebaseCsp(), driveCspPlugin(), kakaoCspPlugin(), firebaseAuthHelper()],
 });
