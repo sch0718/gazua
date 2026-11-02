@@ -49,19 +49,18 @@
 
 ### 지금
 
-- CLI 진입점이 없어요.
-- 동기화 API(`sync-worker`)는 Origin 검사와 `X-Gazua-Session` 세션을 써요. 로그인은 브라우저 전용이에요(Firebase 팝업·소셜 리다이렉트).
-- 공급자 코드(`src/lib/providers/toss.ts`·`kis.ts`)는 주입식이라 Node에서 다시 쓸 수 있어요. 다만 프록시 경유를 전제해요.
-- 프록시는 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
+- 단계 A 완료: 읽기 전용 CLI `gazua`(`cli/`, #63)와 같은 코어를 감싸는 읽기 전용 MCP 서버 `gazua mcp`(stdio, 도구 7개, `docs/superpowers/specs/2026-11-02-readonly-mcp-design.md`). 사용법은 `cli/README.md`.
+- CLI 로그인은 기기 코드 방식이고, CLI 토큰은 서버에서 읽기 전용이에요. 증권사 호출은 프록시와 같은 허용 목록으로 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
 - 「주문 없음」은 최초 설계부터의 결정이에요(`docs/superpowers/specs/2026-10-11-stock-compare-design.md` §1.3, `docs/proposals/2026-10-25-server-and-db.md`).
 
-### 단계 A: 읽기 전용 CLI (먼저)
+### 단계 A: 읽기 전용 CLI·MCP (완료)
 
 - 관심 그룹·전략 조회(동기화 API)
 - 보유·계좌 조회
 - 전략 신호 계산과 시뮬레이션 실행
 - 기계가 읽기 좋은 JSON 출력
-- CLI 로그인 방식(루프백 리다이렉트 또는 기기 코드)을 설계해야 해요.
+- CLI 로그인: 기기 코드 방식(앱에서 승인).
+- MCP 서버(`gazua mcp`): CLI 읽기 명령과 일대일인 도구 7개.
 
 ### 단계 B: 주문 제안·모의투자
 
