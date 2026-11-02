@@ -32,7 +32,7 @@ describe('0005 마이그레이션', () => {
   it('cli_grants 열 이름이 스펙과 같다', () => {
     expect(columns(harness(), 'cli_grants')).toEqual([
       'id', 'device_hash', 'user_code', 'label', 'ip_hash', 'status', 'user_id', 'interval_ms',
-      'last_polled_at', 'consumed_token_hash', 'geo', 'created_at', 'expires_at',
+      'last_polled_at', 'consumed_token_hash', 'geo', 'created_at', 'expires_at', 'scope',
     ]);
   });
 
