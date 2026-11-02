@@ -15,11 +15,13 @@ export { COMMANDS } from './execute';
 export async function run(argv: string[], io: Io): Promise<number> {
   const redact = createRedactor();
   let pretty = false;
+  let verbose = false;
   const emit = (r: Result) => io.stdout(render(r, redact, pretty));
   registerEnvSecrets(redact, io.env);
   try {
     const args = parseArgv(argv);
     pretty = args.pretty;
+    verbose = args.verbose;
     if (args.envFile) {
       loadEnvFile(args.envFile, io.env);
       registerEnvSecrets(redact, io.env); // --env-file로 들어온 키도
@@ -33,7 +35,8 @@ export async function run(argv: string[], io: Io): Promise<number> {
     emit(result);
     return result.ok ? 0 : exitCodeOf(result.error.code as CliErrorCode);
   } catch (e) {
-    const err = toCliError(e); // 여기 오는 것은 인자·--env-file 오류(CliError)뿐이다
+    const err = toCliError(e); // 인자·--env-file 오류(CliError) 말고도, 결과를 출력하다 던진 예외가 올 수 있다
+    if (verbose && !(e instanceof CliError)) io.stderr(`${redact.apply(e instanceof Error ? (e.stack ?? e.message) : String(e))}\n`);
     emit(fail(err.code, err.message, err.data));
     return exitCodeOf(err.code);
   }
