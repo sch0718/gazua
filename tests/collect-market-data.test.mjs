@@ -7,7 +7,7 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, runDriveUpload, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { zipSync } from 'fflate';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 import { FLOW_API } from '../scripts/fetch-investor-flow.mjs';
@@ -1979,4 +1979,49 @@ test('(FN18) mergeFin은 새 이력의 확인된 시작 경계(가장 이른 연
   assert.deepEqual(mergeFin({ q: '202603' }, fresh, start), fresh);
   // 새로 받은 것이 없으면 이전 fin을 지킨다
   assert.equal(mergeFin(prev, null, undefined), prev);
+});
+
+test('--drive 플래그를 읽는다', () => {
+  assert.equal(parseArgs(['--drive']).drive, true);
+  assert.equal(parseArgs([]).drive, false);
+});
+
+test('runDriveUpload: 일봉 실패가 있으면 올리지 않고 1', () => {
+  const calls = [];
+  const errs = [];
+  const code = runDriveUpload('/tmp/m.json.gz', { failed: ['005930'] }, { spawn: (...a) => (calls.push(a), { status: 0 }), exists: () => true, error: (s) => errs.push(s) });
+  assert.equal(code, 1);
+  assert.equal(calls.length, 0);
+  assert.match(errs.join('\n'), /일봉 실패 1종목이 있어 Drive에 올리지 않았어요/);
+  assert.match(errs.join('\n'), /gazua drive upload \/tmp\/m\.json\.gz/);
+});
+
+test('runDriveUpload: CLI 번들이 없으면 빌드 안내와 1', () => {
+  const errs = [];
+  assert.equal(runDriveUpload('/tmp/m.json.gz', { failed: [] }, { exists: () => false, error: (s) => errs.push(s) }), 1);
+  assert.match(errs.join('\n'), /pnpm -C cli build/);
+});
+
+test('runDriveUpload: KIS 키는 빼고 Drive 값은 넘겨 CLI를 부른다', () => {
+  let seen;
+  const code = runDriveUpload('/tmp/m.json.gz', { failed: [] }, {
+    exists: () => true,
+    cliPath: '/repo/cli/dist/gazua.mjs',
+    env: { KIS_APP_KEY: 'k', KIS_APP_SECRET: 's', GAZUA_DRIVE_CLIENT_ID: 'cid', GAZUA_DRIVE_CLIENT_SECRET: 'cs', PATH: '/bin' },
+    spawn: (cmd, args, opts) => ((seen = { cmd, args, opts }), { status: 0 }),
+  });
+  assert.equal(code, 0);
+  assert.equal(seen.cmd, process.execPath);
+  assert.deepEqual(seen.args, ['/repo/cli/dist/gazua.mjs', 'drive', 'upload', '/tmp/m.json.gz']);
+  assert.equal(seen.opts.stdio, 'inherit');
+  assert.equal(seen.opts.env.KIS_APP_KEY, undefined);
+  assert.equal(seen.opts.env.KIS_APP_SECRET, undefined);
+  assert.equal(seen.opts.env.GAZUA_DRIVE_CLIENT_ID, 'cid');
+  assert.equal(seen.opts.env.GAZUA_DRIVE_CLIENT_SECRET, 'cs');
+});
+
+test('runDriveUpload: 업로드가 실패하면 다시 올리는 방법을 알리고 1', () => {
+  const errs = [];
+  assert.equal(runDriveUpload('/tmp/m.json.gz', { failed: [] }, { exists: () => true, spawn: () => ({ status: 1 }), error: (s) => errs.push(s) }), 1);
+  assert.match(errs.join('\n'), /파일은 \/tmp\/m\.json\.gz에 있어요\. `gazua drive upload \/tmp\/m\.json\.gz`로 다시 올릴 수 있어요/);
 });
