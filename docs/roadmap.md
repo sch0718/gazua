@@ -1,30 +1,29 @@
 # 가즈아 로드맵
 
-> 기준일: 2026-10-31
+> 기준일: 2026-11-02 (전략 빌더·읽기 전용 CLI 현황 갱신, 나머지는 2026-10-31 조사 기록)
 
 이 문서가 우선순위의 기준이에요. 각 기능의 세부 설계와 구현 계획은 `docs/superpowers/specs/`와 `docs/superpowers/plans/`에서 다뤄요.
 
 ## 최우선 1: 나만의 투자 전략과 시뮬레이션 재생
 
-구현할 수 있어요. 다만 규모가 커요.
+전략 빌더(PR #62)와 재생(PR #60)은 구현됐어요. 아래 재생 계획과 한계는 2026-10-31 조사 기록이에요.
 
 ### 지금
 
-- 전략(`src/lib/sim/types.ts`의 `Strategy`)은 「고점 대비 하락 후 반등」 한 패턴에 맞춰져 있어요.
-  - 매수 조건: 하락폭·경과일, 반등일·고점 돌파·이평 돌파·골든크로스, 이평 위 필터
-  - 분할 매수, 1~3단계 익절·손절
-  - 최대 8종목, 회당 고정 비중
-- 없는 것: RSI·거래량 같은 일반 지표 조건, 조건 조합(AND/OR), 트레일링 스톱, 기간 청산.
+- 전략(`src/lib/sim/types.ts`의 `Strategy`)은 v2 형식이에요(`src/lib/sim/strategyV2.ts`).
+  - 이동평균·RSI·거래량·가격·반등 패턴 조건을 조합해요. 묶음 안은 AND, 묶음끼리는 OR예요(`src/lib/sim/rules.ts`).
+  - 분할 매수, 1~3단계 익절·손절에 트레일링 스톱·기간 청산·조건 매도를 더했어요(`src/lib/sim/position.ts`, `src/lib/sim/simulate.ts`).
+  - 최대 8종목이며, 처음 자금·총자산·남은 현금의 비율 또는 종목별 같은 금액으로 배분해요.
 - 선정 기준이 전략을 참조해 매매하는 연결은 이미 있어요(`src/lib/screen/runValidation.ts`).
 
-### 할 일 A: 전략 빌더
+### A: 전략 빌더 (구현됨)
 
-- 지표·가격·거래량 조건을 조합해 매수·매도 규칙을 만드는 편집기를 만들어요.
-- 기존 전략과 호환되게 해요. 기존 전략은 새 형식으로 옮겨요.
-- 자금 배분 방식을 고를 수 있게 해요.
-- 엔진(`src/lib/sim/simulate.ts`, 순수 TS)을 일반 조건식으로 넓혀요.
+- 지표·가격·거래량 조건을 조합하는 편집기와 자금 배분 선택을 구현했어요(`src/lib/ui/simulate/StrategyEditor.svelte`).
+- 기존 v1 전략은 읽을 때 v2로 옮겨요(`src/lib/sim/strategyV1.ts`의 `toV2`, `src/lib/sim/strategyStore.ts`).
+- 엔진(`src/lib/sim/simulate.ts`, 순수 TS)은 일반 조건식으로 실행해요.
+- 설계: `docs/superpowers/specs/2026-11-01-strategy-builder-design.md`. PR #62(`f5377a2`)로 병합됐어요.
 
-### 할 일 B: 재생
+### B: 재생 (구현됨, PR #60)
 
 - 엔진이 거래일마다 아래 값을 내보내게 해요.
   - 종목별 보유 수량·평단·종가·평가액
@@ -45,22 +44,26 @@
 
 ## 최우선 2: AI가 쓰는 가즈아 CLI
 
-단계별로 만들 수 있어요. 실계좌 주문은 결정이 필요해요.
+읽기 전용 단계 A는 구현됐어요. 실계좌 주문은 결정이 필요해요.
 
 ### 지금
 
-- 단계 A 완료: 읽기 전용 CLI `gazua`(`cli/`, #63)와 같은 코어를 감싸는 읽기 전용 MCP 서버 `gazua mcp`(stdio, 도구 7개, `docs/superpowers/specs/2026-11-02-readonly-mcp-design.md`). 사용법은 `cli/README.md`.
-- CLI 로그인은 기기 코드 방식이고, CLI 토큰은 서버에서 읽기 전용이에요. 증권사 호출은 프록시와 같은 허용 목록으로 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
+- `cli/` 워크스페이스에 읽기 전용 `gazua` 진입점이 있어요(`cli/src/main.ts`). PR #63(`729e072`)으로 병합됐어요.
+- 동기화 API(`sync-worker`)는 브라우저의 Origin 검사·`X-Gazua-Session` 세션과 별도로 CLI 기기 코드 로그인·읽기 전용 토큰 인증을 지원해요(`sync-worker/src/cli.ts`). 로그인은 사람이 앱에서 기기 코드를 승인해야 끝나요.
+- 공급자 코드(`src/lib/providers/toss.ts`·`kis.ts`)를 Node에서도 재사용해요. CLI는 프록시와 같은 허용 목록을 적용해 증권사를 직접 호출해요(`cli/src/direct.ts`).
+- 같은 코어를 감싸는 읽기 전용 MCP 서버 `gazua mcp`(stdio, 도구 7개)가 있어요. 설계는 `docs/superpowers/specs/2026-11-02-readonly-mcp-design.md`예요.
+- 프록시는 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
 - 「주문 없음」은 최초 설계부터의 결정이에요(`docs/superpowers/specs/2026-10-11-stock-compare-design.md` §1.3, `docs/proposals/2026-10-25-server-and-db.md`).
 
-### 단계 A: 읽기 전용 CLI·MCP (완료)
+### 단계 A: 읽기 전용 CLI·MCP (구현됨)
 
-- 관심 그룹·전략 조회(동기화 API)
-- 보유·계좌 조회
-- 전략 신호 계산과 시뮬레이션 실행
-- 기계가 읽기 좋은 JSON 출력
-- CLI 로그인: 기기 코드 방식(앱에서 승인).
-- MCP 서버(`gazua mcp`): CLI 읽기 명령과 일대일인 도구 7개.
+- `gazua profiles`·`watchlists`·`strategies`: 동기화한 프로필·관심 그룹·전략 조회
+- `gazua quote`: 시세 조회, `gazua holdings`: 토스 국내 보유 수량·평단 조회(KIS 보유 조회는 지원하지 않아요)
+- `gazua signals`·`simulate`: 전략 신호 계산과 시뮬레이션 요약
+- 기계가 읽기 좋은 JSON 출력(기본 한 줄)
+- `gazua login`·`logout`: 기기 코드 로그인과 토큰 철회
+- `gazua mcp`: CLI 읽기 명령과 일대일인 MCP 도구 7개(`login`·`logout` 제외). Claude Code 등록 방법은 `cli/README.md`의 「MCP 서버」 절에 있어요.
+- 설치·명령·제약·배포 순서는 `cli/README.md`, 설계는 `docs/superpowers/specs/2026-11-01-readonly-cli-design.md`에 있어요. 운영 Worker에는 D1 `0005` 마이그레이션·`CLI_IP_SALT` 시크릿과 함께 배포했어요(2026-11-01).
 
 ### 단계 B: 주문 제안·모의투자
 
@@ -85,10 +88,14 @@
 
 ## 다음 우선순위
 
-- 증권사 키 종단 간 암호화 동기화 — 진행 중이에요(하위 세션).
+- 증권사 키 종단 간 암호화 동기화 — 구현·배포됐어요(PR #59). 두 기기 사이 실연결 점검만 남았어요.
 - v1.1 지표: 변동성·RSI(14) — 목록에 비활성으로만 있어요(`src/lib/data/metricRegistry.ts`).
 - KIS 키 발급 뒤 실연결 점검 ①②③④⑦⑧⑨⑪ 등(`docs/live-check.md`) — 그 결과로 NXT 15:30–15:40 모델(`src/lib/market/sessions.config.ts`)과 일봉 거절 기억(`src/lib/data/candleService.ts`)을 고쳐요.
 - 서버·DB 2단계 남은 것(Drive 전달, D1 manifest), 3단계(공동 그룹·정기 계산·알림·성과 이력) — 제안서(`docs/proposals/2026-10-25-server-and-db.md`) 순서대로 해요.
+
+## 검토만 한 외부 도구
+
+- impeccable(디자인 점검), hyperframes(데모 영상 자동 생성), TradingAgents(아이디어만 빌림)의 적용 방안을 기록해 뒀어요. 순서는 정하지 않았어요([외부 도구 적용 검토](proposals/2026-11-02-external-tools.md), 2026-11-02).
 
 ## 범위 밖으로 둔 것
 
