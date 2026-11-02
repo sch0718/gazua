@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { DaySession } from '../market/sessions';
+  import type { MetricUnit } from '../data/metricRegistry';
   import CompareChart from './CompareChart.svelte';
   import type { ChartSeriesInput } from './lineData';
 
@@ -8,7 +9,7 @@
     series,
     sessions,
     unit = '%',
-  }: { series: ChartSeriesInput[]; sessions: DaySession[]; unit?: '%' | 'x' | '조' } = $props();
+  }: { series: ChartSeriesInput[]; sessions: DaySession[]; unit?: MetricUnit } = $props();
 
   let scrubT = $state<number | null>(null);
   let frozen = $state<string[] | null>(null);

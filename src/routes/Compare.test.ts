@@ -1084,6 +1084,21 @@ describe('비교 카드 캡처와 표시 지표', () => {
     expect(texts.slice(3, -1).filter((_, i) => i % 2 === 1).map((t) => t.color)).toEqual(Array(4).fill('#111111'));
   });
 
+  it.each([
+    ['volatility', /^\d+\.\d{2}%$/],
+    ['rsi', /^\d{1,3}\.\d$/],
+  ] as const)('1개월 %s 값은 부호·등락 색 없이 보인다', async (metric, pattern) => {
+    const app = makeApp(EXAMPLE, { metric, period: { unit: 'M', n: 1 } });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await loaded();
+    expect(screen.queryByText(/대신 등락률을 보여 줘요/)).toBeNull();
+    const req = await share();
+    req.capture!();
+    const cells = texts.slice(3, -1).filter((_, i) => i % 2 === 1);
+    expect(cells.map((t) => t.text).every((t) => pattern.test(t))).toBe(true);
+    expect(cells.map((t) => t.color)).toEqual(Array(4).fill('#111111'));
+  });
+
   it.each(['kr', 'global'] as const)('%s: 작은 등락도 리더보드의 둘째 자리 반올림과 같은 색이다', async (colorConvention) => {
     const app = makeApp(EXAMPLE, { colorConvention });
     const real = app.data.snapshots.load.bind(app.data.snapshots);

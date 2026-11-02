@@ -94,6 +94,8 @@ describe('formatMetricValue', () => {
     expect(formatMetricValue(-0.5, '%')).toBe('▼ -0.50%');
     expect(formatMetricValue(1.5, 'x')).toBe('1.50x');
     expect(formatMetricValue(426.31, '조')).toBe('426.3조');
+    expect(formatMetricValue(32.104, '%abs')).toBe('32.10%');
+    expect(formatMetricValue(62.44, '')).toBe('62.4');
   });
 });
 

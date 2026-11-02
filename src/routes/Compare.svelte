@@ -147,7 +147,7 @@
   // 1일 RVOL 분모가 분봉과 다른 거래소(KRX)의 일평균인 종목이 있으면 알린다.
   const rvolNote = $derived(rvolBaseNote({ metric, period, series: loaded.filter(onChartDay) }));
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
-  const unit = $derived(metricDef.unit === '' ? '%' : metricDef.unit);
+  const unit = $derived(metricDef.unit);
 
   // 차트 입력은 불러온 상태에서만 만든다(시계·현재가와 무관하게 참조가 유지되도록).
   const pointsOf = (symbol: string, series: LoadedSeries) => {
