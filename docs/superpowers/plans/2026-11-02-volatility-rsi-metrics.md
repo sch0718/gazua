@@ -14,10 +14,10 @@
 
 - 사용자에게 보이는 문구와 주석·커밋 메시지는 한국어로 쓴다. 주변 코드의 주석 밀도·말투(「~다」체 주석, 「~요」체 화면 문구)를 따른다.
 - 변동성 = 최근 20개 일간 단순수익률(`c[k]/c[k-1]−1`)의 표본 표준편차(n−1) × √252 × 100. 창(종가 21개)에 0 이하·유한하지 않은 종가가 있거나 종가가 모자라면 null.
-- RSI = `rsi(closes, 14)`(`src/lib/sim/indicators.ts`, Wilder). 새로 구현하지 않는다. 유한하지 않은 결과는 null.
+- RSI = `rsi(closes, 14)`(`src/lib/sim/indicators.ts`, Wilder). 새로 구현하지 않는다. 입력 종가(워밍업 포함)에 0 이하·유한하지 않은 값이 처음 나온 봉부터 그 뒤는 모두 null(Wilder 평활은 한 번 섞인 값의 영향이 뒤로 계속 남는다).
 - 두 지표는 기간 길이 30일 이상(1개월~)에서만 고를 수 있다. 모자라면 이유 문구는 `1개월 이상에서 볼 수 있어요`.
 - 단위: 변동성 `'%abs'`(예 `32.10%`, 부호·색·기준선 없음), RSI `''`(예 `62.4`, 부호·색 없음, 차트 기준선 50).
-- 테스트: `corepack pnpm test`(TZ 고정 포함), 타입: `corepack pnpm check`, e2e: `corepack pnpm e2e`. 개별 실행은 `corepack pnpm test -- <파일>`.
+- 테스트: `corepack pnpm test`(TZ 고정 포함), 타입: `corepack pnpm check`, e2e: `corepack pnpm e2e`. 개별 실행은 `corepack pnpm test <파일>`.
 - 커밋 메시지 형식: `<type>(metrics): <한국어 요약>` + 빈 줄 + `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - `src/lib/help/content.ts`·`docs/help/*.md`·`public/help/img/*`는 생성물이다. `scripts/motion/help-pages.mjs`를 고치고 `corepack pnpm build:motion`으로 만든다.
 
@@ -67,7 +67,7 @@ describe('rollingStdPct', () => {
 });
 ```
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm test -- src/lib/sim/indicators.test.ts` → FAIL(`rollingStdPct` 없음).
+- [ ] **Step 2: 실패 확인** — `corepack pnpm test src/lib/sim/indicators.test.ts` → FAIL(`rollingStdPct` 없음).
 
 - [ ] **Step 3: 옮기기** — `src/lib/screen/precompute.ts`의 `rollingVol` 함수(주석 포함 186–198행)를 잘라 `src/lib/sim/indicators.ts` 끝에 아래처럼 붙인다. 본문은 바꾸지 않는다.
 
@@ -92,7 +92,7 @@ export function rollingStdPct(c: number[], days: number): (number | null)[] {
 
 `precompute.ts` 3행을 `import { rollingMax, rollingStdPct, sma } from '../sim/indicators';`로, 275행을 `vol: rollingStdPct(close, params.volDays),`로 바꾼다.
 
-- [ ] **Step 4: 통과 확인** — `corepack pnpm test -- src/lib/sim/indicators.test.ts src/lib/screen` → PASS(선정 기준 테스트도 그대로 통과해야 한다).
+- [ ] **Step 4: 통과 확인** — `corepack pnpm test src/lib/sim/indicators.test.ts src/lib/screen` → PASS(선정 기준 테스트도 그대로 통과해야 한다).
 
 - [ ] **Step 5: 커밋**
 
@@ -142,7 +142,7 @@ describe('annualizedVolPct', () => {
 });
 ```
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm test -- src/lib/data/metrics.test.ts` → FAIL(`annualizedVolPct` 없음).
+- [ ] **Step 2: 실패 확인** — `corepack pnpm test src/lib/data/metrics.test.ts` → FAIL(`annualizedVolPct` 없음).
 
 - [ ] **Step 3: 구현** — `metrics.ts` 맨 위에 `import { rollingStdPct } from '../sim/indicators';`를 더하고 파일 끝에 붙인다.
 
@@ -167,7 +167,7 @@ export function annualizedVolPct(closes: number[], window: number): (number | nu
 }
 ```
 
-- [ ] **Step 4: 통과 확인** — `corepack pnpm test -- src/lib/data/metrics.test.ts` → `annualizedVolPct` PASS. (`metricAvailability`의 v1.1 테스트는 Task 4 전까지 그대로 통과한다.)
+- [ ] **Step 4: 통과 확인** — `corepack pnpm test src/lib/data/metrics.test.ts` → `annualizedVolPct` PASS. (`metricAvailability`의 v1.1 테스트는 Task 4 전까지 그대로 통과한다.)
 
 - [ ] **Step 5: 커밋**
 
@@ -233,14 +233,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     expect(values(metricPoints(series(), 'rsi', { period: D1 }))).toEqual([null, null, null]);
   });
 
-  it('rsi: 유한하지 않은 값은 null', () => {
+  it('rsi: 0 이하·유한하지 않은 종가가 나온 봉부터 null', () => {
     const bad = [...inPeriod.slice(0, 2), { ...inPeriod[2], c: Number.NaN }, ...inPeriod.slice(3)];
     const ps = metricPoints(monthly({ candles: bad }), 'rsi', { period: M1 });
+    expect(ps.slice(0, 2).every((p) => p.v !== null)).toBe(true);
     expect(ps.slice(2).every((p) => p.v === null)).toBe(true);
+    const zero = [...inPeriod.slice(0, 3), { ...inPeriod[3], c: 0 }, inPeriod[4]];
+    expect(metricPoints(monthly({ candles: zero }), 'rsi', { period: M1 }).map((p) => p.v === null)).toEqual([false, false, false, true, true]);
   });
 ```
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm test -- src/lib/data/seriesMetrics.test.ts` → 새 테스트 FAIL(지금은 모두 null).
+- [ ] **Step 2: 실패 확인** — `corepack pnpm test src/lib/data/seriesMetrics.test.ts` → 새 테스트 FAIL(지금은 모두 null).
 
 - [ ] **Step 3: 구현** — `seriesMetrics.ts`.
 
@@ -260,6 +263,16 @@ function closesWithWarmup(series: LoadedSeries): { closes: number[]; offset: num
   return { closes: [...warmup, ...series.candles.map((c) => c.c)], offset: warmup.length };
 }
 
+/**
+ * RSI(14). 0 이하·유한하지 않은 종가가 처음 나온 봉부터는 null. rsi()는 그런 변화를 0으로 넘겨 값을 내지만,
+ * Wilder 평활은 그 영향이 뒤로 계속 남아 믿을 수 없다.
+ */
+function rsiFromValidCloses(closes: number[]): (number | null)[] {
+  const bad = closes.findIndex((c) => !Number.isFinite(c) || c <= 0);
+  const values = rsi(closes, RSI_PERIOD);
+  return bad < 0 ? values : values.map((v, i) => (i >= bad ? null : v));
+}
+
 /** 워밍업을 붙여 계산한 값에서 기간 봉 몫만 점으로 낸다. 유한하지 않은 값은 null. */
 function periodPoints(series: LoadedSeries, values: (number | null)[], offset: number): Point[] {
   return series.candles.map((c, i) => {
@@ -277,12 +290,12 @@ function periodPoints(series: LoadedSeries, values: (number | null)[], offset: n
       // 1개월 이상에서만 고를 수 있다(metricAvailability). 1일 분봉에는 일봉 워밍업을 붙일 수 없어 계산하지 않는다.
       if (opts.period.unit === 'D') return allNull(series);
       const { closes, offset } = closesWithWarmup(series);
-      const values = metric === 'volatility' ? annualizedVolPct(closes, VOL_WINDOW) : rsi(closes, RSI_PERIOD);
+      const values = metric === 'volatility' ? annualizedVolPct(closes, VOL_WINDOW) : rsiFromValidCloses(closes);
       return periodPoints(series, values, offset);
     }
 ```
 
-- [ ] **Step 4: 통과 확인** — `corepack pnpm test -- src/lib/data/seriesMetrics.test.ts` → PASS.
+- [ ] **Step 4: 통과 확인** — `corepack pnpm test src/lib/data/seriesMetrics.test.ts` → PASS.
 
 - [ ] **Step 5: 커밋**
 
@@ -325,13 +338,19 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   });
 ```
 
-같은 파일 import에 `import type { MetricId } from '../state/schema';`를 더한다. 그리고 같은 파일 `describe('METRICS registry'` 안에 단위 기대를 추가한다:
+같은 파일 import에 `import type { MetricId } from '../state/schema';`를 더한다. 그리고 같은 파일 `describe('METRICS registry'`의 「lists the seven metrics in order with exact copy」를 `v1` 열 없이, 변동성 단위 `'%abs'`로 바꾼다.
 
 ```ts
-  it('변동성은 %abs, RSI는 단위 없음', () => {
-    const unit = Object.fromEntries(METRICS.map((m) => [m.id, m.unit]));
-    expect(unit.volatility).toBe('%abs');
-    expect(unit.rsi).toBe('');
+  it('lists the seven metrics in order with exact copy', () => {
+    expect(METRICS.map((m) => [m.id, m.label, m.description, m.unit])).toEqual([
+      ['change', '등락률', '기간 시작 직전 종가 대비 몇 % 올랐나', '%'],
+      ['drawdown', '고점 대비 하락률', '기간 중 최고가에서 얼마나 내려왔나', '%'],
+      ['excess', '시장 대비 초과수익', 'KOSPI·KOSDAQ보다 얼마나 더 올랐나', '%'],
+      ['rvol', '상대 거래량', '평소(20일 평균) 대비 거래량 배수', 'x'],
+      ['mcap', '시가총액', '발행주식수 × 가격 (조 원)', '조'],
+      ['volatility', '변동성', '20일 수익률 표준편차(연율)', '%abs'],
+      ['rsi', 'RSI(14)', '과열·침체 비교 (0–100)', ''],
+    ]);
   });
 ```
 
@@ -353,7 +372,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   });
 ```
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm test -- src/lib/data/metrics.test.ts src/sheets/MetricSheet.test.ts` → FAIL(지금은 「곧 추가될 예정이에요」).
+- [ ] **Step 2: 실패 확인** — `corepack pnpm test src/lib/data/metrics.test.ts src/sheets/MetricSheet.test.ts` → FAIL(지금은 「곧 추가될 예정이에요」).
 
 - [ ] **Step 3: 구현** — `metricRegistry.ts`.
 
@@ -397,7 +416,7 @@ export function metricAvailability(
 
 `compareText.ts` 7행 `export type MetricUnit = '%' | 'x' | '조' | '';`를 `export type { MetricUnit } from '../../data/metricRegistry';`로 바꾼다. 같은 파일 안에서 `MetricUnit`을 쓰므로 `import type { MetricUnit } from '../../data/metricRegistry';`도 함께 둔다.
 
-- [ ] **Step 4: 통과·타입 확인** — `corepack pnpm test -- src/lib/data src/sheets/MetricSheet.test.ts` → PASS. `corepack pnpm check` → `Compare.svelte`·`ChartPanel.svelte` 등에서 `'%abs'`가 `'%' | 'x' | '조'`에 맞지 않는다는 오류가 나면 Task 5에서 고친다. 그 밖의 오류(`v1` 참조 등)는 여기서 고친다(`grep -rn "\.v1\b" src`).
+- [ ] **Step 4: 통과·타입 확인** — `corepack pnpm test src/lib/data src/sheets/MetricSheet.test.ts` → PASS. `corepack pnpm check` → `Compare.svelte`·`ChartPanel.svelte` 등에서 `'%abs'`가 `'%' | 'x' | '조'`에 맞지 않는다는 오류가 나면 Task 5에서 고친다. 그 밖의 오류(`v1` 참조 등)는 여기서 고친다(`grep -rn "\.v1\b" src`).
 
 - [ ] **Step 5: 커밋** — 타입 오류가 Task 5 몫만 남았으면 Task 5와 함께 커밋해도 된다. 따로 커밋한다면:
 
@@ -453,7 +472,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 이 테스트에서 값이 `—`로 나오면(테스트 공급자가 기간 앞 일봉을 주지 않음) 공급자 설정을 확인하고 원인을 고친다. 패턴을 느슨하게 바꾸지 않는다.
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm test -- src/lib/ui/compare/compareText.test.ts src/routes/Compare.test.ts` → 새 테스트 FAIL.
+- [ ] **Step 2: 실패 확인** — `corepack pnpm test src/lib/ui/compare/compareText.test.ts src/routes/Compare.test.ts` → 새 테스트 FAIL.
 
 - [ ] **Step 3: 구현**
 
@@ -564,7 +583,7 @@ test('v1.1 지표: 월 기간에서 RSI(14)·변동성을 고르면 값이 보�
 
 시트를 닫는 방법(Escape)이 앱에서 다르면 첫 테스트가 쓰는 방식을 따른다. 리더보드 행 텍스트에 가격 등 다른 숫자가 있어 패턴이 우연히 맞을 수 있으면, 행 안 값 요소를 좁혀 고른다(`Leaderboard.svelte`의 값 클래스 확인).
 
-- [ ] **Step 2: e2e 실행** — `corepack pnpm e2e -- tests/e2e/compare.spec.ts` → 새 테스트 PASS(Task 5까지 끝났으므로 바로 통과해야 한다. 실패하면 원인을 고친다).
+- [ ] **Step 2: e2e 실행** — `corepack pnpm e2e tests/e2e/compare.spec.ts` → 새 테스트 PASS(Task 5까지 끝났으므로 바로 통과해야 한다. 실패하면 원인을 고친다).
 
 - [ ] **Step 3: 도움말 원본 고치기** — `scripts/motion/help-pages.mjs`
 
@@ -580,11 +599,11 @@ compare 페이지 `tips` 배열에서 `'`표 보기`를 누르면 …'` 줄 바�
       '`변동성`·`RSI(14)`는 `1개월` 이상 기간에서 골라요. 변동성은 20거래일 수익률이 얼마나 출렁였는지를 1년 기준으로 늘린 값이고, RSI는 70 위면 과열, 30 아래면 침체로 읽어요.',
 ```
 
-- [ ] **Step 4: 생성** — `corepack pnpm build:motion`. `git status`로 `src/lib/help/content.ts`, `docs/help/compare.md`, `public/help/img/compare-*.svg`(바뀌었다면)가 바뀐 것을 확인한다. 다른 도움말 그림이 대량으로 바뀌면(생성기 비결정성) 이번 변경과 무관한 파일은 되돌린다. `corepack pnpm test -- src/lib/help` → PASS.
+- [ ] **Step 4: 생성** — `corepack pnpm build:motion`. `git status`로 `src/lib/help/content.ts`, `docs/help/compare.md`, `public/help/img/compare-*.svg`(바뀌었다면)가 바뀐 것을 확인한다. 다른 도움말 그림이 대량으로 바뀌면(생성기 비결정성) 이번 변경과 무관한 파일은 되돌린다. `corepack pnpm test src/lib/help` → PASS.
 
 - [ ] **Step 5: 문서 고치기**
 
-`docs/roadmap.md` 90행(「v1.1 지표: 변동성·RSI(14) — 목록에 비활성으로만 있어요…」)을 지운다. 「구현 현황 요약」 표의 첫 행을 바꾸고 조사일 줄 아래에 한 줄을 더한다.
+`docs/roadmap.md` 90행(「v1.1 지표: 변동성·RSI(14) — 목록에 비활성으로만 있어요…」)을 지운다. 「구현 현황 요약」의 조사일 줄(「2026-10-31에 조사했어요.」)과 표의 첫 행을 아래처럼 바꾼다.
 
 ```markdown
 2026-10-31에 조사했어요. v1.1 지표(변동성·RSI(14))는 2026-11-02에 켰어요.
@@ -600,7 +619,7 @@ compare 페이지 `tips` 배열에서 `'`표 보기`를 누르면 …'` 줄 바�
 - 지표 6·7과 RVOL 일봉은 앞쪽 20일치 데이터가 더 필요하다. 이건 앱이 알아서 더 받는다(기간 시작 40일 전부터). 지표 6·7의 계산·표기는 `2026-11-02-volatility-rsi-metrics-design.md`를 따른다.
 ```
 
-- [ ] **Step 6: 전체 확인** — `corepack pnpm test`, `corepack pnpm check`, `corepack pnpm check:e2e`, `corepack pnpm e2e -- tests/e2e/compare.spec.ts tests/e2e/help.spec.ts` → 모두 통과.
+- [ ] **Step 6: 전체 확인** — `corepack pnpm test`, `corepack pnpm check`, `corepack pnpm check:e2e`, `corepack pnpm e2e tests/e2e/compare.spec.ts tests/e2e/help.spec.ts` → 모두 통과.
 
 - [ ] **Step 7: 커밋**
 

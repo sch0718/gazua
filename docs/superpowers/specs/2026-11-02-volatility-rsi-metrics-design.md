@@ -42,6 +42,7 @@
 - 비교 지표 쪽에서 새로 구현하지 않는다. `src/lib/sim/indicators.ts`의 `rsi`를 그대로 부른다.
 - 평활 시작점: 받은 일봉의 첫 봉(`start = 0`). 기간·기준일이 같으면 늘 같은 입력이라 값이 흔들리지 않는다.
 - 전략 엔진은 기간 첫날 250봉 앞에서 평활을 시작한다(`RSI_START_BARS`). 비교 화면은 기간 앞 26~28거래일만 받으므로 같은 날의 RSI가 엔진 값과 조금 다를 수 있다. 일봉을 250봉 더 받으면 모든 지표의 조회 범위와 캐시 키가 바뀌고 호출량이 늘어서 하지 않는다. 이 차이는 도움말에는 적지 않고 이 문서에만 남긴다.
+- 잘못된 종가: 입력(워밍업 포함)에 0 이하·유한하지 않은 종가가 처음 나온 봉부터 그 뒤 RSI는 모두 null. `rsi()`는 그런 변화를 0으로 넘겨 값을 내지만 Wilder 평활은 그 영향이 뒤로 계속 남는다. 이 처리는 비교 지표 쪽에서 하고 `rsi()`(전략 엔진)는 바꾸지 않는다.
 - 표기: 단위 없는 0–100 수, 소수 첫째 자리(`62.4`). 부호·상승/하락 색은 붙이지 않는다. 차트 기준선은 50(중립).
 
 ### D3. 계산 입력 = 기간 앞 일봉 + 기간 봉
@@ -102,6 +103,7 @@
   - 기간 마지막 봉 종가가 시세로 바뀌면 마지막 값이 바뀐다(`series.daily`가 아니라 `candles` 사용).
 - 비활성 전제를 고정한 기존 테스트를 바꾼다.
   - `src/lib/data/metrics.test.ts`의 `metricAvailability` 테스트(「v1.1 metrics: short periods vs longer」): 1일·주 → 「1개월 이상에서 볼 수 있어요」, 1개월·3개월·1년 → 사용 가능. 모르는 id → 「곧 추가될 예정이에요」.
+  - `src/lib/data/metrics.test.ts`의 「lists the seven metrics in order with exact copy」: `v1` 열을 빼고 변동성 단위를 `%abs`로.
   - `src/lib/data/seriesMetrics.test.ts`의 「v1.1 metrics give all null」: 위 새 계산 테스트로 바꾼다.
   - `src/sheets/MetricSheet.test.ts`의 「곧 추가될 예정이에요」 기대: 1개월 이상에서 고를 수 있고 1일·주에서는 「1개월 이상에서 볼 수 있어요」로 바꾼다.
 - `compareText.test.ts`: `%abs`·`''` 표기.
