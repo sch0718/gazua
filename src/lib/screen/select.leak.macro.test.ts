@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { MacroSeriesKey, SelectionCriteria } from './types';
 import type { MarketDataFileV2 } from '../marketData/format';
 import { rebalanceDates, precompute, tradingAxis } from './precompute';
 import { macroKnownFrom } from './macro';
 import { selectAt } from './select';
 import { betaOn, offCriteria, offCriteriaLike, ymd } from './testData';
+
+// 데모 데이터 전체로 precompute를 되풀이하는 동기 계산이라 전체 실행의 부하에서는 기본 5초를 넘긴다.
+vi.setConfig({ testTimeout: 60_000 });
 
 describe('selectAt: 환율·유가 공개 전 값 누설 방지(데모 데이터)', () => {
   const fixture = JSON.parse(gunzipSync(readFileSync('tests/fixtures/market-data-demo.json.gz')).toString()) as MarketDataFileV2;

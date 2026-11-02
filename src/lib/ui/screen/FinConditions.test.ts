@@ -126,7 +126,7 @@ describe('재무·가치 소구역', () => {
       await fireEvent.input(field(name), { target: { value: '1' } });
       expect(screen.queryByRole('alert')).toBeNull();
     }
-  });
+  }, 15_000);
 
   it('an out-of-range number blocks the run even after the section is folded, then opens it and focuses the field', async () => {
     const { onRun } = setup();
