@@ -117,6 +117,35 @@ async function tabUntil(page: Page, target: Locator, max = 40): Promise<void> {
   await expect(target, `${max}번 Tab 안에 닿지 않았어요`).toBeFocused({ timeout: 1000 });
 }
 
+test('v1.1 지표: 월 기간에서 RSI(14)·변동성을 고르면 값이 보인다', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+
+  // 주 기간에서는 고를 수 없다
+  await page.getByRole('radio', { name: '주', exact: true }).click();
+  await page.getByRole('button', { name: /^등락률/ }).click();
+  const metricSheet = page.getByRole('dialog', { name: '비교 지표' });
+  await expect(metricSheet.getByRole('button', { name: /^RSI\(14\)/ })).toHaveAttribute('aria-disabled', 'true');
+  await expect(metricSheet.getByRole('button', { name: /^RSI\(14\)/ })).toContainText('1개월 이상에서 볼 수 있어요');
+  await page.keyboard.press('Escape');
+  await expect(metricSheet).toBeHidden();
+
+  // 월 기간에서 RSI(14)
+  await page.getByRole('radio', { name: '월', exact: true }).click();
+  await page.getByRole('button', { name: /^등락률/ }).click();
+  await metricSheet.getByRole('button', { name: /^RSI\(14\)/ }).click();
+  await expect(metricSheet).toBeHidden();
+  await expect(leaderboard(page)).toContainText('RSI(14) 순');
+  await expect(leaderboardRows(page).first().locator('.val b')).toHaveText(/^\d{1,3}\.\d$/);
+
+  // 변동성
+  await page.getByRole('button', { name: /^RSI\(14\)/ }).click();
+  await metricSheet.getByRole('button', { name: /^변동성/ }).click();
+  await expect(leaderboard(page)).toContainText('변동성 순');
+  await expect(leaderboardRows(page).first().locator('.val b')).toHaveText(/^\d+\.\d{2}%$/);
+});
+
 test('delete in detail sheet keeps focus and reaches undo by Tab', async ({ page }) => {
   await openApp(page);
   await enterDemo(page);

@@ -1,9 +1,11 @@
 // 불러온 시리즈 → 차트·리더보드에 쓰는 지표 점. 스펙 6.
 import { fetchPlanFor } from '../market/periods';
+import { rsi } from '../sim/indicators';
 import type { MetricId, Period } from '../state/schema';
 import { kstDate } from '../time/kst';
 import type { LoadedSeries } from './candleService';
 import {
+  annualizedVolPct,
   changePct,
   drawdownPct,
   excessPct,
@@ -14,6 +16,36 @@ import {
 } from './metrics';
 
 const RVOL_LOOKBACK = 20;
+const VOL_WINDOW = 20;
+const RSI_PERIOD = 14;
+
+/**
+ * 변동성·RSI 입력: 기간 첫 봉보다 앞선 일봉 종가(워밍업) + 기간 봉 종가. 기간 봉은 candles에서 가져와
+ * 리더보드 값에 시세 반영(withQuote)이 들어간다. offset은 기간 첫 봉의 위치.
+ */
+function closesWithWarmup(series: LoadedSeries): { closes: number[]; offset: number } {
+  const first = series.candles[0]?.t ?? Number.POSITIVE_INFINITY;
+  const warmup = series.daily.filter((c) => c.t < first).map((c) => c.c);
+  return { closes: [...warmup, ...series.candles.map((c) => c.c)], offset: warmup.length };
+}
+
+/**
+ * RSI(14). 0 이하·유한하지 않은 종가가 처음 나온 봉부터는 null. rsi()는 그런 변화를 0으로 넘겨 값을 내지만,
+ * Wilder 평활은 그 영향이 뒤로 계속 남아 믿을 수 없다.
+ */
+function rsiFromValidCloses(closes: number[]): (number | null)[] {
+  const bad = closes.findIndex((c) => !Number.isFinite(c) || c <= 0);
+  const values = rsi(closes, RSI_PERIOD);
+  return bad < 0 ? values : values.map((v, i) => (i >= bad ? null : v));
+}
+
+/** 워밍업을 붙여 계산한 값에서 기간 봉 몫만 점으로 낸다. 유한하지 않은 값은 null. */
+function periodPoints(series: LoadedSeries, values: (number | null)[], offset: number): Point[] {
+  return series.candles.map((c, i) => {
+    const v = values[offset + i] ?? null;
+    return { t: c.t, v: v !== null && Number.isFinite(v) ? v : null };
+  });
+}
 
 const closesOf = (s: LoadedSeries): Point[] => s.candles.map((c) => ({ t: c.t, v: c.c }));
 const allNull = (s: LoadedSeries): Point[] => s.candles.map((c) => ({ t: c.t, v: null }));
@@ -61,6 +93,14 @@ export function metricPoints(
     }
     case 'mcap':
       return series.sharesOutstanding === undefined ? allNull(series) : marketCapTrillion(closes, series.sharesOutstanding);
+    case 'volatility':
+    case 'rsi': {
+      // 1개월 이상에서만 고를 수 있다(metricAvailability). 1일 분봉에는 일봉 워밍업을 붙일 수 없어 계산하지 않는다.
+      if (opts.period.unit === 'D') return allNull(series);
+      const { closes, offset } = closesWithWarmup(series);
+      const values = metric === 'volatility' ? annualizedVolPct(closes, VOL_WINDOW) : rsiFromValidCloses(closes);
+      return periodPoints(series, values, offset);
+    }
     default:
       return allNull(series);
   }

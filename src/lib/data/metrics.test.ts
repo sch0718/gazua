@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  annualizedVolPct,
   changePct,
   drawdownPct,
   excessPct,
@@ -10,6 +11,7 @@ import {
   type Point,
 } from './metrics';
 import { METRICS, metricAvailability } from './metricRegistry';
+import type { MetricId } from '../state/schema';
 
 const candle = (t: number, v: number, c = 1): Candle => ({ t, o: c, h: c, l: c, c, v });
 const pts = (values: (number | null)[]): Point[] => values.map((v, t) => ({ t, v }));
@@ -111,14 +113,14 @@ describe('rvolIntraday', () => {
 
 describe('METRICS registry', () => {
   it('lists the seven metrics in order with exact copy', () => {
-    expect(METRICS.map((m) => [m.id, m.label, m.description, m.unit, m.v1])).toEqual([
-      ['change', '등락률', '기간 시작 직전 종가 대비 몇 % 올랐나', '%', true],
-      ['drawdown', '고점 대비 하락률', '기간 중 최고가에서 얼마나 내려왔나', '%', true],
-      ['excess', '시장 대비 초과수익', 'KOSPI·KOSDAQ보다 얼마나 더 올랐나', '%', true],
-      ['rvol', '상대 거래량', '평소(20일 평균) 대비 거래량 배수', 'x', true],
-      ['mcap', '시가총액', '발행주식수 × 가격 (조 원)', '조', true],
-      ['volatility', '변동성', '20일 수익률 표준편차(연율)', '%', false],
-      ['rsi', 'RSI(14)', '과열·침체 비교 (0–100)', '', false],
+    expect(METRICS.map((m) => [m.id, m.label, m.description, m.unit])).toEqual([
+      ['change', '등락률', '기간 시작 직전 종가 대비 몇 % 올랐나', '%'],
+      ['drawdown', '고점 대비 하락률', '기간 중 최고가에서 얼마나 내려왔나', '%'],
+      ['excess', '시장 대비 초과수익', 'KOSPI·KOSDAQ보다 얼마나 더 올랐나', '%'],
+      ['rvol', '상대 거래량', '평소(20일 평균) 대비 거래량 배수', 'x'],
+      ['mcap', '시가총액', '발행주식수 × 가격 (조 원)', '조'],
+      ['volatility', '변동성', '20일 수익률 표준편차(연율)', '%abs'],
+      ['rsi', 'RSI(14)', '과열·침체 비교 (0–100)', ''],
     ]);
   });
   it('declares needs', () => {
@@ -127,6 +129,29 @@ describe('METRICS registry', () => {
     expect(byId.mcap).toEqual({ shares: true });
     expect(byId.volatility.minPeriodDays).toBeGreaterThan(0);
     expect(byId.rsi.minPeriodDays).toBeGreaterThan(0);
+  });
+});
+
+describe('annualizedVolPct', () => {
+  it('일간 수익률 표본 표준편차 × √252 (%)', () => {
+    const out = annualizedVolPct([100, 110, 99], 2);
+    expect(out.slice(0, 2)).toEqual([null, null]);
+    expect(out[2]).toBeCloseTo(Math.sqrt(0.02) * Math.sqrt(252) * 100, 8);
+  });
+  it('수익률이 일정하면 0, 종가가 window+1개보다 적으면 null', () => {
+    const closes = Array.from({ length: 21 }, (_, i) => 100 * 1.01 ** i);
+    const out = annualizedVolPct(closes, 20);
+    expect(out.slice(0, 20).every((v) => v === null)).toBe(true);
+    expect(out[20]).toBeCloseTo(0, 8);
+  });
+  it('창 안에 0 이하·유한하지 않은 종가가 있으면 그 창의 봉만 null', () => {
+    const out = annualizedVolPct([100, 0, 100, 101, 102, 103], 2);
+    // 봉 2·3은 창(i−2..i)에 0이 있다. 봉 4·5는 창이 0을 벗어났다.
+    expect(out[2]).toBeNull();
+    expect(out[3]).toBeNull();
+    expect(out[4]).not.toBeNull();
+    expect(Number.isFinite(out[5]!)).toBe(true);
+    expect(annualizedVolPct([100, 101, Number.NaN, 102], 2)[3]).toBeNull();
   });
 });
 
@@ -155,18 +180,18 @@ describe('metricAvailability', () => {
     });
     expect(metricAvailability('mcap', base)).toEqual({ ok: true });
   });
-  it('v1.1 metrics: short periods vs longer', () => {
+  it('변동성·RSI는 1개월 이상에서 고를 수 있다', () => {
     for (const id of ['volatility', 'rsi'] as const) {
-      expect(metricAvailability(id, { ...base, period: { unit: 'D', n: 1 } })).toEqual({
-        ok: false,
-        reason: '1개월 이상에서 볼 수 있어요',
-      });
-      expect(metricAvailability(id, { ...base, period: { unit: 'W', n: 3 } })).toEqual({
-        ok: false,
-        reason: '1개월 이상에서 볼 수 있어요',
-      });
-      expect(metricAvailability(id, base)).toEqual({ ok: false, reason: '곧 추가될 예정이에요' });
+      for (const period of [{ unit: 'D', n: 1 }, { unit: 'W', n: 1 }, { unit: 'W', n: 4 }] as const) {
+        expect(metricAvailability(id, { ...base, period })).toEqual({ ok: false, reason: '1개월 이상에서 볼 수 있어요' });
+      }
+      for (const period of [{ unit: 'M', n: 1 }, { unit: 'M', n: 3 }, { unit: 'Y', n: 1 }] as const) {
+        expect(metricAvailability(id, { ...base, period })).toEqual({ ok: true });
+      }
     }
+  });
+  it('모르는 지표는 고를 수 없다', () => {
+    expect(metricAvailability('nope' as MetricId, base)).toEqual({ ok: false, reason: '곧 추가될 예정이에요' });
   });
   it('change/drawdown/rvol are always ok', () => {
     for (const id of ['change', 'drawdown', 'rvol'] as const) {

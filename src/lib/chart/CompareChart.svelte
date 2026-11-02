@@ -27,6 +27,7 @@
     type WhitespaceData,
   } from 'lightweight-charts';
   import type { DaySession } from '../market/sessions';
+  import type { MetricUnit as Unit } from '../data/metricRegistry';
   import { kstDate, kstEpoch } from '../time/kst';
   import { SessionBandsPrimitive, sessionBands, type BandsColors, type BandsInput } from './bandsPrimitive';
   import {
@@ -44,7 +45,6 @@
   } from './lineData';
   import SessionLanes from './SessionLanes.svelte';
 
-  type Unit = '%' | 'x' | '조';
 
   interface Props {
     series: ChartSeriesInput[];
@@ -172,7 +172,9 @@
 
   function formatValue(u: Unit, v: number): string {
     if (u === '%') return `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+    if (u === '%abs') return `${v.toFixed(2)}%`;
     if (u === 'x') return `${v.toFixed(2)}x`;
+    if (u === '') return v.toFixed(1);
     return `${v.toFixed(Math.abs(v) < 10 ? 2 : 1)}조`;
   }
 
@@ -365,8 +367,9 @@
     const font = getComputedStyle(plotEl).fontFamily;
     c.applyOptions(chartOptions(mode, unit, palette, font));
 
-    const effectiveBaseline = baseline !== undefined ? baseline : unit === '%' ? 0 : unit === 'x' ? 1 : null;
-    // 첫 값 전 점선은 기준선에 둔다(% → 0, x → 1, 조 → 비움).
+    // 단위 없는 지표는 지금 RSI(0–100)뿐이라 중립값 50을 기준선으로 둔다.
+    const effectiveBaseline = baseline !== undefined ? baseline : unit === '%' ? 0 : unit === 'x' ? 1 : unit === '' ? 50 : null;
+    // 첫 값 전 점선은 기준선에 둔다(% → 0, x → 1, RSI → 50, %abs·조 → 비움).
     const startValue = effectiveBaseline;
     const grid = mode === 'intraday' && day ? minuteGrid(day) : undefined;
     gridStart = grid ? grid[0] : null;
