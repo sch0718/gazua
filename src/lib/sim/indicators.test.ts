@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rollingMax, rsi, volumeRatio } from './indicators';
+import { rollingMax, rollingStdPct, rsi, volumeRatio } from './indicators';
 
 // StockCharts의 14일 RSI 예시표 앞부분(스펙 §12.2) — 원본 표의 소수 넷째 자리 종가. 첫 값 70.533, 다음 66.319(검토에서 확인)
 const SC = [44.3389, 44.0902, 44.1497, 43.6124, 44.3278, 44.8264, 45.0955, 45.4245, 45.8433, 46.0826, 45.8931, 46.0328, 45.614, 46.282, 46.282, 46.0028];
@@ -47,5 +47,21 @@ describe('rollingMax', () => {
   it('오늘 포함 window개 최댓값, 개수가 min 미만이면 null', () => {
     expect(rollingMax([3, 1, 4, 1, 5], 3, 3)).toEqual([null, null, 4, 4, 5]);
     expect(rollingMax([3, 1, 4, 1, 5], 3, 1)).toEqual([3, 3, 4, 4, 5]);
+  });
+});
+
+describe('rollingStdPct', () => {
+  it('최근 days개 일간 수익률의 표본 표준편차(%)', () => {
+    // 수익률 +10%, −10%: 평균 0, 표본분산 (0.01+0.01)/1 → 표준편차 0.1414…
+    const out = rollingStdPct([100, 110, 99], 2);
+    expect(out[0]).toBeNull();
+    expect(out[1]).toBeNull();
+    expect(out[2]).toBeCloseTo(Math.sqrt(0.02) * 100, 10);
+  });
+  it('수익률이 일정하면 0', () => {
+    expect(rollingStdPct([100, 101, 102.01, 103.0301], 3)[3]).toBeCloseTo(0, 10);
+  });
+  it('days가 2 미만이면 모두 null', () => {
+    expect(rollingStdPct([1, 2, 3], 1)).toEqual([null, null, null]);
   });
 });
