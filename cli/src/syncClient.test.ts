@@ -97,3 +97,47 @@ describe('응답 → 오류 코드', () => {
     expect(await codeOf(client({ body: {} }, null).c.device('l'))).toBe('internal');
   });
 });
+
+describe('시장 파일(Drive 전달)', () => {
+  it('device에 scope를 주면 본문에 넣고, 토큰 응답의 scope를 돌려준다', async () => {
+    const f = fakeFetch((c) =>
+      c.url.pathname === '/v1/cli/device'
+        ? { body: { deviceCode: 'd', userCode: 'BCDF-GHJK', verifyUrl: 'u', interval: 5, expiresIn: 600 } }
+        : { body: { token: 'gzc_x', tokenId: 'id', expiresAt: 9, scope: 'market-upload' } },
+    );
+    const c = createSyncClient({ server: 'https://s.test', fetchImpl: f });
+    await c.device('gazua-drive@mac', 'market-upload');
+    expect(f.calls[0].body).toEqual({ label: 'gazua-drive@mac', scope: 'market-upload' });
+    expect(await c.token('d')).toEqual({ kind: 'token', token: 'gzc_x', tokenId: 'id', expiresAt: 9, scope: 'market-upload' });
+    await c.device('gazua@mac');
+    expect(f.calls[2].body).toEqual({ label: 'gazua@mac' });
+  });
+
+  it('market 메서드: 목록 검사, 등록, 삭제, 429 market-limit, 422 market-file-invalid', async () => {
+    const row = { id: 'r1', driveFileId: 'drive-file-0001', name: 'market-data-20261031.json.gz', sha256: 'a'.repeat(64), size: 1, version: 4, collectedAt: '2026-10-31T18:00:00+09:00', range: { from: '2021-10-31', to: '2026-10-31' }, stocks: 1, createdAt: 1, updatedAt: 1 };
+    let mode = 'ok';
+    const f = fakeFetch((c) => {
+      if (c.method === 'GET') return { body: { files: [row] } };
+      if (c.method === 'DELETE') return { body: { deleted: true } };
+      if (mode === 'limit') return { status: 429, body: { error: 'market-limit' } };
+      if (mode === 'bad') return { status: 422, body: { error: 'invalid', path: 'name' } };
+      return { body: row };
+    });
+    const c = createSyncClient({ server: 'https://s.test', token: 'gzc_t', fetchImpl: f });
+    expect(await c.marketFiles()).toEqual([row]);
+    const { id, createdAt, updatedAt, ...body } = row;
+    expect(await c.registerMarketFile(body)).toEqual(row);
+    await c.deleteMarketFile('r1');
+    expect(f.calls.at(-1)?.url.pathname).toBe('/v1/market/files/r1');
+    mode = 'limit';
+    await expect(c.registerMarketFile(body)).rejects.toMatchObject({ code: 'market-limit' });
+    mode = 'bad';
+    await expect(c.registerMarketFile(body)).rejects.toMatchObject({ code: 'market-file-invalid' });
+  });
+
+  it('market 500은 drive-failed(0006 미적용 포함), 다른 요청의 500은 internal 그대로', async () => {
+    const { c } = client({ status: 500, body: { error: 'boom' } });
+    expect(await codeOf(c.marketFiles())).toBe('drive-failed');
+    expect(await codeOf(c.profiles())).toBe('internal');
+  });
+});

@@ -1,5 +1,6 @@
 // 동기화 API 클라이언트: /v1/cli/*, /v1/profiles. CLI 토큰은 Authorization: Gazua-CLI 헤더로 보낸다(Origin은 보내지 않는다).
 // 앱 dto.ts(전략 검증기까지 끌어오는 모듈)를 번들에 넣지 않으려고 두 값을 여기에 따로 두고, 같은지는 테스트가 확인한다.
+import { checkMarketFiles, type MarketFileBody, type MarketFileRow } from '../../src/lib/marketData/manifest';
 import { CliError } from './errors';
 
 export const DOC_VERSION = 2;
@@ -13,7 +14,7 @@ export interface DeviceGrant {
   interval: number;
   expiresIn: number;
 }
-export type PollResult = { kind: 'token'; token: string; tokenId: string; expiresAt: number } | { kind: 'pending' } | { kind: 'slow_down' };
+export type PollResult = { kind: 'token'; token: string; tokenId: string; expiresAt: number; scope?: string } | { kind: 'pending' } | { kind: 'slow_down' };
 export interface ProfileIndexRow {
   profileId: string;
   revision: number;
@@ -22,20 +23,26 @@ export interface ProfileIndexRow {
   purgeAt: number | null;
 }
 export interface SyncClient {
-  device(label: string): Promise<DeviceGrant>;
+  device(label: string, scope?: 'market-upload'): Promise<DeviceGrant>;
   token(deviceCode: string): Promise<PollResult>;
   profiles(): Promise<ProfileIndexRow[]>;
   profile(id: string): Promise<{ revision: number; doc: unknown }>;
   revoke(): Promise<void>;
+  marketFiles(): Promise<MarketFileRow[]>;
+  registerMarketFile(b: MarketFileBody): Promise<MarketFileRow>;
+  deleteMarketFile(id: string): Promise<void>;
 }
 
-type Where = 'device' | 'token' | 'profiles' | 'profile' | 'revoke';
+type Where = 'device' | 'token' | 'profiles' | 'profile' | 'revoke' | 'market';
 type Body = Record<string, unknown>;
 const isRecord = (v: unknown): v is Body => typeof v === 'object' && v !== null && !Array.isArray(v);
 const internal = (message = '서버 응답 모양이 맞지 않아요') => new CliError('internal', message);
 
 function failFrom(status: number, body: Body, where: Where): CliError {
   const code = typeof body.error === 'string' ? body.error : '';
+  if (where === 'market' && status === 500) return new CliError('drive-failed'); // 0006 미적용 서버 포함
+  if (where === 'market' && status === 429 && code === 'market-limit') return new CliError('market-limit');
+  if (where === 'market' && status === 422) return new CliError('market-file-invalid', `서버가 시장 파일 정보를 받지 않았어요(${typeof body.path === 'string' ? body.path : code || '422'})`);
   if (status === 401) return new CliError(code === 'cli-token-expired' ? 'cli-token-expired' : 'cli-token-revoked');
   if (status === 403) {
     if (code === 'denied') return new CliError('login-denied');
@@ -88,8 +95,8 @@ export function createSyncClient(o: { server: string; token?: string; fetchImpl:
   };
 
   return {
-    async device(label) {
-      const b = await must('device', 'POST', '/v1/cli/device', { label });
+    async device(label, scope) {
+      const b = await must('device', 'POST', '/v1/cli/device', scope ? { label, scope } : { label });
       if (typeof b.deviceCode !== 'string' || typeof b.userCode !== 'string' || typeof b.verifyUrl !== 'string' || typeof b.interval !== 'number' || typeof b.expiresIn !== 'number') throw internal();
       return { deviceCode: b.deviceCode, userCode: b.userCode, verifyUrl: b.verifyUrl, interval: b.interval, expiresIn: b.expiresIn };
     },
@@ -100,7 +107,7 @@ export function createSyncClient(o: { server: string; token?: string; fetchImpl:
       if (r.status !== 200) throw failFrom(r.status, r.body, 'token');
       const b = r.body;
       if (typeof b.token !== 'string' || typeof b.tokenId !== 'string' || typeof b.expiresAt !== 'number') throw internal();
-      return { kind: 'token', token: b.token, tokenId: b.tokenId, expiresAt: b.expiresAt };
+      return { kind: 'token', token: b.token, tokenId: b.tokenId, expiresAt: b.expiresAt, ...(typeof b.scope === 'string' && { scope: b.scope }) };
     },
     async profiles() {
       const b = await must('profiles', 'GET', '/v1/profiles');
@@ -114,6 +121,20 @@ export function createSyncClient(o: { server: string; token?: string; fetchImpl:
     },
     async revoke() {
       await must('revoke', 'DELETE', '/v1/cli/token');
+    },
+    async marketFiles() {
+      const files = checkMarketFiles((await must('market', 'GET', '/v1/market/files')).files);
+      if (!files) throw internal();
+      return files;
+    },
+    async registerMarketFile(body) {
+      const b = await must('market', 'POST', '/v1/market/files', body);
+      const [row] = checkMarketFiles([b]) ?? [];
+      if (!row) throw internal();
+      return row;
+    },
+    async deleteMarketFile(id) {
+      await must('market', 'DELETE', `/v1/market/files/${encodeURIComponent(id)}`);
     },
   };
 }

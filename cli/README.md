@@ -97,6 +97,14 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 | `ip-not-allowed`, `invalid-credentials`, `token-throttled`, `token-contended`, `upstream`, `timeout` | 증권사 오류 그대로 |
 | `token-busy` | 같은 기기의 다른 gazua 실행이 쥔 토큰 잠금을 30초 안에 얻지 못함 |
 | `app-outdated` | 서버 문서가 이 CLI보다 새로움 → CLI 업데이트 |
+| `drive-not-configured` | Drive 설정이 없음: Drive 설정(`GAZUA_DRIVE_CLIENT_ID`·`GAZUA_DRIVE_CLIENT_SECRET`)이 필요 |
+| `drive-login-required` | Drive 로그인이 필요함 → `gazua drive login` |
+| `drive-login-timeout` | Google 로그인을 5분 안에 마치지 못함 |
+| `drive-denied` | Google에서 Drive 권한을 허용하지 않음 |
+| `drive-quota` | Drive 공간이나 요청 한도에 걸림 |
+| `drive-failed` | Drive 요청 실패(서버 시장 파일 경로의 500 포함) |
+| `market-file-invalid` | 올릴 수 없는 시장 파일 |
+| `market-limit` | Drive 보관본이 서버 한도(10개)에 참 → 앱에서 보관본 지우기 |
 | `internal` | 그 밖 |
 
 ## 저장 파일

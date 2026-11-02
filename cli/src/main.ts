@@ -27,7 +27,7 @@ export const COMMANDS: Record<string, Command> = {
 };
 
 /** 증권사 키를 담는 환경변수. 명령 검증보다 먼저 출력 거르기에 등록해, 인자 오류 메시지가 입력을 되풀이해도 키가 나가지 않게 한다 */
-const SECRET_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'] as const;
+const SECRET_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_DRIVE_CLIENT_SECRET'] as const;
 
 function loadEnvFile(path: string, env: Io['env']): void {
   try {
