@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { rsi } from '../sim/indicators';
 import { kstEpoch } from '../time/kst';
 import type { LoadedSeries } from './candleService';
 import type { Candle } from './metrics';
+import { annualizedVolPct } from './metrics';
 import { baseDateFor, metricPoints } from './seriesMetrics';
 
 const DAY = '2026-10-12';
@@ -140,9 +142,53 @@ describe('metricPoints', () => {
     expect(values(metricPoints(series(), 'mcap', { period: D1 }))).toEqual([null, null, null]);
   });
 
-  it('v1.1 metrics give all null', () => {
+  // 1개월 일봉: 기간 앞 일봉 25개(워밍업) + 기간 봉 5개. 종가는 매일 조금씩 오르내린다.
+  const M1 = { unit: 'M', n: 1 } as const;
+  const dailyAt = (i: number) => day('2026-09-01') + i * 86_400_000;
+  const closeAt = (i: number) => 100 + 5 * Math.sin(i / 2) + i * 0.3;
+  const warm = Array.from({ length: 25 }, (_, i) => bar(dailyAt(i), closeAt(i)));
+  const inPeriod = Array.from({ length: 5 }, (_, i) => bar(dailyAt(25 + i), closeAt(25 + i)));
+  const monthly = (over: Partial<LoadedSeries> = {}) => series({ candles: inPeriod, daily: [...warm, ...inPeriod], ...over });
+  const allCloses = [...warm, ...inPeriod].map((c) => c.c);
+
+  it('volatility: 기간 앞 일봉을 워밍업으로 써서 기간 첫 봉부터 연환산 변동성을 낸다', () => {
+    const ps = metricPoints(monthly(), 'volatility', { period: M1 });
+    expect(ps.map((p) => p.t)).toEqual(inPeriod.map((c) => c.t));
+    const expected = annualizedVolPct(allCloses, 20).slice(25);
+    ps.forEach((p, i) => expect(p.v).toBeCloseTo(expected[i]!, 10));
+  });
+
+  it('rsi: 기존 rsi(전체 종가, 14)의 기간 구간과 같다', () => {
+    const ps = metricPoints(monthly(), 'rsi', { period: M1 });
+    const expected = rsi(allCloses, 14).slice(25);
+    expect(ps.map((p) => p.v)).toEqual(expected);
+    expect(ps.every((p) => p.v !== null && p.v >= 0 && p.v <= 100)).toBe(true);
+  });
+
+  it('volatility·rsi: 기간 봉(candles)의 마지막 종가를 쓴다(시세 반영), daily의 같은 봉은 쓰지 않는다', () => {
+    const quoted = [...inPeriod.slice(0, -1), { ...inPeriod[4], c: inPeriod[4].c * 1.1 }];
+    for (const metric of ['volatility', 'rsi'] as const) {
+      const before = metricPoints(monthly(), metric, { period: M1 }).at(-1)!.v;
+      const after = metricPoints(monthly({ candles: quoted }), metric, { period: M1 }).at(-1)!.v;
+      expect(after).not.toBe(before);
+    }
+  });
+
+  it('volatility·rsi: 워밍업이 모자라면 앞쪽 봉은 null, 1일이면 모두 null', () => {
+    const short = series({ candles: inPeriod, daily: [...warm.slice(-3), ...inPeriod] });
+    expect(metricPoints(short, 'volatility', { period: M1 }).every((p) => p.v === null)).toBe(true);
+    expect(metricPoints(short, 'rsi', { period: M1 }).every((p) => p.v === null)).toBe(true);
     expect(values(metricPoints(series(), 'volatility', { period: D1 }))).toEqual([null, null, null]);
     expect(values(metricPoints(series(), 'rsi', { period: D1 }))).toEqual([null, null, null]);
+  });
+
+  it('rsi: 0 이하·유한하지 않은 종가가 나온 봉부터 null', () => {
+    const bad = [...inPeriod.slice(0, 2), { ...inPeriod[2], c: Number.NaN }, ...inPeriod.slice(3)];
+    const ps = metricPoints(monthly({ candles: bad }), 'rsi', { period: M1 });
+    expect(ps.slice(0, 2).every((p) => p.v !== null)).toBe(true);
+    expect(ps.slice(2).every((p) => p.v === null)).toBe(true);
+    const zero = [...inPeriod.slice(0, 3), { ...inPeriod[3], c: 0 }, inPeriod[4]];
+    expect(metricPoints(monthly({ candles: zero }), 'rsi', { period: M1 }).map((p) => p.v === null)).toEqual([false, false, false, true, true]);
   });
 
   it('daily periods use the period candles closes', () => {
