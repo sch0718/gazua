@@ -35,7 +35,10 @@ export async function wipeDrive(files: MarketFileRow[], deps: DriveDeps & { wipe
   const t = await deps.auth.token();
   if (!t.ok) return { ok: false, reason: t.reason };
   const listed = await listMarketFileIds(deps.fetch, t.token);
-  if (!listed.ok) return { ok: false, reason: listed.kind };
+  if (!listed.ok) {
+    if (listed.kind === 'auth') deps.auth.forget();
+    return { ok: false, reason: listed.kind };
+  }
   for (const id of new Set([...files.map((f) => f.driveFileId), ...listed.ids])) {
     const r = await deleteFile(deps.fetch, t.token, id);
     if (!r.ok) {
