@@ -67,6 +67,35 @@ function world(o: { files?: any[]; driveFiles?: { id: string; createdTime: strin
   return { f, files, deletedDrive, deletedRows };
 }
 
+describe('drive 토큰 오류 안내', () => {
+  const revoked = () => fakeFetch((c: FakeCall) => (c.url.href === 'https://oauth2.googleapis.com/token' ? { body: { access_token: 'acc', expires_in: 3600 } } : c.url.origin === SERVER && c.url.pathname === '/v1/market/files' ? { status: 401, body: { error: 'cli-token-revoked' } } : undefined));
+  it('upload가 서버 401을 받으면 gazua login이 아니라 drive logout 뒤 drive login을 안내한다', async () => {
+    const m = marketFile();
+    const { io, dir, result, clock } = makeIo({ env: { ...ENV }, fetch: revoked() });
+    loggedIn(dir, clock.now);
+    expect(await run(['drive', 'upload', m.p], io)).toBe(1);
+    expect(result().error.code).toBe('cli-token-revoked');
+    expect(result().error.message).toContain('gazua drive logout 뒤 gazua drive login');
+    expect(result().error.message).not.toContain('gazua login');
+  });
+  it('drive-auth.json이 로컬에서 만료됐으면 gazua drive login을 안내한다', async () => {
+    const m = marketFile();
+    const { io, dir, result, clock } = makeIo({ env: { ...ENV } });
+    loggedIn(dir, clock.now);
+    writeDriveAuth(dir, { v: 1, server: SERVER, token: 'gzc_' + 'a'.repeat(43), tokenId: 't1', label: 'gazua-drive@testhost', expiresAt: clock.now - 1 });
+    expect(await run(['drive', 'upload', m.p], io)).toBe(1);
+    expect(result().error.code).toBe('cli-token-expired');
+    expect(result().error.message).toContain('gazua drive login');
+    expect(result().error.message).not.toContain('gazua login');
+  });
+  it('status 경고도 drive 명령을 안내한다', async () => {
+    const { io, dir, result, clock } = makeIo({ env: { ...ENV }, fetch: revoked() });
+    loggedIn(dir, clock.now);
+    expect(await run(['drive', 'status'], io)).toBe(0);
+    expect(JSON.stringify(result().warnings)).toContain('gazua drive logout 뒤 gazua drive login');
+  });
+});
+
 describe('gazua drive upload', () => {
   it('올리고 등록하고 결과를 낸다', async () => {
     const m = marketFile();
@@ -135,6 +164,34 @@ describe('gazua drive upload', () => {
     expect(w.deletedDrive.sort()).toEqual(['DRIVEOLD100', 'ORPHANOLD12']);
     expect(result().data.removed).toBe(1);
   });
+  it('더 새 수집 파일이 keep개 이상 있으면 올리지 않고 market-file-invalid(올려도 바로 정리되므로)', async () => {
+    const m = marketFile(); // collectedAt 2026-10-31T18:00:00+09:00
+    const newer = (n: number) => rowOf({ id: `n${n}`, driveFileId: `DRIVENEWER${n}0`, name: `market-data-2026110${n}.json.gz`, sha256: `${n}`.repeat(64), size: 1, version: 1, collectedAt: `2026-11-0${n}T09:00:00Z`, range: { from: '2026-10-01', to: `2026-11-0${n}` }, stocks: 1 });
+    const w = world({ files: [newer(2), newer(1)] });
+    const { io, dir, result, clock } = makeIo({ env: { ...ENV }, fetch: w.f });
+    loggedIn(dir, clock.now);
+    expect(await run(['drive', 'upload', m.p, '--keep', '2'], io)).toBe(1);
+    expect(result().error.code).toBe('market-file-invalid');
+    expect(result().error.message).toContain('--keep');
+    expect(w.f.calls.some((c) => c.method === 'PUT')).toBe(false);
+    expect(w.deletedRows).toEqual([]);
+    // keep을 늘리면 올린다
+    const w3 = world({ files: [newer(2), newer(1)] });
+    const b = makeIo({ env: { ...ENV }, fetch: w3.f });
+    loggedIn(b.dir, b.clock.now);
+    expect(await run(['drive', 'upload', m.p, '--keep', '3'], b.io)).toBe(0);
+    expect(w3.deletedRows).toEqual([]);
+  });
+  it('정리 순서는 수집 시각 값으로 정한다(오프셋이 달라도)', async () => {
+    const m = marketFile(); // 2026-10-31T09:00Z
+    // 문자열로는 '2026-10-31T10:00:00+09:00'(=01:00Z)이 더 커 보이지만 실제로는 더 오래됐다
+    const row = (id: string, at: string) => rowOf({ id, driveFileId: `DRIVE${id.toUpperCase()}000000`, name: `${id}.json.gz`, sha256: id.charCodeAt(0).toString(16).repeat(32), size: 1, version: 1, collectedAt: at, range: { from: '2026-10-01', to: '2026-10-31' }, stocks: 1 });
+    const w = world({ files: [row('a', '2026-10-31T10:00:00+09:00'), row('b', '2026-10-31T05:00:00Z')] });
+    const { io, dir, clock } = makeIo({ env: { ...ENV }, fetch: w.f });
+    loggedIn(dir, clock.now);
+    expect(await run(['drive', 'upload', m.p, '--keep', '2'], io)).toBe(0);
+    expect(w.deletedRows).toEqual(['a']);
+  });
   it('로그인 파일이 없으면 drive-login-required', async () => {
     const m = marketFile();
     const { io, result } = makeIo({ env: { ...ENV }, fetch: world().f });
@@ -163,6 +220,35 @@ describe('gazua drive login', () => {
     expect(readDriveAuth(dir).auth?.tokenId).toBe('tid');
     expect(readDriveToken(dir)).toMatchObject({ clientId: 'cid', refreshToken: 'rt' });
     expect(err.join('')).not.toContain('csecret');
+  });
+  it('저장된 갱신 토큰이 invalid_grant면 Google 로그인을 다시 하고 덮어쓴다', async () => {
+    let n = 0;
+    const f = fakeFetch((c) => {
+      if (c.url.href === 'https://oauth2.googleapis.com/token') {
+        if (String(c.body).includes('refresh_token')) return { status: 400, body: { error: 'invalid_grant' } };
+        return { body: { access_token: 'a', refresh_token: 'rt-new', scope: 'https://www.googleapis.com/auth/drive.appdata' } };
+      }
+      return undefined;
+    });
+    const { io, dir, err, clock } = makeIo({ env: { ...ENV }, fetch: f });
+    loggedIn(dir, clock.now);
+    driveDeps.waitForCallback = async () => {
+      n++;
+      const url = err.join('').split('\n').find((l) => l.startsWith('https://accounts.google.com/'))!;
+      return new URLSearchParams({ code: 'c', state: new URL(url).searchParams.get('state')! });
+    };
+    expect(await run(['drive', 'login'], io)).toBe(0);
+    expect(n).toBe(1);
+    expect(readDriveToken(dir)).toMatchObject({ clientId: 'cid', refreshToken: 'rt-new' });
+  });
+  it('저장된 갱신 토큰이 유효하면 Google 로그인을 다시 하지 않는다', async () => {
+    let n = 0;
+    driveDeps.waitForCallback = async () => (n++, new URLSearchParams());
+    const { io, dir, clock } = makeIo({ env: { ...ENV }, fetch: world().f });
+    loggedIn(dir, clock.now);
+    expect(await run(['drive', 'login'], io)).toBe(0);
+    expect(n).toBe(0);
+    expect(readDriveToken(dir)).toMatchObject({ refreshToken: 'refresh-1' });
   });
   it('옛 Worker가 scope 없이 토큰을 주면 저장하지 않고 철회를 시도하고 server-outdated', async () => {
     const f = fakeFetch((c) => {

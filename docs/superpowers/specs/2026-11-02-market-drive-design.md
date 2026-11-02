@@ -55,7 +55,7 @@
 
 **D4. manifest는 D1 `market_files` 표에 사용자별로 둔다.** 본문(시세)은 넣지 않는다. 넣는 것: Drive 파일 ID, 파일 이름, gzip 바이트의 SHA-256, gzip 크기, 형식 버전, 수집 시각, 기간, 종목 수. 이 값들은 시세가 아니라 파일 설명이라 제5조 ③에 걸리지 않는다. 다른 기기는 동기화 세션만으로 목록을 읽어 새 파일 여부를 안다(Google 로그인 불필요).
 
-**D5. 보관 개수는 기본 2개(최신 + 직전), CLI `--keep 1~5`.** gzip 수십 MB(제안서 2절 추정) × 2는 15 GB 공용 공간에 부담이 작고, 받은 최신 파일이 깨졌을 때 직전 파일로 돌아갈 수 있다. 서버는 사용자당 10행을 넘는 등록을 거절해 정리가 실패해도 무한히 늘지 않게 한다. 한도에 걸리면 CLI가 정리를 한 번 돌리고 등록을 한 번 다시 시도한다(6.4-5). 그래도 막히면 앱의 「Drive 보관본 지우기」로 비우라고 안내한다(6.5).
+**D5. 보관 개수는 기본 2개(최신 + 직전), CLI `--keep 1~5`.** gzip 수십 MB(제안서 2절 추정) × 2는 15 GB 공용 공간에 부담이 작고, 받은 최신 파일이 깨졌을 때 직전 파일로 돌아갈 수 있다. 서버는 사용자당 10행을 넘는 등록을 거절해 정리가 실패해도 무한히 늘지 않게 한다. 한도에 걸리면 CLI가 정리를 한 번 돌리고 등록을 한 번 다시 시도한다(6.4-5). 그래도 막히면 앱의 「Drive 보관본 지우기」로 비우라고 안내한다(6.5). 올릴 파일보다 새로 수집한 파일이 이미 `keep`개 이상이면 올려도 정리가 바로 지우므로 업로드 전에 `market-file-invalid`로 막고 `--keep`을 늘리라고 안내한다(구현 검토 반영, 2026-11-02). 정리 순서는 문자열이 아니라 `collectedAt`의 시각 값으로 정한다.
 
 **D6. 업로드 크기 상한은 512 MiB(gzip).** 수집 스크립트는 10년을 상한으로 두고 앱은 풀린 JSON을 문자열 하나로 읽는다(`MAX_YEARS` 주석의 약 512 MB 한도). gzip이 이를 넘으면 앱이 어차피 읽지 못한다.
 
@@ -146,7 +146,7 @@ POST 본문 검사(알 수 없는 키는 422 `unknown-field`, 모양이 다르�
 ### 6.1 명령
 | 명령 | 하는 일 |
 |---|---|
-| `gazua drive login` | ① `drive-auth.json`이 없거나 만료면 기기 코드 로그인(`scope: 'market-upload'`, 라벨 기본 `gazua-drive@<호스트>`) ② `drive.json`이 없거나 클라이언트 ID가 바뀌었으면 Google 루프백 로그인. 이미 둘 다 있으면 아무것도 안 하고 상태만 알린다 |
+| `gazua drive login` | ① `drive-auth.json`이 없거나 만료면 기기 코드 로그인(`scope: 'market-upload'`, 라벨 기본 `gazua-drive@<호스트>`) ② `drive.json`이 없거나 클라이언트 ID가 바뀌었으면 Google 루프백 로그인. 이미 둘 다 있으면 Google 갱신 토큰을 한 번 갱신해 보고, `invalid_grant`(철회·만료)면 ②를 다시 한다. 그 밖에는 아무것도 안 하고 상태만 알린다. 서버가 401로 거절한 market-upload 토큰은 `gazua drive logout` 뒤 `drive login`으로 안내한다 |
 | `gazua drive upload <파일> [--keep N]` | 4절 흐름. `N`은 1~5, 기본 2 |
 | `gazua drive status` | 두 로그인 상태와 manifest 목록(JSON) |
 | `gazua drive logout` | 서버 토큰 철회(`DELETE /v1/cli/token`), Google 갱신 토큰 철회(`POST https://oauth2.googleapis.com/revoke`), 두 파일 삭제. 서버·Google 철회가 실패해도 파일은 지우고 경고한다(기존 `logout`과 같은 방식) |

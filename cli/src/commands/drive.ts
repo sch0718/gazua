@@ -19,12 +19,35 @@ const DEFAULT_KEEP = 2;
 /** 테스트가 바꿔 끼운다 */
 export const driveDeps: { waitForCallback: WaitForCallback } = { waitForCallback: listenOnce };
 
+/**
+ * drive 경로의 market-upload 토큰 오류는 gazua login(읽기 토큰, auth.json)으로 풀리지 않는다.
+ * 서버가 401로 거절한 토큰은 drive-auth.json이 아직 만료 전이라 gazua drive login이 그대로 두므로(6.1) logout부터 안내한다
+ */
+function driveTokenError(e: unknown): unknown {
+  const code = e instanceof CliError ? e.code : null;
+  if (code === 'cli-token-revoked') return new CliError(code, 'Drive 업로드용 CLI 연결이 끊겼어요. gazua drive logout 뒤 gazua drive login을 다시 실행해 주세요');
+  if (code === 'cli-token-expired') return new CliError(code, 'Drive 업로드용 CLI 로그인이 만료됐어요. gazua drive logout 뒤 gazua drive login을 다시 실행해 주세요');
+  return e;
+}
+
+/** 서버 호출의 401을 drive 안내로 바꿔 낸다 */
+function driveSyncClient(ctx: Ctx, auth: AuthFile): SyncClient {
+  const s = createSyncClient({ server: auth.server, token: auth.token, fetchImpl: ctx.fetch });
+  const guard =
+    <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
+    (...a: A): Promise<R> =>
+      f(...a).catch((e: unknown) => {
+        throw driveTokenError(e);
+      });
+  return { ...s, marketFiles: guard(s.marketFiles), registerMarketFile: guard(s.registerMarketFile), deleteMarketFile: guard(s.deleteMarketFile) };
+}
+
 function requireDriveAuth(ctx: Ctx): AuthFile {
   const { auth, warnings } = readDriveAuth(ctx.dir);
   for (const w of warnings) ctx.warn(w);
   if (!auth) throw new CliError('drive-login-required');
   ctx.redact.add(auth.token);
-  if (auth.expiresAt <= ctx.now()) throw new CliError('cli-token-expired');
+  if (auth.expiresAt <= ctx.now()) throw new CliError('cli-token-expired', 'Drive 업로드용 CLI 로그인이 만료됐어요(90일). gazua drive login을 다시 실행해 주세요');
   return auth;
 }
 
@@ -79,7 +102,17 @@ async function login(ctx: Ctx) {
   }
   const token = readDriveToken(ctx.dir);
   let google: 'kept' | 'new' = 'kept';
-  if (!token || token.clientId !== c.clientId) {
+  let needGoogle = !token || token.clientId !== c.clientId;
+  if (token && !needGoogle) {
+    // 철회·만료로 갱신 토큰이 무효면 남은 파일을 믿지 않고 다시 로그인한다
+    try {
+      await refreshAccess(ctx, c, token.refreshToken);
+    } catch (e) {
+      if (toCliError(e).code === 'drive-login-required') needGoogle = true;
+      else ctx.warn('Google 토큰을 확인하지 못해 기존 로그인을 그대로 둬요');
+    }
+  }
+  if (needGoogle) {
     const refreshToken = await googleLogin(ctx, c, driveDeps.waitForCallback);
     writeDriveToken(ctx.dir, { v: 1, clientId: c.clientId, refreshToken, createdAt: ctx.now() });
     google = 'new';
@@ -87,11 +120,15 @@ async function login(ctx: Ctx) {
   return { sync, google };
 }
 
+/** 수집 시각 값(오프셋을 푼 시각) 내림차순, 같으면 등록 순서 내림차순 */
+const newestFirst = (rows: MarketFileRow[]): MarketFileRow[] =>
+  [...rows].sort((a, b) => Date.parse(b.collectedAt) - Date.parse(a.collectedAt) || b.createdAt - a.createdAt);
+
 /** keep 밖 manifest 행과 Drive 파일, 1시간 지난 고아 표식 파일을 지운다. 지운 행 수를 돌려준다 */
 async function prune(ctx: Ctx, sync: SyncClient, api: DriveApi, keep: number): Promise<number> {
   let removed = 0;
   try {
-    const rows = [...(await sync.marketFiles())].sort((a, b) => b.collectedAt.localeCompare(a.collectedAt) || b.createdAt - a.createdAt);
+    const rows = newestFirst(await sync.marketFiles());
     for (const r of rows.slice(keep)) {
       await sync.deleteMarketFile(r.id);
       await api.remove(r.driveFileId);
@@ -117,9 +154,14 @@ async function upload(ctx: Ctx) {
   ctx.redact.add(c.clientSecret);
   const auth = requireDriveAuth(ctx);
   const api = createDriveApi(ctx, accessTokens(ctx, c));
-  const sync = createSyncClient({ server: auth.server, token: auth.token, fetchImpl: ctx.fetch });
+  const sync = driveSyncClient(ctx, auth);
 
-  const same = (await sync.marketFiles()).find((r) => r.sha256 === local.meta.sha256);
+  const rows = await sync.marketFiles();
+  // 이 파일보다 새 수집이 keep개 이상이면 올려도 정리가 바로 지운다(최신 keep개 보관, 설계 D5)
+  const at = Date.parse(local.meta.collectedAt);
+  const newer = rows.filter((r) => r.sha256 !== local.meta.sha256 && Date.parse(r.collectedAt) > at).length;
+  if (newer >= keep) throw new CliError('market-file-invalid', `Drive에 이 파일보다 새로 수집한 파일이 ${newer}개 있어 올려도 바로 정리돼요. 이 파일을 남기려면 --keep을 ${newer + 1} 이상으로 주세요`);
+  const same = rows.find((r) => r.sha256 === local.meta.sha256);
   if (same) {
     const there = await api.get(same.driveFileId);
     if (there && there.trashed !== true) return { uploaded: false, file: same, removed: await prune(ctx, sync, api, keep) };
@@ -164,7 +206,7 @@ async function status(ctx: Ctx) {
   if (auth) {
     ctx.redact.add(auth.token);
     try {
-      files = await createSyncClient({ server: auth.server, token: auth.token, fetchImpl: ctx.fetch }).marketFiles();
+      files = await driveSyncClient(ctx, auth).marketFiles();
     } catch (e) {
       ctx.warn(toCliError(e).message);
     }
