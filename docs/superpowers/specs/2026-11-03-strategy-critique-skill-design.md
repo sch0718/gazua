@@ -8,7 +8,7 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 
 - 결과는 **참고 의견**이에요. 매매 신호가 아니고, 엔진의 신호·백테스트에 끼지 않아요.
 - 개선 아이디어는 전략 빌더 조건식(`src/lib/sim/strategyV2.ts`의 `Cond`)으로 옮길 수 있는 모양으로 내요. 효과는 사람이 전략 빌더에서 바꿔 기존 엔진으로 시뮬레이션해 확인해요((b)안의 원칙).
-- 주문·쓰기 동작은 없어요. 스킬이 부르는 도구는 읽기 도구 세 개뿐이에요.
+- 주문·쓰기 동작은 없어요. 스킬이 부르는 도구는 읽기 도구 `strategies`·`simulate`·`signals` 세 개와, 프로필이 여럿일 때만 쓰는 `profiles`뿐이에요(§1.1).
 
 ### 1.1 정한 것과 근거
 
@@ -37,10 +37,10 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 | 도구 | 쓰는 필드 |
 |---|---|
 | `strategies`(`raw: true`) | `id`·`name`·`universe`·`buy`(요약)·`sell`(요약)·`sizing`(요약)·`rules`(원 규칙: `buy` 묶음, `sell.takeProfit`·`stopLoss`·`trailing`·`timeExit`·`signal`) |
-| `simulate` | `period`·`venue`·`summary`(`totalReturnPct`·`cagrPct`·`mddPct`·`winRatePct`·`roundTrips`·`openPositions`)·`benchmarks`(`holdReturnPct`·`indexReturnPct`·`benchmarkReturnPct`)·`perSymbol`(`pnl`·`roundTrips`)·`failed`·`notes` |
+| `simulate` | `period`(요청 기간이 아니라 실제 데이터가 있는 첫날~마지막날이에요. 데이터가 없으면 요청한 기간이 그대로 와요)·`venue`·`summary`(`totalReturnPct`·`cagrPct`·`mddPct`·`winRatePct`·`roundTrips`·`openPositions`)·`benchmarks`(`holdReturnPct`·`indexReturnPct`·`benchmarkReturnPct`)·`perSymbol`(`pnl`·`roundTrips`)·`failed`·`notes` |
 | `signals` | `asOf`·`signals[]`(`buy`·`sell`의 `match`·`reason`)·`failed`·`notes` |
 
-`summary`가 `null`이면(기간 안 데이터 없음) 토론하지 않고 이유를 알려요. 도구가 `isError: true`를 돌려주면 오류 코드별로 사람이 할 일을 안내하고 멈춰요(`not-logged-in` → 터미널에서 `gazua login`, `profile-required` → `data.profiles`에서 골라 달라고 묻기, `ambiguous-strategy` → ID로 다시 묻기).
+`summary`가 `null`이면(기간 안 데이터 없음) 토론하지 않고 이유를 알려요. 도구가 `isError: true`를 돌려주면 오류 코드별로 사람이 할 일을 안내하고 멈춰요(`not-logged-in` → 터미널에서 `gazua login`, `profile-required` → `data.profiles`에서 골라 달라고 묻기, `ambiguous-strategy` → ID로 다시 묻기, `strategy-not-found` → `strategies` 목록을 보여 주고 다시 묻기, `no-credentials` → `simulate`·`signals`는 증권사 키가 필요하니 MCP 서버를 `--env-file`로 다시 띄우라고 안내). 그 밖의 코드(`profile-not-found` 등)는 오류 메시지를 그대로 보여 주고 멈춰요.
 
 ## 3. 스킬 설계
 
@@ -48,8 +48,8 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 
 | 파일 | 내용 |
 |---|---|
-| `.claude/skills/strategy-critique/SKILL.md` | 언제 쓰는지, 절차, 역할별 규칙, 출력 틀, 금지 사항 |
-| `.claude/skills/strategy-critique/reference/conditions.md` | 조건 종류표(`kind`·인자·범위·편집기 이름)와 매도 규칙 범위. 묶음 한도(묶음 4개·묶음당 조건 5개) |
+| `.claude/skills/strategy-critique/SKILL.md` | 언제 쓰는지, 「부르는 도구」 절(§5), 절차, 역할별 규칙, 출력 틀, 금지 사항 |
+| `.claude/skills/strategy-critique/reference/conditions.md` | 조건 종류표(`kind`·인자·범위·편집기 이름)와 매도 규칙 범위. 묶음 한도(묶음 4개·묶음당 조건 5개). `pattern`(반등 패턴)은 인자가 `entry` 안에 있고 검증이 따로라(`sanitizeEntry`) 편집기 이름만 적고, 스킬은 새 `pattern` 조건을 제안하지 않아요(기존 조건의 지적만). 숫자 범위 검사(§5)도 나머지 7종만 해요 |
 | `.claude/skills/strategy-critique/examples/demo/*.json` | 가짜 MCP 결과(`strategies`·`simulate` 전체·앞·뒤 반·`signals`). 데모 실행과 테스트에 써요 |
 | `.claude/skills/strategy-critique/examples/demo-run.md` | 위 가짜 결과로 스킬을 돌린 출력 |
 | `cli/src/skill.test.ts`(새) | §5 |
@@ -62,8 +62,8 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 
 1. 사용자가 고른 전략 이름(또는 ID)·프로필을 확인해요. 없으면 `strategies`로 목록을 보여 주고 물어요.
 2. `strategies`(`raw: true`)로 원 규칙을 읽어요.
-3. `simulate`(전략의 기간), `signals`를 불러요.
-4. 기간이 365일 이상이면 앞·뒤 반으로 `simulate`를 두 번 더 불러요(`from`·`to`). 앞 반의 끝날과 뒤 반의 첫날은 하루 차이로 겹치지 않게 해요.
+3. `simulate`(`from`·`to` 없이 전략 저장 기간으로), `signals`를 불러요. `strategies` 출력에는 기간이 없어서, 기간은 `simulate` 결과의 `period`로만 알아요.
+4. `simulate` 결과의 `period`(`summary`가 `null`이면 쓰지 않아요)로 일수를 세고, 365일 이상이면 그 `from`·`to`를 반으로 나눠 앞·뒤 반으로 `simulate`를 두 번 더 불러요(`from`·`to`). 앞 반의 끝날과 뒤 반의 첫날은 하루 차이로 겹치지 않게 해요.
 5. 근거 표(§3.4)를 먼저 만들고, 강세 → 약세 → 리스크 → 정리자 순서로 써요.
 
 ### 3.3 역할
@@ -98,8 +98,10 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 아이디어마다:
 
 - **제목·근거:** 어떤 약점(근거 필드)을 겨냥하는지.
-- **바꿀 곳:** `rules.buy[묶음 번호]`, `rules.sell.signal`, `rules.sell.stopLoss` 등과 편집기 이름(예: 「매수 묶음 1 › 조건 추가 › 거래량」).
+- **바꿀 곳:** `rules.buy[묶음 번호]`, `rules.sell.signal`, `rules.sell.stopLoss` 등과 편집기 이름(예: 「매수 묶음 1 › ＋ 조건 › 거래량」, 매도는 「조건 매도 묶음 1 › ＋ 조건 › …」, `CondGroupCard.svelte`·`ExitSection.svelte`의 화면 문구). `rules.buy[n]`·`rules.sell.signal.groups[n]`의 `n`은 0부터인 배열 번호이고, 편집기의 「묶음 k」는 `k = n + 1`이에요. 기존 묶음에 덧붙이는지(「조건 추가」), 새 묶음을 만드는지(「새 묶음」), 기존 조건을 바꾸는지(「조건 교체: `rules.buy[n].conds[m]`」)도 같은 줄에 적어요.
 - **조건식:** `Cond` JSON 한 줄(예: `{"kind":"volume","days":20,"ratio":1.5}`). 매도 규칙이면 그 필드의 JSON(예: `{"on":true,"pct":8}`). 값은 `reference/conditions.md`의 범위 안이어야 하고, 묶음 한도를 넘지 않아야 해요. 매도 조건(`rules.sell.signal`)에 `pattern`은 쓸 수 없어요.
+  - **한 줄 형식 고정:** 조건식은 ```json 코드 펜스 안에 JSON 한 줄로만 써요. 한 아이디어에 펜스는 하나예요. 그래야 `demo-run.md`에서 기계로 뽑을 수 있어요.
+  - **매도 규칙 JSON은 `kind`가 없어요.** 어느 필드인지는 JSON만으로 알 수 없으니, 「바꿀 곳」 줄에 필드 이름(`rules.sell.takeProfit`·`stopLoss`·`trailing`·`timeExit`)을 반드시 써요.
 - **검증:** 「전략을 복사해 이 조건만 바꾸고, 같은 기간과 앞·뒤 반 기간을 다시 시뮬레이션해 원래 결과와 비교하세요」. 한 번에 하나만 바꾸게 해요.
 
 금지: 「수익률이 X% 오를 것」 같은 효과 예측, 종목 추가·제외를 「지금 사세요/파세요」로 쓰는 것.
@@ -112,17 +114,23 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 
 ## 4. 데모
 
-실계정 로그인 없이 `examples/demo/`의 가짜 결과를 입력으로 스킬을 한 번 돌려 `examples/demo-run.md`에 저장하고 PR 본문에 붙여요. 가짜 전략은 엔진 검증(`sanitizeStrategiesV2`)을 고침 없이 통과하는 모양이에요.
+실계정 로그인 없이 `examples/demo/`의 가짜 결과를 입력으로 스킬을 한 번 돌려 `examples/demo-run.md`에 저장하고 PR 본문에 붙여요. 가짜 전략은 엔진 검증(`sanitizeStrategiesV2`)을 고침 없이 통과하는 모양이에요. 데모 `strategies.json`을 통째로 넣는 것이 아니라, 각 전략에서 `id`·`name`·`rules`만 꺼내 `v: 2`를 붙여 `{ v: 2, id, name, rules }`로 조립해 넣을 때 그래요(MCP 출력의 `sizing`은 문자열이고 `v`가 없어서, 그대로 넣으면 `repaired: true`가 돼요. 조립에서 빠진 필드는 조용히 기본값이라 `repaired`에 걸리지 않아요).
 
 ## 5. 테스트 (`cli/src/skill.test.ts`, vitest)
 
 - `SKILL.md`에 §3.5 고정 문구가 있고, frontmatter `name`이 `strategy-critique`.
-- `SKILL.md`가 부르라고 적은 MCP 도구가 `strategies`·`simulate`·`signals`·`profiles`뿐이고, 모두 MCP 도구 표(`cli/src/mcp/tools.ts`의 `TOOLS`)에 있음.
+- `SKILL.md`에는 「부르는 도구」 절을 따로 두고, 호출하는 MCP 도구 이름을 그 절에만 백틱으로 적어요(`profiles`는 「프로필이 여럿일 때만」이라는 조건을 같은 줄에 붙여요, §1.1). 「부르지 않는 도구」(`quote`·`holdings`·`watchlists`)는 다른 절에 적어요. 절은 `## 부르는 도구` 제목부터 다음 `##` 제목 전까지예요. 테스트는 그 절만 읽어, 절 안의 백틱 문자열 가운데 MCP 도구 표(`cli/src/mcp/tools.ts`의 `TOOLS`)에 있는 이름의 집합이 `strategies`·`simulate`·`signals`·`profiles`와 같은지 봐요. 도구 이름이 아닌 백틱(`raw: true`, 오류 코드 등)은 무시하고, `quote` 같은 금지 도구가 그 절에 들어오면 집합이 달라져 실패해요. 문서 전체의 이름을 긁지 않아요.
 - `reference/conditions.md`의 조건 종류가 `COND_KINDS`(`src/lib/ui/simulate/editor/condKinds.ts`)와 같고 편집기 이름도 같음.
-- 표의 각 숫자 인자에 대해 최소·최대값은 `sanitizeStrategiesV2`가 고치지 않고, 범위 밖(최소−1·최대+1, 소수 인자는 ±0.5)은 고침(`repaired: true`).
+- 표의 각 숫자 인자에 대해 최소·최대값은 `sanitizeStrategiesV2`가 고치지 않고, 범위 밖(최소−1·최대+1, 소수 인자는 ±0.5)은 고침(`repaired: true`). 단 `takeProfit.stages[].sellPct`는 마지막 단계가 항상 100으로 강제되므로(`strategyV1.ts`, 100이 아니면 `repaired: true`) 표에는 「마지막 단계는 항상 100(엔진이 강제)」로 적고, 이 검사는 단계 2개 이상 전략에서 마지막이 아닌 단계의 `sellPct`에만 적용함.
 - 묶음 한도가 `MAX_GROUPS`·`MAX_CONDS`와 같음.
-- 데모 `strategies.json`의 `rules`로 만든 전략이 `sanitizeStrategiesV2`에서 `repaired: false`.
+- 데모 `strategies.json`의 각 전략에서 `id`·`name`·`rules`만 꺼내 `v: 2`를 붙여 `{ v: 2, id, name, rules }`로 조립한 것이 `sanitizeStrategiesV2`에서 `repaired: false`(`sizing` 문자열과 `v` 없음이 `repaired`로 잡히므로 출력 전체는 넣지 않음). 아래 `demo-run.md` 검사의 「첫 전략 복사」도 같은 조립본을 기준으로 함.
 - `demo-run.md`의 첫 비어 있지 않은 줄과 마지막 비어 있지 않은 줄이 고정 문구이고, 그 안의 조건식 JSON이 전부 범위 검사를 통과함.
+  - 추출: 코드 펜스(```json)마다 JSON을 파싱하고, 같은 아이디어의 「바꿀 곳」 줄에서 필드 경로를 읽어요. `sanitizeStrategiesV2`는 `{ strategies: [...] }` 전체만 받고 조건 하나를 검사하는 내보낸 함수가 없으므로(`sanitizeCond`는 비공개), 테스트가 데모 `strategies.json`의 첫 전략을 복사해 그 자리에 넣은 뒤 통과시켜요.
+  - `Cond`(`kind` 있음): `rules.buy`면 `rules.buy[묶음 번호]`의 `conds`에, `rules.sell.signal`이면 `rules.sell.signal.groups`의 묶음에 넣고 `repaired: false`를 확인해요(매도 쪽은 `pattern` 불가가 이 경로로 걸러져요).
+  - 매도 규칙 JSON(`kind` 없음): 「바꿀 곳」의 필드(`takeProfit`·`stopLoss`·`trailing`·`timeExit`)에 통째로 넣고 `repaired: false`를 확인해요.
+  - 「바꿀 곳」이 없거나 필드를 알 수 없으면 그 자체로 실패예요.
+  - 「조건 추가」는 그 묶음 `conds` 끝에 덧붙이고, 「새 묶음」은 `{ conds: [cond] }`를 끝에 더하고, 「조건 교체」는 그 자리를 바꿔요. 결과가 묶음 한도를 넘으면 `repaired: true`라 실패예요.
+- 고정 문구 비교는 줄 앞의 `> `(인용 표시)를 벗긴 뒤 해요. §3.5의 문구 자체(⚠️부터)가 기준이에요.
 
 ## 6. 확인 필요
 
