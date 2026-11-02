@@ -10,6 +10,10 @@ const readme = read('../README.md');
 const workerReadme = read('../../sync-worker/README.md');
 
 describe('cli/README.md', () => {
+  it('전략 비판 스킬 절: 위치·고정 문구 뜻·부르는 도구가 있다', () => {
+    for (const s of ['## 전략 비판 스킬', '.claude/skills/strategy-critique', '매매 신호가 아니', '`strategies`', '`simulate`', '`signals`']) expect(readme, s).toContain(s);
+  });
+
   it('토스 키 분리 경고와 토스 허용 IP 등록 안내가 있다', () => {
     expect(readme).toContain('CLI용 토스 앱을 따로 만드세요. 앱과 같은 토스 키를 쓰면 토큰이 서로 무효가 돼요');
     expect(readme).toContain('허용 IP');
