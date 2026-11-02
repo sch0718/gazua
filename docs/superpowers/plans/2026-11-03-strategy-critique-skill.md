@@ -199,7 +199,7 @@ function section(md: string, title: string): string {
 
 - [ ] **Step 3: 생성** — `UPDATE_DEMO=1 corepack pnpm --filter gazua-cli exec vitest run src/skill.test.ts` (TZ는 패키지 스크립트 밖이라 `TZ=America/New_York`를 앞에 붙인다) → PASS, 파일 5개 생김. `simulate.json`의 `summary.roundTrips`가 0이면 `demoStrategy`의 조건(예: RSI `level` 35)을 바꿔 다시 생성한다.
 
-- [ ] **Step 4: 다시 확인** — `corepack pnpm --filter gazua-cli test -- src/skill.test.ts` → PASS(생성 없이 같음).
+- [ ] **Step 4: 다시 확인** — `corepack pnpm --filter gazua-cli test src/skill.test.ts` → PASS(생성 없이 같음).
 
 - [ ] **Step 5: 커밋** — `git add cli/src/skill.test.ts .claude/skills/strategy-critique/examples/demo && git commit -m "test(skill): 전략 비판 스킬 데모 입력을 가짜 서버의 MCP 결과로 만들고 고정함"`
 
@@ -374,7 +374,7 @@ describe('SKILL.md', () => {
 ```
 
 - [ ] **Step 3: 실패 확인** — ENOENT로 FAIL.
-- [ ] **Step 4: SKILL.md 작성** — 스펙 §3.2~§3.7을 지시문으로 옮긴다. 절: `## 부르는 도구`(네 이름만 백틱), `## 부르지 않는 도구`, `## 절차`(1~6, 기간 분할 식 `mid = from + floor(일수/2)`), `## 오류`(스펙 §2의 코드별 안내), `## 모든 역할의 규칙`, `## 역할`, `## 개선 아이디어`(바꿀 곳 경로·동작 목록: `rules.buy[n]` 조건 추가 / `rules.buy` 새 묶음 / `rules.buy[n].conds[m]` 조건 교체 / `rules.sell.signal.groups[n]`·`rules.sell.signal.groups`·`rules.sell.signal.groups[n].conds[m]` 같은 동작 / `rules.sell.takeProfit|stopLoss|trailing|timeExit|signal` 값 바꾸기(적은 키만 바뀜), `n`은 0부터·편집기 「묶음 k」= n+1), `## 출력 틀`(첫·끝 줄 `> ` + 고정 문구), `## 하지 않는 것`, `## 빠지기 쉬운 것`(Step 1에서 관찰한 실패와 막는 규칙).
+- [ ] **Step 4: SKILL.md 작성** — frontmatter는 `name`·`description` 두 줄만 두고 `description`은 한 줄이에요(다른 키를 넣으면 Step 2 정규식이 실패). 「바꿀 곳」 줄은 `- **바꿀 곳:** \`경로\` 동작 (편집기 이름)` 순서이고 경로와 동작 사이는 공백 하나예요(Task 4 정규식). 기간 분할의 일수는 끝날 − 첫날(달력 일수)로 세요(Task 1 `halves()`와 같음). 스펙 §3.2~§3.7을 지시문으로 옮긴다. 절: `## 부르는 도구`(네 이름만 백틱), `## 부르지 않는 도구`, `## 절차`(1~6, 기간 분할 식 `mid = from + floor(일수/2)`), `## 오류`(스펙 §2의 코드별 안내), `## 모든 역할의 규칙`, `## 역할`, `## 개선 아이디어`(바꿀 곳 경로·동작 목록: `rules.buy[n]` 조건 추가 / `rules.buy` 새 묶음 / `rules.buy[n].conds[m]` 조건 교체 / `rules.sell.signal.groups[n]`·`rules.sell.signal.groups`·`rules.sell.signal.groups[n].conds[m]` 같은 동작 / `rules.sell.takeProfit|stopLoss|trailing|timeExit|signal` 값 바꾸기(적은 키만 바뀜), `n`은 0부터·편집기 「묶음 k」= n+1), `## 출력 틀`(첫·끝 줄 `> ` + 고정 문구), `## 하지 않는 것`, `## 빠지기 쉬운 것`(Step 1에서 관찰한 실패와 막는 규칙).
 - [ ] **Step 5: 통과 확인** — PASS.
 - [ ] **Step 6: 커밋** — `git commit -m "feat(skill): 역할 토론형 전략 비판 스킬을 씀"`
 
@@ -461,7 +461,7 @@ describe('examples/demo-run.md', () => {
   });
 ```
 
-- [ ] **Step 2: 실패 확인** — `corepack pnpm --filter gazua-cli test -- src/readme.test.ts` → FAIL.
+- [ ] **Step 2: 실패 확인** — `corepack pnpm --filter gazua-cli test src/readme.test.ts` → FAIL.
 - [ ] **Step 3: 문서 작성** — README 절: 무엇을 하는지, 「참고 의견이며 매매 신호가 아니에요」, 쓰는 법(저장소에서 Claude Code를 열고 MCP 등록 뒤 「‘전략 이름’ 약점 따져 줘」), 부르는 도구 3+1, 쓰지 않는 것(주문·쓰기·파일), 아이디어 검증은 전략 빌더에서 복사해 한 가지씩, 데모(`examples/demo-run.md`)와 데모 재생성 명령 `UPDATE_DEMO=1`. 로드맵 최우선 2 「지금」에 한 줄, 「검토만 한 외부 도구」에 (a) 구현 표시. 검토 문서 3절 (a)에 「2026-11-03 구현됨: …」.
 - [ ] **Step 4: 전체 확인** — `corepack pnpm --filter gazua-cli test`와 `corepack pnpm --filter gazua-cli check` → PASS.
 - [ ] **Step 5: 커밋** — `git commit -m "docs: 전략 비판 스킬 사용법을 README에 쓰고 로드맵·외부 도구 검토 상태를 갱신함"`
