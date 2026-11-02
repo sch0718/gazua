@@ -95,7 +95,7 @@ describe('미래 정보 누출: v2 조건·조건 매도·기간 청산·트레�
     for (const kind of ['buy', 'add', 'trail', 'time', 'signalSell'] as const) expect(base.trades.some((t) => t.kind === kind), kind).toBe(true);
     const reasons = base.trades.filter((t) => t.kind === 'buy' || t.kind === 'signalSell').map((t) => t.reason);
     for (const c of [...BUY, ...SELL]) expect(reasons.some((r) => r.includes(condReason(c))), condReason(c)).toBe(true);
-    const deferred = ordered.filter((t) => t.kind !== 'buy' && tl.findIndex((f) => f.date === t.date) - signalDay(t) > 1);
+    const deferred = ordered.filter((t) => t.kind !== 'buy' && signalDay(t) >= 0 && tl.findIndex((f) => f.date === t.date) - signalDay(t) > 1);
     expect(deferred.length).toBeGreaterThan(0);
   });
 
@@ -104,8 +104,8 @@ describe('미래 정보 누출: v2 조건·조건 매도·기간 청산·트레�
       const di = tl.findIndex((f) => f.date === t.date);
       const s = signalDay(t);
       const where = `${t.kind} ${t.symbol} ${t.date}`;
-      expect(s, where).toBeGreaterThanOrEqual(0);
-      expect(di, where).toBeGreaterThan(s);
+      // signalDay는 체결 전날에서 거슬러 오르므로, 찾았다면 신호일 < 체결일이다
+      expect(s, `${where}: 체결 전날 그 종목 예약이 없다`).toBeGreaterThanOrEqual(0);
       expect(t.price, where).toBe(openOf(t.symbol, t.date));
       const k = Number(t.symbol.slice(1));
       for (let i = s + 1; i < di; i++) expect(barDates[k].has(DAYS[i]), `${where} 사이 ${DAYS[i]}`).toBe(false);
