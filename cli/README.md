@@ -109,6 +109,16 @@ claude mcp add gazua -- node /절대/경로/gazua/cli/dist/gazua.mjs mcp --env-f
 - 등록을 확인하려면 `claude mcp list`. 지우려면 `claude mcp remove gazua`.
 - CLI용 토스 키 분리 경고는 MCP에도 그대로예요. MCP 서버와 CLI는 같은 토큰 파일·잠금을 써서 서로의 토큰을 무효로 만들지 않아요.
 
+## 전략 비판 스킬
+
+저장소에 Claude Code 프로젝트 스킬 `.claude/skills/strategy-critique/`가 있어요. 위 MCP 서버를 등록한 뒤 이 저장소에서 Claude Code를 열고 「『내 전략 이름』 전략 약점 따져 줘」처럼 요청하면 써요.
+
+- 결과는 **참고 의견이며 매매 신호가 아니에요.** 출력 처음과 끝에 이 문구가 고정으로 들어가요. 종목을 사거나 팔라는 말은 하지 않아요.
+- 부르는 도구는 `strategies`(원 규칙까지)·`simulate`(전체 기간, 1년 이상이면 앞·뒤 반 두 번 더)·`signals`, 프로필이 여럿일 때만 `profiles`예요. 주문·쓰기·파일 쓰기는 없어요.
+- 강세·약세·리스크 역할이 입력 필드를 근거로 들어 따지고, 정리자가 개선 아이디어 2~4개를 전략 빌더 조건식(JSON 한 줄과 바꿀 곳)으로 내요. 조건 종류·범위는 `reference/conditions.md`에 있고 엔진과 같은지 테스트(`cli/src/skill.test.ts`)가 확인해요.
+- 아이디어의 효과는 스킬이 판단하지 않아요. 앱에서 전략을 복사해 아이디어 하나만 바꾸고, 같은 기간과 앞·뒤 반 기간을 다시 시뮬레이션해 비교하세요.
+- 데모: 가짜 서버로 띄운 MCP 결과(`examples/demo/*.json`)로 돌린 출력이 `examples/demo-run.md`예요. 엔진이나 출력 모양이 바뀌어 테스트가 실패하면 `UPDATE_DEMO=1 corepack pnpm --filter gazua-cli test src/skill.test.ts`로 데모 입력을 다시 만들고, 데모 출력도 다시 돌려요.
+
 ## 출력
 
 CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍스트로 돌려줘요.

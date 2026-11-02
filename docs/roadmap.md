@@ -1,6 +1,6 @@
 # 가즈아 로드맵
 
-> 기준일: 2026-11-02 (전략 빌더·읽기 전용 CLI·서버·DB 2단계 현황 갱신, 나머지는 2026-10-31 조사 기록)
+> 기준일: 2026-11-03 (전략 비판 스킬 추가. 2026-11-02 전략 빌더·읽기 전용 CLI·서버·DB 2단계 현황 갱신, 나머지는 2026-10-31 조사 기록)
 
 이 문서가 우선순위의 기준이에요. 각 기능의 세부 설계와 구현 계획은 `docs/superpowers/specs/`와 `docs/superpowers/plans/`에서 다뤄요.
 
@@ -52,6 +52,7 @@
 - 동기화 API(`sync-worker`)는 브라우저의 Origin 검사·`X-Gazua-Session` 세션과 별도로 CLI 기기 코드 로그인·읽기 전용 토큰 인증을 지원해요(`sync-worker/src/cli.ts`). 로그인은 사람이 앱에서 기기 코드를 승인해야 끝나요.
 - 공급자 코드(`src/lib/providers/toss.ts`·`kis.ts`)를 Node에서도 재사용해요. CLI는 프록시와 같은 허용 목록을 적용해 증권사를 직접 호출해요(`cli/src/direct.ts`).
 - 같은 코어를 감싸는 읽기 전용 MCP 서버 `gazua mcp`(stdio, 도구 7개)가 있어요. 설계는 `docs/superpowers/specs/2026-11-02-readonly-mcp-design.md`예요.
+- MCP 결과로 전략의 약점을 따지는 역할 토론형 Claude Code 스킬 `.claude/skills/strategy-critique/`가 있어요(외부 도구 검토 3절 (a)안, 설계 `docs/superpowers/specs/2026-11-03-strategy-critique-skill-design.md`). 출력은 참고 의견이며 매매 신호가 아니고, 개선 아이디어는 전략 빌더 조건식으로 내요.
 - 프록시는 주문 경로를 막아요(`proxy/src/allowlist.ts`). 주문 코드는 없어요.
 - 「주문 없음」은 최초 설계부터의 결정이에요(`docs/superpowers/specs/2026-10-11-stock-compare-design.md` §1.3, `docs/proposals/2026-10-25-server-and-db.md`).
 
@@ -94,6 +95,7 @@
 ## 검토만 한 외부 도구
 
 - impeccable(디자인 점검), hyperframes(데모 영상 자동 생성), TradingAgents(아이디어만 빌림)의 적용 방안을 기록해 뒀어요. 순서는 정하지 않았어요([외부 도구 적용 검토](proposals/2026-11-02-external-tools.md), 2026-11-02).
+- TradingAgents (a)안(역할 토론형 전략 비판 스킬)은 구현됐어요(2026-11-03, `.claude/skills/strategy-critique/`). 나머지는 아직 기록만 있어요.
 
 ## 보류: 과설계로 판단한 것
 

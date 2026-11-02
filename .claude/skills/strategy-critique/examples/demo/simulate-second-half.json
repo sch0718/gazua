@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "data": {
+    "strategy": "데모 RSI 반등",
+    "period": {
+      "from": "2024-07-02",
+      "to": "2025-12-30"
+    },
+    "venue": "KRX 일봉",
+    "summary": {
+      "totalReturnPct": 0.52,
+      "cagrPct": 0.34,
+      "mddPct": -10.32,
+      "winRatePct": 100,
+      "roundTrips": 2,
+      "openPositions": 1
+    },
+    "benchmarks": {
+      "holdReturnPct": -37.39,
+      "indexReturnPct": -19.73,
+      "benchmarkReturnPct": null
+    },
+    "perSymbol": [
+      {
+        "symbol": "005930",
+        "pnl": 442580.0714,
+        "roundTrips": 1
+      },
+      {
+        "symbol": "000660",
+        "pnl": -391002.5584,
+        "roundTrips": 1
+      }
+    ],
+    "failed": [],
+    "notes": []
+  }
+}

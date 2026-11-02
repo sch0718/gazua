@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "data": {
+    "strategy": "데모 RSI 반등",
+    "asOf": "2026-10-30",
+    "includesToday": false,
+    "venue": "KRX",
+    "signals": [
+      {
+        "symbol": "005930",
+        "buy": {
+          "match": false
+        },
+        "sell": null
+      },
+      {
+        "symbol": "000660",
+        "buy": {
+          "match": false
+        },
+        "sell": null
+      }
+    ],
+    "failed": [],
+    "notes": [
+      "매매 이력 없이 계산한 조건 신호예요",
+      "RSI는 기준 봉 앞 250봉에서 시작해요",
+      "보유 중인 종목도 매수 조건을 판정해요",
+      "보유 기준 판정은 토스만 돼요"
+    ]
+  }
+}
