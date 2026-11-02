@@ -8,5 +8,6 @@ export default defineConfig({
   resolve: { conditions: ['browser'] },
   test: {
     include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'pwa.config.test.ts', 'kakao-csp.config.test.ts', 'drive-csp.config.test.ts'],
+    setupFiles: ['src/testSetup.ts'],
   },
 });
