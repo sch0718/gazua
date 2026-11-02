@@ -116,7 +116,10 @@ Claude Code에서 「이 전략 약점 따져 줘」라고 하면, `gazua` MCP �
 
 실계정 로그인 없이 `examples/demo/`의 가짜 결과를 입력으로 스킬을 한 번 돌려 `examples/demo-run.md`에 저장하고 PR 본문에 붙여요. 가짜 전략은 엔진 검증(`sanitizeStrategiesV2`)을 고침 없이 통과하는 모양이에요. 데모 `strategies.json`을 통째로 넣는 것이 아니라, 각 전략에서 `id`·`name`·`rules`만 꺼내 `v: 2`를 붙여 `{ v: 2, id, name, rules }`로 조립해 넣을 때 그래요(MCP 출력의 `sizing`은 문자열이고 `v`가 없어서, 그대로 넣으면 `repaired: true`가 돼요. 조립에서 빠진 필드는 조용히 기본값이라 `repaired`에 걸리지 않아요).
 
+가짜 결과의 숫자는 손으로 지어내지 않아요. CLI 테스트 도우미(`cli/src/testing.ts`의 가짜 동기화 서버, `src/lib/sim/testInputs.ts`의 `randomWalk` 일봉을 주는 가짜 공급자)로 MCP 서버(`serveMcp`)를 실제로 띄워 `tools/call` 결과 텍스트를 그대로 저장해요. 시각(`now`)과 난수 시드를 고정해 결정적이에요. 증권사·동기화 서버에는 연결하지 않아요.
+
 ## 5. 테스트 (`cli/src/skill.test.ts`, vitest)
+- 데모 `examples/demo/*.json`이 위 방법으로 지금 만든 MCP 결과와 같음(엔진·출력 모양이 바뀌면 실패). `UPDATE_DEMO=1`이면 테스트가 파일을 다시 써요.
 
 - `SKILL.md`에 §3.5 고정 문구가 있고, frontmatter `name`이 `strategy-critique`.
 - `SKILL.md`에는 「부르는 도구」 절을 따로 두고, 호출하는 MCP 도구 이름을 그 절에만 백틱으로 적어요(`profiles`는 「프로필이 여럿일 때만」이라는 조건을 같은 줄에 붙여요, §1.1). 「부르지 않는 도구」(`quote`·`holdings`·`watchlists`)는 다른 절에 적어요. 절은 `## 부르는 도구` 제목부터 다음 `##` 제목 전까지예요. 테스트는 그 절만 읽어, 절 안의 백틱 문자열 가운데 MCP 도구 표(`cli/src/mcp/tools.ts`의 `TOOLS`)에 있는 이름의 집합이 `strategies`·`simulate`·`signals`·`profiles`와 같은지 봐요. 도구 이름이 아닌 백틱(`raw: true`, 오류 코드 등)은 무시하고, `quote` 같은 금지 도구가 그 절에 들어오면 집합이 달라져 실패해요. 문서 전체의 이름을 긁지 않아요.
