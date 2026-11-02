@@ -854,6 +854,18 @@ describe('tools/call', () => {
     expect(s.tool(2)).toEqual({ ok: true, data: { fine: 1 } });
   });
 
+  it('결과 직렬화가 실패해도 internal로 응답하고 다음 호출을 처리한다', async () => {
+    COMMANDS.profiles = async () => ({ a: 1n });
+    COMMANDS.watchlists = async () => ({ fine: 1 });
+    const s = await serve([call(1, 'profiles'), call(2, 'watchlists')]);
+    expect(s.code).toBe(0);
+    expect(s.replies.map((r) => r.id)).toEqual([1, 2]);
+    expect(s.byId(1).result.isError).toBe(true);
+    expect(s.tool(1)).toEqual({ ok: false, error: { code: 'internal', message: '예상하지 못한 오류예요' } });
+    expect(s.t.out.join('')).not.toContain('BigInt');
+    expect(s.tool(2)).toEqual({ ok: true, data: { fine: 1 } });
+  });
+
   it('호출마다 증권사 키 환경변수를 거른다', async () => {
     COMMANDS.profiles = async (ctx) => ({ note: `key ${ctx.env.TOSS_CLIENT_SECRET}` });
     const s = await serve([call(1, 'profiles'), call(2, 'profiles')], { env: { ...TOSS_ENV } });
@@ -979,7 +991,15 @@ export async function serveMcp(argv: string[], io: Io, input: AsyncIterable<stri
       const err = toCliError(e);
       result = fail(err.code, err.message, err.data);
     }
-    return { content: [{ type: 'text', text: JSON.stringify(redact.apply(result)) }], isError: !result.ok };
+    // 명령 실행뿐 아니라 비밀값 거르기·직렬화 실패도 호출 안에서 끝낸다.
+    // 오류의 data도 직렬화할 수 없을 수 있으므로 대체 결과에는 원래 데이터를 넣지 않는다.
+    try {
+      return { content: [{ type: 'text', text: JSON.stringify(redact.apply(result)) }], isError: !result.ok };
+    } catch (e) {
+      if (verbose) io.stderr(`${redact.apply(e instanceof Error ? (e.stack ?? e.message) : String(e))}\n`);
+      const internal = fail('internal', new CliError('internal').message);
+      return { content: [{ type: 'text', text: JSON.stringify(redact.apply(internal)) }], isError: true };
+    }
   };
 
   const handle = (id: RpcId, method: string, params: unknown): RpcMessage => {
@@ -1027,6 +1047,8 @@ export async function serveMcp(argv: string[], io: Io, input: AsyncIterable<stri
   return 0;
 }
 ```
+
+비밀값 거르기나 결과 직렬화가 실패해도 `runTool` 안에서 데이터 없는 `internal` 도구 결과로 바꿔요. 큐에 거부가 전파되지 않아 뒤의 호출도 응답하고, 입력이 닫히면 정상적으로 0을 돌려줘요(스펙 §3.5, CLI `run`의 출력 오류 처리와 같아요).
 
 `package.json`을 default import로 읽는다. `tsc`가 거절하면(`allowSyntheticDefaultImports`) `cli/tsconfig.json`의 `compilerOptions`에 `"allowSyntheticDefaultImports": true`를 더한다. esbuild·vitest는 JSON default import를 그대로 받는다.
 
