@@ -1,11 +1,13 @@
 // gazua 진입점: 인자 해석 → 명령 분기 → JSON 한 줄. 읽기 전용이라 쓰기·주문 명령은 없다.
 import { realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { parseArgv } from './args';
 import type { Io } from './context';
 import { CliError, exitCodeOf, toCliError, type CliErrorCode } from './errors';
 import { COMMANDS, execute, loadEnvFile, registerEnvSecrets } from './execute';
+import { serveMcp } from './mcp/server';
 import { createRedactor, fail, render, type Result } from './output';
 
 export { COMMANDS } from './execute';
@@ -49,7 +51,8 @@ function isMain(): boolean {
 }
 
 if (isMain()) {
-  run(process.argv.slice(2), {
+  const argv = process.argv.slice(2);
+  const io: Io = {
     stdout: (s) => void process.stdout.write(s),
     stderr: (s) => void process.stderr.write(s),
     env: process.env,
@@ -57,7 +60,10 @@ if (isMain()) {
     now: Date.now,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     hostname,
-  }).then((code) => {
+  };
+  // 서버 옵션은 mcp 뒤에만 온다. 옵션이 앞에 오면 run이 받아 invalid-args로 끝난다.
+  const done = argv[0] === 'mcp' ? serveMcp(argv, io, createInterface({ input: process.stdin, crlfDelay: Infinity })) : run(argv, io);
+  done.then((code) => {
     process.exitCode = code;
   });
 }
