@@ -1,6 +1,6 @@
 import type { Candle } from '../data/metrics';
 import { hasFlowFormat, hasMacroFormat, isV4, type MarketDataFile, type MarketDataFileV3 } from '../marketData/format';
-import { rollingMax, sma } from '../sim/indicators';
+import { rollingMax, rollingStdPct, sma } from '../sim/indicators';
 import { createPatternTracker } from '../sim/pattern';
 import { patternEntryOf } from '../sim/patternBlock';
 import type { PatternEntry, Strategy } from '../sim/types';
@@ -183,20 +183,6 @@ export function resolveReboundEntry(criteria: SelectionCriteria, strategies: Str
   return entry;
 }
 
-// 최근 days개 일간 수익률(c[k]/c[k-1]−1)의 표본 표준편차(%). 창마다 새로 계산해 오차가 쌓이지 않게 한다
-function rollingVol(c: number[], days: number): (number | null)[] {
-  const r = c.map((x, k) => (k === 0 ? 0 : x / c[k - 1] - 1));
-  return c.map((_, i) => {
-    if (days < 2 || i < days) return null;
-    let mean = 0;
-    for (let k = i - days + 1; k <= i; k++) mean += r[k];
-    mean /= days;
-    let ss = 0;
-    for (let k = i - days + 1; k <= i; k++) ss += (r[k] - mean) ** 2;
-    return Math.sqrt(ss / (days - 1)) * 100;
-  });
-}
-
 function signals(d: string[], st: FileStock, entry: PatternEntry | null): { days: string[]; last: number[] } {
   const last = new Array<number>(d.length).fill(-1);
   if (!entry) return { days: [], last };
@@ -272,7 +258,7 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
       tvAvg: sma(st.tv, params.tvDays),
       ma: params.maPeriod != null ? sma(close, params.maPeriod) : [],
       high: rollingMax(close, HIGH_WINDOW, HIGH_MIN),
-      vol: rollingVol(close, params.volDays),
+      vol: rollingStdPct(close, params.volDays),
       signalDays: sig.days,
       lastSignal: sig.last,
       beta: { usdkrw: fx.beta, wti: oil.beta },

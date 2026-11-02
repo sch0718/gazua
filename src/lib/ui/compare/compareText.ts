@@ -4,7 +4,8 @@ import type { MetricId, Period } from '../../state/schema';
 import { kstDate, kstMinuteOfDay, kstWeekday } from '../../time/kst';
 import { fmtPct, fmtTrillion } from '../format';
 
-export type MetricUnit = '%' | 'x' | '조' | '';
+import type { MetricUnit } from '../../data/metricRegistry';
+export type { MetricUnit } from '../../data/metricRegistry';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -139,16 +140,18 @@ export function rvolBaseNote(a: {
   return mixed ? RVOL_KRX_BASE_NOTE : null;
 }
 
-/** 리더보드 지표 값. %는 ▲▼ 기호와 함께. */
+/** 리더보드 지표 값. %는 ▲▼ 기호와 함께, %abs(변동성)는 부호 없이, 단위 없는 수(RSI)는 소수 첫째 자리. */
 export function formatMetricValue(v: number, unit: MetricUnit): string {
   switch (unit) {
     case '%':
       return fmtPct(v);
+    case '%abs':
+      return `${v.toFixed(2)}%`;
     case 'x':
       return `${v.toFixed(2)}x`;
     case '조':
       return fmtTrillion(v);
     default:
-      return v.toFixed(2);
+      return v.toFixed(1);
   }
 }

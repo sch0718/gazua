@@ -134,6 +134,24 @@ describe('run', () => {
     expect(b.out.join('') + b.err.join('')).not.toContain(SECRET);
   });
 
+  it('결과를 출력하다 난 모르는 오류는 internal이고, --verbose일 때만 거른 스택이 표준 오류로 나간다', async () => {
+    const SECRET = 'stdout-secret-key-1';
+    COMMANDS.__echo = async () => ({ fine: 1 }); // 결과 출력(표준 출력 쓰기)이 처음 한 번 던진다
+    for (const verbose of [false, true]) {
+      const t = makeIo({ env: { TOSS_CLIENT_SECRET: SECRET } });
+      t.io.stdout = (s) => {
+        if (s.includes('"internal"')) t.out.push(s);
+        else throw new Error(`출력 실패 ${SECRET}`);
+      };
+      expect(await run(verbose ? ['__echo', '--verbose'] : ['__echo'], t.io)).toBe(1);
+      expect(t.result().error.code).toBe('internal');
+      const err = t.err.join('');
+      if (verbose) expect(err).toContain('출력 실패 [숨김]');
+      else expect(err).toBe('');
+      expect(err).not.toContain(SECRET);
+    }
+  });
+
   it('같은 경고는 한 번만 붙는다', async () => {
     COMMANDS.__echo = async (ctx) => {
       ctx.warn('같은 경고');

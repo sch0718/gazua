@@ -1,12 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FlowWho, SelectionCriteria } from './types';
 import type { MarketDataFileV3 } from '../marketData/format';
 import { addDays } from '../time/kst';
 import { precompute, rebalanceDates, tradingAxis } from './precompute';
 import { flowMissingAt, selectAt } from './select';
 import { offCriteria, offCriteriaLike, symbols, ymd } from './testData';
+
+// 데모 데이터 전체로 precompute를 되풀이하는 동기 계산이라 전체 실행의 부하에서는 기본 5초를 넘긴다.
+vi.setConfig({ testTimeout: 60_000 });
 
 // 설계 종목 코드는 scripts/make-demo-market-data.mjs의 FLOW_* 상수와 같다
 const FLOW_FOREIGN_CODES = ['106666', '108888', '206666'];

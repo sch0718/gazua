@@ -2,6 +2,7 @@
   import CompareChart from '../../chart/CompareChart.svelte';
   import type { ChartSeriesInput } from '../../chart/lineData';
   import type { DaySession } from '../../market/sessions';
+  import type { MetricUnit } from '../../data/metricRegistry';
 
   // 차트 + 세션 레인 + 범례(스펙 5.4) + 첫 로딩 진행률.
   let {
@@ -19,7 +20,7 @@
     mode: 'intraday' | 'daily';
     sessions: DaySession[];
     markers: boolean;
-    unit: '%' | 'x' | '조';
+    unit: MetricUnit;
     openDays: string[];
     progress: { done: number; total: number } | null;
     theme?: string;

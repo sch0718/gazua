@@ -67,3 +67,20 @@ export function rollingMax(c: number[], window: number, min: number): (number | 
   }
   return out;
 }
+
+/**
+ * 최근 days개 일간 수익률(c[k]/c[k-1]−1)의 표본 표준편차(%). 창마다 새로 계산해 오차가 쌓이지 않게 한다.
+ * 종가는 검사하지 않는다. 선정 기준(precompute)과 비교 지표(annualizedVolPct)가 같이 쓴다
+ */
+export function rollingStdPct(c: number[], days: number): (number | null)[] {
+  const r = c.map((x, k) => (k === 0 ? 0 : x / c[k - 1] - 1));
+  return c.map((_, i) => {
+    if (days < 2 || i < days) return null;
+    let mean = 0;
+    for (let k = i - days + 1; k <= i; k++) mean += r[k];
+    mean /= days;
+    let ss = 0;
+    for (let k = i - days + 1; k <= i; k++) ss += (r[k] - mean) ** 2;
+    return Math.sqrt(ss / (days - 1)) * 100;
+  });
+}

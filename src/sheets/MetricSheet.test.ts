@@ -48,6 +48,14 @@ describe('MetricSheet', () => {
     expect(row('시장 대비 초과수익').textContent).toContain('이 데이터 소스는 지수 데이터를 주지 않아요');
     expect(row('시가총액').getAttribute('aria-disabled')).toBe('true');
     expect(row('시가총액').textContent).toContain('발행주식수 정보가 없어요');
-    expect(row('변동성').textContent).toContain('곧 추가될 예정이에요');
+    expect(row('변동성').getAttribute('aria-disabled')).toBeNull();
+    expect(row('변동성').textContent).toContain('20일 수익률 표준편차(연율)');
+  });
+
+  it('1개월 이상이면 변동성·RSI(14)를 고를 수 있다', async () => {
+    const { onselect, onclose } = setup({ period: { unit: 'M', n: 1 }, index: 'ok', hasShares: true });
+    await fireEvent.click(row('RSI(14)'));
+    expect(onselect).toHaveBeenCalledWith('rsi');
+    expect(onclose).toHaveBeenCalled();
   });
 });
