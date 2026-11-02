@@ -1,90 +1,38 @@
 // gazua 진입점: 인자 해석 → 명령 분기 → JSON 한 줄. 읽기 전용이라 쓰기·주문 명령은 없다.
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { parseEnv } from 'node:util';
 import { parseArgv } from './args';
-import { profiles, strategies, watchlists } from './commands/data';
-import { login, logout } from './commands/login';
-import { holdings, quote } from './commands/market';
-import { signals } from './commands/signals';
-import { simulateCmd } from './commands/simulate';
-import { configDir } from './config';
-import type { Command, Ctx, Io } from './context';
-import { CliError, exitCodeOf, toCliError } from './errors';
-import { createRedactor, fail, ok, render, type Result } from './output';
+import type { Io } from './context';
+import { CliError, exitCodeOf, toCliError, type CliErrorCode } from './errors';
+import { COMMANDS, execute, loadEnvFile, registerEnvSecrets } from './execute';
+import { createRedactor, fail, render, type Result } from './output';
 
-export const COMMANDS: Record<string, Command> = {
-  login,
-  logout,
-  profiles,
-  watchlists,
-  strategies,
-  quote,
-  holdings,
-  signals,
-  simulate: simulateCmd,
-};
-
-/** 증권사 키를 담는 환경변수. 명령 검증보다 먼저 출력 거르기에 등록해, 인자 오류 메시지가 입력을 되풀이해도 키가 나가지 않게 한다 */
-const SECRET_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'] as const;
-
-function loadEnvFile(path: string, env: Io['env']): void {
-  try {
-    for (const [name, value] of Object.entries(parseEnv(readFileSync(path, 'utf8')))) {
-      if (env[name] === undefined) env[name] = value; // 이미 있는 환경변수는 덮어쓰지 않는다
-    }
-  } catch {
-    throw new CliError('invalid-args', '--env-file을 읽을 수 없어요');
-  }
-}
+export { COMMANDS } from './execute';
 
 export async function run(argv: string[], io: Io): Promise<number> {
   const redact = createRedactor();
-  const warnings: string[] = [];
   let pretty = false;
-  let verbose = false;
   const emit = (r: Result) => io.stdout(render(r, redact, pretty));
-  const registerEnvSecrets = () => {
-    for (const name of SECRET_ENV) redact.add(io.env[name]?.trim());
-  };
-  registerEnvSecrets();
+  registerEnvSecrets(redact, io.env);
   try {
     const args = parseArgv(argv);
     pretty = args.pretty;
-    verbose = args.verbose;
     if (args.envFile) {
       loadEnvFile(args.envFile, io.env);
-      registerEnvSecrets(); // --env-file로 들어온 키도
+      registerEnvSecrets(redact, io.env); // --env-file로 들어온 키도
     }
     const cmd = Object.hasOwn(COMMANDS, args.command) ? COMMANDS[args.command] : undefined;
     if (!cmd) {
       const names = Object.keys(COMMANDS).join(' · ');
       throw new CliError('invalid-args', args.command ? `알 수 없는 명령이에요: ${args.command} (${names})` : `명령이 필요해요: ${names}`);
     }
-    const ctx: Ctx = {
-      args,
-      env: io.env,
-      fetch: io.fetch,
-      now: io.now,
-      sleep: io.sleep,
-      hostname: io.hostname,
-      dir: io.dir ?? configDir(io.env),
-      say: (line) => io.stderr(`${redact.apply(line)}\n`),
-      log: (line) => {
-        if (verbose) io.stderr(`${redact.apply(line)}\n`);
-      },
-      warn: (message) => {
-        if (!warnings.includes(message)) warnings.push(message); // 같은 경고는 한 번만
-      },
-      redact,
-    };
-    emit(ok(await cmd(ctx), warnings));
-    return 0;
+    const result = await execute(cmd, args, io, redact);
+    emit(result);
+    return result.ok ? 0 : exitCodeOf(result.error.code as CliErrorCode);
   } catch (e) {
-    const err = toCliError(e);
-    if (verbose && !(e instanceof CliError)) io.stderr(`${redact.apply(e instanceof Error ? (e.stack ?? e.message) : String(e))}\n`);
-    emit(fail(err.code, err.message, err.data, warnings));
+    const err = toCliError(e); // 여기 오는 것은 인자·--env-file 오류(CliError)뿐이다
+    emit(fail(err.code, err.message, err.data));
     return exitCodeOf(err.code);
   }
 }
