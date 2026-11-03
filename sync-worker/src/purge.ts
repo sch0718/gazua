@@ -4,13 +4,14 @@
 import { purgeSessions } from '@sch0718/firebase-session/worker';
 import { DAY, type SyncEnv } from './env';
 import { KEY_TOMBSTONE_SQL } from './keySql';
+import { purgeInviteAttempts } from './members';
 
 export const PURGE_PROFILES_PER_RUN = 50;
 export const PURGE_ROWS_PER_RUN = 500;
 /** 만료·철회된 공유와 세션도 30일 뒤에 지운다(그동안은 목록에서 상태를 볼 수 있다). */
 export const KEEP_AFTER_END = 30 * DAY;
 
-export async function purge(env: SyncEnv, now: number): Promise<{ profiles: number; shares: number; sessions: number; cliGrants: number; cliTokens: number }> {
+export async function purge(env: SyncEnv, now: number): Promise<{ profiles: number; shares: number; sessions: number; cliGrants: number; cliTokens: number; inviteAttempts: number }> {
   const db = env.DB;
   const { results: due } = await db
     .prepare('SELECT user_id AS userId, profile_id AS profileId FROM profile_index WHERE purge_at IS NOT NULL AND purge_at <= ? LIMIT ?')
@@ -48,5 +49,6 @@ export async function purge(env: SyncEnv, now: number): Promise<{ profiles: numb
     .prepare(`DELETE FROM cli_tokens WHERE id IN (SELECT id FROM cli_tokens WHERE expires_at <= ? OR (revoked_at IS NOT NULL AND revoked_at <= ?) LIMIT ?)`)
     .bind(old, old, PURGE_ROWS_PER_RUN)
     .run();
-  return { profiles: due.length, shares: shares.meta.changes, sessions, cliGrants: grants.meta.changes, cliTokens: cliTokens.meta.changes };
+  const inviteAttempts = await purgeInviteAttempts(env, now, PURGE_ROWS_PER_RUN);
+  return { profiles: due.length, shares: shares.meta.changes, sessions, cliGrants: grants.meta.changes, cliTokens: cliTokens.meta.changes, inviteAttempts };
 }

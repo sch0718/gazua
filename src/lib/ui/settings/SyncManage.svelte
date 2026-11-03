@@ -1,9 +1,9 @@
 <script lang="ts">
-  // 설정 › 동기화의 관리 목록: 로그인한 기기(철회), 삭제한 프로필(30일 복구), 지금 프로필의 과거 버전(새 프로필로 복원), 내 공유(철회).
+  // 설정 › 동기화의 관리 목록: 로그인한 기기(철회), 삭제한 프로필(30일 복구), 지금 프로필의 과거 버전(새 프로필로 복원), 내 공유(철회), 멤버(관리자만, 내보내기).
   // 펼칠 때만 서버에서 읽는다(무료 할당량 절약).
   import type { App } from '../../state/app.svelte';
   import type { CliTokenRow, DeviceSession, IndexRow, ShareRow } from '../../sync/api';
-  import type { SyncController } from '../../sync/controller.svelte';
+  import type { MembersResult, SyncController } from '../../sync/controller.svelte';
   import { kindLabel } from '../../share/kinds';
   import { showSnackbar } from '@sch0718/ui-svelte';
 
@@ -14,6 +14,7 @@
   let deleted = $state<IndexRow[] | null>(null);
   let revisions = $state<{ revision: number; createdAt: number; deleted: boolean }[] | null>(null);
   let shares = $state<ShareRow[] | null>(null);
+  let members = $state<MembersResult | null>(null);
 
   const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const nowMs = () => Date.now();
@@ -43,6 +44,7 @@
     }
   });
   const loadShares = async () => (shares = await sync.shares());
+  const loadMembers = async () => (members = await sync.members());
 
   function onToggle(e: Event, load: () => Promise<unknown>) {
     if ((e.currentTarget as HTMLDetailsElement).open) void load();
@@ -74,6 +76,10 @@
   async function revokeShare(s: ShareRow) {
     if (!confirmFn(`「${s.title}」 공유를 철회할까요? 링크로 더는 볼 수 없어요.`)) return;
     if (await sync.revokeShare(s.id)) await loadShares();
+  }
+  async function removeMember(identity: string) {
+    if (!confirmFn(`「${identity}」을 내보낼까요? 그 계정의 기기와 CLI는 바로 로그아웃되고, 초대 링크로도 다시 들어오지 못해요.`)) return;
+    if (await sync.removeMember(identity)) await loadMembers();
   }
   const shareState = (s: ShareRow) => (s.revokedAt ? '철회됨' : s.expiresAt <= nowMs() ? '만료됨' : `${fmt(s.expiresAt)}까지`);
 </script>
@@ -169,6 +175,27 @@
           </li>
         {/each}
       </ul>
+    {/if}
+  </details>
+
+  <details ontoggle={(e) => onToggle(e, loadMembers)}>
+    <summary>멤버</summary>
+    {#if members === null}
+      <p class="muted">불러오는 중…</p>
+    {:else if !members.ok}
+      <p class="muted">{members.reason === 'not-admin' ? '관리자만 볼 수 있어요' : '불러오지 못했어요'}</p>
+    {:else}
+      <p class="muted">{members.members.length} / {members.limit}명</p>
+      {#if members.members.length > 0}
+        <ul>
+          {#each members.members as m (m.identity)}
+            <li>
+              <span><b>{m.identity}</b><br /><small>{fmt(m.joinedAt)} 가입</small></span>
+              <button type="button" class="btn" aria-label="{m.identity} 내보내기" onclick={() => removeMember(m.identity)}>내보내기</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </details>
 </div>

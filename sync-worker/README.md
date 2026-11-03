@@ -31,11 +31,15 @@ Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보�
 
 소셜 세션은 `Authorization` 없이 `X-Gazua-Session` 헤더만으로 인증해요. `ALLOWED_ACCOUNTS`는 매 요청 다시 확인하고, Google 세션은 계속 Firebase ID 토큰이 필요해요.
 
+허용 목록(`ALLOWED_EMAILS`·`ALLOWED_ACCOUNTS`)에 없는 계정은 초대 멤버(`members` 표)인지 매 요청 다시 봐요(CLI 토큰도 같아요). 세션을 만드는 두 요청은 본문에 `invite`(초대 코드)를 받아요. 맞으면 멤버로 등록하고, 없으면 `403 not-allowed`, 틀리면 `403 invite-invalid`, 상한이 차면 `403 members-full`, 계정당 1시간 5회를 넘으면 `429 invite-limit`이에요.
+
 | 메서드·경로 | 설명 |
 |---|---|
 | `POST /v1/session` | 기기 세션 만들기. `auth_time`이 5분 이내인 토큰만 받아요. 철회된 기기는 Google 로그인을 다시 거쳐야 해요 |
 | `POST /v1/session/social` | 카카오·네이버 코드를 교환해 세션을 만들어요. `{ provider, code, codeVerifier, redirectUri, label? }` → `{ sessionId, expiresAt, user }`. 400 요청 오류, 401 코드·토큰 오류, 403 허용 밖 계정(`account` 포함), 404 소셜 꺼짐, 503 공급자 장애예요 |
 | `DELETE /v1/session` | 이 기기 로그아웃 |
+| `GET /v1/members` | 관리자(허용 목록 계정)만. 활성 멤버 `{ members: [{ identity, joinedAt }], limit }`. 그 밖은 `403 not-admin` |
+| `DELETE /v1/members/:identity` | 관리자만. 멤버를 내보내고 그 계정의 기기 세션과 CLI 토큰을 모두 철회해요. 멤버가 아니면 404 |
 | `GET /v1/sessions`, `DELETE /v1/sessions/:id`, `DELETE /v1/sessions?others=1` | 기기 목록과 철회 |
 | `GET /v1/profiles` | 프로필 색인(리비전, 삭제 시각, 정리 예정 시각) |
 | `GET/PUT/DELETE /v1/profiles/:id` | `PUT`·`DELETE`는 `{ opId, expectedRevision }`를 받아요. 기준이 다르면 `409`(현재 본문 포함), 삭제됐으면 `410`이에요. 같은 `opId`로 다시 보내면 처음 결과를 그대로 줘요 |
@@ -234,6 +238,34 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
 1. 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`. `0006_market_files.sql`이 시장 파일 manifest 표를 더해요(표만 더해서 지금 Worker·앱은 영향이 없어요).
 2. Worker 배포: `corepack pnpm --filter sync-worker run deploy`. `/v1/market/files`와 CLI `market-upload` 범위가 생겨요.
 3. 앱 배포: 설정 › 데이터 › Drive 전달이 보여요. 앱 빌드에 `VITE_GOOGLE_DRIVE_CLIENT_ID`(웹 OAuth 클라이언트)를 넣어야 받기가 켜져요.
+
+## 초대 링크 가입 배포 (`0007_members.sql`, `INVITE_CODE`)
+
+설계: `docs/superpowers/specs/2026-11-03-invite-signup-design.md`. 지인 몇 명이 허용 목록을 고치지 않고 들어오게 하는 공용 초대 코드예요. 순서는 **0007 적용 → 시크릿 → Worker 배포 → 앱 배포**예요.
+
+1. 마이그레이션: `corepack pnpm --filter sync-worker migrate:remote`. `0007_members.sql`이 `members`·`invite_attempts` 표를 더해요(표만 더해서 지금 Worker·앱은 영향이 없어요).
+2. 초대 코드: 무작위 32자 이상을 만들어 시크릿으로 넣어요. 값은 어디에도 적어 두지 말고 프롬프트에만 붙여 넣어요.
+
+   ```bash
+   openssl rand -base64 24 | tr '+/' '-_' | tr -d '='
+   ```
+
+   ```bash
+   corepack pnpm --filter sync-worker exec wrangler secret put INVITE_CODE
+   ```
+
+   32자보다 짧거나 없으면 초대 가입이 닫혀요(추측을 막는 진짜 방어선은 이 길이예요. 계정당 1시간 5회 제한은 덧댄 장치예요).
+3. 상한: `wrangler.toml`의 `MEMBER_LIMIT`(기본 20, 관리자 제외)을 필요하면 바꿔요.
+4. Worker 배포: `corepack pnpm --filter sync-worker run deploy`. 그다음 앱을 배포해요.
+5. 초대 링크: `https://gazua.sch0718.dev/#/join/<코드>`를 지인에게 보내요. 링크를 연 기기에서 Google·카카오·네이버로 로그인하면 멤버가 돼요. 멤버는 다른 기기에서 코드 없이 로그인해요.
+
+- **코드 바꾸기:** 2의 `wrangler secret put INVITE_CODE`를 새 값으로 다시 실행해요. 새 가입만 막히고 기존 멤버는 그대로예요. 초대를 닫으려면 `wrangler secret delete INVITE_CODE`.
+- **멤버 보기·내보내기:** 관리자(허용 목록 계정)로 로그인하면 설정 › 동기화·공유에 「멤버」 카드가 보여요. 내보낸 멤버는 바로 로그아웃되고, 코드를 알아도 다시 가입할 수 없어요. 내보낸 멤버의 동기화 데이터는 지우지 않아요.
+- **내보낸 사람 다시 들이기:** 앱 화면은 없어요. 다음 SQL로 기록을 지우면 초대 링크로 다시 가입할 수 있어요(`<계정>`은 멤버 카드에 보이던 값).
+
+  ```bash
+  corepack pnpm --filter sync-worker exec wrangler d1 execute gazua-sync --remote --command "DELETE FROM members WHERE identity = '<계정>' AND removed_at IS NOT NULL"
+  ```
 
 ## 무료 한도 아끼기
 

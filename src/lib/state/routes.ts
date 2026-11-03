@@ -1,3 +1,5 @@
+import { INVITE_RE } from '../sync/invite';
+
 export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles' | 'shared';
 
 export type SettingsSection = 'connection' | 'diagnostics' | 'data' | 'sync';
@@ -19,6 +21,8 @@ export interface Route {
   section?: SettingsSection;
   /** 공유 읽기: 링크의 256비트 capability(base64url 43자). 서버에는 헤더로만 보낸다. */
   capability?: string;
+  /** 초대 링크(#/join/<코드>)의 코드. 앱이 받자마자 저장하고 해시에는 남기지 않는다. */
+  invite?: string;
 }
 
 const CAPABILITY_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -65,6 +69,9 @@ export function parseHash(hash: string): Route | null {
       return { name: 'help' };
     }
   }
+  // 초대 링크: 동기화 구역으로 열고 코드를 넘긴다. hashFor는 #/settings라 코드가 주소에 남지 않는다.
+  const join = /^#\/join\/([^/?#]+)\/?$/.exec(hash);
+  if (join) return INVITE_RE.test(join[1]) ? { name: 'settings', section: 'sync', invite: join[1] } : { name: 'settings', section: 'sync' };
   // gazua login의 일회성 동기화 구역 이동. hashFor는 #/settings를 유지한다.
   if (/^#\/settings\/sync\/?$/.test(hash)) return { name: 'settings', section: 'sync' };
   if (/^#\/settings\/?$/.test(hash)) return { name: 'settings' };

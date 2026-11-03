@@ -4,6 +4,7 @@
 import { base64url, errorBody, HttpError, json, parseAccountList, parseAllowList, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
 import { marketOwnerTag } from '../../src/lib/marketData/owner';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
+import { isActiveMember } from './members';
 import { deleteMarketFile, listMarketFiles, putMarketFile } from './market';
 import { getProfile, listProfiles, requestDocVersion } from './profiles';
 import type { AuthContext } from './session';
@@ -227,10 +228,12 @@ interface TokenRow {
   email: string;
 }
 
-/** 지금 허용 목록에 있는 사용자인가(세션 인증과 같은 정책, 요청마다 다시 본다) */
-function stillAllowed(env: SyncEnv, row: TokenRow): boolean {
-  if (/^(kakao|naver):/.test(row.sub)) return parseAccountList(env.ALLOWED_ACCOUNTS).has(row.sub);
-  return parseAllowList(env.ALLOWED_EMAILS).has(row.email.toLowerCase());
+/** 지금 허용 목록에 있거나 멤버인 사용자인가(세션 인증과 같은 정책, 요청마다 다시 본다) */
+async function stillAllowed(env: SyncEnv, row: TokenRow): Promise<boolean> {
+  const social = /^(kakao|naver):/.test(row.sub);
+  const identity = social ? row.sub : row.email.toLowerCase();
+  if (social ? parseAccountList(env.ALLOWED_ACCOUNTS).has(identity) : parseAllowList(env.ALLOWED_EMAILS).has(identity)) return true;
+  return identity !== '' && (await isActiveMember(env, identity));
 }
 
 /** Authorization: Gazua-CLI <토큰> 요청을 인증하고 토큰 범위의 허용 목록만 통과시킨다 */
@@ -246,7 +249,7 @@ async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: U
   const now = deps.now();
   if (!row || row.revokedAt !== null) throw new HttpError(401, 'cli-token-revoked');
   if (row.expiresAt <= now) throw new HttpError(401, 'cli-token-expired');
-  if (!stillAllowed(env, row)) throw new HttpError(403, 'not-allowed');
+  if (!(await stillAllowed(env, row))) throw new HttpError(403, 'not-allowed');
   const scope = cliScope(req.method, url, row.scope);
   if (scope === null) throw new HttpError(403, 'cli-scope');
   if (now - row.lastUsedAt >= CLI_TOUCH_INTERVAL) {

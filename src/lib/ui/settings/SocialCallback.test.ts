@@ -91,7 +91,7 @@ describe('소셜 로그인 콜백 화면', () => {
     if (ok) expect(ondone).toHaveBeenCalledExactlyOnceWith(RET.returnHash);
     else {
       expect(ondone).not.toHaveBeenCalled();
-      expect(screen.getByRole('heading').textContent).toBe('이 카카오 계정은 아직 허용 목록에 없어요');
+      expect(screen.getByRole('heading').textContent).toBe('초대가 필요하거나 이용이 끝난 카카오 계정이에요');
       expect(screen.getByText('kakao:stranger')).toBeTruthy();
     }
     expect(currentSnackbar()).toBeNull();
@@ -102,10 +102,10 @@ describe('소셜 로그인 콜백 화면', () => {
     expect(currentSnackbar()).toBeNull();
   });
 
-  it('허용 목록 밖 계정 값을 보여 주고 복사한다', async () => {
+  it('초대 없는 계정 값을 보여 주고 복사한다', async () => {
     const copy = vi.fn(async () => {});
     render(SocialCallback, { sync: fakeSync({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:123' }), ret: RET, ondone: vi.fn(), copy });
-    await screen.findByRole('heading', { name: '이 카카오 계정은 아직 허용 목록에 없어요' });
+    await screen.findByRole('heading', { name: '초대가 필요하거나 이용이 끝난 카카오 계정이에요' });
     expect(screen.getByText('kakao:123').tagName).toBe('CODE');
     await fireEvent.click(screen.getByRole('button', { name: '계정 값 복사' }));
     expect(copy).toHaveBeenCalledWith('kakao:123');
@@ -127,7 +127,7 @@ describe('소셜 로그인 콜백 화면', () => {
   ] as const)('계정 선택을 강제할 수 없으면 공급자 로그아웃을 안내해요: %s', async (provider, name, userAgent) => {
     const sync = fakeSync({ ok: false, provider, reason: 'not-allowed' });
     render(SocialCallback, { sync, ret: RET, ondone: vi.fn(), userAgent });
-    await screen.findByRole('heading', { name: `이 ${name} 계정은 아직 허용 목록에 없어요` });
+    await screen.findByRole('heading', { name: `초대가 필요하거나 이용이 끝난 ${name} 계정이에요` });
     expect(screen.queryByRole('button', { name: '다른 계정으로 로그인' })).toBeNull();
     expect(screen.getByText(`다른 계정으로 로그인하려면 ${name}에서 로그아웃한 뒤 다시 로그인해 주세요.`)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '다시 로그인' }));

@@ -92,6 +92,11 @@
 - 증권사 키 종단 간 암호화 동기화 — 구현·배포됐어요(PR #59). 두 기기 사이 실연결 점검만 남았어요.
 - KIS 키 발급 뒤 실연결 점검 ①②③④⑦⑧⑨⑪ 등(`docs/live-check.md`) — 그 결과로 NXT 15:30–15:40 모델(`src/lib/market/sessions.config.ts`)과 일봉 거절 기억(`src/lib/data/candleService.ts`)을 고쳐요.
 
+## 지인 테스트: 초대 링크 가입 (구현됨, 2026-11-03)
+
+- 허용 목록을 고치지 않고 지인 몇 명이 들어오게 하는 공용 초대 코드예요(`#/join/<코드>`, 멤버 상한 기본 20). 관리자(허용 목록 계정)는 설정에서 멤버를 보고 내보내요. 설계: [초대 링크 가입](superpowers/specs/2026-11-03-invite-signup-design.md), 배포 순서: `sync-worker/README.md`.
+- 실제로 쓰는지 2026-12-03에 확인해요. 그때까지 멤버가 0명이면 걷어내는 PR을 제안해요.
+
 ## 검토만 한 외부 도구
 
 - impeccable(디자인 점검), hyperframes(데모 영상 자동 생성), TradingAgents(아이디어만 빌림)의 적용 방안을 기록해 뒀어요. 순서는 정하지 않았어요([외부 도구 적용 검토](proposals/2026-11-02-external-tools.md), 2026-11-02).

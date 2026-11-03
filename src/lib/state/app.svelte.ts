@@ -31,6 +31,7 @@ import { assertBasketsWritable, loadBaskets, type Basket } from '../screen/baske
 import { exportData, importData, type ImportResult } from './exportImport';
 import { HELP_PAGES } from '../help/content';
 import { hashFor, parseHash, type Route } from './routes';
+import { saveInvite } from '../sync/invite';
 import { DEFAULT_PROFILE_NAME, META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
 import { SYNCED_SETTINGS, type ProfileDoc } from '../sync/dto';
 import { applyProfileDoc } from '../sync/profileDoc';
@@ -582,8 +583,14 @@ export function createApp(deps: AppDeps): App {
   }
 
   /** 시작·프로필 전환·잠금 해제 뒤 들어갈 화면. */
+  /** 초대 코드는 관문·온보딩보다 먼저 저장한다(처음 설치한 기기에서 열어도 로그인 때 쓰도록). */
+  function takeInvite(r: Route | null) {
+    if (r?.invite) saveInvite(r.invite);
+  }
+
   function enter() {
     const fromHash = parseHash(loc?.hash ?? '');
+    takeInvite(fromHash);
     if (fromHash?.name === 'shared') {
       route = normalize(fromHash);
       return;
@@ -596,6 +603,7 @@ export function createApp(deps: AppDeps): App {
 
   function onHashChange() {
     const r = parseHash(loc?.hash ?? '');
+    takeInvite(r);
     if (r?.name === 'shared') return navigate(r);
     if (gate()) return;
     // 알 수 없는 해시·그룹은 정규화한 해시로 다시 쓴다.
