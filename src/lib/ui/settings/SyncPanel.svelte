@@ -27,7 +27,7 @@
     syncing: '동기화 중…',
     offline: '오프라인이에요. 연결되면 다시 보내요',
     auth: '다시 로그인해야 해요',
-    'not-allowed': '허용되지 않은 계정이에요',
+    'not-allowed': '초대가 필요하거나 이용이 끝난 계정이에요',
     limit: '서버 한도에 걸렸어요. 잠시 뒤 다시 시도해요',
     error: '오류가 났어요. 잠시 뒤 다시 시도해요',
   };
@@ -70,6 +70,9 @@
           계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요. 키는 「키도 동기화」를 켠 프로필만 동기화 암호로 잠가 올려요. 키 외에 올린 데이터는 암호화하지 않은 채 서버(Cloudflare)에 저장돼요.
         </p>
       </div>
+      {#if sync.invitePending}
+        <p class="invite" role="status">초대받았어요. 로그인하면 가입돼요</p>
+      {/if}
       <label class="field" for="sync-label-{uid}">
         이 기기 이름(선택)
         <input id="sync-label-{uid}" maxlength="40" bind:value={label} placeholder="예: 회사 노트북" />
@@ -270,6 +273,11 @@
     text-decoration: underline;
     color: var(--t1);
     min-height: var(--touch);
+  }
+  .invite {
+    font-size: var(--fs-body);
+    font-weight: 700;
+    color: var(--accent);
   }
   .warn {
     font-size: var(--fs-sub);

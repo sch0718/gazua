@@ -37,9 +37,13 @@ type GazuaFail =
       deletedAt: number | null;
       purgeAt: number | null;
       revision?: number;
-    };
+    }
+  /** 초대 가입 실패(403). 패키지는 403 중 not-allowed만 살리므로 여기서 바꾼다 */
+  | { ok: false; kind: 'invite'; code: InviteFailCode };
 
-/** 공통 실패(auth·not-allowed·offline·limit·invalid·not-found·server)와 가즈아 고유 실패(conflict·gone) */
+export type InviteFailCode = 'invite-invalid' | 'members-full';
+
+/** 공통 실패(auth·not-allowed·offline·limit·invalid·not-found·server)와 가즈아 고유 실패(conflict·gone·invite) */
 export type ApiFail = BaseFail | GazuaFail;
 export type ApiResult<T> = BaseResult<T, ApiFail>;
 
@@ -56,6 +60,7 @@ function mapStatus(status: number, body: Record<string, unknown>): GazuaFail | u
       ...('keyVault' in body && { keyVault: body.keyVault }),
       ...('keyBlobs' in body && { keyBlobs: body.keyBlobs }),
     };
+  if (status === 403 && (body.error === 'invite-invalid' || body.error === 'members-full')) return { ok: false, kind: 'invite', code: body.error };
   if (status === 410) {
     return {
       ok: false,
@@ -100,6 +105,11 @@ export interface CliTokenRow {
   expiresAt: number;
   scope?: string;
 }
+export interface MemberRow {
+  /** Google은 이메일, 소셜은 kakao:<sub> 같은 계정 값 */
+  identity: string;
+  joinedAt: number;
+}
 export interface SharedRead {
   kind: ShareKind;
   title: string;
@@ -110,7 +120,8 @@ export interface SharedRead {
 
 export interface SyncApi {
   createSocialSession: SessionClient<GazuaFail>['createSocialSession'];
-  createSession(idToken: string, label: string): Promise<ApiResult<{ sessionId: string; expiresAt: number }>>;
+  /** extra는 본문에 더할 필드(초대 코드 { invite }) */
+  createSession(idToken: string, label: string, extra?: Record<string, unknown>): Promise<ApiResult<{ sessionId: string; expiresAt: number }>>;
   endSession(): Promise<ApiResult<unknown>>;
   endSessionById(id: string): Promise<ApiResult<unknown>>;
   listSessions(): Promise<ApiResult<{ sessions: DeviceSession[] }>>;
@@ -132,6 +143,9 @@ export interface SyncApi {
   /** 본문 없음 */
   wipeMarketFiles(): Promise<ApiResult<{ deleted: number }>>;
   cliRevoke(id: string): Promise<ApiResult<{ revoked: boolean }>>;
+  /** 관리자만. 아니면 403 not-admin(server 403으로 온다) */
+  listMembers(): Promise<ApiResult<{ members: MemberRow[]; limit: number }>>;
+  removeMember(identity: string): Promise<ApiResult<{ removed: true }>>;
   readShare(capability: string): Promise<ApiResult<SharedRead>>;
   listKeys(): Promise<ApiResult<{ keyVault: unknown; keyBlobs: unknown }>>;
   getKeyBlob(id: string): Promise<ApiResult<unknown>>;
@@ -186,6 +200,8 @@ export function createSyncApi(
     marketFiles: () => send('GET', '/v1/market/files'),
     wipeMarketFiles: () => send('DELETE', '/v1/market/files'),
     cliRevoke: (id) => send('DELETE', `/v1/cli/tokens/${enc(id)}`),
+    listMembers: () => send('GET', '/v1/members'),
+    removeMember: (identity) => send('DELETE', `/v1/members/${enc(identity)}`),
     readShare: (capability) =>
       send('GET', '/v1/public/share', { auth: 'none', headers: { 'X-Share-Token': capability } }),
     listKeys: () => send('GET', '/v1/keys'),

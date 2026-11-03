@@ -4,7 +4,8 @@ import { showSnackbar } from '@sch0718/ui-svelte';
 import type { App } from '../state/app.svelte';
 import type { SafeStorage } from '../state/storage';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
-import { createSyncApi, type ApiFail, type CliTokenRow, type DeviceSession, type IndexRow, type ShareRow, type SyncApi } from './api';
+import { createSyncApi, type ApiFail, type CliTokenRow, type DeviceSession, type IndexRow, type MemberRow, type ShareRow, type SyncApi } from './api';
+import { clearInvite, readInvite } from './invite';
 import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
 import { APP_OUTDATED_TEXT, createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
@@ -118,6 +119,7 @@ export type CliApproveResult =
   | { ok: false; reason: 'invalid-code' | 'outdated' | 'error' };
 export type MarketFilesResult = { ok: true; files: MarketFileRow[] } | { ok: false; reason: 'signed-out' | 'outdated' | 'error' };
 export type CliTokensResult = { ok: true; tokens: CliTokenRow[] } | { ok: false; reason: 'outdated' | 'error' };
+export type MembersResult = { ok: true; members: MemberRow[]; limit: number } | { ok: false; reason: 'not-admin' | 'error' };
 
 export interface SyncController {
   readonly configured: boolean;
@@ -129,6 +131,8 @@ export interface SyncController {
   /** 사용자에게 보여 줄 마지막 오류. */
   readonly error: string | null;
   readonly api: SyncApi | null;
+  /** 초대 링크로 받은 코드가 있어 로그인하면 가입된다(로그인 전 안내용) */
+  readonly invitePending: boolean;
   /** 앱이 만들어진 뒤 한 번 연결한다. */
   attach(app: App): Promise<void>;
   /** createApp의 onSyncableChange에 넘긴다. */
@@ -164,6 +168,9 @@ export interface SyncController {
   cliApprove(userCode: string, approve?: boolean): Promise<CliApproveResult>;
   cliTokens(): Promise<CliTokensResult>;
   cliRevoke(id: string): Promise<boolean>;
+  /** 관리자가 아니면(403) 배너 없이 not-admin */
+  members(): Promise<MembersResult>;
+  removeMember(identity: string): Promise<boolean>;
   clearError(): void;
   clearNotices(): void;
   destroy(): void;
@@ -171,7 +178,10 @@ export interface SyncController {
 
 const ERRORS: Record<string, string> = {
   offline: '서버에 연결할 수 없어요. 연결되면 다시 보내요.',
-  'not-allowed': '이 Google 계정은 허용 목록에 없어요.',
+  'not-allowed': '초대가 필요하거나 이용이 끝난 계정이에요.',
+  'invite-invalid': '초대 링크가 맞지 않아요.',
+  'members-full': '초대 자리가 다 찼어요.',
+  'invite-limit': '잠시 뒤 다시 시도해 주세요.',
   auth: '로그인이 끝났어요. 다시 로그인해 주세요.',
   limit: '서버 한도에 걸렸어요. 잠시 뒤 다시 시도해요.',
   'share-limit': '활성 공유는 50개까지예요. 쓰지 않는 공유를 철회해 주세요.',
@@ -190,8 +200,10 @@ export const SHARE_TOO_LARGE_TEXT = '공유 내용이 너무 커요(100 KB). 기
 export const describeFail = (f: ApiFail, ctx: 'profile' | 'share' = 'profile'): string =>
   f.kind === 'invalid' && f.code === APP_OUTDATED_CODE
     ? APP_OUTDATED_TEXT
-    : f.kind === 'limit' && f.code === 'share-limit'
-      ? ERRORS['share-limit']
+    : f.kind === 'invite'
+      ? ERRORS[f.code]
+    : f.kind === 'limit' && (f.code === 'share-limit' || f.code === 'invite-limit')
+      ? ERRORS[f.code]
       : f.kind === 'invalid' && f.code === 'too-large'
         ? ctx === 'share'
           ? SHARE_TOO_LARGE_TEXT
@@ -544,15 +556,30 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     if (usedSession !== undefined && session?.id !== usedSession) return;
     if (code === 'not-allowed') {
       const provider = session?.provider ?? 'google';
-      void forget(`이 ${PROVIDER_NAMES[provider]} 계정은 허용 목록에 없어요.`).then(() => provider === 'google' ? auth?.signOut() : undefined);
+      void forget(provider === 'google' ? ERRORS['not-allowed'] : `초대가 필요하거나 이용이 끝난 ${PROVIDER_NAMES[provider]} 계정이에요.`).then(() => provider === 'google' ? auth?.signOut() : undefined);
     }
     else void forget(code === 'session-revoked' ? '이 기기는 로그아웃됐어요(다른 기기에서 철회). 다시 로그인해 주세요.' : ERRORS.auth);
+  }
+
+  // 초대 코드는 로그인 요청에 실어 보낸다. 가입됐거나 다시 보내도 소용없는 실패(초대 없음·내보냄·코드 틀림·자리 없음)면 지운다.
+  // 그래야 내보낸 사람의 기기가 코드를 계속 보내지 않는다. 시도 제한(429)·네트워크 오류는 다시 시도할 수 있게 남긴다.
+  let inviteTick = $state(0);
+  const inviteExtra = () => {
+    const invite = readInvite();
+    return invite ? { invite } : undefined;
+  };
+  function settleInvite(r: { ok: true } | ApiFail) {
+    if (r.ok || r.kind === 'not-allowed' || r.kind === 'invite') {
+      clearInvite();
+      inviteTick++;
+    }
   }
 
   /** 방금 받은 ID 토큰으로 기기 세션을 만든다. */
   async function startSession(user: AuthUser, idToken: string, label: string) {
     ++authGeneration;
-    const r = await api!.createSession(idToken, label);
+    const r = await api!.createSession(idToken, label, inviteExtra());
+    settleInvite(r);
     if (!r.ok) {
       if (r.kind === 'not-allowed') await auth!.signOut();
       error = describeFail(r);
@@ -578,6 +605,7 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
 
   function socialSessionFailure(r: ApiFail, provider: SocialProvider): SocialOutcome {
     const reason = r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
+      : r.kind === 'invite' ? r.code
       : r.kind === 'auth' ? r.code === 'invalid-code' ? 'invalid-code' : 'invalid-token'
       : r.kind === 'not-found' ? 'not-enabled' : r.kind === 'server' && r.status === 400 ? 'bad-request' : 'server';
     return { ok: false, provider, reason, ...(r.kind === 'not-allowed' && r.account && { account: r.account }) };
@@ -691,6 +719,10 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       return error;
     },
     api,
+    get invitePending() {
+      void inviteTick;
+      return readInvite() !== null;
+    },
 
     async attach(app) {
       try {
@@ -898,7 +930,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
           if (!config || (provider && !providers[provider])) return { ok: false, provider, reason: 'not-configured' };
           if (!cb) return { ok: false, provider, reason: 'no-pending' };
           if (!cb.ok) return { ok: false, provider, reason: cb.reason === 'redirect-mismatch' || cb.reason === 'state-mismatch' ? 'mismatch' : cb.reason, ...(cb.error && { error: cb.error }) };
-          const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)());
+          const r = await api!.createSocialSession(cb, ret.label.trim() || (deps.deviceLabel ?? defaultLabel)(), inviteExtra());
+          settleInvite(r);
           if (!r.ok) return socialSessionFailure(r, cb.provider);
           try {
             if (isCurrent()) await acceptSocialSession(r.data, cb.provider, attempt);
@@ -1035,6 +1068,20 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
       ),
     wipeMarketFiles: () => guarded(async () => (api && account !== null ? ok(await api.wipeMarketFiles()) !== null : false), false),
     cliRevoke: (id) => guarded(async () => (api ? ok(await api.cliRevoke(id)) !== null : false), false),
+    members: () =>
+      guarded<MembersResult>(
+        async () => {
+          if (!api) return { ok: false, reason: 'error' };
+          const r = await api.listMembers();
+          if (r.ok) return { ok: true, members: r.data.members, limit: r.data.limit };
+          // 패키지는 not-allowed 밖의 403을 server 403으로 준다. 멤버가 펼친 것이라 배너 없이 숨긴다
+          if (r.kind === 'server' && r.status === 403) return { ok: false, reason: 'not-admin' };
+          ok(r);
+          return { ok: false, reason: 'error' };
+        },
+        { ok: false, reason: 'error' },
+      ),
+    removeMember: (identity) => guarded(async () => (api ? ok(await api.removeMember(identity)) !== null : false), false),
     clearError() {
       error = null;
     },

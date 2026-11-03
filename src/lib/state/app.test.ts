@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './s
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
 import { memoryBacking, seed, totalQuotaBacking } from './testStorage';
+import { clearInvite, readInvite } from '../sync/invite';
 
 const NOW = kstEpoch('2026-10-12', '17:42:00');
 const now = () => NOW;
@@ -57,6 +58,7 @@ function make(backing: Storage | null, extra: { fetchImpl?: typeof fetch } = {})
 
 beforeEach(() => {
   location.hash = '';
+  clearInvite();
 });
 afterEach(() => {
   for (const a of apps) a.destroy();
@@ -454,6 +456,27 @@ describe('createApp — settings, watchlists and routing', () => {
     expect(app.route).toEqual({ name: 'onboarding' });
     fireHash('#/whatever');
     expect(app.route).toEqual({ name: 'compare', groupId: 'g1' });
+  });
+
+  it('초대 링크(#/join/<코드>)는 온보딩 전 기기에서도 코드를 저장하고, 해시에는 남기지 않는다', () => {
+    const code = 'A'.repeat(28) + 'b_-9';
+    location.hash = `#/join/${code}`;
+    const app = make(memoryBacking());
+    expect(readInvite()).toBe(code);
+    expect(app.route.name).toBe('onboarding');
+    expect(location.hash).toBe('#/onboarding');
+  });
+
+  it('실행 중에 연 초대 링크도 코드를 저장하고 동기화 구역으로 간다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    const app = make(backing);
+    const code = 'Z'.repeat(40);
+    fireHash(`#/join/${code}`);
+    expect(readInvite()).toBe(code);
+    expect(app.route).toEqual({ name: 'settings', section: 'sync' });
+    expect(location.hash).toBe('#/settings');
   });
 
   it('navigate writes the hash for hash routes', () => {

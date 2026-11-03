@@ -168,6 +168,44 @@ describe('SyncPanel', () => {
 });
 
 
+describe('초대와 멤버', () => {
+  const signedIn = { account: { provider: 'google' as const, id: 'me@example.test', display: 'me@example.test' } };
+  const openMembers = async () => {
+    const details = screen.getByText('멤버').closest('details')!;
+    details.open = true;
+    await fireEvent(details, new Event('toggle'));
+  };
+  it('초대 코드가 있으면 로그인 전에 가입 안내를 보인다', () => {
+    render(SyncPanel, { app: app(), sync: fakeSync({ invitePending: true }) });
+    expect(screen.getByText('초대받았어요. 로그인하면 가입돼요')).toBeTruthy();
+    cleanup();
+    render(SyncPanel, { app: app(), sync: fakeSync() });
+    expect(screen.queryByText('초대받았어요. 로그인하면 가입돼요')).toBeNull();
+  });
+  it('관리자는 멤버를 펼칠 때 목록·상한을 읽고, 확인 뒤 내보낸다', async () => {
+    const members = vi.fn(async () => ({ ok: true as const, members: [{ identity: 'friend@example.test', joinedAt: Date.UTC(2026, 10, 1) }], limit: 20 }));
+    const sync = fakeSync({ ...signedIn, members });
+    render(SyncPanel, { app: app(), sync });
+    expect(members).not.toHaveBeenCalled();
+    await openMembers();
+    await waitFor(() => expect(screen.getByText('friend@example.test')).toBeTruthy());
+    expect(screen.getByText('1 / 20명')).toBeTruthy();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'friend@example.test 내보내기' }));
+    expect(sync.removeMember).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'friend@example.test 내보내기' }));
+    expect(sync.removeMember).toHaveBeenCalledWith('friend@example.test');
+    await waitFor(() => expect(members).toHaveBeenCalledTimes(2));
+    confirm.mockRestore();
+  });
+  it('관리자가 아니면 한 줄 안내만 보인다', async () => {
+    render(SyncPanel, { app: app(), sync: fakeSync(signedIn) });
+    await openMembers();
+    await waitFor(() => expect(screen.getByText('관리자만 볼 수 있어요')).toBeTruthy());
+  });
+});
+
 describe('로그인 공급자', () => {
   it.each([
     [{ google: true, kakao: true, naver: true }, ['Google로 로그인', '카카오로 로그인', '네이버로 로그인']],

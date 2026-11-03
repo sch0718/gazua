@@ -20,7 +20,10 @@ import { APP_OUTDATED_CODE } from './dto';
 import { docHash } from './hash';
 import { buildProfileDoc, profileDocBase } from './profileDoc';
 import { profileKeys } from '../state/profileStore';
+import { clearInvite, readInvite, saveInvite } from './invite';
 
+const INVITE = 'A'.repeat(28) + 'b_-9';
+const FRIEND = 'friend@example.test';
 const CONFIG = { apiUrl: SYNC_BASE, social: null, firebase: { apiKey: 'k', authDomain: 'gazua-test.firebaseapp.com', projectId: 'gazua-test', appId: 'a' } };
 
 function fakeAuth(s: TestServer, email = ME): AuthClient & { signedIn: boolean } {
@@ -41,7 +44,10 @@ function fakeAuth(s: TestServer, email = ME): AuthClient & { signedIn: boolean }
 }
 
 const cleanups: (() => void)[] = [];
-afterEach(() => cleanups.splice(0).forEach((c) => c()));
+afterEach(() => {
+  cleanups.splice(0).forEach((c) => c());
+  clearInvite();
+});
 
 async function setup(s: TestServer, opts: { auth?: AuthClient & { signedIn: boolean }; store?: SyncStore } = {}) {
   const storage = createSafeStorage(memoryBacking());
@@ -99,7 +105,7 @@ describe('SyncController', () => {
     const { sync } = await setup(s, { auth });
     await sync.signIn();
     expect(sync.account).toBeNull();
-    expect(sync.error).toContain('허용 목록');
+    expect(sync.error).toBe('초대가 필요하거나 이용이 끝난 계정이에요.');
     expect(auth.signedIn).toBe(false);
   });
 
@@ -345,6 +351,42 @@ describe('SyncController', () => {
     expect(await sync.cliTokens()).toMatchObject({ ok: true, tokens: [{ id: tok.tokenId, label: 'gazua@mac' }] });
     expect(await sync.cliRevoke(tok.tokenId)).toBe(true);
     expect(await sync.cliTokens()).toEqual({ ok: true, tokens: [] });
+  });
+  it('저장한 초대 코드로 가입하고, 가입하면 코드를 지운다', async () => {
+    const s = testServer();
+    s.h.env.INVITE_CODE = INVITE;
+    saveInvite(INVITE);
+    const { sync } = await setup(s, { auth: fakeAuth(s, FRIEND) });
+    expect(sync.invitePending).toBe(true);
+    await sync.signIn();
+    expect(sync.account).toEqual({ provider: 'google', id: FRIEND, display: FRIEND });
+    expect(readInvite()).toBeNull();
+    expect(sync.invitePending).toBe(false);
+  });
+  it('맞지 않는 초대 코드는 안내하고 지운다(다음 로그인에 다시 보내지 않게)', async () => {
+    const s = testServer();
+    s.h.env.INVITE_CODE = INVITE;
+    saveInvite('B'.repeat(32));
+    const { sync } = await setup(s, { auth: fakeAuth(s, FRIEND) });
+    await sync.signIn();
+    expect(sync.account).toBeNull();
+    expect(sync.error).toBe('초대 링크가 맞지 않아요.');
+    expect(readInvite()).toBeNull();
+  });
+  it('멤버: 관리자는 목록을 보고 내보내고, 멤버가 펼치면 오류 배너 없이 not-admin', async () => {
+    const s = testServer();
+    s.h.env.INVITE_CODE = INVITE;
+    saveInvite(INVITE);
+    const friend = await setup(s, { auth: fakeAuth(s, FRIEND) });
+    await friend.sync.signIn();
+    expect(await friend.sync.members()).toEqual({ ok: false, reason: 'not-admin' });
+    expect(friend.sync.error).toBeNull();
+    expect(friend.sync.account).not.toBeNull();
+    const admin = await setup(s);
+    await admin.sync.signIn();
+    expect(await admin.sync.members()).toEqual({ ok: true, members: [{ identity: FRIEND, joinedAt: s.h.clock.now }], limit: 20 });
+    expect(await admin.sync.removeMember(FRIEND)).toBe(true);
+    expect(await admin.sync.members()).toEqual({ ok: true, members: [], limit: 20 });
   });
   it('CLI 경로가 없는 옛 Worker는 outdated로 알린다', async () => {
     const s = testServer();
@@ -745,7 +787,7 @@ describe('카카오·네이버 로그인', () => {
     expect(await pending).toMatchObject({ reason: 'timeout' });
     held.release();
     await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
-    expect(a.sync.error).toContain('이 카카오 계정은 아직 허용 목록에 없어요');
+    expect(a.sync.error).toBe('초대가 필요하거나 이용이 끝난 카카오 계정이에요');
     expect(notify).toHaveBeenCalledWith(a.sync.error);
     expect(onLate).toHaveBeenCalledExactlyOnceWith({ ok: false, provider: 'kakao', reason: 'not-allowed', account: 'kakao:stranger' });
     expect(a.sync.account).toBeNull();
@@ -1014,6 +1056,15 @@ describe('카카오·네이버 로그인', () => {
     expect(s.h.env.DB.raw.prepare('SELECT COUNT(*) AS n FROM sessions').all()).toEqual([{ n: 0 }]);
   });
 
+  it('소셜 로그인도 초대 코드를 보내고, 맞지 않으면 그 사유로 끝내며 코드를 지운다', async () => {
+    const s = testServer({ social: true });
+    s.h.env.INVITE_CODE = INVITE;
+    saveInvite('B'.repeat(32));
+    const a = await socialSetup(s);
+    expect(await a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'))).toEqual({ ok: false, provider: 'kakao', reason: 'invite-invalid' });
+    expect(readInvite()).toBeNull();
+  });
+
   it('취소·대기 요청 없음·콜백 실패를 구분한다', async () => {
     const a = await socialSetup(testServer({ social: true }));
     expect(await a.sync.completeSocialSignIn(await a.callback('kakao', 'kakao-me', 'error=access_denied'))).toMatchObject({ reason: 'cancelled' });
@@ -1052,14 +1103,14 @@ describe('카카오·네이버 로그인', () => {
     expect(a.sync.error).toContain('다른 기기에서 철회');
   });
 
-  it('허용 목록에서 빠지면 카카오 계정 안내를 하고 Firebase에는 손대지 않는다', async () => {
+  it('허용 목록에서 빠지면 초대 안내를 하고 Firebase에는 손대지 않는다', async () => {
     const s = testServer({ social: true });
     const a = await socialSetup(s);
     await a.sync.completeSocialSignIn(await a.callback());
     s.h.env.ALLOWED_ACCOUNTS = 'naver:naver-me';
     expect(await a.sync.sessions()).toBeNull();
     expect(a.sync.account).toBeNull();
-    expect(a.sync.error).toBe('이 카카오 계정은 허용 목록에 없어요.');
+    expect(a.sync.error).toBe('초대가 필요하거나 이용이 끝난 카카오 계정이에요.');
     expect(a.auth.signOut).not.toHaveBeenCalled();
   });
 

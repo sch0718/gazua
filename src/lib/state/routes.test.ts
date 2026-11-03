@@ -96,6 +96,14 @@ describe('settings routes', () => {
     expect(parseHash('#/settings')).toEqual({ name: 'settings' });
     expect(parseHash('#/settings/other')).toBeNull();
   });
+  it('#/join/<코드>는 초대 코드를 들고 동기화 구역으로 열고, 해시에는 코드를 남기지 않는다', () => {
+    const code = 'A'.repeat(28) + 'b_-9';
+    expect(parseHash(`#/join/${code}`)).toEqual({ name: 'settings', section: 'sync', invite: code });
+    // 형식이 틀린 코드는 버리고 구역만 연다
+    expect(parseHash('#/join/short')).toEqual({ name: 'settings', section: 'sync' });
+    expect(parseHash(`#/join/${'A'.repeat(31)}!`)).toEqual({ name: 'settings', section: 'sync' });
+    expect(hashFor({ name: 'settings', section: 'sync', invite: code })).toBe('#/settings');
+  });
   it('hashFor는 section이 있어도 #/settings를 낸다', () => {
     expect(hashFor({ name: 'settings', section: 'sync' })).toBe('#/settings');
     expect(hashFor({ name: 'settings' })).toBe('#/settings');
