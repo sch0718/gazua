@@ -42,6 +42,12 @@ describe('fetchFromDrive', () => {
     expect(await fetchFromDrive(row(), u.d)).toEqual({ ok: false, reason: 'auth' });
     expect(forget).toHaveBeenCalled();
   });
+  it('importFile의 계정 거절 이유는 그대로 돌려준다', async () => {
+    for (const reason of ['owner-mismatch', 'owner-signed-out'] as const) {
+      const { d } = deps({ store: { importFile: async () => ({ ok: false, reason }) } as unknown as DriveDeps['store'] });
+      expect(await fetchFromDrive(row(), d)).toEqual({ ok: false, reason });
+    }
+  });
   it('importFile의 기기 공간 부족은 quota-device로 바꾼다', async () => {
     const { d } = deps({ store: { importFile: async () => ({ ok: false, reason: 'quota', neededMb: 90 }) } as unknown as DriveDeps['store'] });
     expect(await fetchFromDrive(row(), d)).toEqual({ ok: false, reason: 'quota-device', neededMb: 90 });

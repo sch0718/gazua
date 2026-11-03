@@ -154,6 +154,43 @@ describe('market data store', () => {
     expect((await store.info())?.stocks).toBe(30);
   });
 
+  describe('수집 계정 표시(owner)', () => {
+    const TAG = '0123456789abcdef0123456789abcdef';
+    const OTHER = 'fedcba9876543210fedcba9876543210';
+    const tagged = async (owner?: string) => {
+      const j = JSON.parse(await decompress(file()));
+      if (owner) j.owner = owner;
+      const text = JSON.stringify(j);
+      return { decompress: async () => text, estimate: roomy };
+    };
+
+    it('표시가 없는 파일은 로그인과 상관없이 가져온다', async () => {
+      const store = openMarketData();
+      expect(await store.importFile(new Blob(['x']), await tagged())).toMatchObject({ ok: true });
+      expect(await store.importFile(new Blob(['x']), { ...(await tagged()), owner: async () => OTHER })).toMatchObject({ ok: true });
+    });
+
+    it('표시가 지금 계정과 같으면 가져온다', async () => {
+      const store = openMarketData();
+      expect(await store.importFile(new Blob(['x']), { ...(await tagged(TAG)), owner: async () => TAG })).toMatchObject({ ok: true });
+    });
+
+    it('표시가 다른 계정이면 owner-mismatch로 거절하고 이전 데이터를 지킨다', async () => {
+      const store = openMarketData();
+      await store.importFile(file(), { decompress, estimate: roomy });
+      const before = await store.info();
+      expect(await store.importFile(new Blob(['x']), { ...(await tagged(TAG)), owner: async () => OTHER })).toEqual({ ok: false, reason: 'owner-mismatch' });
+      expect(await store.info()).toEqual(before);
+    });
+
+    it('표시가 있는데 로그인하지 않았으면 owner-signed-out', async () => {
+      const store = openMarketData();
+      expect(await store.importFile(new Blob(['x']), await tagged(TAG))).toEqual({ ok: false, reason: 'owner-signed-out' });
+      expect(await store.importFile(new Blob(['x']), { ...(await tagged(TAG)), owner: async () => null })).toEqual({ ok: false, reason: 'owner-signed-out' });
+      expect(await store.info()).toBeNull();
+    });
+  });
+
   it('tells a newer version and a wrong format apart', async () => {
     const store = openMarketData();
     const j = JSON.parse(await decompress(file()));
