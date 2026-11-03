@@ -2,6 +2,7 @@
 // 범위는 read(프로필 읽기)와 market-upload(시장 파일 manifest 목록·등록·삭제, 설계 2026-11-02-market-drive) 둘이다.
 // 원문 기기 코드·토큰은 D1에 두지 않는다(SHA-256 hex만). 원 IP도 두지 않는다(HMAC-SHA256 hex만).
 import { base64url, errorBody, HttpError, json, parseAccountList, parseAllowList, readJson, sha256Hex } from '@sch0718/firebase-session/worker';
+import { marketOwnerTag } from '../../src/lib/marketData/owner';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
 import { isActiveMember } from './members';
 import { deleteMarketFile, listMarketFiles, putMarketFile } from './market';
@@ -32,6 +33,8 @@ export const CLI_SCOPES = ['read', 'market-upload'] as const;
 export type CliTokenScope = (typeof CLI_SCOPES)[number];
 const MARKET_FILES_RE = /^\/v1\/market\/files$/;
 const MARKET_FILE_RE = /^\/v1\/market\/files\/([^/]+)$/;
+/** 시장 파일 수집 계정 표시(설계 2026-11-03-market-owner-tag 4절). 두 범위 모두 허용 */
+const OWNER_RE = /^\/v1\/cli\/owner$/;
 
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -194,9 +197,10 @@ export async function pollToken(env: SyncEnv, deps: SyncDeps, body: unknown): Pr
  * CLI 토큰으로 허용하는 요청(라우터 전, 정확 일치). 그 밖은 null → 403 cli-scope.
  * 메서드는 req.method 그대로 비교한다(HEAD를 GET으로 보지 않는다). 쿼리는 docVersion이 정확히 하나, 정확히 '2'일 때만.
  */
-export function cliScope(method: string, url: URL, scope: string): 'profiles' | 'profile' | 'logout' | 'market-list' | 'market-put' | 'market-delete' | null {
+export function cliScope(method: string, url: URL, scope: string): 'profiles' | 'profile' | 'logout' | 'owner' | 'market-list' | 'market-put' | 'market-delete' | null {
   const path = url.pathname;
   if (method === 'DELETE' && LOGOUT_RE.test(path)) return 'logout';
+  if ((scope === 'read' || scope === 'market-upload') && method === 'GET' && OWNER_RE.test(path) && url.search === '') return 'owner';
   if (scope === 'market-upload') {
     if (url.search !== '') return null;
     if (method === 'GET' && MARKET_FILES_RE.test(path)) return 'market-list';
@@ -255,6 +259,7 @@ async function handleCliToken(req: Request, env: SyncEnv, deps: SyncDeps, url: U
     await env.DB.prepare('UPDATE cli_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').bind(now, row.id).run();
     return json(200, { revoked: true });
   }
+  if (scope === 'owner') return json(200, { owner: await marketOwnerTag(row.sub) });
   // 읽기 전용 호출은 기존 핸들러를 그대로 부른다(세션이 없어 sessionHash는 비운다)
   const ctx = { userId: row.userId, sessionHash: '', user: { sub: row.sub, email: row.email, authTime: now } } as AuthContext;
   if (scope === 'market-list') return json(200, { files: await listMarketFiles(env, ctx) });

@@ -1,5 +1,6 @@
 // 동기화 API 클라이언트: /v1/cli/*, /v1/profiles. CLI 토큰은 Authorization: Gazua-CLI 헤더로 보낸다(Origin은 보내지 않는다).
 // 앱 dto.ts(전략 검증기까지 끌어오는 모듈)를 번들에 넣지 않으려고 두 값을 여기에 따로 두고, 같은지는 테스트가 확인한다.
+import { OWNER_TAG_RE } from '../../src/lib/marketData/owner';
 import { checkMarketFiles, type MarketFileBody, type MarketFileRow } from '../../src/lib/marketData/manifest';
 import { CliError } from './errors';
 
@@ -31,9 +32,11 @@ export interface SyncClient {
   marketFiles(): Promise<MarketFileRow[]>;
   registerMarketFile(b: MarketFileBody): Promise<MarketFileRow>;
   deleteMarketFile(id: string): Promise<void>;
+  /** 시장 파일 수집 계정 표시(32자 소문자 hex). read·market-upload 토큰 모두 된다 */
+  owner(): Promise<string>;
 }
 
-type Where = 'device' | 'token' | 'profiles' | 'profile' | 'revoke' | 'market';
+type Where = 'device' | 'token' | 'profiles' | 'profile' | 'revoke' | 'market' | 'owner';
 type Body = Record<string, unknown>;
 const isRecord = (v: unknown): v is Body => typeof v === 'object' && v !== null && !Array.isArray(v);
 const internal = (message = '서버 응답 모양이 맞지 않아요') => new CliError('internal', message);
@@ -43,6 +46,8 @@ function failFrom(status: number, body: Body, where: Where): CliError {
   if (where === 'market' && status === 500) return new CliError('drive-failed'); // 0006 미적용 서버 포함
   if (where === 'market' && status === 429 && code === 'market-limit') return new CliError('market-limit');
   if (where === 'market' && status === 422) return new CliError('market-file-invalid', `서버가 시장 파일 정보를 받지 않았어요(${typeof body.path === 'string' ? body.path : code || '422'})`);
+  // 옛 Worker는 /v1/cli/owner를 모르는 경로로 보고 403 cli-scope를 준다
+  if (where === 'owner' && status === 403 && code === 'cli-scope') return new CliError('server-outdated', '서버 업데이트가 필요해요(sync-worker 배포)');
   if (status === 401) return new CliError(code === 'cli-token-expired' ? 'cli-token-expired' : 'cli-token-revoked');
   if (status === 403) {
     if (code === 'denied') return new CliError('login-denied');
@@ -135,6 +140,11 @@ export function createSyncClient(o: { server: string; token?: string; fetchImpl:
     },
     async deleteMarketFile(id) {
       await must('market', 'DELETE', `/v1/market/files/${encodeURIComponent(id)}`);
+    },
+    async owner() {
+      const b = await must('owner', 'GET', '/v1/cli/owner');
+      if (typeof b.owner !== 'string' || !OWNER_TAG_RE.test(b.owner)) throw internal();
+      return b.owner;
     },
   };
 }

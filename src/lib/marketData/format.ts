@@ -1,4 +1,5 @@
 // 수집 스크립트가 만드는 시장 데이터 파일(market-data-YYYYMMDD.json.gz를 푼 JSON)의 형식과 검증.
+import { OWNER_TAG_RE } from './owner';
 
 export interface MarketDataFileV1 {
   format: 'gazua-market-data';
@@ -6,6 +7,8 @@ export interface MarketDataFileV1 {
   collectedAt: string; // ISO, KST
   source: 'kis';
   adjusted: true; // 수정주가
+  /** 수집한 동기화 계정 표시(owner.ts). 없으면 옛 파일·데모·--no-owner. 모든 버전에 붙을 수 있다 */
+  owner?: string;
   range: { from: string; to: string }; // YYYY-MM-DD
   sectors: { code: string; name: string; level: 1 | 2 | 3 }[];
   stocks: {
@@ -130,6 +133,7 @@ function metaOk(x: Record<string, unknown>): boolean {
   const range = x.range;
   if (!isObj(range) || typeof range.from !== 'string' || typeof range.to !== 'string') return false;
   if (typeof x.collectedAt !== 'string') return false;
+  if (x.owner !== undefined && (typeof x.owner !== 'string' || !OWNER_TAG_RE.test(x.owner))) return false;
   const sectorsOk = (x.sectors as unknown[]).every(
     (s) => isObj(s) && typeof s.code === 'string' && typeof s.name === 'string' && (s.level === 1 || s.level === 2 || s.level === 3),
   );

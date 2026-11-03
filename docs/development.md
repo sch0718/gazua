@@ -7,6 +7,9 @@
 선정 기준 검증(시뮬레이션 › 선정 기준)은 전 종목 일봉이 든 파일 하나를 읽어요. 이 파일은 직접 모아요. 앱은 파일만 읽고 증권사에는 따로 묻지 않아요.
 
 ```bash
+# 처음 한 번(90일마다): 수집 계정 표시를 받으려고 CLI로 로그인해요. Drive 전달을 쓰면 drive login으로 충분해요.
+corepack pnpm -C cli build
+corepack pnpm --filter gazua-cli exec gazua drive login   # 또는 gazua login
 # 키는 환경변수로만 넣어요. 명령줄에 쓰면 셸 기록에 남으니 입력을 받아 내보내요(화면에 보이지 않아요).
 read -rs KIS_APP_KEY && export KIS_APP_KEY
 read -rs KIS_APP_SECRET && export KIS_APP_SECRET
@@ -16,6 +19,10 @@ corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 ```
 
 - 결과는 `market-data-YYYYMMDD.json.gz`예요. 기본 출력 폴더는 `~/gazua-data/`이고, 저장소 안이면 `.gitignore`에 있는 `data/`만 허용해요.
+- **수집 계정 표시.** 파일은 다른 사람에게 주지 않아요(KIS 약관 제5조 ③). 수집을 시작하기 전에 `gazua owner`로 동기화 계정의 해시(`owner`, 이메일이 아니에요)를 받아 파일에 넣고, 앱은 그 계정으로 로그인했을 때만 가져와요. 실수를 막는 장치이고 우회를 막지는 않아요.
+  - CLI 로그인(`gazua drive login` 또는 `gazua login`)이 없거나 만료됐으면 수집을 시작하지 않고 멈춰요. CLI가 옛 빌드면 `pnpm -C cli build`를 다시 하라고 안내해요.
+  - `--no-owner`는 표시 없이 수집해요(로그인 없는 개발·시험용). 표시 없는 파일은 어느 앱이든 가져와요.
+  - 배포 순서: sync-worker(`GET /v1/cli/owner`) → CLI 다시 빌드 → 앱. Worker가 옛것이면 「서버(Worker)를 업데이트해 주세요」로 멈춰요.
 - **파일을 커밋하지 마세요.** `data/`는 `.gitignore`에 들어 있어요. 앱 키와 시크릿은 파일·로그·셸 기록에 남지 않도록 환경변수로만 넘겨요.
 - `--update <파일>`은 종목마다 마지막 날짜 다음부터 받아요. 겹치는 마지막 5거래일이 기존 값과 다르면(액면분할 등) 그 종목만 전체를 다시 받아요.
 - `--years`는 1~10년이에요(기본 5년). 앱이 풀린 파일을 문자열 하나로 읽어서, 전 종목 10년을 넘으면 브라우저 문자열 한도에 닿을 수 있어요.

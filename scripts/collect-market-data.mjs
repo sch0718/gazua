@@ -236,7 +236,7 @@ function finApiSignature() {
  *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep }) {
+export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep, owner }) {
   // 로그에 나가는 모든 문구에서 키·토큰을 가린다.
   const clean = (msg) => {
     let t = client.scrub ? client.scrub(msg) : String(msg);
@@ -519,6 +519,8 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     format: 'gazua-market-data',
     version: 4,
     collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
+    // 수집 계정 표시: 이번 실행에서 받은 것만 쓴다(--update여도 이전 파일 값은 쓰지 않는다)
+    ...(owner ? { owner } : {}),
     source: 'kis',
     adjusted: true,
     range,
@@ -601,7 +603,7 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
 }
 
 export function parseArgs(argv) {
-  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false };
+  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false, owner: true };
   const args = argv.filter((a) => a !== '--');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -609,6 +611,7 @@ export function parseArgs(argv) {
     else if (a === '--no-flows') o.flows = false;
     else if (a === '--no-fins') o.fins = false;
     else if (a === '--drive') o.drive = true;
+    else if (a === '--no-owner') o.owner = false;
     else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update') {
       const v = args[++i];
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
@@ -651,6 +654,32 @@ export function runDriveUpload(file, summary, deps = {}) {
   return 1;
 }
 
+/**
+ * 수집 계정 표시(owner)를 CLI(gazua owner)로 받는다(설계 2026-11-03-market-owner-tag 4절).
+ * 받지 못하면 던진다. KIS 키는 자식에 넘기지 않는다.
+ */
+export function fetchOwner(deps = {}) {
+  const { spawn = spawnSync, env = process.env, cliPath = join(REPO_ROOT, 'cli', 'dist', 'gazua.mjs'), exists = existsSync } = deps;
+  if (!exists(cliPath)) throw new Error('먼저 pnpm -C cli build를 실행해 주세요');
+  const childEnv = { ...env };
+  delete childEnv.KIS_APP_KEY;
+  delete childEnv.KIS_APP_SECRET;
+  const r = spawn(process.execPath, [cliPath, 'owner'], { encoding: 'utf8', env: childEnv, stdio: ['ignore', 'pipe', 'inherit'] });
+  const loginHint = 'gazua drive login 또는 gazua login 뒤 다시 실행하거나, 표시 없이 수집하려면 --no-owner를 붙여 주세요';
+  let res;
+  try {
+    res = JSON.parse(String(r.stdout ?? '').trim().split('\n').at(-1));
+  } catch {
+    res = null;
+  }
+  if (res?.ok === true && typeof res.data?.owner === 'string' && /^[0-9a-f]{32}$/.test(res.data.owner)) return res.data.owner;
+  if (res?.ok === false && res.error?.code === 'invalid-args') throw new Error('CLI가 옛 빌드예요. pnpm -C cli build를 다시 실행해 주세요');
+  const why = res?.ok === false ? (res.error?.message ?? res.error?.code) : res?.ok === true ? '표시 형식이 올바르지 않아요' : `CLI 출력을 해석하지 못했어요(종료 코드 ${r.status})`;
+  // 로그인 문제일 때만 다시 로그인하라고 한다(서버 옛 버전·네트워크면 쓸모없는 재로그인을 권하지 않는다)
+  const hint = ['not-logged-in', 'cli-token-expired', 'cli-token-revoked'].includes(res?.error?.code) ? loginHint : '표시 없이 수집하려면 --no-owner를 붙여 주세요';
+  throw new Error(`수집 계정 표시를 받지 못했어요: ${why}. ${hint}`);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const appKey = process.env.KIS_APP_KEY;
@@ -659,10 +688,13 @@ async function main() {
   validateCreds(appKey, appSecret);
   assertOutAllowed(opts.out);
   const log = (line) => console.log(line);
+  // 계정 표시는 긴 수집 전에 먼저 확인한다
+  const owner = opts.owner ? fetchOwner() : undefined;
+  if (!opts.owner) log('수집 계정 표시 없이 수집해요(어느 계정의 앱이든 가져올 수 있어요)');
   log('종목 마스터를 받아요');
   const master = await loadMaster();
   const client = createKisClient({ appKey, appSecret, paper: opts.paper });
-  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log });
+  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner });
   if (opts.drive) process.exitCode = runDriveUpload(summary.path, summary);
 }
 

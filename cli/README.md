@@ -67,7 +67,10 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 | `gazua drive upload <파일> [--keep N]` | 시장 파일을 Drive에 올리고 서버에 등록 | ○ | |
 | `gazua drive status` | Drive 로그인 상태와 올린 시장 파일 목록 | ○ | |
 | `gazua drive logout` | 서버·Google 접근 철회 + 파일 삭제 | ○ | |
+| `gazua owner` | 시장 파일에 넣을 수집 계정 표시(`{ owner }`, 32자 hex) | ○ | |
 | `gazua simulate --strategy <이름\|ID> [--from YYYY-MM-DD --to YYYY-MM-DD]` | 시뮬레이션 요약 | ○ | ○ |
+
+`owner`는 만료 전 `drive-auth.json`(`gazua drive login`) → `auth.json`(`gazua login`) 순서로 토큰을 골라요. 첫 토큰이 401이면 남은 파일로 한 번 더 시도하고, 쓸 파일이 없으면 `not-logged-in`이에요. 서버가 이 경로를 모르면(옛 Worker) `server-outdated`예요. 수집 스크립트 전용이라 MCP 도구로는 내보내지 않아요.
 
 `signals`의 기준 봉은 마지막 완성 일봉이에요. `--today`가 없으면 어제까지, `--today`면 그 venue 마감 뒤(KRX 15:30·통합 20:00 KST)이고 오늘이 거래일일 때만 오늘까지예요. 토스는 통합 일봉이라 늘 20:00 기준이에요. 판정은 매수·매도 조건과 손절·익절·트레일링·기간 청산 가격만 계산하고 주문하지 않아요. 앱의 시뮬레이션과 다른 점은 출력의 `notes`에 적혀 있어요.
 

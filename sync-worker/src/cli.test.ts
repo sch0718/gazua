@@ -4,6 +4,7 @@ import { harness, ORIGIN, type Harness } from '../test/harness';
 import { IP_LIMIT, normalizeIp, PENDING_LIMIT, TOKEN_TTL } from './cli';
 import { DAY } from './env';
 import { doc } from '../test/docs';
+import { marketOwnerTag } from '../../src/lib/marketData/owner';
 
 const j = async (r: Response) => ({ status: r.status, body: (await r.json()) as Record<string, any> });
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -607,6 +608,20 @@ describe('market-upload 범위', () => {
     }
     expect((await cliCall(h, 'DELETE', `/v1/market/files/${put.body.id}`, { token: t.token })).status).toBe(200);
     expect((await cliCall(h, 'DELETE', '/v1/cli/token', { token: t.token })).status).toBe(200);
+  });
+
+  it('두 범위 모두 GET /v1/cli/owner로 이 계정의 시장 파일 표시를 받는다', async () => {
+    const h = harness();
+    const read = await connectScoped(h);
+    const up = await connectScoped(h, 'market-upload');
+    const [{ sub }] = rows(h, 'SELECT firebase_sub AS sub FROM users');
+    const want = await marketOwnerTag(sub);
+    for (const token of [read.t.token, up.t.token]) {
+      expect(await j(await cliCall(h, 'GET', '/v1/cli/owner', { token }))).toEqual({ status: 200, body: { owner: want } });
+      for (const [m, p] of [['GET', '/v1/cli/owner?x=1'], ['POST', '/v1/cli/owner'], ['GET', '/v1/cli/owner/']] as const) {
+        expect((await j(await cliCall(h, m, p, { token, body: m === 'POST' ? {} : undefined }))).body.error, `${m} ${p}`).toBe('cli-scope');
+      }
+    }
   });
 
   it('read 토큰은 market 경로가 403 cli-scope', async () => {

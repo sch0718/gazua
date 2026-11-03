@@ -38,7 +38,7 @@ export interface MarketDataInfo {
 
 export type ImportResult =
   | { ok: true; info: MarketDataInfo; persisted?: boolean }
-  | { ok: false; reason: 'format' | 'version-newer' | 'corrupt' | 'quota'; neededMb?: number };
+  | { ok: false; reason: 'format' | 'version-newer' | 'corrupt' | 'quota' | 'owner-mismatch' | 'owner-signed-out'; neededMb?: number };
 
 export interface ImportDeps {
   estimate?: () => Promise<{ quota?: number; usage?: number }>;
@@ -46,7 +46,15 @@ export interface ImportDeps {
   decompress?: (file: Blob) => Promise<string | { text: string; bytes: number }>;
   /** 이미 확인한 파일 해시(Drive 받기). 있으면 수백 MB를 다시 해시하지 않고 이 값을 남긴다. */
   sha256?: string;
+  /** 지금 로그인한 동기화 계정의 표시(owner.ts). null이거나 없으면 로그인하지 않은 것으로 본다(설계 2026-11-03-market-owner-tag 5절) */
+  owner?: () => Promise<string | null>;
 }
+
+/** 수집 계정 표시로 거절할 때의 안내(수동 가져오기·Drive 받기가 함께 쓴다) */
+export const OWNER_TEXT = {
+  'owner-mismatch': '다른 계정에서 수집한 파일이에요. 수집한 계정으로 로그인한 앱에서만 가져올 수 있어요',
+  'owner-signed-out': '수집한 계정으로 로그인한 뒤 가져와 주세요',
+} as const;
 
 export interface MarketDataStore {
   info(): Promise<MarketDataInfo | null>;
@@ -237,6 +245,12 @@ export function openMarketData(): MarketDataStore {
     }
     const check = validateMarketData(parsed);
     if (!check.ok) return { ok: false, reason: check.reason };
+    // 수집 계정 표시가 있으면 지금 계정과 같을 때만 받는다. 표시 없는 옛 파일·데모는 그대로 받는다
+    if (check.data.owner !== undefined) {
+      const mine = (await deps.owner?.()) ?? null;
+      if (mine === null) return { ok: false, reason: 'owner-signed-out' };
+      if (mine !== check.data.owner) return { ok: false, reason: 'owner-mismatch' };
+    }
 
     // 해시를 못 구해도(환경 제약 등) 가져오기 자체는 막지 않는다. 이 경우 요약에 sha256이 없다.
     let sha256: string | undefined;

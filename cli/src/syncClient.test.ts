@@ -141,3 +141,22 @@ describe('시장 파일(Drive 전달)', () => {
     expect(await codeOf(c.profiles())).toBe('internal');
   });
 });
+
+describe('owner(시장 파일 계정 표시)', () => {
+  it('GET /v1/cli/owner의 owner(32자 소문자 hex)를 돌려준다', async () => {
+    const { c, f } = client({ body: { owner: 'a'.repeat(32) } });
+    expect(await c.owner()).toBe('a'.repeat(32));
+    expect(f.calls[0].method).toBe('GET');
+    expect(f.calls[0].url.pathname).toBe('/v1/cli/owner');
+  });
+
+  it('owner 모양이 틀리면 internal', async () => {
+    for (const owner of ['A'.repeat(32), 'a'.repeat(31), 1, undefined]) expect(await codeOf(client({ body: { owner } }).c.owner())).toBe('internal');
+  });
+
+  it('403 cli-scope는 서버 업데이트 안내(server-outdated), 401은 토큰 오류 그대로', async () => {
+    const scope = client({ status: 403, body: { error: 'cli-scope' } }).c.owner();
+    await expect(scope).rejects.toMatchObject({ code: 'server-outdated', message: expect.stringContaining('서버 업데이트가 필요해요(sync-worker 배포)') });
+    expect(await codeOf(client({ status: 401, body: { error: 'cli-token-expired' } }).c.owner())).toBe('cli-token-expired');
+  });
+});

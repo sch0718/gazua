@@ -28,6 +28,7 @@ import {
   type VaultKey,
 } from './keySync';
 import { checkMarketFiles, type MarketFileRow } from '../marketData/manifest';
+import { marketOwnerTag } from '../marketData/owner';
 import { checkVaultHead, KEY_ITER, type KeyProvider } from './keyWire';
 import { PROVIDER_NAMES, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
 import type { SocialProvider } from '@sch0718/firebase-session/client';
@@ -164,6 +165,8 @@ export interface SyncController {
   /** 시장 파일 manifest(설계 2026-11-02-market-drive). 404는 옛 Worker */
   marketFiles(): Promise<MarketFilesResult>;
   wipeMarketFiles(): Promise<boolean>;
+  /** 로그인한 동안 이 계정의 시장 파일 표시(marketData/owner.ts), 아니면 null. attach가 끝난 뒤 판정한다 */
+  marketOwner(): Promise<string | null>;
   /** 422 invalid-code·404(옛 Worker)는 배너 없이 사유로 돌려준다 */
   cliApprove(userCode: string, approve?: boolean): Promise<CliApproveResult>;
   cliTokens(): Promise<CliTokensResult>;
@@ -1067,6 +1070,11 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
         },
         { ok: false, reason: 'error' },
       ),
+    async marketOwner() {
+      if (!config || !api) return null;
+      await attached;
+      return account !== null && ownerId ? marketOwnerTag(ownerId) : null;
+    },
     wipeMarketFiles: () => guarded(async () => (api && account !== null ? ok(await api.wipeMarketFiles()) !== null : false), false),
     cliRevoke: (id) => guarded(async () => (api ? ok(await api.cliRevoke(id)) !== null : false), false),
     members: () =>

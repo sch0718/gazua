@@ -19,13 +19,13 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 describe('도구 표', () => {
-  // drive는 사람이 터미널에서 하는 로그인·업로드라 login·logout처럼 도구로 내보내지 않는다
-  it('도구 이름은 COMMANDS에서 login·logout·drive를 뺀 것과 정확히 같다', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(Object.keys(COMMANDS).filter((n) => !['login', 'logout', 'drive'].includes(n)).sort());
+  // drive는 사람이 터미널에서 하는 로그인·업로드라 login·logout처럼 도구로 내보내지 않는다. owner는 수집 스크립트 전용이다
+  it('도구 이름은 COMMANDS에서 login·logout·drive·owner를 뺀 것과 정확히 같다', () => {
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(Object.keys(COMMANDS).filter((n) => !['login', 'logout', 'drive', 'owner'].includes(n)).sort());
   });
 
   it('findTool은 표에 있는 이름만 찾는다', () => {
-    for (const n of ['login', 'logout', 'drive', '__proto__', 'constructor', 'toString', 'nope']) expect(findTool(n), n).toBeUndefined();
+    for (const n of ['login', 'logout', 'drive', 'owner', '__proto__', 'constructor', 'toString', 'nope']) expect(findTool(n), n).toBeUndefined();
     expect(findTool('quote')?.name).toBe('quote');
   });
 
