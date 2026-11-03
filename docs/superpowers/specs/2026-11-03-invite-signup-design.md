@@ -91,11 +91,11 @@ CREATE INDEX invite_attempts_identity ON invite_attempts(identity, at);
 
 ## 3. 가즈아 앱
 
-- 라우트 `#/join/<코드>`: 코드를 `localStorage`의 `gazua.invite`에 두고 해시를 지운 뒤 설정 동기화 구역으로 보낸다. 안내: 「초대받았어요. 로그인하면 가입돼요」. 코드는 해시에 남기지 않는다.
+- 라우트 `#/join/<코드>`: 코드를 `localStorage`의 `gazua:invite`에 두고(온보딩 전 기기에서도 관문 판단보다 먼저 저장) 해시를 지운 뒤 설정 동기화 구역으로 보낸다. 안내: 「초대받았어요. 로그인하면 가입돼요」. 코드는 해시에 남기지 않는다.
 - 로그인(`createSession`·`createSocialSession`) 때 저장된 코드가 있으면 `extra = { invite }`로 보낸다. 성공하거나 `not-allowed`·`invite-invalid`·`members-full`이면 지운다(내보낸 사람의 기기에 코드가 남아 계속 보내지지 않게).
 - 패키지 클라이언트는 403 중 `not-allowed`만 살리고 나머지 코드는 버리므로, 가즈아 `mapStatus`가 403 `invite-invalid`·`members-full`을 `{ kind: 'invite', code }`로 바꾼다. 소셜 결과 `reason` 유니언과 문구 표에도 두 값을 더한다. 429 `invite-limit`은 기존 `limit`으로 온다.
 - 실패 문구: `not-allowed` →「초대가 필요하거나 이용이 끝난 계정이에요」, `invite-invalid` →「초대 링크가 맞지 않아요」, `members-full` →「초대 자리가 다 찼어요」, `invite-limit` →「잠시 뒤 다시 시도해 주세요」.
-- 설정 동기화 구역에 「멤버」 카드: 로그인 상태에서 `GET /v1/members`가 200이면 보인다(403이면 숨김). 목록(계정·가입일)과 「내보내기」(확인 후 DELETE).
+- 설정 동기화 구역의 관리 항목(`SyncManage`)에 「멤버」 펼침: 펼칠 때만 `GET /v1/members`를 부른다. 403이면 오류 배너 없이 「관리자만 볼 수 있어요」 한 줄, 200이면 목록(계정·가입일·상한)과 「내보내기」(확인 후 DELETE).
 
 ## 4. 시험으로 고정할 보안 경계
 
