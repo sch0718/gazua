@@ -28,10 +28,11 @@
 새 로그인 흐름은 만들지 않고 기존 CLI 로그인 토큰을 쓴다.
 
 - 서버: CLI 토큰 경로에 `GET /v1/cli/owner`를 더한다. `read`·`market-upload` 두 범위 모두 허용한다. 응답 `{ owner }`(위 2절 값, 서버가 `firebase_sub`로 계산).
-- CLI: `gazua owner` 명령. `auth.json`(gazua login)이 있으면 그것을, 없으면 `drive-auth.json`(gazua drive login)을 쓴다. 둘 다 없으면 `not-logged-in`.
+- CLI: `gazua owner` 명령. 만료 전인 토큰 파일을 `drive-auth.json`(gazua drive login, 평소 `--drive` 흐름) → `auth.json`(gazua login) 순서로 쓴다. 서버가 401(만료·철회)을 주면 남은 파일로 한 번 더 시도한다. 쓸 파일이 없으면 `not-logged-in`.
   - 옛 Worker는 이 경로를 모르므로 403 `cli-scope`가 온다 → 「서버 업데이트가 필요해요」로 바꿔 알린다.
 - 수집 스크립트(`collect-market-data.mjs`): 수집을 시작하기 **전에** `node cli/dist/gazua.mjs owner`를 실행해 값을 받고, 최종 파일의 `owner`에 넣는다.
   - 실패(CLI 빌드 없음, 로그인 안 함, 만료, 서버 옛 버전, 오프라인)하면 수집을 시작하지 않고 이유와 해결 방법을 알린 뒤 끝낸다. 수십 분 수집 뒤에 실패하지 않게 맨 앞에서 본다.
+  - 빌드가 옛것이라 `owner` 명령이 없으면 CLI가 `invalid-args`(종료 코드 2)를 낸다 → 「`pnpm -C cli build`를 다시 실행해 주세요」로 안내한다.
   - `--no-owner`를 주면 표시 없이 수집한다(로그인 없는 개발·시험용). 이 파일은 5절 규칙에 따라 어느 앱이든 가져온다.
   - 근거: 표시 없는 파일을 기본으로 허용하면 이 기능이 의미가 없다. 사용자는 이미 `--drive`를 위해 CLI 로그인을 해 두었으므로 평소 흐름은 Worker 배포 뒤 그대로 돈다.
 - `--update`: 이전 파일의 `owner`는 쓰지 않고 이번에 받은 값을 넣는다.
@@ -49,7 +50,7 @@
 
 - 옛 파일을 받는 근거: 사용자가 이미 가진 파일과 데모 데이터가 계속 돌아야 한다. 새로 수집하는 파일부터 표시가 붙으므로 시간이 지나면 옛 파일은 사라진다.
 - 로그인 안 한 앱을 거절하는 근거: 비교할 계정이 없으면 남의 파일인지 알 수 없다. 테스터가 로그인하지 않고 가져오는 길을 남기면 기능이 의미가 없다. 사용자 본인은 늘 로그인해 쓴다.
-- 「로그인」은 동기화 컨트롤러의 `account`가 있는 상태다. `ownerId`는 기기 메타에 남아 있어 오프라인에서도 비교한다(네트워크 호출 없음).
+- 「로그인」은 동기화 컨트롤러의 `account`가 있는 상태다. 앱 시작 직후에는 `attach()`가 세션을 읽기 전이라 `marketOwner()`는 컨트롤러의 `attached`를 기다린 뒤 판정한다. `ownerId`는 기기 메타에 남아 있어 오프라인에서도 비교한다(네트워크 호출 없음).
 - 이미 가져온 데이터는 다시 검사하지 않는다(로그아웃해도 쓰던 데이터는 그대로).
 - 주입: `ImportDeps.owner?: () => Promise<string | null>`. 없으면 로그인 안 함으로 본다. 동기화 컨트롤러에 `marketOwner(): Promise<string | null>`을 더해 화면이 넘긴다. Drive 받기는 클릭 처리기에서 팝업 전에 await하지 않도록 함수 형태로 넘기고 `importFile` 안에서 부른다.
 
@@ -90,3 +91,5 @@
 ## 10. 문서
 
 - `docs/help/`의 시장 데이터 안내, `docs/development.md`의 수집 안내에 계정 표시·`--no-owner`·배포 순서를 적는다.
+- `cli/README.md` 명령 표에 `gazua owner`와 토큰 선택 규칙(`readme.test.ts`가 등록된 명령마다 README를 본다).
+- `sync-worker/README.md`의 CLI 토큰 허용 경로 표에 `GET /v1/cli/owner`.
