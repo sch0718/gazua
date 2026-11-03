@@ -665,7 +665,7 @@ export function fetchOwner(deps = {}) {
   delete childEnv.KIS_APP_KEY;
   delete childEnv.KIS_APP_SECRET;
   const r = spawn(process.execPath, [cliPath, 'owner'], { encoding: 'utf8', env: childEnv, stdio: ['ignore', 'pipe', 'inherit'] });
-  const hint = 'gazua drive login 또는 gazua login 뒤 다시 실행하거나, 표시 없이 수집하려면 --no-owner를 붙여 주세요';
+  const loginHint = 'gazua drive login 또는 gazua login 뒤 다시 실행하거나, 표시 없이 수집하려면 --no-owner를 붙여 주세요';
   let res;
   try {
     res = JSON.parse(String(r.stdout ?? '').trim().split('\n').at(-1));
@@ -675,6 +675,8 @@ export function fetchOwner(deps = {}) {
   if (res?.ok === true && typeof res.data?.owner === 'string' && /^[0-9a-f]{32}$/.test(res.data.owner)) return res.data.owner;
   if (res?.ok === false && res.error?.code === 'invalid-args') throw new Error('CLI가 옛 빌드예요. pnpm -C cli build를 다시 실행해 주세요');
   const why = res?.ok === false ? (res.error?.message ?? res.error?.code) : res?.ok === true ? '표시 형식이 올바르지 않아요' : `CLI 출력을 해석하지 못했어요(종료 코드 ${r.status})`;
+  // 로그인 문제일 때만 다시 로그인하라고 한다(서버 옛 버전·네트워크면 쓸모없는 재로그인을 권하지 않는다)
+  const hint = ['not-logged-in', 'cli-token-expired', 'cli-token-revoked'].includes(res?.error?.code) ? loginHint : '표시 없이 수집하려면 --no-owner를 붙여 주세요';
   throw new Error(`수집 계정 표시를 받지 못했어요: ${why}. ${hint}`);
 }
 

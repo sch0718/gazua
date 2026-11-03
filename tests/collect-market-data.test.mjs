@@ -2062,8 +2062,20 @@ test('fetchOwner: 옛 빌드(invalid-args)면 다시 빌드하라고 던진다',
   assert.throws(() => fetchOwner({ exists: () => true, spawn }), /CLI가 옛 빌드예요\. pnpm -C cli build를 다시 실행해 주세요/);
 });
 
-test('fetchOwner: 그 밖의 실패는 메시지와 로그인·--no-owner 안내로 던진다', () => {
-  const spawn = () => ownerOut({ ok: false, error: { code: 'auth-required', message: '로그인이 필요해요' } });
+test('fetchOwner: 서버 옛 버전·네트워크 실패에는 로그인 안내 없이 --no-owner만 붙인다', () => {
+  for (const code of ['server-outdated', 'network']) {
+    const spawn = () => ownerOut({ ok: false, error: { code, message: '서버 업데이트가 필요해요(sync-worker 배포)' } });
+    assert.throws(() => fetchOwner({ exists: () => true, spawn }), (e) => {
+      assert.match(e.message, /수집 계정 표시를 받지 못했어요: 서버 업데이트가 필요해요/);
+      assert.doesNotMatch(e.message, /gazua drive login/);
+      assert.match(e.message, /--no-owner/);
+      return true;
+    });
+  }
+});
+
+test('fetchOwner: 로그인 문제는 메시지와 로그인·--no-owner 안내로 던진다', () => {
+  const spawn = () => ownerOut({ ok: false, error: { code: 'not-logged-in', message: '로그인이 필요해요' } });
   assert.throws(() => fetchOwner({ exists: () => true, spawn }), (e) => {
     assert.match(e.message, /수집 계정 표시를 받지 못했어요: 로그인이 필요해요/);
     assert.match(e.message, /gazua drive login/);

@@ -31,6 +31,7 @@
 - CLI: `gazua owner` 명령. 만료 전인 토큰 파일을 `drive-auth.json`(gazua drive login, 평소 `--drive` 흐름) → `auth.json`(gazua login) 순서로 쓴다. 서버가 401(만료·철회)을 주면 남은 파일로 한 번 더 시도한다. 쓸 파일이 없으면 `not-logged-in`.
   - 옛 Worker는 이 경로를 모르므로 403 `cli-scope`가 온다 → 「서버 업데이트가 필요해요」로 바꿔 알린다.
 - 수집 스크립트(`collect-market-data.mjs`): 수집을 시작하기 **전에** `node cli/dist/gazua.mjs owner`를 실행해 값을 받고, 최종 파일의 `owner`에 넣는다.
+  - `runDriveUpload`처럼 KIS 키를 뺀 env로 실행하고, 표준 출력의 JSON 한 줄에서 `data.owner`를 읽는다. 로그인 문제일 때만 다시 로그인하라고 안내한다.
   - 실패(CLI 빌드 없음, 로그인 안 함, 만료, 서버 옛 버전, 오프라인)하면 수집을 시작하지 않고 이유와 해결 방법을 알린 뒤 끝낸다. 수십 분 수집 뒤에 실패하지 않게 맨 앞에서 본다.
   - 빌드가 옛것이라 `owner` 명령이 없으면 CLI가 `invalid-args`(종료 코드 2)를 낸다 → 「`pnpm -C cli build`를 다시 실행해 주세요」로 안내한다.
   - `--no-owner`를 주면 표시 없이 수집한다(로그인 없는 개발·시험용). 이 파일은 5절 규칙에 따라 어느 앱이든 가져온다.
