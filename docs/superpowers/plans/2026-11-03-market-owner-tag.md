@@ -56,9 +56,9 @@
 
 ## Task 6. CLI `gazua owner`
 
-파일: `cli/src/commands/owner.ts`(새)·`owner.test.ts`(새), `cli/src/syncClient.ts`, `cli/src/execute.ts`, `cli/README.md`의 명령 목록(있으면)
+파일: `cli/src/commands/owner.ts`(새)·`owner.test.ts`(새), `cli/src/syncClient.ts`, `cli/src/execute.ts`·`execute.test.ts`(명령 목록), `cli/src/mcp/tools.ts`·`tools.test.ts`(MCP 제외 목록에 `owner`. 수집 스크립트 전용이라 MCP에 내보내지 않는다), `cli/README.md`
 
-1. 시험: 만료 전 drive-auth.json → auth.json 순서로 `GET /v1/cli/owner`, 첫 토큰이 401이면 다음 파일로 한 번 더, 쓸 파일이 없으면 `not-logged-in`. 서버 403 `cli-scope`면 「서버 업데이트가 필요해요」. 결과 `{ owner }`.
+1. 시험: 만료 전 drive-auth.json → auth.json 순서로 `GET /v1/cli/owner`, 첫 토큰이 401이면 다음 파일로 한 번 더, 쓸 파일이 없으면 `not-logged-in`. 시도한 토큰이 있으면 남은 파일이 없을 때 마지막 401 오류를 그대로, 처음부터 파일이 없을 때만 `not-logged-in`. 서버 403 `cli-scope`면 기존 `server-outdated`(`Where`에 `'owner'`, 새 오류 코드 없음). 결과 `{ owner }`.
 2. 구현: `syncClient.owner()`, 명령은 `readDriveAuth` → `readAuth` 순서. 만료 지난 파일은 건너뛴다. `cli/README.md` 명령 표에 `gazua owner`(readme.test.ts가 요구).
 3. 검증: `pnpm -C cli test`, `pnpm -C cli check`(있으면). 커밋.
 
@@ -79,5 +79,5 @@
 
 1. 도움말: 「수집한 계정으로 로그인한 앱에서만 가져올 수 있어요」, 거절 문구 두 개의 뜻.
 2. development.md: 수집 전에 `gazua login` 또는 `gazua drive login`, `--no-owner`, 배포 순서(Worker → CLI 빌드 → 앱).
-3. 전체: `pnpm test`, `pnpm check`, `pnpm test:scripts`, `pnpm -C sync-worker test`, `pnpm -C cli test`, 시장 데이터 관련 e2e(`pnpm e2e tests/e2e/<시장 데이터 스펙>`).
+3. 전체: `pnpm test`, `pnpm check`, `pnpm test:scripts`, `pnpm -C sync-worker test`, `pnpm -C cli test`, 시장 데이터 가져오기 e2e(`pnpm e2e tests/e2e/screen.spec.ts`).
 4. 커밋.
