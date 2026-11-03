@@ -13,7 +13,7 @@ export interface DriveDeps {
 }
 export type DriveOutcome =
   | { ok: true; info: MarketDataInfo; persisted?: boolean }
-  | { ok: false; reason: 'cancelled' | 'denied' | 'not-ready' | 'auth' | 'not-found' | 'quota' | 'offline' | 'failed' | 'mismatch' | 'format' | 'version-newer' | 'corrupt' | 'quota-device'; neededMb?: number };
+  | { ok: false; reason: 'cancelled' | 'denied' | 'not-ready' | 'auth' | 'not-found' | 'quota' | 'offline' | 'failed' | 'mismatch' | 'format' | 'version-newer' | 'corrupt' | 'quota-device' | 'owner-mismatch' | 'owner-signed-out'; neededMb?: number };
 
 /** 클릭 처리기에서 곧바로 부른다. 첫 await가 auth.token()이라 팝업이 막히지 않는다 */
 export async function fetchFromDrive(row: MarketFileRow, deps: DriveDeps, onProgress?: (done: number, total: number | null) => void): Promise<DriveOutcome> {

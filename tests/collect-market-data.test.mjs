@@ -7,7 +7,7 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect as collectReal, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, runDriveUpload, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, assertOutAllowed, collect as collectReal, fetchOwner, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, runDriveUpload, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { zipSync } from 'fflate';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 import { FLOW_API } from '../scripts/fetch-investor-flow.mjs';
@@ -2024,4 +2024,80 @@ test('runDriveUpload: 업로드가 실패하면 다시 올리는 방법을 알�
   const errs = [];
   assert.equal(runDriveUpload('/tmp/m.json.gz', { failed: [] }, { exists: () => true, spawn: () => ({ status: 1 }), error: (s) => errs.push(s) }), 1);
   assert.match(errs.join('\n'), /파일은 \/tmp\/m\.json\.gz에 있어요\. `gazua drive upload \/tmp\/m\.json\.gz`로 다시 올릴 수 있어요/);
+});
+
+// ── 수집 계정 표시(owner) ─────────────────────────────────────────────
+const OWNER = '0123456789abcdef0123456789abcdef';
+
+test('--no-owner 플래그를 읽는다(기본은 표시를 넣는다)', () => {
+  assert.equal(parseArgs([]).owner, true);
+  assert.equal(parseArgs(['--no-owner']).owner, false);
+});
+
+const ownerOut = (body) => ({ status: body.ok ? 0 : 2, stdout: `${JSON.stringify(body)}\n` });
+
+test('fetchOwner: CLI 번들이 없으면 빌드 안내로 던진다', () => {
+  assert.throws(() => fetchOwner({ exists: () => false, spawn: () => assert.fail('부르면 안 된다') }), /먼저 pnpm -C cli build를 실행해 주세요/);
+});
+
+test('fetchOwner: KIS 키는 빼고 gazua owner를 불러 표시를 돌려준다', () => {
+  let seen;
+  const owner = fetchOwner({
+    exists: () => true,
+    cliPath: '/repo/cli/dist/gazua.mjs',
+    env: { KIS_APP_KEY: 'k', KIS_APP_SECRET: 's', PATH: '/bin' },
+    spawn: (cmd, args, opts) => ((seen = { cmd, args, opts }), ownerOut({ ok: true, data: { owner: OWNER } })),
+  });
+  assert.equal(owner, OWNER);
+  assert.equal(seen.cmd, process.execPath);
+  assert.deepEqual(seen.args, ['/repo/cli/dist/gazua.mjs', 'owner']);
+  assert.equal(seen.opts.encoding, 'utf8');
+  assert.equal(seen.opts.env.KIS_APP_KEY, undefined);
+  assert.equal(seen.opts.env.KIS_APP_SECRET, undefined);
+  assert.equal(seen.opts.env.PATH, '/bin');
+});
+
+test('fetchOwner: 옛 빌드(invalid-args)면 다시 빌드하라고 던진다', () => {
+  const spawn = () => ownerOut({ ok: false, error: { code: 'invalid-args', message: '알 수 없는 명령이에요: owner' } });
+  assert.throws(() => fetchOwner({ exists: () => true, spawn }), /CLI가 옛 빌드예요\. pnpm -C cli build를 다시 실행해 주세요/);
+});
+
+test('fetchOwner: 서버 옛 버전·네트워크 실패에는 로그인 안내 없이 --no-owner만 붙인다', () => {
+  for (const code of ['server-outdated', 'network']) {
+    const spawn = () => ownerOut({ ok: false, error: { code, message: '서버 업데이트가 필요해요(sync-worker 배포)' } });
+    assert.throws(() => fetchOwner({ exists: () => true, spawn }), (e) => {
+      assert.match(e.message, /수집 계정 표시를 받지 못했어요: 서버 업데이트가 필요해요/);
+      assert.doesNotMatch(e.message, /gazua drive login/);
+      assert.match(e.message, /--no-owner/);
+      return true;
+    });
+  }
+});
+
+test('fetchOwner: 로그인 문제는 메시지와 로그인·--no-owner 안내로 던진다', () => {
+  const spawn = () => ownerOut({ ok: false, error: { code: 'not-logged-in', message: '로그인이 필요해요' } });
+  assert.throws(() => fetchOwner({ exists: () => true, spawn }), (e) => {
+    assert.match(e.message, /수집 계정 표시를 받지 못했어요: 로그인이 필요해요/);
+    assert.match(e.message, /gazua drive login/);
+    assert.match(e.message, /--no-owner/);
+    return true;
+  });
+});
+
+test('fetchOwner: 해석할 수 없는 출력이나 형식이 틀린 표시는 던진다', () => {
+  assert.throws(() => fetchOwner({ exists: () => true, spawn: () => ({ status: 1, stdout: 'boom' }) }), /수집 계정 표시를 받지 못했어요/);
+  assert.throws(() => fetchOwner({ exists: () => true, spawn: () => ownerOut({ ok: true, data: { owner: 'ABC' } }) }), /수집 계정 표시를 받지 못했어요/);
+});
+
+test('collect: owner가 있으면 파일에 넣고, 없으면 필드가 없으며 --update여도 이전 표시를 쓰지 않는다', async () => {
+  const dir = tmpDir();
+  try {
+    const base = { years: 2, client: clientFor(fakeKis(dataFor(30))), master: master3(), now: () => WINDOW, log: () => {}, repoRoot: join(dir, 'repo') };
+    const run1 = await collect({ ...base, out: join(dir, 'a'), owner: OWNER });
+    assert.equal(readGz(run1.summary.path).owner, OWNER);
+    const run2 = await collect({ ...base, out: join(dir, 'b'), update: run1.summary.path, client: clientFor(fakeKis(dataFor(30))) });
+    assert.equal(Object.hasOwn(readGz(run2.summary.path), 'owner'), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

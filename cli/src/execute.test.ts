@@ -62,7 +62,7 @@ describe('execute', () => {
   });
 
   it('COMMANDS에 CLI 명령 열 개가 있다', () => {
-    expect(Object.keys(COMMANDS).sort()).toEqual(['drive', 'holdings', 'login', 'logout', 'profiles', 'quote', 'signals', 'simulate', 'strategies', 'watchlists']);
+    expect(Object.keys(COMMANDS).sort()).toEqual(['drive', 'holdings', 'login', 'logout', 'owner', 'profiles', 'quote', 'signals', 'simulate', 'strategies', 'watchlists']);
   });
 });
 

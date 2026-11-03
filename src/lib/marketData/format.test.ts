@@ -39,6 +39,14 @@ describe('validateMarketData', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('owner가 32자 소문자 hex면 ok, 모양이 틀리면 format이다', () => {
+    const tag = '0123456789abcdef0123456789abcdef';
+    expect(validateMarketData({ ...sample(), owner: tag }).ok).toBe(true);
+    for (const bad of [1, tag.toUpperCase(), tag.slice(1), '']) {
+      expect(validateMarketData({ ...sample(), owner: bad })).toEqual({ ok: false, reason: 'format' });
+    }
+  });
+
   it('version 5는 version-newer다', () => {
     expect(validateMarketData({ ...sample(), version: 5 })).toEqual({ ok: false, reason: 'version-newer' });
   });

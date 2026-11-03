@@ -18,6 +18,7 @@ import { createMemorySyncStore, type SyncStore } from './store';
 import { SESSION_HEADER } from './api';
 import { APP_OUTDATED_CODE } from './dto';
 import { docHash } from './hash';
+import { marketOwnerTag } from '../marketData/owner';
 import { buildProfileDoc, profileDocBase } from './profileDoc';
 import { profileKeys } from '../state/profileStore';
 
@@ -91,6 +92,31 @@ describe('SyncController', () => {
     expect(sync.status).toMatchObject({ enabled: true, phase: 'idle', pending: 0 });
     const remote = await sync.remoteProfiles();
     expect(remote?.map((r) => r.profileId)).toEqual([app.meta.activeProfileId]);
+  });
+
+  it('marketOwner(): 로그인한 동안만 계정 표시를 주고, attach 전에 부르면 attach를 기다린다', async () => {
+    const s = testServer();
+    const storage = createSafeStorage(memoryBacking());
+    const store = createMemorySyncStore();
+    await store.setMeta('owner', 'uid-me');
+    await store.setMeta('session', { id: 'stale', email: ME });
+    const auth = fakeAuth(s);
+    auth.signedIn = true;
+    const sync = createSyncController({ config: CONFIG, storage, auth, store: async () => store, fetchImpl: s.fetch, now: () => s.h.clock.now });
+    const app = createApp({ storage, now: () => s.h.clock.now, orderCache: createMemoryOrderCache() });
+    cleanups.push(() => { sync.destroy(); app.destroy(); });
+    const early = sync.marketOwner();
+    await sync.attach(app);
+    expect(await early).toBe(await marketOwnerTag('uid-me'));
+    await sync.signOut();
+    expect(await sync.marketOwner()).toBeNull();
+    await sync.signIn();
+    expect(await sync.marketOwner()).toBe(await marketOwnerTag('uid-me'));
+  });
+
+  it('marketOwner(): 동기화 설정이 없으면 null', async () => {
+    const sync = createSyncController({ config: null, storage: createSafeStorage(memoryBacking()) });
+    expect(await sync.marketOwner()).toBeNull();
   });
 
   it('허용 목록 밖 계정은 세션 없이 로그아웃시킨다', async () => {
@@ -979,6 +1005,7 @@ describe('카카오·네이버 로그인', () => {
     const a = await socialSetup(s);
     expect(await a.sync.completeSocialSignIn(await a.callback())).toEqual({ ok: true, provider: 'kakao' });
     expect(a.sync.account).toEqual({ provider: 'kakao', id: 'kakao:kakao-me', display: 'kakao-me@example.test' });
+    expect(await a.sync.marketOwner()).toBe(await marketOwnerTag('kakao:kakao-me'));
     expect(s.h.env.DB.raw.prepare('SELECT label FROM sessions').all()).toEqual([{ label: '내 폰' }]);
     await a.sync.setEnabled(true);
     expect((await a.sync.remoteProfiles())?.map((p) => p.profileId)).toContain(a.app.meta.activeProfileId);

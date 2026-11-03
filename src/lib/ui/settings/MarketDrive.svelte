@@ -4,7 +4,7 @@
   import { fetchFromDrive, wipeDrive, type DriveOutcome } from '../../marketData/driveSync';
   import { createDriveAuth, loadGis, type DriveAuth } from '../../marketData/gis';
   import type { MarketFileRow } from '../../marketData/manifest';
-  import type { ImportDeps, MarketDataInfo, MarketDataStore } from '../../marketData/store';
+  import { OWNER_TEXT, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
   import type { SyncController } from '../../sync/controller.svelte';
 
   let {
@@ -36,6 +36,7 @@
     format: '시장 데이터 파일 형식이 아니에요',
     corrupt: '시장 데이터 파일 형식이 아니에요',
     server: 'Drive 목록을 비우지 못했어요',
+    ...OWNER_TEXT,
   };
   const failText = (o: { reason: string; neededMb?: number }) =>
     o.reason === 'quota-device' ? `기기 공간이 부족해요(약 ${o.neededMb ?? '?'} MB 필요)` : (FAIL[o.reason] ?? 'Drive에서 받지 못했어요');
@@ -72,7 +73,8 @@
     busy = true;
     note = null;
     progress = null;
-    fetchFromDrive(row, { fetch: fetchImpl, auth, store: marketData, importDeps, digest }, (done, total) => {
+    // 계정 표시는 importFile 안에서 묻는다. 여기서 await하면 팝업이 막힌다
+    fetchFromDrive(row, { fetch: fetchImpl, auth, store: marketData, importDeps: { ...importDeps, owner: () => sync.marketOwner() }, digest }, (done, total) => {
       progress = total ? Math.floor((done / total) * 100) : null;
     }).then(async (r: DriveOutcome) => {
       if (!r.ok && r.reason === 'not-ready') await preload().catch(() => {});
