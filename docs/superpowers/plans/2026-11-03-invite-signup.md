@@ -2,7 +2,9 @@
 
 설계: `docs/superpowers/specs/2026-11-03-invite-signup-design.md`. 패키지(`@sch0718/firebase-session` 0.3.0, toolkit PR #24)는 배포 전까지 로컬 링크로 쓴다(`node_modules/@sch0718/firebase-session`과 `sync-worker/node_modules/@sch0718/firebase-session`을 toolkit worktree 패키지로 심볼릭 링크). 모든 단계는 TDD(실패하는 시험 → 구현 → 통과).
 
-## 과제 A: sync-worker (`sync-worker/`)
+## 과제 A: sync-worker (`sync-worker/`) — 완료(커밋 3245e20)
+
+`sessions`·`cli_tokens`는 패키지에 사용자 단위 철회 helper가 없어 `removeMember`가 직접 `UPDATE`한다. `purgeInviteAttempts(env, now, limit)`.
 
 1. `migrations/0007_members.sql`: `members`, `invite_attempts`와 인덱스(설계 2절 그대로).
 2. `src/env.ts`: `INVITE_CODE?`(secret), `MEMBER_LIMIT?`(var) 추가. `wrangler.toml` `[vars]`에 `MEMBER_LIMIT = "20"`.
@@ -24,14 +26,22 @@
 
 ## 과제 B: 앱 (`src/`)
 
-1. `src/lib/state/routes.ts`: `#/join/<코드>` → `{ name: 'settings', section: 'sync', invite: <코드> }`. `hashFor`는 코드를 남기지 않는다(`#/settings`). 코드 형식 `^[A-Za-z0-9_-]{32,128}$`, 아니면 초대 없이 설정으로.
-2. 앱 상태(`app.svelte.ts`)에서 `invite`가 있으면 `localStorage['gazua.invite']`에 저장하고 해시를 `#/settings`로 바꾼다. 저장 실패는 무시.
-3. `src/lib/sync/api.ts`: `mapStatus`에 403 `invite-invalid`·`members-full` → `{ kind: 'invite', code }`. `listMembers()`, `removeMember(identity)` 메서드. `createSession`·`createSocialSession`에 `extra` 전달.
-4. `src/lib/sync/controller.svelte.ts`: 로그인 때 저장된 코드를 `extra = { invite }`로 보내고, 성공·`not-allowed`·`invite`면 지운다. 문구(설계 3절). 소셜 `reason` 유니언(`social.ts`)에 `invite-invalid`·`members-full` 추가.
-5. `src/lib/ui/settings/Members.svelte`(새 파일): `listMembers`가 200일 때만 보이는 카드, 목록과 「내보내기」(확인 뒤 DELETE). `SyncPanel.svelte`(또는 `SyncManage.svelte`)에 붙인다. 초대 코드가 저장돼 있으면 로그인 전 안내 「초대받았어요. 로그인하면 가입돼요」.
-6. 시험: `routes.test.ts`, `api` 매핑, controller 초대 전달·지우기, `Members.test.ts`(관리자만 보임, 내보내기 확인).
+1. `src/lib/sync/invite.ts`(새 파일): `INVITE_KEY = 'gazua:invite'`, `saveInvite(code)`, `readInvite()`, `clearInvite()`. localStorage 접근은 try/catch로 감싸 실패해도 조용히 넘어간다. 코드 형식 `^[A-Za-z0-9_-]{32,128}$`만 저장.
+2. `src/lib/state/routes.ts`: `parseHash`가 `#/join/<코드>`를 `{ name: 'settings', section: 'sync', invite: <코드> }`로 읽는다(형식이 틀리면 `invite` 없이). `hashFor`는 `#/settings`(코드를 해시에 남기지 않는다).
+3. `src/lib/state/app.svelte.ts`: `enter()`·`onHashChange()`에서 `parseHash` 직후, 관문·온보딩 판단보다 앞에서 `invite`가 있으면 `saveInvite`. 그래서 처음 설치한 기기(`onboarded: false`)에서 열어도 코드가 남는다. 그다음 해시는 기존 흐름대로(`normalize`가 `invite`를 버린다).
+4. `src/lib/sync/api.ts`: `GazuaFail`에 `{ kind: 'invite'; code: 'invite-invalid' | 'members-full' }`, `mapStatus`에서 403 두 코드를 바꾼다. `createSession(idToken, label, extra?)`, `createSocialSession`은 패키지 서명 그대로(extra 포함). `listMembers()`(`GET /v1/members`), `removeMember(identity)`(`DELETE /v1/members/:identity`).
+5. `src/lib/sync/controller.svelte.ts`:
+   - `startSession`·소셜 `createSocialSession` 호출에 `readInvite()`가 있으면 `{ invite }`를 extra로 보낸다. 성공·`not-allowed`·`invite`면 `clearInvite()`.
+   - `ERRORS['not-allowed']`, `onAuthFailure` 문구 →「초대가 필요하거나 이용이 끝난 계정이에요」. `describeFail`: `invite` → 코드별 문구, `limit`+`invite-limit` →「잠시 뒤 다시 시도해 주세요」.
+   - `socialSessionFailure`: `invite` → `reason`을 그 코드로.
+   - `members()`: 403(`server` 403 또는 `not-allowed`가 아님)이면 오류 배너 없이 `{ ok: false, reason: 'not-admin' }`, 성공이면 목록. `removeMember(identity)`. 기존 `cliTokens` 분기와 같은 꼴.
+   - `invitePending`(읽기 전용 상태): 저장된 코드가 있는지(로그인 전 안내용).
+6. `src/lib/sync/social.ts` 유니언에 `invite-invalid`·`members-full`, `src/lib/sync/socialText.ts`에 두 문구와 `not-allowed` 상세 문구 교체(허용 목록 대신 초대 안내).
+7. `src/lib/ui/settings/SyncPanel.svelte`: `PHASE['not-allowed']` 문구 교체, 로그인 전 `invitePending`이면 「초대받았어요. 로그인하면 가입돼요」.
+8. `src/lib/ui/settings/SyncManage.svelte`: 펼침 항목 「멤버」. 펼칠 때만 `members()`를 부르고, `not-admin`이면 「관리자만 볼 수 있어요」 한 줄, 아니면 목록(계정·가입일·상한)과 「내보내기」(확인 뒤).
+9. 시험: `routes.test.ts`(join 파싱·hashFor), 온보딩 전 `#/join/…`에서 코드 저장(앱 상태 시험), controller(초대 extra 전달·지우기, 문구, members 403 배너 없음), `SyncManage` 멤버 펼침(관리자 목록·내보내기, 비관리자 한 줄), socialText.
 
-검증: 루트 `pnpm test`(해당 파일), `pnpm check`(svelte-check·tsc).
+검증: 루트 `corepack pnpm test`(해당 파일), `corepack pnpm check`.
 
 ## 과제 C: 문서와 마무리
 
