@@ -55,7 +55,7 @@ Google 세션으로 개인 API를 부를 때는 매 요청에 두 가지를 보�
 | `GET /v1/market/files`, `DELETE /v1/market/files` | 앱 세션. Drive에 올라간 시장 파일의 manifest(파일 ID·크기·해시·수집 범위 등, 파일 본문은 없어요) 목록과 모두 지우기 |
 | `DELETE /v1/market/files/:id` | 앱 세션. manifest 한 건 지우기(Drive 파일은 앱·CLI가 따로 지워요) |
 | `POST /v1/market/files` | CLI 토큰(`market-upload` 범위)만. 올린 시장 파일을 manifest에 등록해요 |
-| CLI 토큰(`Authorization: Gazua-CLI <토큰>`) | `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, `DELETE /v1/cli/token`(자기 토큰 철회)만 통과해요(기본 `read` 범위). `gazua drive login`이 받는 `market-upload` 범위 토큰은 `GET`·`POST /v1/market/files`, `DELETE /v1/market/files/:id`, `DELETE /v1/cli/token`만 통과해요. 그 밖은 라우터 전에 `403 cli-scope`예요. 토큰은 90일 고정이고 D1에는 해시만 둬요 |
+| CLI 토큰(`Authorization: Gazua-CLI <토큰>`) | `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, `DELETE /v1/cli/token`(자기 토큰 철회)만 통과해요(기본 `read` 범위). `gazua drive login`이 받는 `market-upload` 범위 토큰은 `GET`·`POST /v1/market/files`, `DELETE /v1/market/files/:id`, `DELETE /v1/cli/token`만 통과해요. 두 범위 모두 `GET /v1/cli/owner`(→ `{ owner }`, 시장 파일 수집 계정 표시. `firebase_sub`의 해시라 이메일이 드러나지 않아요)도 통과해요. 그 밖은 라우터 전에 `403 cli-scope`예요. 토큰은 90일 고정이고 D1에는 해시만 둬요 |
 
 capability는 256비트(base64url 43자)예요. 만들 때 한 번만 돌려주고 D1에는 해시만 둬요. 링크는 `https://<앱>/#/s/<capability>`이고, fragment라서 서버 로그·Referer에 남지 않아요. 로그에는 `메서드 경로패턴 상태 시간`만 남겨요.
 
