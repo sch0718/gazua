@@ -202,10 +202,14 @@ describe('관리자: 멤버 목록과 내보내기', () => {
     expect((await as('GET', '/v1/members')).status).toBe(403);
   });
 
-  it('멤버가 아니면 404', async () => {
+  it('멤버가 아니면 404이고 그 계정의 세션은 건드리지 않는다(다른 관리자 포함)', async () => {
     const h = setup();
     const admin = await h.login();
+    const other = await h.login('other@example.test', 'uid-other');
     expect((await admin.as('DELETE', `/v1/members/${encodeURIComponent('nobody@example.test')}`)).status).toBe(404);
+    expect((await admin.as('DELETE', `/v1/members/${encodeURIComponent('other@example.test')}`)).status).toBe(404);
+    expect((await other.as('GET', '/v1/profiles')).status).toBe(200);
+    expect(rows(h, 'SELECT count(*) AS n FROM sessions WHERE revoked_at IS NOT NULL')).toEqual([{ n: 0 }]);
   });
 
   it('내보낸 멤버는 세션이 끊기고 코드로 다시 가입할 수 없다', async () => {

@@ -1065,6 +1065,20 @@ describe('카카오·네이버 로그인', () => {
     expect(readInvite()).toBeNull();
   });
 
+  it('자리가 없으면 코드를 남기고, 초대 시도 제한은 공급자 장애와 다른 사유로 알린다', async () => {
+    const s = testServer({ social: true });
+    s.h.env.INVITE_CODE = INVITE;
+    s.h.env.MEMBER_LIMIT = '1';
+    s.h.env.DB.raw.prepare("INSERT INTO members (identity, joined_at) VALUES ('kakao:someone', 1)").run();
+    saveInvite(INVITE);
+    const a = await socialSetup(s);
+    expect(await a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'))).toEqual({ ok: false, provider: 'kakao', reason: 'members-full' });
+    expect(readInvite()).toBe(INVITE);
+    s.h.env.DB.raw.prepare("INSERT INTO invite_attempts (identity, at) VALUES ('kakao:stranger', ?), ('kakao:stranger', ?), ('kakao:stranger', ?), ('kakao:stranger', ?), ('kakao:stranger', ?)").run(...Array(5).fill(s.h.clock.now));
+    expect(await a.sync.completeSocialSignIn(await a.callback('kakao', 'stranger'))).toEqual({ ok: false, provider: 'kakao', reason: 'invite-limit' });
+    expect(readInvite()).toBe(INVITE);
+  });
+
   it('취소·대기 요청 없음·콜백 실패를 구분한다', async () => {
     const a = await socialSetup(testServer({ social: true }));
     expect(await a.sync.completeSocialSignIn(await a.callback('kakao', 'kakao-me', 'error=access_denied'))).toMatchObject({ reason: 'cancelled' });

@@ -180,7 +180,7 @@ const ERRORS: Record<string, string> = {
   offline: '서버에 연결할 수 없어요. 연결되면 다시 보내요.',
   'not-allowed': '초대가 필요하거나 이용이 끝난 계정이에요.',
   'invite-invalid': '초대 링크가 맞지 않아요.',
-  'members-full': '초대 자리가 다 찼어요.',
+  'members-full': '초대 자리가 다 찼어요. 자리가 나면 다시 로그인해 주세요.',
   'invite-limit': '잠시 뒤 다시 시도해 주세요.',
   auth: '로그인이 끝났어요. 다시 로그인해 주세요.',
   limit: '서버 한도에 걸렸어요. 잠시 뒤 다시 시도해요.',
@@ -561,15 +561,15 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
     else void forget(code === 'session-revoked' ? '이 기기는 로그아웃됐어요(다른 기기에서 철회). 다시 로그인해 주세요.' : ERRORS.auth);
   }
 
-  // 초대 코드는 로그인 요청에 실어 보낸다. 가입됐거나 다시 보내도 소용없는 실패(초대 없음·내보냄·코드 틀림·자리 없음)면 지운다.
-  // 그래야 내보낸 사람의 기기가 코드를 계속 보내지 않는다. 시도 제한(429)·네트워크 오류는 다시 시도할 수 있게 남긴다.
+  // 초대 코드는 로그인 요청에 실어 보낸다. 가입됐거나 다시 보내도 소용없는 실패(초대 없음·내보냄·코드 틀림)면 지운다.
+  // 그래야 내보낸 사람의 기기가 코드를 계속 보내지 않는다. 자리 없음·시도 제한(429)·네트워크 오류는 다시 시도할 수 있게 남긴다.
   let inviteTick = $state(0);
   const inviteExtra = () => {
     const invite = readInvite();
     return invite ? { invite } : undefined;
   };
   function settleInvite(r: { ok: true } | ApiFail) {
-    if (r.ok || r.kind === 'not-allowed' || r.kind === 'invite') {
+    if (r.ok || r.kind === 'not-allowed' || (r.kind === 'invite' && r.code === 'invite-invalid')) {
       clearInvite();
       inviteTick++;
     }
@@ -604,7 +604,8 @@ export function createSyncController(deps: SyncControllerDeps): SyncController {
   }
 
   function socialSessionFailure(r: ApiFail, provider: SocialProvider): SocialOutcome {
-    const reason = r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
+    const reason = r.kind === 'limit' && r.code === 'invite-limit' ? 'invite-limit'
+      : r.kind === 'not-allowed' || r.kind === 'limit' || r.kind === 'offline' ? r.kind
       : r.kind === 'invite' ? r.code
       : r.kind === 'auth' ? r.code === 'invalid-code' ? 'invalid-code' : 'invalid-token'
       : r.kind === 'not-found' ? 'not-enabled' : r.kind === 'server' && r.status === 400 ? 'bad-request' : 'server';

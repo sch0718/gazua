@@ -89,7 +89,9 @@ export async function removeMember(env: SyncEnv, deps: SyncDeps, ctx: AuthContex
   const db = env.DB;
   const now = deps.now();
   // Google 사용자는 users.email, 소셜 사용자는 users.firebase_sub('kakao:<sub>')가 identity다
-  const users = `SELECT id FROM users WHERE firebase_sub = ?1 OR (email = ?1 AND firebase_sub NOT LIKE '%:%')`;
+  // 철회는 같은 batch에서 방금 내보낸 멤버일 때만 한다(멤버가 아니거나 관리자 계정이면 404이고 아무것도 바꾸지 않는다)
+  const users = `SELECT id FROM users WHERE (firebase_sub = ?1 OR (email = ?1 AND firebase_sub NOT LIKE '%:%'))
+    AND EXISTS (SELECT 1 FROM members WHERE identity = ?1 AND removed_at = ?2)`;
   const [r] = await db.batch([
     db.prepare('UPDATE members SET removed_at = ? WHERE identity = ? AND removed_at IS NULL').bind(now, identity),
     db.prepare(`UPDATE sessions SET revoked_at = ?2 WHERE revoked_at IS NULL AND user_id IN (${users})`).bind(identity, now),
