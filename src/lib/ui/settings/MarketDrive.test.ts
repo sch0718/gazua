@@ -14,11 +14,12 @@ const row = (n: number, o: Partial<MarketFileRow> = {}): MarketFileRow => ({
 });
 const local = (o: Partial<MarketDataInfo> = {}): MarketDataInfo => ({ collectedAt: '2026-10-30T18:00:00+09:00', stocks: 2600, range: { from: '2021-10-30', to: '2026-10-30' }, ...o });
 
-function setup(o: { files?: MarketFilesResult; account?: unknown; info?: MarketDataInfo | null; token?: any; fetchImpl?: typeof fetch; confirm?: boolean; digest?: (b: Blob) => Promise<string>; preload?: () => Promise<void> } = {}) {
+function setup(o: { importResult?: unknown; files?: MarketFilesResult; account?: unknown; info?: MarketDataInfo | null; token?: any; fetchImpl?: typeof fetch; confirm?: boolean; digest?: (b: Blob) => Promise<string>; preload?: () => Promise<void> } = {}) {
   const marketFiles = vi.fn(async () => o.files ?? { ok: true as const, files: [row(1), row(0)] });
   const wipeMarketFiles = vi.fn(async () => true);
-  const sync = { account: o.account === undefined ? { provider: 'google', id: 'me', display: 'me' } : o.account, marketFiles, wipeMarketFiles } as unknown as SyncController;
-  const importFile = vi.fn(async () => ({ ok: true as const, info: local({ sha256: row(1).sha256, collectedAt: row(1).collectedAt }) }));
+  const marketOwner = vi.fn(async () => 'a'.repeat(32));
+  const sync = { account: o.account === undefined ? { provider: 'google', id: 'me', display: 'me' } : o.account, marketFiles, wipeMarketFiles, marketOwner } as unknown as SyncController;
+  const importFile = vi.fn(async (..._a: unknown[]) => o.importResult ?? ({ ok: true as const, info: local({ sha256: row(1).sha256, collectedAt: row(1).collectedAt }) }));
   const onImported = vi.fn();
   const forget = vi.fn();
   const auth = { token: vi.fn(async () => o.token ?? { ok: true, token: 't' }), forget };
@@ -28,7 +29,7 @@ function setup(o: { files?: MarketFilesResult; account?: unknown; info?: MarketD
     sync, marketData: { importFile } as unknown as MarketDataStore, localInfo: o.info === undefined ? local() : o.info, onImported, clientId: 'cid',
     fetchImpl, auth, preload, confirmFn: () => o.confirm ?? true, digest: o.digest ?? (async () => row(1).sha256),
   });
-  return { marketFiles, wipeMarketFiles, importFile, onImported, auth, preload };
+  return { marketFiles, wipeMarketFiles, importFile, onImported, auth, preload, marketOwner };
 }
 
 describe('MarketDrive', () => {
@@ -103,6 +104,22 @@ describe('MarketDrive', () => {
     expect(auth.token).toHaveBeenCalledTimes(1);
     expect(importFile).toHaveBeenCalledTimes(1);
     expect((await screen.findByRole('status')).textContent).toBe('Drive에서 받았어요');
+  });
+  it('받을 때 지금 계정의 표시를 importFile에 넘긴다', async () => {
+    const { importFile, onImported, marketOwner } = setup();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Drive에서 받기' }));
+    await waitFor(() => expect(onImported).toHaveBeenCalled());
+    const deps = importFile.mock.calls[0][1] as { owner: () => Promise<string | null> };
+    expect(await deps.owner()).toBe('a'.repeat(32));
+    expect(marketOwner).toHaveBeenCalled();
+  });
+  it.each([
+    ['owner-mismatch', '다른 계정에서 수집한 파일이에요. 수집한 계정으로 로그인한 앱에서만 가져올 수 있어요'],
+    ['owner-signed-out', '수집한 계정으로 로그인한 뒤 가져와 주세요'],
+  ])('%s면 이유를 알린다', async (reason, text) => {
+    setup({ importResult: { ok: false, reason } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Drive에서 받기' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(text);
   });
   it('404면 계정 확인 안내', async () => {
     setup({ fetchImpl: (async () => new Response(null, { status: 404 })) as typeof fetch });

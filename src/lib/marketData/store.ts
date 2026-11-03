@@ -50,6 +50,12 @@ export interface ImportDeps {
   owner?: () => Promise<string | null>;
 }
 
+/** 수집 계정 표시로 거절할 때의 안내(수동 가져오기·Drive 받기가 함께 쓴다) */
+export const OWNER_TEXT = {
+  'owner-mismatch': '다른 계정에서 수집한 파일이에요. 수집한 계정으로 로그인한 앱에서만 가져올 수 있어요',
+  'owner-signed-out': '수집한 계정으로 로그인한 뒤 가져와 주세요',
+} as const;
+
 export interface MarketDataStore {
   info(): Promise<MarketDataInfo | null>;
   load(): Promise<MarketDataFile | null>;

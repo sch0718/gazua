@@ -8,7 +8,7 @@
   import type { SyncController } from '../../sync/controller.svelte';
   import { readDriveClientId } from '../../marketData/driveConfig';
   import MarketDrive from './MarketDrive.svelte';
-  import { openMarketData, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
+  import { openMarketData, OWNER_TEXT, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
 
   let {
     app,
@@ -101,12 +101,15 @@
     if (!file || marketBusy) return;
     marketBusy = true;
     try {
-      const res = await marketData.importFile(file, marketImportDeps);
+      // 수집 계정 표시가 있는 파일은 지금 로그인한 계정의 것만 받는다(동기화가 없으면 로그인하지 않은 것)
+      const res = await marketData.importFile(file, { ...marketImportDeps, owner: async () => (await sync?.marketOwner?.()) ?? null });
       if (res.ok) {
         marketInfo = res.info;
         showSnackbar(res.persisted === false ? '브라우저가 공간이 부족할 때 지울 수 있어요' : '시장 데이터를 가져왔어요');
       } else if (res.reason === 'version-newer') {
         showSnackbar('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요');
+      } else if (res.reason === 'owner-mismatch' || res.reason === 'owner-signed-out') {
+        showSnackbar(OWNER_TEXT[res.reason]);
       } else if (res.reason === 'quota') {
         showSnackbar(`저장 공간이 부족해요(필요 약 ${res.neededMb ?? '?'} MB)`);
       } else {

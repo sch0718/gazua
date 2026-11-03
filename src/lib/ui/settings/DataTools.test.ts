@@ -162,13 +162,13 @@ describe('DataTools', () => {
     const roomy = async () => ({ quota: 10 ** 12, usage: 0 });
     let marketData = openMarketData();
 
-    async function mount(marketImportDeps: ImportDeps = { decompress, estimate: roomy }) {
+    async function mount(marketImportDeps: ImportDeps = { decompress, estimate: roomy }, sync?: unknown) {
       globalThis.indexedDB = new IDBFactory();
       marketData = openMarketData();
       const app = makeTestApp({ groups: [], now: NOW, settings: { provider: 'kis' } });
       apps.push(app);
       render(SnackbarHost);
-      render(DataTools, { app, estimate: async () => 0, marketData, marketImportDeps });
+      render(DataTools, { app, estimate: async () => 0, marketData, marketImportDeps, ...(sync !== undefined && { sync: sync as never, driveClientId: null }) });
       return app;
     }
     const pick = (f: File) => fireEvent.change(screen.getByLabelText('시장 데이터 파일'), { target: { files: [f] } });
@@ -292,6 +292,34 @@ describe('DataTools', () => {
       await mount({ decompress: async () => JSON.stringify({ ...j, version: 5 }), estimate: roomy });
       await pick(demo());
       expect(await screen.findByText('새 형식의 파일이에요. 앱을 새로 고친 뒤 다시 가져와 주세요')).toBeTruthy();
+    });
+
+    describe('수집 계정 표시', () => {
+      const TAG = '0123456789abcdef0123456789abcdef';
+      const taggedDeps = async (): Promise<ImportDeps> => {
+        const j = JSON.parse(await decompress(new Blob([gz])));
+        j.owner = TAG;
+        return { decompress: async () => JSON.stringify(j), estimate: roomy };
+      };
+
+      it('같은 계정으로 로그인했으면 가져온다', async () => {
+        await mount(await taggedDeps(), { account: { provider: 'google', id: 'me', display: 'me' }, marketOwner: async () => TAG });
+        await pick(demo());
+        expect(await screen.findByText(/^수집 2026-10-16/)).toBeTruthy();
+      });
+
+      it('다른 계정이면 이유를 알리고 가져오지 않는다', async () => {
+        await mount(await taggedDeps(), { account: { provider: 'google', id: 'me', display: 'me' }, marketOwner: async () => 'f'.repeat(32) });
+        await pick(demo());
+        expect(await screen.findByText('다른 계정에서 수집한 파일이에요. 수집한 계정으로 로그인한 앱에서만 가져올 수 있어요')).toBeTruthy();
+        expect(await marketData.info()).toBeNull();
+      });
+
+      it('동기화가 없거나 로그인하지 않았으면 로그인 안내', async () => {
+        await mount(await taggedDeps());
+        await pick(demo());
+        expect(await screen.findByText('수집한 계정으로 로그인한 뒤 가져와 주세요')).toBeTruthy();
+      });
     });
 
     it('shows the needed MB when space is short', async () => {
