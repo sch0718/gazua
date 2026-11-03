@@ -20,6 +20,6 @@ export default {
   fetch: (req: Request, env: SyncEnv): Promise<Response> => handle(req, env, deps()),
   async scheduled(_controller: unknown, env: SyncEnv): Promise<void> {
     const r = await purge(env, Date.now());
-    console.log(`purge profiles=${r.profiles} shares=${r.shares} sessions=${r.sessions} cliGrants=${r.cliGrants} cliTokens=${r.cliTokens}`);
+    console.log(`purge profiles=${r.profiles} shares=${r.shares} sessions=${r.sessions} cliGrants=${r.cliGrants} cliTokens=${r.cliTokens} inviteAttempts=${r.inviteAttempts}`);
   },
 };

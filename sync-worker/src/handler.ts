@@ -34,6 +34,7 @@ import {
   type AuthContext,
 } from './session';
 import { deleteMarketFile, listMarketFiles, wipeMarketFiles } from './market';
+import { listMembers, removeMember } from './members';
 import { createShare, listShares, readShare, revokeShare } from './shares';
 
 type Handler = (a: { req: Request; env: SyncEnv; deps: SyncDeps; params: string[]; url: URL }) => Promise<Response>;
@@ -110,6 +111,8 @@ const ROUTES: [string, RegExp, string, Handler][] = [
   ['POST', /^\/v1\/cli\/approve$/, '/v1/cli/approve', authed(async ({ req, env, deps, ctx }) => ok(await approveCli(env, deps, ctx, await readJson(req, 4096))))],
   ['GET', /^\/v1\/cli\/tokens$/, '/v1/cli/tokens', authed(async ({ env, deps, ctx }) => ok({ tokens: await listCliTokens(env, ctx, deps.now()) }))],
   ['DELETE', /^\/v1\/cli\/tokens\/([^/]+)$/, '/v1/cli/tokens/:id', authed(async ({ env, deps, ctx, params }) => (await revokeCliToken(env, ctx, params[0], deps.now()), ok({ revoked: true })))],
+  ['GET', /^\/v1\/members$/, '/v1/members', authed(async ({ env, ctx }) => ok(await listMembers(env, ctx)))],
+  ['DELETE', /^\/v1\/members\/([^/]+)$/, '/v1/members/:identity', authed(async ({ env, deps, ctx, params }) => ok(await removeMember(env, deps, ctx, params[0])))],
   ['GET', /^\/v1\/public\/share$/, '/v1/public/share', async ({ req, env, deps }) => ok(await readShare(env, req, deps.now()))],
 ];
 

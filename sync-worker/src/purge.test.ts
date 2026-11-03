@@ -39,7 +39,7 @@ describe('purge', () => {
     const keep = await me.as('POST', '/v1/shares', { sourceProfileId: 'p1', kind: 'group', snapshot: snap, ttlDays: 30 });
     void keep;
     await h.login(); // 두 번째 세션
-    expect(await purge(h.env, h.clock.now + 30 * DAY)).toEqual({ profiles: 0, shares: 0, sessions: 0, cliGrants: 0, cliTokens: 0 });
+    expect(await purge(h.env, h.clock.now + 30 * DAY)).toEqual({ profiles: 0, shares: 0, sessions: 0, cliGrants: 0, cliTokens: 0, inviteAttempts: 0 });
     expect(await purge(h.env, h.clock.now + 31 * DAY + 1)).toMatchObject({ shares: 1 });
     expect(n(h, 'shares')).toBe(1);
     expect(n(h, 'sessions')).toBe(2);

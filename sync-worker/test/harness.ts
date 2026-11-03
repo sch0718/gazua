@@ -22,7 +22,7 @@ export type SocialOptions = boolean | { kakao?: boolean; naver?: boolean; allowe
 
 export interface Harness {
   fake: ReturnType<typeof createFakeSocial>;
-  socialLogin(provider: SocialProvider, sub: string, opts?: { label?: string; redirectUri?: string }): Promise<{ response: Response; session: string; as: Caller }>;
+  socialLogin(provider: SocialProvider, sub: string, opts?: { label?: string; redirectUri?: string; invite?: string }): Promise<{ response: Response; session: string; as: Caller }>;
   env: SyncEnv & { DB: TestD1 };
   deps: SyncDeps;
   clock: { now: number };
@@ -99,7 +99,7 @@ export function harness(opts: { allowed?: string; social?: SocialOptions } = {})
       const redirectUri = o.redirectUri ?? `${ORIGIN}/auth/callback/`;
       const params = new URL(socialAuthorizeUrl(provider, { clientId: `${provider}-test-client`, redirectUri, state: 'test-state', nonce: await socialNonce(codeVerifier), codeChallenge })).searchParams;
       const { code } = fake.authorize(provider, params, sub);
-      const response = await call('POST', '/v1/session/social', { body: { provider, code, codeVerifier, redirectUri, label: o.label } });
+      const response = await call('POST', '/v1/session/social', { body: { provider, code, codeVerifier, redirectUri, label: o.label, ...(o.invite !== undefined && { invite: o.invite }) } });
       const { sessionId = '' } = await response.clone().json() as { sessionId?: string };
       return { response, session: sessionId, as: (method, path, body) => call(method, path, { session: sessionId, token: null, body }) };
     },

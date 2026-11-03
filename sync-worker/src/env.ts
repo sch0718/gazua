@@ -22,6 +22,10 @@ export interface SyncEnv {
   SOCIAL_REDIRECT_URIS?: string;
   /** CLI 요청 IP를 해시하는 솔트(secret, 32바이트 무작위). 없으면 POST /v1/cli/device가 503 cli-disabled. */
   CLI_IP_SALT?: string;
+  /** 공용 초대 코드(secret). 32자 미만이거나 없으면 초대 가입을 닫는다. 바꾸면 새 가입만 막히고 기존 멤버는 그대로다. */
+  INVITE_CODE?: string;
+  /** 내보내지 않은 멤버 수 상한(var, 기본 20). 관리자는 세지 않는다. */
+  MEMBER_LIMIT?: string;
 }
 
 /** 테스트에서 바꿔 끼우는 것들. */

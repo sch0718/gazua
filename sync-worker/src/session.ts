@@ -2,6 +2,7 @@
 // 가즈아는 세션 헤더 이름과 환경값만 넘긴다. 헤더 이름은 설치된 PWA가 보내는 값이라 바꾸지 않는다.
 import { createSessionAuth, type AuthContext } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from './env';
+import { allowMember } from './members';
 
 export {
   LABEL_MAX,
@@ -30,6 +31,8 @@ const sessions = (env: SyncEnv, deps: SyncDeps) => {
     now: deps.now,
     random: deps.random,
     uuid: deps.uuid,
+    // 고정 목록 밖 계정은 멤버 표로 판단하고, 가입 요청이면 초대 코드로 멤버가 된다
+    isAllowed: allowMember(env, deps),
     ...(kakao || naver ? { social: {
       allowedAccounts: env.ALLOWED_ACCOUNTS,
       ...(kakao && { kakao }),

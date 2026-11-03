@@ -13,10 +13,11 @@ class Stmt implements D1PreparedStatement {
     private db: DatabaseSync,
     readonly sql: string,
     readonly values: unknown[] = [],
+    private gate: () => Promise<void> = async () => {},
   ) {}
   bind(...values: unknown[]): D1PreparedStatement {
     for (const v of values) if (v === undefined || typeof v === 'boolean') throw new TypeError(`D1 bind: ${typeof v}`);
-    return new Stmt(this.db, this.sql, values);
+    return new Stmt(this.db, this.sql, values, this.gate);
   }
   exec(): D1Result {
     const s = this.db.prepare(this.sql);
@@ -29,12 +30,15 @@ class Stmt implements D1PreparedStatement {
     return { results: [], success: true, meta: { changes: Number(r.changes) } };
   }
   async first<T>(): Promise<T | null> {
+    await this.gate();
     return (this.exec().results[0] as T | undefined) ?? null;
   }
   async all<T>(): Promise<D1Result<T>> {
+    await this.gate();
     return this.exec() as D1Result<T>;
   }
   async run(): Promise<D1Result> {
+    await this.gate();
     return this.exec();
   }
 }
@@ -43,6 +47,8 @@ export interface TestD1 extends D1Database {
   raw: DatabaseSync;
   /** 다음 batch를 n번째 문장에서 실패시킨다(롤백 확인용). */
   failNextBatchAt(n: number): void;
+  /** 참이면 문장마다 매크로태스크로 양보해 동시 요청이 문장 사이에서 엇갈리게 한다(경쟁 조건 시험용). */
+  interleave: boolean;
 }
 
 export function createTestD1(): TestD1 {
@@ -52,12 +58,13 @@ export function createTestD1(): TestD1 {
     raw.exec(readFileSync(join(MIGRATIONS, f), 'utf8'));
   }
   let failAt: number | null = null;
-  return {
+  const db: TestD1 = {
     raw,
+    interleave: false,
     failNextBatchAt(n) {
       failAt = n;
     },
-    prepare: (sql) => new Stmt(raw, sql),
+    prepare: (sql) => new Stmt(raw, sql, [], () => (db.interleave ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve())),
     async batch(statements) {
       const at = failAt;
       failAt = null;
@@ -75,4 +82,5 @@ export function createTestD1(): TestD1 {
       }
     },
   };
+  return db;
 }

@@ -509,6 +509,24 @@ describe('CLI 토큰 인증과 읽기 전용 강제', () => {
     expect(await j(await cliCall(s, 'GET', '/v1/profiles', { token: c.token }))).toMatchObject({ status: 403, body: { error: 'not-allowed' } });
   });
 
+  it('초대 멤버의 CLI 토큰은 멤버인 동안만 통과하고, 내보내면 철회된다', async () => {
+    const h = harness();
+    h.env.INVITE_CODE = 'i'.repeat(32);
+    const email = 'friend@example.test';
+    const t = await h.token({ email, sub: 'uid-friend' });
+    const s = (await j(await h.call('POST', '/v1/session', { token: t, body: { invite: 'i'.repeat(32) } }))).body.sessionId as string;
+    const friend = { as: async (m: string, p: string, b?: unknown) => h.call(m, p, { token: await h.token({ email, sub: 'uid-friend' }), session: s, body: b }) };
+    const c = await connect(h, friend);
+    expect((await cliCall(h, 'GET', '/v1/profiles', { token: c.token })).status).toBe(200);
+    // 멤버 표만 바뀌어도(stillAllowed 재확인) 막힌다
+    h.env.DB.raw.prepare('UPDATE members SET removed_at = 1').run();
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token: c.token }))).toMatchObject({ status: 403, body: { error: 'not-allowed' } });
+    h.env.DB.raw.prepare('UPDATE members SET removed_at = NULL').run();
+    const admin = await h.login();
+    expect((await admin.as('DELETE', `/v1/members/${encodeURIComponent(email)}`)).status).toBe(200);
+    expect(await j(await cliCall(h, 'GET', '/v1/profiles', { token: c.token }))).toMatchObject({ status: 401, body: { error: 'cli-token-revoked' } });
+  });
+
   it('last_used_at은 하루에 한 번만 갱신한다', async () => {
     const { h, token } = await ready();
     const first = h.clock.now;
