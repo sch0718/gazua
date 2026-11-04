@@ -26,5 +26,5 @@
 
 - 단위: `ResultView`(20건 경계 19·20, 0건), `ValidationResult`(364·365일 경계), 공유 화면 한 건씩.
 - 기존 테스트 기대값: `resultFixture.ts`의 축이 `2026-01-05`~`2026-02-03`(29일)이라 D4 뒤 `ValidationResult.test.ts`의 요약 카드 기대값(`연환산 +6.2%`, `연환산 +4.0%`)에서 연환산이 빠진다. 이 기대값을 짧은 기간 기준으로 고치고, 1년 이상 축은 365일 경계 테스트용 fixture로 따로 쓴다. `ResultView.test.ts`의 `'배당 제외 · 가격 수익률만이에요'` 기대는 D3에서 문구 값을 바꾸지 않으므로 그대로 둔다.
-- 엔진 불변: 데모 데이터로 시뮬레이션·검증을 돌려 바꾸기 전과 수치가 같은지 비교한다(엔진 파일을 건드리지 않으므로 기존 골든 테스트 통과로 확인).
+- 엔진 불변: 데모 데이터로 시뮬레이션·검증을 돌려 바꾸기 전과 수치가 같은지 비교한다(`src/lib/sim/`은 건드리지 않고 `simulate.golden.test.ts`로, `metrics.ts`는 계산 불변 리팩터링만 하고 `metrics.test.ts`로 확인).
 - e2e: `simulate.spec.ts`, `screen.spec.ts`, `share.spec.ts`, `help.spec.ts`.

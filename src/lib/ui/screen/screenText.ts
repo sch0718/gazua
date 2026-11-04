@@ -6,7 +6,7 @@ import { rankFinOf } from '../../screen/fin';
 import type { FinMetric, FlowWho, MacroSeriesKey, SelectionCriteria } from '../../screen/types';
 import { kstDate, kstEpoch } from '../../time/kst';
 import { fmtWon } from '../format';
-import { fmtReturnPct, trendReturn } from '../simulate/simText';
+import { DIVIDEND_TEXT, fmtReturnPct, OPEN_POSITION_TEXT, trendReturn } from '../simulate/simText';
 
 // 환율·유가(macro)는 켜는 조건이 계열별이라 이 목록에 넣지 않는다(화면은 Task 6)
 export type ConditionKey = Exclude<keyof SelectionCriteria['conditions'], 'macro' | 'flow' | 'fin'>;
@@ -212,11 +212,12 @@ export const FAILURE_TEXT: Record<WorkerErrorCode, string> = {
 export const ALL_EMPTY_TEXT = '기간 내내 조건을 통과한 종목이 없어요';
 export const WARMUP_TEXT = '앞부분은 지표 계산에 필요한 데이터가 모자라요';
 export const SPARSE_TEXT = '일부 재선정일은 전날 거래한 종목이 적어서 선별이 덜 정확할 수 있어요';
-/** 해석 도움말(스펙 7.4-6). 앞의 셋은 항상 보인다 */
+/** 해석 도움말(스펙 7.4-6). 이 넷은 항상 보인다 */
 export const HELP_ALWAYS = [
   '지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 결과가 실제보다 좋게 나올 수 있어요',
   '업종과 상장주식수는 수집일 기준이에요. 과거 시점에도 지금 값을 써요',
-  '배당 제외 · 가격 수익률만이에요',
+  DIVIDEND_TEXT,
+  OPEN_POSITION_TEXT,
 ] as const;
 export const FEW_SEGMENTS_TEXT = '구간이 적어서 우연일 수 있어요';
 /** 못 산 이유별 문구(스펙 6.2·7.4) */

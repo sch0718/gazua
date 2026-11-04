@@ -9,7 +9,7 @@
   import EquityChart, { EQUITY_LINES, type EquityKey } from './EquityChart.svelte';
   import LineSwatch from './LineSwatch.svelte';
   import type { DoneState } from './runController.svelte';
-  import { fmtPp, fmtReturnPct, LIMITATIONS, nearMissText, resultHeadline, returnClass, skipCounts, skipReasonLabel, trendReturn } from './simText';
+  import { FEW_TRADES_TEXT, fmtPp, fmtReturnPct, LIMITATIONS, MIN_CLOSED_TRADES, nearMissText, resultHeadline, returnClass, skipCounts, skipReasonLabel, trendReturn } from './simText';
   import SkipList from './SkipList.svelte';
   import SymbolTab from './SymbolTab.svelte';
   import TradeChartSheet from './TradeChartSheet.svelte';
@@ -93,6 +93,9 @@
       main: false,
     },
   ]);
+
+  // 끝난 거래 = 승 + 패. 거래 0건 화면에서는 쓰지 않는다
+  const fewTrades = $derived(sum.roundTrips - sum.openPositions < MIN_CLOSED_TRADES);
 
   type Row = { key: EquityKey; label: string; value: number | null; failed: string | null };
   const rows = $derived.by(() => {
@@ -216,6 +219,7 @@
         </li>
       {/each}
     </ul>
+    {#if fewTrades}<p class="few">{FEW_TRADES_TEXT}</p>{/if}
 
     {#key result}
       <EquityChart bind:this={equityChart}
@@ -310,6 +314,11 @@
     border-radius: 12px;
     background: var(--surface2);
     font-weight: 700;
+  }
+  .few {
+    margin: 0;
+    font-size: var(--fs-sub);
+    color: var(--warn);
   }
   .open-day {
     align-self: flex-start;
