@@ -3,11 +3,15 @@ import type { HoldSegment } from './holdSelection';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** first~last 달력일 수(KST 자정 기준) */
+export const calendarDays = (first: string, last: string): number =>
+  Math.round((kstEpoch(last, '00:00:00') - kstEpoch(first, '00:00:00')) / DAY_MS);
+
 /** 곡선 지표. 최대 낙폭은 0 이하, 변동성은 일간 수익률 표준편차(n−1) × √252 */
 export function curveStats(curve: number[], days: string[], initial: number): { totalPct: number; cagrPct: number; mddPct: number; volPct: number } {
   const final = curve[curve.length - 1] ?? initial;
   const totalPct = (final / initial - 1) * 100;
-  const calDays = days.length ? Math.round((kstEpoch(days[days.length - 1], '00:00:00') - kstEpoch(days[0], '00:00:00')) / DAY_MS) : 0;
+  const calDays = days.length ? calendarDays(days[0], days[days.length - 1]) : 0;
   const cagrPct = calDays > 0 ? ((final / initial) ** (365 / calDays) - 1) * 100 : totalPct;
 
   let peak = initial;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { holdSelection, type HoldSegment } from './holdSelection';
-import { beatCount, curveStats } from './metrics';
+import { beatCount, calendarDays, curveStats } from './metrics';
 import { DATES, mkFile, mkStock } from './testData';
 
 describe('curveStats', () => {
@@ -17,6 +17,14 @@ describe('curveStats', () => {
   });
   it('시작값 아래로만 내려가면 낙폭은 초기 자본 기준이다', () => {
     expect(curveStats([90, 80], ['2025-01-01', '2025-01-02'], 100).mddPct).toBeCloseTo(-20, 9);
+  });
+});
+
+describe('calendarDays', () => {
+  it('달력일 차이(KST 자정 기준)', () => {
+    expect(calendarDays('2025-01-06', '2026-01-05')).toBe(364);
+    expect(calendarDays('2024-01-01', '2025-01-01')).toBe(366);
+    expect(calendarDays('2026-01-05', '2026-01-05')).toBe(0);
   });
 });
 
