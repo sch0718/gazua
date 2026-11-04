@@ -5,7 +5,8 @@
   import { Banner } from '@sch0718/ui-svelte';
   import EquityChart, { type CurveLine } from '../simulate/EquityChart.svelte';
   import { BENCH_STYLES, INDEX_STYLES } from './curveStyles';
-  import { fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';
+  import { ANNUALIZE_MIN_DAYS, fmtReturnPct, returnClass, trendReturn } from '../simulate/simText';
+  import { calendarDays } from '../../screen/metrics';
   import MarketTable from './MarketTable.svelte';
   import SelectionHistory from './SelectionHistory.svelte';
   import TodayPicks from './TodayPicks.svelte';
@@ -80,6 +81,9 @@
   ]);
   const rebalanceDates = $derived(result.rebalances.map((r) => r.date));
 
+  // 1년 미만이면 연환산을 보이지 않는다(점검표 D4). 카드 큰 값이 이미 기간 수익률이다. 축은 runValidation이 비지 않게 만든다
+  const annualized = $derived(calendarDays(result.axis[0], result.axis[result.axis.length - 1]) >= ANNUALIZE_MIN_DAYS);
+
   const note = (n: ValidationResult['notes'][number]) => result.notes.includes(n);
   let equityChart = $state<ReturnType<typeof EquityChart>>();
   let root = $state<HTMLElement>();
@@ -113,7 +117,7 @@
           {#if c.stats}
             {@const s = c.stats}
             <b class="num value {returnClass(s.totalPct)}">{trendReturn(s.totalPct)}</b>
-            <small class="num">연환산 {fmtReturnPct(s.cagrPct, true)} · 최대 낙폭 {fmtReturnPct(s.mddPct)}</small>
+            <small class="num">{#if annualized}연환산 {fmtReturnPct(s.cagrPct, true)} · {/if}최대 낙폭 {fmtReturnPct(s.mddPct)}</small>
             {#if !c.id.startsWith('idx-')}
               {#if vs === null}
                 <small class="num">지수 대비 —</small>

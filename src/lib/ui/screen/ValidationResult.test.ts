@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lwcCharts, resetLwcStub, ResizeObserverStub } from '../../chart/lwcStub';
 import { makeTestApp } from '../../../sheets/testApp';
@@ -52,10 +52,10 @@ describe('ValidationResult', () => {
     expect(help.compareDocumentPosition(document.querySelector('#hist-h')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
-  it('summary cards: ① with the beat count, KOSPI, ETF; each with total, CAGR, drawdown and vs index', () => {
+  it('summary cards: ① with the beat count, KOSPI, ETF; each with total, drawdown and vs index (under a year: no CAGR)', () => {
     setup();
-    expect(squash(card('hold'))).toBe('① 선정만 ▲ +12.3% 연환산 +6.2% · 최대 낙폭 −10.0% 지수 대비 ▲ +4.3%p 지수보다 나은 구간 1/2');
-    expect(squash(card('idx-KOSPI'))).toBe('KOSPI ▲ +8.1% 연환산 +4.0% · 최대 낙폭 −10.0%');
+    expect(squash(card('hold'))).toBe('① 선정만 ▲ +12.3% 최대 낙폭 −10.0% 지수 대비 ▲ +4.3%p 지수보다 나은 구간 1/2');
+    expect(squash(card('idx-KOSPI'))).toBe('KOSPI ▲ +8.1% 최대 낙폭 −10.0%');
     expect(squash(card('etf-069500'))).toContain('KODEX 200 ▲ +5.0%');
     expect(squash(card('etf-069500'))).toContain('지수 대비 ▼ −3.1%p');
     expect(card('hold').querySelector('b.up')).toBeTruthy();
@@ -64,7 +64,7 @@ describe('ValidationResult', () => {
   it('card order is ①, ② (or its notice), indices, ETFs', () => {
     setup();
     expect([...document.querySelectorAll('[data-card]')].map((c) => (c as HTMLElement).dataset.card)).toEqual(['hold', 'trading', 'idx-KOSPI', 'etf-069500']);
-    document.body.innerHTML = '';
+    cleanup();
     setup(validationResult({ trading: { curve: [{ date: '2026-01-05', value: 1e7 }], stats: stats(-4), trades: 5, skipCounts: {} } }));
     expect([...document.querySelectorAll('[data-card]')].map((c) => (c as HTMLElement).dataset.card)).toEqual(['hold', 'trading', 'idx-KOSPI', 'etf-069500']);
   });
@@ -140,12 +140,21 @@ describe('ValidationResult', () => {
     expect(hist.textContent).toContain('반등 신호');
   });
 
+  it('CAGR shows only when the axis spans 365 calendar days or more', () => {
+    setup(validationResult({ axis: ['2025-01-06', '2026-01-05'] })); // 364일
+    expect(squash(card('hold'))).not.toContain('연환산');
+    cleanup();
+    setup(validationResult({ axis: ['2025-01-06', '2026-01-06'] })); // 365일
+    expect(squash(card('hold'))).toContain('연환산 +6.2% · 최대 낙폭 −10.0%');
+  });
+
   it('help always shows survivorship, snapshot and dividend; the few-segments line only with that note', () => {
     setup();
     const help = squash(document.querySelector('.help')!);
     expect(help).toContain('지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 결과가 실제보다 좋게 나올 수 있어요');
     expect(help).toContain('업종과 상장주식수는 수집일 기준이에요. 과거 시점에도 지금 값을 써요');
     expect(help).toContain('배당 제외 · 가격 수익률만이에요');
+    expect(help).toContain('보유 중 포지션은 매도 비용 전이에요');
     expect(help).toContain('구간이 적어서 우연일 수 있어요');
   });
 
@@ -252,7 +261,7 @@ describe('ValidationResult', () => {
     it('themeSnapshot adds its sentence to the help list (verbatim), and only with that note', () => {
       setup(validationResult({ notes: ['themeSnapshot'] }));
       expect(squash(document.querySelector('.help')!)).toContain('테마·내 묶음은 지금 구성을 과거에도 써요. 그때는 없던 종목이 들어 있어 결과가 실제보다 좋게 나올 수 있어요');
-      document.body.innerHTML = '';
+      cleanup();
       setup(validationResult({ notes: [] }));
       expect(squash(document.querySelector('.help')!)).not.toContain('지금 구성을 과거에도');
     });
@@ -260,7 +269,7 @@ describe('ValidationResult', () => {
     it('the weekly-release line shows only when the run used FX/oil', () => {
       setup(validationResult({ notes: [] }), {}, { macro: { used: true } });
       expect(squash(document.querySelector('.help')!)).toContain('환율·유가는 매주 묶어서 공개돼 최근 1~2주는 반영되지 않아요');
-      document.body.innerHTML = '';
+      cleanup();
       setup(validationResult({ notes: [] }));
       expect(squash(document.querySelector('.help')!)).not.toContain('매주 묶어서');
     });
@@ -290,7 +299,7 @@ describe('ValidationResult', () => {
     it('flowLag adds its sentence to the help list (verbatim), and only with that note', () => {
       setup(validationResult({ notes: ['flowLag'] }));
       expect(squash(document.querySelector('.help')!)).toContain('매매동향은 재선정일 이틀 전 거래일까지 써요');
-      document.body.innerHTML = '';
+      cleanup();
       setup(validationResult({ notes: [] }));
       expect(squash(document.querySelector('.help')!)).not.toContain('이틀 전 거래일');
     });
@@ -320,7 +329,7 @@ describe('ValidationResult', () => {
       const help = squash(document.querySelector('.help')!);
       expect(help).toContain('재무는 분기 결산 60일, 연간 결산 100일 뒤부터 써요');
       expect(help).toContain('PER·PBR의 시가총액은 지금 상장주식수로 계산해서, 과거에 증자한 종목은 값이 조금 클 수 있어요');
-      document.body.innerHTML = '';
+      cleanup();
       setup(validationResult({ notes: [] }));
       const none = squash(document.querySelector('.help')!);
       expect(none).not.toContain('연간 결산 100일');

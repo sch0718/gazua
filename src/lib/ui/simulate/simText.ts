@@ -268,8 +268,18 @@ export function skipCounts(skipped: Skip[]): { reason: Skip['reason']; n: number
   return [...count].map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n);
 }
 
+/** 시뮬레이션·기준 검증 결과가 함께 쓰는 안내(점검표 D2·D3) */
+export const DIVIDEND_TEXT = '배당 제외 · 가격 수익률만이에요';
+export const OPEN_POSITION_TEXT = '보유 중 포지션은 매도 비용 전이에요';
+/** 끝난 거래가 이보다 적으면 결과 아래 경고(점검표 D4) */
+export const MIN_CLOSED_TRADES = 20;
+export const FEW_TRADES_TEXT = `끝난 거래가 ${MIN_CLOSED_TRADES}번보다 적어서 우연일 수 있어요`;
+/** 기간이 이보다 짧으면(달력일) 연환산을 보이지 않는다(점검표 D4) */
+export const ANNUALIZE_MIN_DAYS = 365;
+
 export const LIMITATIONS = [
-  '배당 제외 · 가격 수익률만이에요',
+  DIVIDEND_TEXT,
   '지금 관심종목만 넣을 수 있어서 상장폐지 종목이 빠져요(생존 편향)',
   '일봉으로 계산해서 하루 안의 순서는 시가→저가→고가→종가로 가정해요',
+  OPEN_POSITION_TEXT,
 ] as const;

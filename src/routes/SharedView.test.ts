@@ -126,6 +126,9 @@ describe('SharedView 새 종류', () => {
     expect(rules.textContent).not.toContain('"axis"');
     expect(rules.textContent).not.toContain('"result"');
     expect(lwcCharts.length).toBeGreaterThan(0);
+    // 끝난 거래 2번(점검표 D4)·보유 중 매도 비용(D2) 안내도 같은 화면으로 보인다
+    expect(screen.getByText('끝난 거래가 20번보다 적어서 우연일 수 있어요')).toBeTruthy();
+    expect(screen.getByText('보유 중 포지션은 매도 비용 전이에요')).toBeTruthy();
   });
 
   it('자금 숨김: 배지와 가격만 보이는 거래 줄, 종목별은 자금 대비 %', async () => {
@@ -186,6 +189,9 @@ describe('SharedView 새 종류', () => {
     expect(screen.getByRole('heading', { name: '선정 이력' })).toBeTruthy();
     expect(screen.getAllByText('① 선정만').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '관심 그룹으로 만들기' })).toBeNull();
+    // 29일 축: 연환산 없이 최대 낙폭만(점검표 D4), 보유 중 매도 비용 안내(D2)
+    expect(screen.queryByText(/연환산/)).toBeNull();
+    expect(screen.getByText('보유 중 포지션은 매도 비용 전이에요')).toBeTruthy();
   });
 
   it('검증 결과의 실행 정보·데모·자금 숨김 배지는 SharedView에 남긴다', async () => {

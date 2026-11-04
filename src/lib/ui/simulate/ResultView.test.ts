@@ -242,11 +242,33 @@ describe('ResultView', () => {
     expect(rows[2].textContent?.replace(/\s+/g, ' ').trim()).toBe('2024.08.05 삼성전자 현금이 모자랐어요');
   });
 
-  it('한계 안내 3줄', () => {
+  it('한계 안내 4줄', () => {
     setup();
     expect(screen.getByText('배당 제외 · 가격 수익률만이에요')).toBeTruthy();
+    expect(screen.getByText('보유 중 포지션은 매도 비용 전이에요')).toBeTruthy();
     expect(screen.getByText('지금 관심종목만 넣을 수 있어서 상장폐지 종목이 빠져요(생존 편향)')).toBeTruthy();
     expect(screen.getByText('일봉으로 계산해서 하루 안의 순서는 시가→저가→고가→종가로 가정해요')).toBeTruthy();
+  });
+
+  it('끝난 거래가 20번보다 적으면 요약 카드 바로 뒤에 경고 한 줄', () => {
+    setup(
+      doneState((s) => {
+        s.result.summary.roundTrips = 20;
+        s.result.summary.openPositions = 1;
+      }),
+    );
+    const warn = screen.getByText('끝난 거래가 20번보다 적어서 우연일 수 있어요');
+    expect(screen.getByRole('list', { name: '요약' }).nextElementSibling).toBe(warn);
+  });
+
+  it('끝난 거래가 20번이면 경고가 없다', () => {
+    setup(
+      doneState((s) => {
+        s.result.summary.roundTrips = 21;
+        s.result.summary.openPositions = 1;
+      }),
+    );
+    expect(screen.queryByText(/끝난 거래가 20번보다 적어서/)).toBeNull();
   });
 
   it('거래 0건·건너뜀 0 → 신호 없음 안내와 규칙 고치기', async () => {
@@ -256,6 +278,7 @@ describe('ResultView', () => {
     expect(screen.queryByRole('list', { name: '요약' })).toBeNull();
     expect(screen.queryByRole('radiogroup')).toBeNull();
     expect(screen.getByText('배당 제외 · 가격 수익률만이에요')).toBeTruthy();
+    expect(screen.queryByText(/끝난 거래가 20번보다 적어서/)).toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: '규칙 고치기' }));
     expect(onEdit).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledWith(); // 클릭 이벤트가 구역으로 넘어가면 안 된다
