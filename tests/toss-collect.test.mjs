@@ -129,6 +129,14 @@ test('401은 치명 오류이고, 키·토큰은 오류 문구에 없다', async
   await assert.rejects(badToken.indexDaily('KOSPI', day(0), day(4)), (e) => e.fatal === true && !e.message.includes(ID));
 });
 
+test('401이 한 번 오면 토큰을 다시 받아 이어 가고, 5xx는 다시 시도한다', async () => {
+  let n = 0;
+  const fake = fakeToss({ symbols: { A: bars(5) }, indices: {} }, { onData: () => (++n === 1 ? json({}, 401) : n === 2 ? json({}, 502) : null) });
+  const r = await clientFor(fake).dailyCandles('A', day(0), day(4));
+  assert.equal(r.d.length, 5);
+  assert.equal(fake.calls.token, 2);
+});
+
 test('같은 페이지만 되풀이되면 자르지 않고 실패로 던진다', async () => {
   const page = { result: { candles: [{ timestamp: `${day(9)}T00:00:00.000+09:00`, openPrice: '1', highPrice: '1', lowPrice: '1', closePrice: '1', volume: '1' }], nextBefore: `${day(9)}T00:00:00.000+09:00` } };
   const fake = fakeToss({ symbols: {}, indices: {} }, { onData: () => json(page) });

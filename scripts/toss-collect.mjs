@@ -77,7 +77,8 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
   const getToken = () => (tokenPromise ??= issueToken());
 
   async function get(path, query) {
-    const token = await getToken();
+    let token = await getToken();
+    let reissued = false;
     const url = `${BASE_URL}${path}?${new URLSearchParams(query)}`;
     for (let attempt = 1; ; attempt++) {
       await pace();
@@ -96,6 +97,18 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
         // Retry-After가 없는 경우가 많아(㉝) 점점 길게 기다린다
         const after = Number(res.headers.get('retry-after')) * 1000;
         await wait(after > 0 ? after : BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]);
+        continue;
+      }
+      // 긴 수집 중 토큰이 만료됐을 수 있어 401이면 한 번만 새로 받아 다시 한다
+      if (res.status === 401 && !reissued) {
+        reissued = true;
+        if (tokenPromise && (await tokenPromise) === token) tokenPromise = null;
+        token = await getToken();
+        continue;
+      }
+      // 5xx는 일시적일 수 있어 네트워크 오류처럼 다시 시도한다
+      if (res.status >= 500 && attempt < MAX_ATTEMPTS) {
+        await wait(BACKOFF_MS[0]);
         continue;
       }
       if (!res.ok) throw new CollectError(`토스 응답 ${res.status}`, { fatal: res.status === 401 || res.status === 403 });
