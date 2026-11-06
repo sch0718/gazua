@@ -60,6 +60,8 @@
   } = $props();
 
   const LONG_PRESS_MS = 500;
+  /** 거래량 속도가 이 배수 이상이면 눈에 띄게 */
+  const PACE_HOT = 2;
   const MOVE_TOLERANCE_PX = 8;
 
   const HINT_MS = 4000;
@@ -394,7 +396,14 @@
           }}
         >
           <span class="nm">
-            <b>{r.name}{#if r.nxt}<Badge tone="nxt">NXT</Badge>{/if}</b>
+            <b
+              >{r.name}{#if r.nxt}<Badge tone="nxt">NXT</Badge>{/if}{#if r.extra?.moved}<span
+                  class="moved {r.extra.moved > 0 ? 'up' : 'down'}"
+                  role="img"
+                  aria-label="5분 전보다 {Math.abs(r.extra.moved)}칸 {r.extra.moved > 0 ? '올라감' : '내려감'}"
+                  >{r.extra.moved > 0 ? '▲' : '▼'}{Math.abs(r.extra.moved)}</span
+                >{/if}</b
+            >
             <em class="num"
               >{r.symbol}{#each r.badges as b (b)}<Badge tone={b === 'ETF' || b === 'ETN' ? 'neutral' : 'warn'}
                   >{b}</Badge
@@ -406,6 +415,20 @@
             <b class={v.cls}>{v.text}</b>
             <em>{r.price === null ? '—' : `${fmtWon(r.price)}원`}</em>
           </span>
+          {#if r.extra && !r.error && !r.loading}
+            {@const x = r.extra}
+            <span class="extra num">
+              <span
+                >{x.label}
+                <b class={x.value === null ? 'muted' : trendClass(x.value, conv)}
+                  >{x.value === null ? '—' : formatMetricValue(x.value, unit)}</b
+                ></span
+              >
+              {#if x.pace !== null}
+                <span class="pace" class:hot={x.pace >= PACE_HOT}>거래량 {x.pace.toFixed(1)}배</span>
+              {/if}
+            </span>
+          {/if}
         </button>
       </li>
     {/each}
@@ -526,6 +549,7 @@
   .main-btn {
     flex: 1;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     min-width: 0;
@@ -575,5 +599,39 @@
     font-style: normal;
     font-size: 12px;
     color: var(--t2);
+  }
+  .extra {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    font-size: 12px;
+    color: var(--t3);
+  }
+  .extra b {
+    font-weight: 700;
+  }
+  .extra b.up,
+  .moved.up {
+    color: var(--up);
+  }
+  .extra b.down,
+  .moved.down {
+    color: var(--down);
+  }
+  .pace {
+    font-weight: 600;
+  }
+  .pace.hot {
+    color: var(--warn);
+    font-weight: 800;
+  }
+  .moved {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .lrow.dim .extra {
+    opacity: 0.4;
   }
 </style>

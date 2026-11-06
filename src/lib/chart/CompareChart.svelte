@@ -60,6 +60,9 @@
     baseline?: number | null;
     /** 바뀌면 CSS 변수에서 색을 다시 읽는다 */
     theme?: string;
+    /** 1일 차트: windowFrom..windowTo(epoch ms)만 보인다(최근 구간 기준). 없으면 08:00–20:00 전체 */
+    windowFrom?: number | null;
+    windowTo?: number | null;
   }
 
   let {
@@ -73,6 +76,8 @@
     openDays = [],
     baseline,
     theme,
+    windowFrom = null,
+    windowTo = null,
   }: Props = $props();
 
   const GRID_MINUTES = 720;
@@ -277,9 +282,15 @@
     endLabels = placed;
   }
 
-  /** 1일 차트는 아직 오지 않은 시간(마지막 봉 뒤 whitespace)까지 08:00–20:00 전체를 보인다. */
+  /**
+   * 1일 차트는 아직 오지 않은 시간(마지막 봉 뒤 whitespace)까지 08:00–20:00 전체를 보인다.
+   * 최근 구간 기준이면 구간 시작부터 마지막 봉까지만.
+   */
   function fitRange(c: IChartApi) {
-    if (gridStart !== null) {
+    if (gridStart !== null && windowFrom !== null && windowTo !== null && windowTo > windowFrom) {
+      const at = (t: number) => (t - (gridStart as number)) / 60_000;
+      c.timeScale().setVisibleLogicalRange({ from: at(windowFrom) - 0.5, to: at(windowTo) + 0.5 });
+    } else if (gridStart !== null) {
       c.timeScale().setVisibleLogicalRange({ from: -0.5, to: GRID_MINUTES - 0.5 });
     } else {
       c.timeScale().fitContent();
@@ -473,7 +484,8 @@
     first?.attachPrimitive(new SessionBandsPrimitive(bandsInput, bandColors));
 
     // 기간·모드·종목 묶음이 바뀌면 전체를 맞추고, 같은 묶음의 주기 갱신이면 보던 범위를 유지한다.
-    const key = [mode, unit, gridStart ?? '', openDays.join(','), series.map((s) => s.id).join(',')].join('|');
+    // 최근 구간은 새 봉이 올 때마다 시작이 옮겨 가므로 범위를 다시 맞춘다.
+    const key = [mode, unit, gridStart ?? '', windowFrom ?? '', openDays.join(','), series.map((s) => s.id).join(',')].join('|');
     if (key === fitKey && keptRange) c.timeScale().setVisibleLogicalRange(keptRange);
     else fitRange(c);
     fitKey = key;

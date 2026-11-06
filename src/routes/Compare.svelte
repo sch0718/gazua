@@ -8,6 +8,7 @@
   import { METRICS, metricAvailability } from '../lib/data/metricRegistry';
   import type { Point } from '../lib/data/metrics';
   import { baseDateFor, indexBaseFor, metricPoints } from '../lib/data/seriesMetrics';
+  import { RANK_LOOKBACK_MIN, SUB_WINDOW_MIN, volumePace, windowApplies, windowPoints, windowStart, type RecentWindow } from '../lib/data/windowMetrics';
   import { fetchPlanFor, stepPeriod } from '../lib/market/periods';
   import type { DaySession } from '../lib/market/sessions';
   import { sessionLabelAt } from '../lib/market/tradable';
@@ -29,7 +30,7 @@
   import { formatMetricValue, INDEX_BASE_MISSING_NOTE, indexStaleNote, kstHHMM, monthDay, periodLabel, rvolBaseNote } from '../lib/ui/compare/compareText';
   import { EXAMPLE_SYMBOLS, chartTradingDate, indexLoadOf, staleIndexAt, lastSessionEnd, marketAutoVenue, openDaysOf, sessionsOn } from '../lib/ui/compare/compareView';
   import { PULL_THRESHOLD_PX, pullToRefresh } from '../lib/ui/compare/pullToRefresh';
-  import { buildRows, isSuspended, orderRows, rowSeries, sortRows } from '../lib/ui/compare/rows';
+  import { buildRows, isSuspended, orderRows, rowSeries, sortRows, valueAt, type RowExtra } from '../lib/ui/compare/rows';
   import { effectiveVenueMode, nextVenueMode } from '../lib/ui/compare/venue';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
@@ -149,11 +150,34 @@
   const metricDef = $derived(METRICS.find((m) => m.id === metric) ?? METRICS[0]);
   const unit = $derived(metricDef.unit);
 
+  // ── 최근 구간 기준(1일 등락률·초과수익) ─────────────────────
+  // 구간 끝은 차트 거래일 시리즈의 마지막 실제 봉, 시작은 그보다 N분 앞. 새 봉(1분마다 다시 받기)이 오면 함께 옮겨 간다.
+  const windowOn = $derived(windowApplies(period, metric));
+  const recentWindow = $derived<RecentWindow>(windowOn ? app.settings.recentWindow : 0);
+  const windowEnd = $derived.by(() => {
+    let end = Number.NEGATIVE_INFINITY;
+    for (const s of loaded) {
+      const t = s.candles.at(-1)?.t;
+      if (onChartDay(s) && t !== undefined && t > end) end = t;
+    }
+    return Number.isFinite(end) ? end : null;
+  });
+  const windowFrom = $derived(recentWindow !== 0 && windowEnd !== null ? windowStart(windowEnd, recentWindow) : null);
+  const metricLabel = $derived(recentWindow === 0 ? metricDef.label : `${metricDef.label} · ${recentWindow}분`);
+
   // 차트 입력은 불러온 상태에서만 만든다(시계·현재가와 무관하게 참조가 유지되도록).
-  const pointsOf = (symbol: string, series: LoadedSeries) => {
+  /** from이 있으면(1일 등락률·초과수익) 그 시각을 0으로 다시 맞춘 구간 값, 없으면 기간 지표. */
+  const pointsOf = (symbol: string, series: LoadedSeries, from: number | null = windowFrom) => {
     // 초과수익은 종목 시리즈와 같은 시점의 지수로만 계산한다(새 종목 봉 + 이전 지수, 이전 종목 봉 + 새 지수를 섞지 않는다).
     const pair = metric === 'excess' ? ctl.excessIndex(symbol, indexOf(symbol)) : null;
-    return metricPoints(series, metric, { index: pair?.series ?? null, indexUntil: pair?.until ?? null, period });
+    const index = { index: pair?.series ?? null, indexUntil: pair?.until ?? null };
+    if (from !== null && windowApplies(period, metric)) {
+      // 차트와 다른(이전) 거래일 결과나 갱신에 실패한 이전 결과에 지금 구간을 대면 마지막 봉이 기준이 되어
+      // 0%가 되므로 값을 비운다.
+      if (!onChartDay(series) || (series as { stale?: boolean }).stale) return series.candles.map((c) => ({ t: c.t, v: null }));
+      return windowPoints(series, metric, from, index);
+    }
+    return metricPoints(series, metric, { ...index, period });
   };
   const pointsBySymbol = $derived.by(() => {
     const out: Record<string, Point[] | null> = {};
@@ -240,7 +264,34 @@
     return out;
   });
 
-  const rows = $derived(
+  // 리더보드 보조 숫자(전일 대비면 최근 15분, 구간이면 오늘), 거래량 속도, 구간 순위 변화(5분 전 대비).
+  // 스크럽 중이면 그 시각을 끝으로 본다. 순위 변화는 스크럽 중에는 내지 않는다.
+  const extras = $derived.by(() => {
+    const bySymbol: Record<string, RowExtra> = {};
+    const prev: { symbol: string; value: number | null }[] = [];
+    if (!windowOn || windowEnd === null) return { bySymbol, prev };
+    const end = scrubT ?? windowEnd;
+    const shortFrom = recentWindow === 0 ? windowStart(end, SUB_WINDOW_MIN) : (windowFrom as number);
+    const prevEnd = windowStart(windowEnd, RANK_LOOKBACK_MIN);
+    for (const i of items) {
+      const series = ctl.entries[i.symbol]?.series;
+      const quoted = quotedBySymbol[i.symbol];
+      if (!series || !quoted || !onChartDay(series)) continue;
+      const sub = recentWindow === 0 ? pointsOf(i.symbol, quoted, shortFrom) : pointsOf(i.symbol, quoted, null);
+      bySymbol[i.symbol] = {
+        label: recentWindow === 0 ? `${SUB_WINDOW_MIN}분` : '오늘',
+        value: valueAt(sub, scrubT),
+        pace: volumePace(series.candles, shortFrom, end),
+        moved: null,
+      };
+      if (recentWindow !== 0 && scrubT === null) {
+        prev.push({ symbol: i.symbol, value: valueAt(pointsOf(i.symbol, series, windowStart(prevEnd, recentWindow)), prevEnd) });
+      }
+    }
+    return { bySymbol, prev };
+  });
+
+  const baseRows = $derived(
     buildRows(
       items.map((item) => {
         const e = ctl.entries[item.symbol];
@@ -257,6 +308,21 @@
       { ...rowOpts, venueMode: effectiveVenueMode(venues, venueMode) },
     ),
   );
+  const rows = $derived.by(() => {
+    if (!windowOn) return baseRows;
+    const { bySymbol, prev } = extras;
+    const rankOf = (list: { symbol: string; value: number | null }[]) =>
+      new Map(sortRows(list.filter((r) => r.value !== null), null).map((r, k) => [r.symbol, k]));
+    const nowRank = rankOf(baseRows);
+    const prevRank = prev.length > 0 ? rankOf(prev) : null;
+    return baseRows.map((r) => {
+      const e = bySymbol[r.symbol];
+      if (!e) return r;
+      const a = nowRank.get(r.symbol);
+      const b = prevRank?.get(r.symbol);
+      return { ...r, extra: { ...e, moved: a !== undefined && b !== undefined ? b - a : null } };
+    });
+  });
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
 
   /** 스크럽을 시작할 때 보이던 순서를 고정한다(값이 바뀌어도 행이 튀지 않게). */
@@ -399,7 +465,7 @@
       };
     });
     const at = ctl.lastOkAt ?? now;
-    const text = compareCardText({ title: shareTitle(group.name), period: periodLabel(period), metric: metricDef.label, at, rows: cells, provider: app.provider.id });
+    const text = compareCardText({ title: shareTitle(group.name), period: periodLabel(period), metric: metricLabel, at, rows: cells, provider: app.provider.id });
     return { canvas: composeCard(chart, text, readCardColors(document.documentElement)), alt: cardAlt(text, '비교 화면'), line: compareCardLine(cells.slice(0, 2), at) };
   }
 
@@ -462,7 +528,8 @@
       {:else}
         <Headline
           {period}
-          metricLabel={metricDef.label}
+          {metricLabel}
+          {windowFrom}
           {scrubT}
           {tradingDate}
           {today}
@@ -496,9 +563,11 @@
             {openDays}
             progress={ctl.progress}
             theme={app.settings.theme}
+            {windowFrom}
+            windowTo={windowFrom === null ? null : windowEnd}
             {oncrosshair}
           />
-          <DataTable series={chartSeries} {mode} {unit} metricLabel={metricDef.label} periodLabel={periodLabel(period)} conv={app.settings.colorConvention} />
+          <DataTable series={chartSeries} {mode} {unit} {metricLabel} periodLabel={periodLabel(period)} conv={app.settings.colorConvention} />
         </div>
         <div class="controls-slot">
           {#if issueNotice?.kind === 'toolbar'}
@@ -510,6 +579,9 @@
             {venues}
             autoVenue={isOpenToday ? marketAutoVenue(sessions, now) : null}
             metricLabel={metricDef.label}
+            {recentWindow}
+            windowEnabled={windowOn}
+            onwindow={(w) => app.updateSettings({ recentWindow: w })}
             onperiod={(p) => app.updateSettings({ period: p })}
             onvenue={(v) => app.updateSettings({ venueMode: v })}
             onopenmetric={() => (openSheet = 'metric')}
@@ -528,7 +600,7 @@
     boardOrder={app.settings.boardOrder}
     {unit}
     conv={app.settings.colorConvention}
-    metricLabel={metricDef.label}
+    {metricLabel}
     count={items.length}
     {scrubLabel}
     {now}

@@ -7,6 +7,17 @@ import type { Quote, StockMeta } from '../../providers/types';
 import type { WatchItem } from '../../state/schema';
 import { kstDate } from '../../time/kst';
 
+/** 1일 등락률·초과수익의 보조 숫자(②). Compare가 채운다. */
+export interface RowExtra {
+  /** `15분`(전일 대비로 볼 때) 또는 `오늘`(최근 구간으로 볼 때) */
+  label: string;
+  value: number | null;
+  /** 짧은 구간의 분당 거래량 ÷ 오늘 분당 거래량. 낼 수 없으면 null */
+  pace: number | null;
+  /** 최근 구간 순위가 5분 전보다 올라간 칸 수(내려가면 음수). 구간이 아니거나 낼 수 없으면 null */
+  moved: number | null;
+}
+
 export interface LeaderRow {
   symbol: string;
   name: string;
@@ -25,6 +36,7 @@ export interface LeaderRow {
   nxt?: boolean;
   /** 아직 결과도 오류도 없다 */
   loading?: boolean;
+  extra?: RowExtra;
 }
 
 export interface RowSource {
