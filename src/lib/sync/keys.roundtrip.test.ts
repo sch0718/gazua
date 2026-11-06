@@ -243,6 +243,32 @@ describe('두 기기 왕복(설계 7.7)', () => {
     expect(b.app.secrets?.toss).toEqual(TOSS_A);
   });
 
+  it('프록시: A가 프록시를 더하면 B의 주소·토큰이 A 것으로 바뀌고 증권사 토큰은 그대로, A가 주소를 바꾸면 자동으로 올라가 B newer', async () => {
+    const s = testServer();
+    const { a, b, id } = await pair(s);
+    await unlock(b);
+    await receive(b);
+    a.app.updateSettings({ proxyUrl: 'https://proxy-a.example.net' });
+    await settle();
+    await a.engine.exclusive(() => a.keys.setProviders(id, ['kis', 'proxy']));
+    await a.engine.keysNow();
+    await b.engine.keysNow();
+    expect((await state(b, id))?.notice).toBe('newer');
+    expect((await receive(b)).ok).toBe(true);
+    expect(b.app.settings.proxyUrl).toBe('https://proxy-a.example.net');
+    expect(b.app.secrets).toEqual({ kis: KIS_A, toss: TOSS_B, proxyToken: 'FAKE-proxy-A' });
+    expect(b.storage.get(profileKeys.token(id, 'toss'), null)).toEqual(TOKEN);
+    expect((await state(b, id))?.providers).toEqual(['kis', 'proxy']);
+
+    a.app.updateSettings({ proxyUrl: 'https://proxy-a2.example.net' });
+    await settle();
+    await a.engine.keysNow();
+    await b.engine.keysNow();
+    expect((await state(b, id))?.notice).toBe('newer');
+    expect((await receive(b)).ok).toBe(true);
+    expect(b.app.settings.proxyUrl).toBe('https://proxy-a2.example.net');
+  });
+
   it('A 끔 → B removed(키는 남고, dirty여도 올리지 않음) → A 다시 켬 → 리비전이 이어지고 B available', async () => {
     const s = testServer();
     const { a, b, id } = await pair(s);

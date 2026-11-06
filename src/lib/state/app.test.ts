@@ -1597,7 +1597,7 @@ describe('키 동기화용 앱 변경(설계 5.2)', () => {
     expect(sameProviderKeys('toss', { toss: TOSS }, {})).toBe(false);
   });
 
-  it('onSecretsChange: 바뀐 공급자만 알리고 proxyToken·잠그기·잠금 끄기·지우기·가져오기에는 부르지 않는다', async () => {
+  it('onSecretsChange: 바뀐 항목만 알리고 잠그기·잠금 끄기·지우기·가져오기에는 부르지 않는다', async () => {
     const calls: unknown[] = [];
     const { app } = keyApp({ onSecretsChange: (e) => calls.push(e) });
     await app.setSecrets({ kis: SECRETS.kis });
@@ -1606,6 +1606,12 @@ describe('키 동기화용 앱 변경(설계 5.2)', () => {
     expect(calls.at(-1)).toEqual({ profileId: 'p1', providers: ['kis', 'toss'] });
     calls.length = 0;
     await app.setSecrets({ kis: KIS2, toss: TOSS, proxyToken: 'FAKE-proxy-2' });
+    expect(calls).toEqual([{ profileId: 'p1', providers: ['proxy'] }]);
+    app.updateSettings({ proxyUrl: 'https://proxy2.test' });
+    expect(calls.at(-1)).toEqual({ profileId: 'p1', providers: ['proxy'] });
+    app.updateSettings({ proxyUrl: 'https://proxy2.test' });
+    expect(calls).toHaveLength(2);
+    calls.length = 0;
     await app.setSecrets(app.secrets!, 'correct horse'); // KeyLock의 잠그기: 같은 키 + 암호
     app.disableKeyLock();
     expect(app.importData(app.exportData(true)).ok).toBe(true);
@@ -1645,6 +1651,49 @@ describe('키 동기화용 앱 변경(설계 5.2)', () => {
     expect(removeProfile).toHaveBeenCalledWith('p1');
     expect(app.secrets?.kis).toEqual(KIS2);
     expect(onSecretsChange).not.toHaveBeenCalled();
+  });
+
+  it('applySyncedSecrets: 받은 프록시는 주소와 토큰을 바꾸고, 증권사 접근 토큰은 그대로 둔다', async () => {
+    const orderCache = createMemoryOrderCache();
+    const removeProfile = vi.spyOn(orderCache, 'removeProfile');
+    const { app, backing } = keyApp({ orderCache });
+    await app.setSecrets({ ...SECRETS, toss: TOSS });
+    seed(backing, 'p:p1:token:kis', TOKEN);
+    seed(backing, 'p:p1:token:toss', TOKEN);
+    removeProfile.mockClear();
+    expect(await app.applySyncedSecrets('p1', { proxy: { url: 'https://proxy2.test', token: 'FAKE-proxy-2' } })).toEqual(['proxy']);
+    expect(app.settings.proxyUrl).toBe('https://proxy2.test');
+    expect(app.secrets).toEqual({ ...SECRETS, toss: TOSS, proxyToken: 'FAKE-proxy-2' });
+    expect(backing.getItem('gazua:v1:p:p1:token:kis')).not.toBeNull();
+    expect(backing.getItem('gazua:v1:p:p1:token:toss')).not.toBeNull();
+    expect(removeProfile).not.toHaveBeenCalled();
+    // 주소만 바뀌면 키 저장소는 쓰지 않는다. 토큰이 없는 값을 받으면 이 기기 토큰도 지운다
+    expect(await app.applySyncedSecrets('p1', { proxy: { url: 'https://proxy3.test', token: 'FAKE-proxy-2' } })).toEqual(['proxy']);
+    expect(app.settings.proxyUrl).toBe('https://proxy3.test');
+    expect(await app.applySyncedSecrets('p1', { proxy: { url: 'https://proxy3.test' } })).toEqual(['proxy']);
+    expect(app.secrets?.proxyToken).toBeUndefined();
+    expect(await app.applySyncedSecrets('p1', { proxy: { url: 'https://proxy3.test' } })).toEqual([]);
+  });
+
+  it('applySyncedSecrets: 주소와 토큰이 함께 바뀌면 새 토큰이 저장되는 순간 주소도 이미 새것이다', async () => {
+    const { app, backing } = keyApp();
+    await app.setSecrets(SECRETS);
+    const seen: string[] = [];
+    const setItem = backing.setItem.bind(backing);
+    vi.spyOn(backing, 'setItem').mockImplementation((k, v) => {
+      if (k === 'gazua:v1:p:p1:secrets' && v.includes('FAKE-proxy-new')) seen.push(app.settings.proxyUrl);
+      setItem(k, v);
+    });
+    expect(await app.applySyncedSecrets('p1', { proxy: { url: 'https://proxy-new.test', token: 'FAKE-proxy-new' } })).toEqual(['proxy']);
+    expect(seen).toEqual(['https://proxy-new.test']);
+  });
+
+  it('syncableSecrets: 다른 탭이 저장한 프록시 주소를 읽는다', async () => {
+    const { app, backing } = keyApp();
+    await app.setSecrets(SECRETS);
+    const stored = JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!);
+    backing.setItem('gazua:v1:p:p1:settings', JSON.stringify({ ...stored, proxyUrl: 'https://other-tab.test' }));
+    expect(app.syncableSecrets('p1')?.proxy).toEqual({ url: 'https://other-tab.test', token: SECRETS.proxyToken });
   });
 
   it('applySyncedSecrets: 받은 값이 로컬과 같으면 쓰지도 지우지도 않고 []', async () => {
@@ -1688,13 +1737,15 @@ describe('키 동기화용 앱 변경(설계 5.2)', () => {
     await expect(gated.applySyncedSecrets('p1', { kis: KIS2 }, 'correct horse')).rejects.toThrow();
   });
 
-  it('syncableSecrets: 다른 탭이 쓴 평문을 읽고 proxyToken은 빼며, 잠금이면 메모리와 저장된 잠긴 키가 같을 때만', async () => {
+  it('syncableSecrets: 다른 탭이 쓴 평문을 읽고 프록시는 https 주소일 때만 넣으며, 잠금이면 메모리와 저장된 잠긴 키가 같을 때만', async () => {
     const { app, backing } = keyApp();
     await app.setSecrets(SECRETS);
     seed(backing, 'p:p1:secrets', { kis: KIS2, proxyToken: 'FAKE-proxy' });
-    expect(app.syncableSecrets('p1')).toEqual({ kis: KIS2 });
+    expect(app.syncableSecrets('p1')).toEqual({ kis: KIS2, proxy: { url: 'https://proxy.test', token: 'FAKE-proxy' } });
     expect(app.syncableSecrets('p2')).toBeNull();
     await app.setSecrets(SECRETS, 'correct horse');
+    expect(app.syncableSecrets('p1')).toEqual({ kis: SECRETS.kis, proxy: { url: 'https://proxy.test', token: SECRETS.proxyToken } });
+    app.updateSettings({ proxyUrl: '' });
     expect(app.syncableSecrets('p1')).toEqual({ kis: SECRETS.kis });
     seed(backing, 'p:p1:secrets', await lockSecrets({ kis: KIS2 }, 'correct horse'));
     expect(app.syncableSecrets('p1')).toBeNull();

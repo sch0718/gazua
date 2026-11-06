@@ -35,6 +35,7 @@ import { saveInvite } from '../sync/invite';
 import { DEFAULT_PROFILE_NAME, META_KEY, loadMeta, type Meta, type Profile, type Settings, type Watchlists } from './schema';
 import { SYNCED_SETTINGS, type ProfileDoc } from '../sync/dto';
 import { applyProfileDoc } from '../sync/profileDoc';
+import { isSyncableProxyUrl, type KeyProvider, type SyncKeys } from '../sync/keyWire';
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type LockedSecrets, type Secrets } from './secrets';
 import { STORAGE_PREFIX, type SafeStorage } from './storage';
 
@@ -132,19 +133,19 @@ export interface App {
   /** 이 프로필의 저장된 키·토큰을 지우고 keyLock을 끈다. 저장소에서 키를 지우지 못하면 StoredKeysNotRemovedError. */
   clearSecrets(): void;
   /**
-   * 동기화 전용: 받은 KIS·토스 키를 지금 프로필에 병합한다. keys에 있고 로컬 값과 실제로 다른 공급자만 덮어쓰고,
-   * 없는 공급자·같은 값의 로컬 키와 proxyToken은 그대로 둔다. 바뀐 것이 없으면 아무것도 쓰지 않는다.
+   * 동기화 전용: 받은 KIS·토스 키와 프록시(주소·토큰)를 지금 프로필에 병합한다. keys에 있고 로컬 값과 실제로 다른 항목만 덮어쓰고,
+   * 없는 항목·같은 값은 그대로 둔다. 바뀐 것이 없으면 아무것도 쓰지 않는다. 프록시만 바뀌면 접근 토큰은 버리지 않는다.
    * 이 기기 키 잠금 설정대로 저장한다: 잠금이면 passphrase가 필요하다(호출 쪽이 verifyPassphrase로 먼저 확인한다, 설계 5.7).
    * 바뀐 공급자의 접근 토큰만 버리고 토스가 바뀌었을 때만 주문 캐시도 버린다. onSecretsChange는 부르지 않는다.
    * 돌려주는 값은 실제로 바뀐 공급자. 쓰기 직전에 저장소의 키 원문이 시작 때와 다르면 SecretsChangedError(아무것도 쓰지 않음).
    * profileId가 지금 프로필이 아니면, 잠겨 있고 풀리지 않았으면 던진다. 저장 실패는 setSecrets와 같은 오류.
    */
-  applySyncedSecrets(profileId: string, keys: Pick<Secrets, 'kis' | 'toss'>, passphrase?: string): Promise<('kis' | 'toss')[]>;
+  applySyncedSecrets(profileId: string, keys: SyncKeys, passphrase?: string): Promise<KeyProvider[]>;
   /**
-   * 동기화 전용: 올릴 키(kis·toss만). 지금 프로필이 아니거나 잠겨서 풀리지 않았으면 null.
+   * 동기화 전용: 올릴 키(kis·toss)와 프록시(https 주소가 있을 때만, 토큰은 있으면). 지금 프로필이 아니거나 잠겨서 풀리지 않았으면 null.
    * 잠금이 꺼져 있으면 저장소에서 새로 읽는다(다른 탭이 방금 쓴 값). 잠금이면 메모리 값이 저장소의 잠긴 키와 같은 것일 때만 돌려준다.
    */
-  syncableSecrets(profileId: string): Pick<Secrets, 'kis' | 'toss'> | null;
+  syncableSecrets(profileId: string): SyncKeys | null;
   /**
    * 공유 읽기 화면(#/s/…)에서 앱으로 나간다. 공유 해시를 지우고 enter()와 같은 판단을 한다:
    * 관문(프로필 선택·잠금 해제)이 있으면 관문, 없고 첫 실행이면 온보딩, 아니면 비교 화면(설계 1.5-11).
@@ -168,8 +169,8 @@ export interface AppDeps {
    * 키·토큰·최근 종목·기기 전용 설정만 바뀐 경우에는 부르지 않는다.
    */
   onSyncableChange?: (e: { kind: 'changed' | 'deleted'; profileId: string }) => void;
-  /** 지금 프로필의 KIS·토스 키가 바뀌었다. providers는 값이 바뀐 공급자(proxyToken만 바뀐 경우·잠금 켜고 끄기·기기에서 삭제·동기화로 받은 키는 부르지 않는다) */
-  onSecretsChange?: (e: { profileId: string; providers: ('kis' | 'toss')[] }) => void;
+  /** 지금 프로필의 KIS·토스 키나 프록시(주소·토큰)가 바뀌었다. providers는 값이 바뀐 항목(잠금 켜고 끄기·기기에서 삭제·동기화로 받은 값은 부르지 않는다) */
+  onSecretsChange?: (e: { profileId: string; providers: KeyProvider[] }) => void;
   /** lock()이 실제로 키를 버렸다 */
   onLock?: () => void;
 }
@@ -248,11 +249,15 @@ export function sameProviderKeys(p: 'kis' | 'toss', a: Pick<Secrets, 'kis' | 'to
   return !x && !y ? true : !!x && !!y && x.clientId === y.clientId && x.clientSecret === y.clientSecret;
 }
 
-/** 키 동기화가 다루는 두 공급자만(proxyToken 제외) 새 객체로 */
-const pickSyncable = (s: Secrets): Pick<Secrets, 'kis' | 'toss'> => ({
-  ...(s.kis && { kis: { appKey: s.kis.appKey, appSecret: s.kis.appSecret } }),
-  ...(s.toss && { toss: { clientId: s.toss.clientId, clientSecret: s.toss.clientSecret } }),
-});
+/** 키 동기화가 다루는 값만 새 객체로. 프록시는 동기화할 수 있는 https 주소일 때만 넣는다 */
+const pickSyncable = (s: Secrets, proxyUrl: string): SyncKeys => {
+  const url = proxyUrl.trim();
+  return {
+    ...(s.kis && { kis: { appKey: s.kis.appKey, appSecret: s.kis.appSecret } }),
+    ...(s.toss && { toss: { clientId: s.toss.clientId, clientSecret: s.toss.clientSecret } }),
+    ...(isSyncableProxyUrl(url) && { proxy: { url, ...(s.proxyToken && { token: s.proxyToken }) } }),
+  };
+};
 
 export function createApp(deps: AppDeps): App {
   const { storage, now, fetchImpl } = deps;
@@ -466,7 +471,8 @@ export function createApp(deps: AppDeps): App {
     };
     const announce = () => {
       if (!opts.notify) return;
-      const providers = (['kis', 'toss'] as const).filter((p) => !sameProviderKeys(p, s, before));
+      const providers: KeyProvider[] = (['kis', 'toss'] as const).filter((p) => !sameProviderKeys(p, s, before));
+      if ((s.proxyToken ?? '') !== (before?.proxyToken ?? '')) providers.push('proxy');
       if (providers.length > 0) deps.onSecretsChange?.({ profileId: id, providers });
     };
     if (passphrase === undefined) {
@@ -825,6 +831,7 @@ export function createApp(deps: AppDeps): App {
       ) {
         rebuild();
       }
+      if (prev.proxyUrl.trim() !== settings.proxyUrl.trim()) deps.onSecretsChange?.({ profileId: activeId(), providers: ['proxy'] });
       applyDisplay();
     },
 
@@ -962,33 +969,62 @@ export function createApp(deps: AppDeps): App {
       // 잠금이 꺼져 있으면 저장소의 값(다른 탭이 방금 쓴 것)을 병합의 바탕으로 쓴다. proxyToken을 지키기 위해서다
       const base: Secrets =
         locked === null && storage.backed && raw !== null && typeof raw === 'object' && !isLocked(raw) ? (raw as Secrets) : (secrets ?? {});
-      const changed = (['kis', 'toss'] as const).filter((p) => keys[p] !== undefined && !sameProviderKeys(p, keys, base));
+      const brokers = (['kis', 'toss'] as const).filter((p) => keys[p] !== undefined && !sameProviderKeys(p, keys, base));
+      const px = keys.proxy;
+      const tokenChanged = px !== undefined && (px.token ?? '') !== (base.proxyToken ?? '');
+      const urlChanged = px !== undefined && px.url !== settings.proxyUrl.trim();
+      const changed: KeyProvider[] = tokenChanged || urlChanged ? [...brokers, 'proxy'] : [...brokers];
       if (changed.length === 0) return [];
-      if (settings.keyLock && passphrase === undefined) throw new Error('keyLock is on: a passphrase is required');
-      const next: Secrets = { ...base };
-      if (changed.includes('kis')) next.kis = { appKey: keys.kis!.appKey, appSecret: keys.kis!.appSecret };
-      if (changed.includes('toss')) next.toss = { clientId: keys.toss!.clientId, clientSecret: keys.toss!.clientSecret };
-      await storeSecrets(next, settings.keyLock ? passphrase : undefined, {
-        notify: false,
-        forget: [...changed],
-        // 연결 설정 저장은 동기화 잠금을 잡지 않는다: 쓰기 직전에 원문을 다시 본다(같은 동기 구간)
-        guard: () => {
-          if (JSON.stringify(storage.readBacking<unknown>(key, null)) !== original) throw new SecretsChangedError();
-        },
-      });
-      return [...changed];
+      // 주소는 키와 같은 동기 구간에서 바꾼다. 새 키·토큰이 옛 프록시로 가지 않게(storeSecrets가 그 뒤에 rebuild한다)
+      const applyUrl = () => {
+        if (!urlChanged || activeId() !== id) return;
+        settings = { ...settings, proxyUrl: px.url };
+        write(profileKeys.settings(id), settings);
+        storage.clearProxyCleared(profileKeys.settings(id));
+        storageTick++;
+      };
+      if (brokers.length > 0 || tokenChanged) {
+        if (settings.keyLock && passphrase === undefined) throw new Error('keyLock is on: a passphrase is required');
+        const next: Secrets = { ...base };
+        if (brokers.includes('kis')) next.kis = { appKey: keys.kis!.appKey, appSecret: keys.kis!.appSecret };
+        if (brokers.includes('toss')) next.toss = { clientId: keys.toss!.clientId, clientSecret: keys.toss!.clientSecret };
+        if (tokenChanged) {
+          if (px.token !== undefined) next.proxyToken = px.token;
+          else delete next.proxyToken;
+        }
+        await storeSecrets(next, settings.keyLock ? passphrase : undefined, {
+          notify: false,
+          // 프록시만 바뀌었으면 접근 토큰은 그대로다(토큰은 증권사 키에 묶인다)
+          forget: [...brokers],
+          // 연결 설정 저장은 동기화 잠금을 잡지 않는다: 쓰기 직전에 원문을 다시 본다(같은 동기 구간)
+          guard: () => {
+            if (JSON.stringify(storage.readBacking<unknown>(key, null)) !== original) throw new SecretsChangedError();
+            applyUrl();
+          },
+        });
+      } else if (urlChanged && activeId() === id) {
+        applyUrl();
+        rebuild();
+      }
+      return changed;
     },
 
     syncableSecrets(profileId) {
       if (profileId !== activeId()) return null;
       const raw = storage.readBacking<unknown>(profileKeys.secrets(profileId), null);
+      // 프록시 주소도 저장소에서 읽는다. 다른 탭이 바꾼 주소는 이 탭 설정에 다시 읽히지 않는다(reloadSynced 밖)
+      const stored = storage.backed ? storage.readBacking<unknown>(profileKeys.settings(profileId), null) : null;
+      const proxyUrl =
+        stored !== null && typeof stored === 'object' && typeof (stored as { proxyUrl?: unknown }).proxyUrl === 'string'
+          ? (stored as { proxyUrl: string }).proxyUrl
+          : settings.proxyUrl;
       if (locked === null) {
         if (isLocked(raw)) return null; // 다른 탭이 잠갔다
-        if (!storage.backed) return pickSyncable(secrets ?? {});
-        return pickSyncable(raw !== null && typeof raw === 'object' ? (raw as Secrets) : {});
+        if (!storage.backed) return pickSyncable(secrets ?? {}, proxyUrl);
+        return pickSyncable(raw !== null && typeof raw === 'object' ? (raw as Secrets) : {}, proxyUrl);
       }
       if (secrets === null || !isLocked(raw) || JSON.stringify(raw) !== JSON.stringify(locked)) return null;
-      return pickSyncable(secrets);
+      return pickSyncable(secrets, proxyUrl);
     },
 
     disableKeyLock() {

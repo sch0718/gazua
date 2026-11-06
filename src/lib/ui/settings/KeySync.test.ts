@@ -140,7 +140,22 @@ describe('KeySync', () => {
     expect(checkbox('토스 키').checked).toBe(false);
     expect(checkbox('토스 키').disabled).toBe(true);
     expect(screen.getByText(KEY_TEXT.noKeyHere)).toBeTruthy();
-    expect(screen.getByRole('group', { name: '올릴 키' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: '올릴 항목' })).toBeTruthy();
+    // 프록시 주소가 없으면 프록시 체크도 끈 채 disabled
+    expect(checkbox('프록시 주소·토큰').checked).toBe(false);
+    expect(checkbox('프록시 주소·토큰').disabled).toBe(true);
+    expect(screen.getByText(KEY_TEXT.noProxyHere)).toBeTruthy();
+  });
+
+  it('https 프록시 주소가 있으면 프록시 체크를 고를 수 있다(기본은 끔)', async () => {
+    const { app } = await setup({ secrets: { kis: KIS } });
+    app.updateSettings({ proxyUrl: 'https://proxy.test' });
+    await openRisk();
+    expect(checkbox('프록시 주소·토큰').checked).toBe(false);
+    expect(checkbox('프록시 주소·토큰').disabled).toBe(false);
+    await fireEvent.click(checkbox('프록시 주소·토큰'));
+    expect(checkbox('프록시 주소·토큰').checked).toBe(true);
+    expect(checkbox('KIS 키').disabled).toBe(false);
   });
 
   it('KIS 키가 없는 기기는 둘 다 끈 채라 「계속」 꺼짐, 토스를 켜면 토큰 경고(status)', async () => {

@@ -59,7 +59,7 @@ describe('SyncPanel', () => {
   it('로그인 전: 올리는 것·올리지 않는 것을 알리고 기기 이름과 함께 로그인한다', async () => {
     const sync = fakeSync();
     render(SyncPanel, { app: app(), sync });
-    expect(screen.getByText(/계좌·주문 내역·성과·프록시 주소·테마는 올리지 않아요\. 키는 「키도 동기화」를 켠 프로필만 동기화 암호로 잠가 올려요\./)).toBeTruthy();
+    expect(screen.getByText(/계좌·주문 내역·성과·테마는 올리지 않아요\. 키와 프록시 주소·토큰은 「키도 동기화」를 켠 프로필만 동기화 암호로 잠가 올려요\./)).toBeTruthy();
     await fireEvent.input(screen.getByLabelText('이 기기 이름(선택)'), { target: { value: '회사 노트북' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Google로 로그인' }));
     expect(sync.signIn).toHaveBeenCalledWith('회사 노트북');

@@ -6,8 +6,8 @@
   import { KeyLockNotSavedError, StoredKeysNotRemovedError, type App } from '../../state/app.svelte';
   import type { SyncController } from '../../sync/controller.svelte';
   import { checkSyncPassphrase, EDGE_SPACE_TEXT, hasEdgeSpace, PASSPHRASE_TEXT } from '../../sync/keyCrypto';
-  import { KEY_TEXT, PROVIDER_LABEL, type KeyResult } from '../../sync/keySync';
-  import type { KeyProvider } from '../../sync/keyWire';
+  import { itemName, KEY_TEXT, type KeyResult } from '../../sync/keySync';
+  import { isSyncableProxyUrl, type KeyProvider } from '../../sync/keyWire';
   import { KEYS_NOT_REMOVED, keyLockFailureText } from './KeyLock.svelte';
 
   let {
@@ -21,7 +21,7 @@
   type Next = null | { kind: 'enable'; providers: KeyProvider[] } | { kind: 'receive' } | { kind: 'upload' };
   type Field = 'pass' | 'pass2' | 'current' | 'lock' | null;
 
-  const PROVIDERS: KeyProvider[] = ['kis', 'toss'];
+  const PROVIDERS: KeyProvider[] = ['kis', 'toss', 'proxy'];
   const REMOTE: (string | null)[] = ['available', 'newer', 'conflict', 'rollback'];
   const TITLES: Record<PassSheet, string> = { create: '동기화 암호 정하기', enter: '동기화 암호 입력', change: '동기화 암호 바꾸기', lockpass: '이 기기 잠금 암호 입력' };
   const uid = Math.random().toString(36).slice(2, 8);
@@ -31,8 +31,8 @@
   const id = $derived(app.meta.activeProfileId);
   const name = $derived(app.meta.profiles.find((p) => p.id === id)?.name ?? '');
   const st = $derived(view.states.find((s) => s.profileId === id));
-  const has = $derived({ kis: !!app.secrets?.kis, toss: !!app.secrets?.toss });
-  const offReason = $derived(!view.uploaded.includes(id) ? KEY_TEXT.notUploaded : !has.kis && !has.toss ? KEY_TEXT.noKeys : null);
+  const has = $derived({ kis: !!app.secrets?.kis, toss: !!app.secrets?.toss, proxy: isSyncableProxyUrl(app.settings.proxyUrl.trim()) });
+  const offReason = $derived(!view.uploaded.includes(id) ? KEY_TEXT.notUploaded : !has.kis && !has.toss && !has.proxy ? KEY_TEXT.noKeys : null);
   const on = $derived(!!st?.active);
   const dirty = $derived(!!st && st.active && st.localSeq > st.uploadedSeq);
   const canUpload = $derived(!!st && st.providers.some((p) => has[p]));
@@ -274,7 +274,7 @@
 
 {#snippet providerChecks(chosen: KeyProvider[], onpick: (p: KeyProvider, checked: boolean, input: HTMLInputElement) => void, prefix: string, pending: boolean = false)}
   <fieldset class="providers">
-    <legend>올릴 키</legend>
+    <legend>올릴 항목</legend>
     {#each PROVIDERS as p (p)}
       {@const checked = chosen.includes(p)}
       {@const noKey = !has[p] && !checked}
@@ -288,10 +288,10 @@
             aria-describedby={noKey || last ? `${prefix}-${p}-why` : undefined}
             onchange={(e) => onpick(p, e.currentTarget.checked, e.currentTarget)}
           />
-          {PROVIDER_LABEL[p]} 키
+          {itemName(p)}
         </label>
         {#if noKey}
-          <small id="{prefix}-{p}-why">{KEY_TEXT.noKeyHere}</small>
+          <small id="{prefix}-{p}-why">{p === 'proxy' ? KEY_TEXT.noProxyHere : KEY_TEXT.noKeyHere}</small>
         {:else if last}
           <small id="{prefix}-{p}-why">{KEY_TEXT.keepOne}</small>
         {/if}
@@ -322,7 +322,7 @@
           onchange={onToggle}
         />
       </div>
-      <p class="hint">고른 키를 동기화 암호로 잠가 올려요. 프록시 토큰은 올리지 않아요.</p>
+      <p class="hint">고른 키와 프록시 주소·토큰을 동기화 암호로 잠가 올려요.</p>
       {#if !on && offReason}
         <p id="{uid}-why" class="hint">{offReason}</p>
       {/if}
