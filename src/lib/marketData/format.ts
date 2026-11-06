@@ -5,7 +5,7 @@ export interface MarketDataFileV1 {
   format: 'gazua-market-data';
   version: 1;
   collectedAt: string; // ISO, KST
-  source: 'kis';
+  source: 'kis' | 'toss'; // 'toss'는 일봉만(매매동향·재무 없음, tv는 종가×거래량 근사)
   adjusted: true; // 수정주가
   /** 수집한 동기화 계정 표시(owner.ts). 없으면 옛 파일·데모·--no-owner. 모든 버전에 붙을 수 있다 */
   owner?: string;

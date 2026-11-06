@@ -47,6 +47,25 @@ corepack pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 - 앱에서는 설정 › 데이터 › `시장 데이터 가져오기`로 파일을 골라요. 파일은 이 기기의 IndexedDB에만 저장돼요.
 - 한계: 지금 상장된 종목만 들어 있어 상장폐지 종목이 빠져요(생존 편향). 업종·상장주식수는 수집일 기준이에요.
 
+### 토스로 수집(KIS 키가 없을 때)
+
+KIS 키가 없으면 `--provider toss`로 종목·지수 일봉만 토스에서 받아요([설계](superpowers/specs/2026-11-06-toss-collect-design.md), 깊이 실측은 [live-check ㉝](live-check.md)). 종목 마스터·업종·테마·환율·유가·수집 계정 표시·`--drive`는 KIS 수집과 같아요.
+
+```bash
+# .env.toss(커밋되지 않아요)에 TOSS_CLIENT_ID=..., TOSS_CLIENT_SECRET=... 를 넣어 둬요.
+node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --years 5 --out ~/gazua-data/
+# 이어 받기
+node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --update ~/gazua-data/market-data-20261106.json.gz
+```
+
+- **수집용 키를 따로 만들어요.** 토스는 키 하나에 토큰 하나라, 앱과 같은 키로 수집하면 앱의 토큰이 무효가 돼요(앱에서 다시 연결해야 해요).
+- **허용 IP에서만 돼요.** 토스 Open API에 등록한 IP의 기기에서 돌려요. 아니면 토큰 발급에서 멈춰요.
+- **매매동향·재무는 없어요.** 토스는 매매동향을 수량으로만 주고 재무는 주지 않아요. 파일에 넣지 않고, `--update`로 KIS 파일을 이어 받아도 이전 매매동향·재무를 지워요(끝 날짜가 멈춘 값이 조건에 쓰이지 않게). 앱은 이 조건들을 `다시 수집하면 쓸 수 있어요`로 막아요. `--no-flows`·`--no-fins`는 붙이지 않아도 돼요.
+- **거래대금은 근사값이에요.** 토스 일봉에는 거래대금이 없어 `수정 종가 × 거래량`(반올림)으로 채워요. 평균 거래대금 조건에 쓰이고, 실제 대금과 조금 다를 수 있어요. KIS 파일을 `--update`하면 이전 날짜는 KIS 값, 새 날짜는 근사값이에요.
+- **호출 속도.** 기본은 초당 2건이에요(실측에서 초당 2.5건에도 `429`가 났어요). `--rate <초당 건수>`(0.1~10)로 바꿔요. `429`가 오면 `Retry-After`만큼, 없으면 2·4·8·16·30초 기다렸다 다시 하고, 6번째에도 `429`면 그 종목을 실패로 둬요(연속 20번 실패면 멈춰요). 401·403은 바로 멈춰요.
+- 예상 시간(추정, 첫 수집에서 재서 고쳐요): 5년 전 종목은 종목당 7쪽쯤이라 초당 2건이면 몇 시간, `--update`는 종목당 1쪽이라 수십 분이에요.
+- 파일의 `source`는 `toss`예요. 다른 공급자로 받던 `.partial`은 이어 받지 않고 처음부터 받아요.
+
 ### Drive 전달(선택)
 
 수집한 파일을 내 Google Drive 앱 전용 폴더(appDataFolder)에 올려 다른 기기에서 받게 할 수 있어요. 시장 파일은 공개 배포하지 않고 본인 Drive에만 둬요.

@@ -2,6 +2,7 @@
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 //   GAZUA_DRIVE_CLIENT_ID=... GAZUA_DRIVE_CLIENT_SECRET=... pnpm collect -- --update <파일> --drive
+//   node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --years 5   (일봉만, 설계 2026-11-06-toss-collect)
 // 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않는다. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
 // v4(종목별 재무 fin): docs/superpowers/specs/2026-10-17-fundamental-criteria-design.md 2.2·5장
 import { spawnSync } from 'node:child_process';
@@ -20,6 +21,7 @@ import { KisError, createKisClient, prevDay } from './kis-collect.mjs';
 import { parseIdxcode } from './parse-idxcode.mjs';
 import { parseMaster } from './parse-master.mjs';
 import { parseThemesDetailed } from './parse-theme.mjs';
+import { RATE_PER_SEC as TOSS_RATE, createTossClient } from './toss-collect.mjs';
 
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MASTER_BASE = 'https://new.real.download.dws.co.kr/common/master';
@@ -35,6 +37,8 @@ const INDEX_IDS = ['KOSPI', 'KOSDAQ'];
 const FRED_IDS = { usdkrw: 'DEXKOUS', wti: 'DCOILWTICO' };
 const pick = (rec, keys) => Object.fromEntries(keys.map((k) => [k, rec[k]]));
 const SECTOR_PREFIX = { KOSPI: '0', KOSDAQ: '1' };
+// 자식 프로세스(gazua CLI)에 넘기지 않고, 오류 문구에서 가리는 키 환경변수
+const KEY_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'];
 
 const KST_MS = 9 * 3_600_000;
 const kstCompact = (ms) => new Date(ms + KST_MS).toISOString().slice(0, 10).replaceAll('-', '');
@@ -128,10 +132,10 @@ export function assertOutAllowed(out, repoRoot = REPO_ROOT) {
 
 // ── 키 형식 ───────────────────────────────────────────────────────────
 // 줄바꿈·공백·한글이 들어 있으면 fetch가 헤더 값 전체를 오류 메시지에 담는다. 값은 절대 되풀이하지 않는다.
-export function validateCreds(appKey, appSecret) {
+export function validateCreds(appKey, appSecret, names = ['KIS_APP_KEY', 'KIS_APP_SECRET']) {
   const ok = (v) => typeof v === 'string' && /^[\x21-\x7e]+$/.test(v);
-  if (!ok(appKey)) throw new Error('KIS_APP_KEY 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)');
-  if (!ok(appSecret)) throw new Error('KIS_APP_SECRET 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)');
+  if (!ok(appKey)) throw new Error(`${names[0]} 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)`);
+  if (!ok(appSecret)) throw new Error(`${names[1]} 형식이 올바르지 않아요 (공백·줄바꿈·한글 없이 붙여 넣어 주세요)`);
 }
 
 // ── 이어 받기 병합 ────────────────────────────────────────────────────
@@ -184,6 +188,7 @@ function readPartial(path, header) {
         rec.from === header.from &&
         rec.to === header.to &&
         rec.updateFrom === header.updateFrom &&
+        (rec.source ?? 'kis') === header.source &&
         (rec.flowFrom ?? null) === (header.flowFrom ?? null) &&
         // 재무 줄이 없는 예전 진행분(이 필드가 없음)은 그대로 이어 받는다
         (rec.finCumulative === undefined || rec.finCumulative === header.finCumulative) &&
@@ -233,10 +238,17 @@ function finApiSignature() {
 /**
  * @param {{ years?: number; flows?: boolean; fins?: boolean; flowsYears?: number | null; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
  *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number; themeFailed?: boolean };
- *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>;
+ *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>; source?: 'kis' | 'toss';
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep, owner }) {
+export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep, owner, source = 'kis' }) {
+  // 토스는 일봉만 준다(매매동향은 수량뿐, 재무는 없음). 받지 않고, --update의 이전 KIS 값도 남기지 않는다
+  // (끝 날짜가 멈춘 수급·재무가 조건에 쓰이지 않게. 앱은 없으면 「다시 수집하면 쓸 수 있어요」로 막는다)
+  const kisExtras = source === 'kis';
+  if (!kisExtras) {
+    flows = false;
+    fins = false;
+  }
   // 로그에 나가는 모든 문구에서 키·토큰을 가린다.
   const clean = (msg) => {
     let t = client.scrub ? client.scrub(msg) : String(msg);
@@ -277,7 +289,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const flowFloor = flowsYears ? (yearsBefore(today, flowsYears) > from ? yearsBefore(today, flowsYears) : from) : from;
   // FIN_API의 어느 값이든(경로·필드·단위·누적 여부) 바뀌면 헤더가 달라져 readPartial이 빈 결과를 돌려주므로
   // 옛 규칙으로 받은 재무 줄을 이어 받지 않는다(고친 금액과 옛 금액이 섞이는 것을 막는다)
-  const header = { kind: 'header', from, to, updateFrom, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative, finApi: finApiSignature() };
+  const header = { kind: 'header', from, to, updateFrom, source, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative, finApi: finApiSignature() };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);
   else {
@@ -385,7 +397,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   let flowStopped = false;
   for (let idx = 0; idx < stocks.length; idx++) {
     const st = stocks[idx];
-    const oldRec = oldStock.get(st.s);
+    const oldRec = kisExtras ? oldStock.get(st.s) : undefined;
     const prevRows = flowToRows(oldRec?.flow, oldRec?.d ?? []);
     const keep = () => alignFlow(st.d, prevRows) ?? undefined; // 이전 flow를 새 일봉에 다시 맞춘다(일봉이 그대로면 같은 값)
     let flow;
@@ -443,7 +455,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   const finTargets = stocks.filter((x) => x.t === 'STOCK');
   for (let idx = 0; idx < finTargets.length; idx++) {
     const st = finTargets[idx];
-    const prevFin = oldStock.get(st.s)?.fin;
+    const prevFin = kisExtras ? oldStock.get(st.s)?.fin : undefined;
     let fin;
     if (!fins || keptOld.includes(st.s)) {
       // 받지 않는다: 이전 값만 지킨다. keptOld(일봉 받기가 실패해 옛 기록을 그대로 둔 종목)는 일봉 실패로 이미 알렸으니 재무 실패로 세지 않는다
@@ -521,7 +533,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
     // 수집 계정 표시: 이번 실행에서 받은 것만 쓴다(--update여도 이전 파일 값은 쓰지 않는다)
     ...(owner ? { owner } : {}),
-    source: 'kis',
+    source,
     adjusted: true,
     range,
     sectors,
@@ -561,12 +573,15 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     } · ${Math.round(summary.elapsedMs / 1000)}초 · ${(summary.bytes / 1048576).toFixed(1)}MB`,
   );
   log(`환율 ${summary.macroDays.usdkrw}일 · 유가 ${summary.macroDays.wti}일 · 테마 ${themes.length}개`);
-  if (flows) {
-    log(`매매동향 ${flowStocks}종목${flowStocks ? ` · 최초 ${summary.flowFirst}` : ''}${flowFailed.length ? ` · 수급 받기 실패 ${flowFailed.length}종목` : ''}`);
-  } else log(`매매동향은 새로 받지 않았어요 (--no-flows)${flowStocks ? ` · 이전 수급 ${flowStocks}종목 유지` : ''}`);
-  if (fins) {
-    log(`재무 ${finStocks}종목${finStocks ? ` · 최초 ${quarterLabel(finFirst)}` : ''}${finFailed.length ? ` · 재무 받기 실패 ${finFailed.length}종목` : ''}`);
-  } else log(`재무는 새로 받지 않았어요 (--no-fins)${finStocks ? ` · 이전 재무 ${finStocks}종목 유지` : ''}`);
+  if (!kisExtras) log('매매동향·재무는 토스에 없어 넣지 않았어요');
+  else {
+    if (flows) {
+      log(`매매동향 ${flowStocks}종목${flowStocks ? ` · 최초 ${summary.flowFirst}` : ''}${flowFailed.length ? ` · 수급 받기 실패 ${flowFailed.length}종목` : ''}`);
+    } else log(`매매동향은 새로 받지 않았어요 (--no-flows)${flowStocks ? ` · 이전 수급 ${flowStocks}종목 유지` : ''}`);
+    if (fins) {
+      log(`재무 ${finStocks}종목${finStocks ? ` · 최초 ${quarterLabel(finFirst)}` : ''}${finFailed.length ? ` · 재무 받기 실패 ${finFailed.length}종목` : ''}`);
+    } else log(`재무는 새로 받지 않았어요 (--no-fins)${finStocks ? ` · 이전 재무 ${finStocks}종목 유지` : ''}`);
+  }
   if (summary.themeDropped) log(`테마 파일에서 형식이 맞지 않는 행 ${summary.themeDropped}개를 뺐어요`);
   return { file, summary };
 }
@@ -603,7 +618,7 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
 }
 
 export function parseArgs(argv) {
-  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false, owner: true };
+  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false, owner: true, provider: 'kis', rate: null };
   const args = argv.filter((a) => a !== '--');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -612,7 +627,7 @@ export function parseArgs(argv) {
     else if (a === '--no-fins') o.fins = false;
     else if (a === '--drive') o.drive = true;
     else if (a === '--no-owner') o.owner = false;
-    else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update') {
+    else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update' || a === '--provider' || a === '--rate') {
       const v = args[++i];
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
       if (a === '--years') {
@@ -621,9 +636,17 @@ export function parseArgs(argv) {
       } else if (a === '--flows-years') {
         o.flowsYears = Number(v);
         if (!Number.isInteger(o.flowsYears) || o.flowsYears < 1 || o.flowsYears > MAX_YEARS) throw new Error(`--flows-years는 1~${MAX_YEARS} 사이 정수예요`);
+      } else if (a === '--provider') {
+        if (v !== 'kis' && v !== 'toss') throw new Error('--provider는 kis 또는 toss예요');
+        o.provider = v;
+      } else if (a === '--rate') {
+        o.rate = Number(v);
+        if (!Number.isFinite(o.rate) || o.rate < 0.1 || o.rate > 10) throw new Error('--rate는 초당 0.1~10건이에요');
       } else o[a.slice(2)] = v;
     } else throw new Error(`알 수 없는 옵션: ${a}`);
   }
+  if (o.rate !== null && o.provider !== 'toss') throw new Error('--rate는 --provider toss와 함께 써요');
+  if (o.paper && o.provider !== 'kis') throw new Error('--paper는 KIS에서만 써요');
   const home = (p) => (p === '~' || p.startsWith('~/') ? join(homedir(), p.slice(1)) : p);
   if (o.update) o.update = resolve(home(o.update));
   o.out = resolve(home(o.out ?? (o.update ? dirname(o.update) : '~/gazua-data/')));
@@ -632,7 +655,7 @@ export function parseArgs(argv) {
 
 /**
  * --drive: 수집이 끝난 파일을 CLI(gazua drive upload)로 본인 Drive에 올린다(설계 2026-11-02-market-drive 7절, D11).
- * 일봉을 받지 못한 종목이 있으면 올리지 않는다. KIS 키는 자식에 넘기지 않는다.
+ * 일봉을 받지 못한 종목이 있으면 올리지 않는다. KIS·토스 키는 자식에 넘기지 않는다.
  */
 export function runDriveUpload(file, summary, deps = {}) {
   const { spawn = spawnSync, env = process.env, cliPath = join(REPO_ROOT, 'cli', 'dist', 'gazua.mjs'), exists = existsSync, error = (s) => console.error(s) } = deps;
@@ -646,8 +669,7 @@ export function runDriveUpload(file, summary, deps = {}) {
     return 1;
   }
   const childEnv = { ...env };
-  delete childEnv.KIS_APP_KEY;
-  delete childEnv.KIS_APP_SECRET;
+  for (const k of KEY_ENV) delete childEnv[k];
   const r = spawn(process.execPath, [cliPath, 'drive', 'upload', file], { stdio: 'inherit', env: childEnv });
   if (r.status === 0) return 0;
   error(retry);
@@ -656,14 +678,13 @@ export function runDriveUpload(file, summary, deps = {}) {
 
 /**
  * 수집 계정 표시(owner)를 CLI(gazua owner)로 받는다(설계 2026-11-03-market-owner-tag 4절).
- * 받지 못하면 던진다. KIS 키는 자식에 넘기지 않는다.
+ * 받지 못하면 던진다. KIS·토스 키는 자식에 넘기지 않는다.
  */
 export function fetchOwner(deps = {}) {
   const { spawn = spawnSync, env = process.env, cliPath = join(REPO_ROOT, 'cli', 'dist', 'gazua.mjs'), exists = existsSync } = deps;
   if (!exists(cliPath)) throw new Error('먼저 pnpm -C cli build를 실행해 주세요');
   const childEnv = { ...env };
-  delete childEnv.KIS_APP_KEY;
-  delete childEnv.KIS_APP_SECRET;
+  for (const k of KEY_ENV) delete childEnv[k];
   const r = spawn(process.execPath, [cliPath, 'owner'], { encoding: 'utf8', env: childEnv, stdio: ['ignore', 'pipe', 'inherit'] });
   const loginHint = 'gazua drive login 또는 gazua login 뒤 다시 실행하거나, 표시 없이 수집하려면 --no-owner를 붙여 주세요';
   let res;
@@ -682,10 +703,13 @@ export function fetchOwner(deps = {}) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const appKey = process.env.KIS_APP_KEY;
-  const appSecret = process.env.KIS_APP_SECRET;
-  if (!appKey || !appSecret) throw new Error('환경변수 KIS_APP_KEY, KIS_APP_SECRET이 필요해요');
-  validateCreds(appKey, appSecret);
+  const toss = opts.provider === 'toss';
+  const names = toss ? ['TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'] : ['KIS_APP_KEY', 'KIS_APP_SECRET'];
+  const [appKey, appSecret] = names.map((k) => process.env[k]);
+  if (!appKey || !appSecret) {
+    throw new Error(toss ? '환경변수 TOSS_CLIENT_ID, TOSS_CLIENT_SECRET이 필요해요 (node --env-file=.env.toss ...)' : '환경변수 KIS_APP_KEY, KIS_APP_SECRET이 필요해요');
+  }
+  validateCreds(appKey, appSecret, names);
   assertOutAllowed(opts.out);
   const log = (line) => console.log(line);
   // 계정 표시는 긴 수집 전에 먼저 확인한다
@@ -693,8 +717,11 @@ async function main() {
   if (!opts.owner) log('수집 계정 표시 없이 수집해요(어느 계정의 앱이든 가져올 수 있어요)');
   log('종목 마스터를 받아요');
   const master = await loadMaster();
-  const client = createKisClient({ appKey, appSecret, paper: opts.paper });
-  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner });
+  const client = toss
+    ? createTossClient({ clientId: appKey, clientSecret: appSecret, ...(opts.rate ? { perSecond: opts.rate } : {}) })
+    : createKisClient({ appKey, appSecret, paper: opts.paper });
+  if (toss) log(`토스로 종목·지수 일봉만 받아요 (초당 ${opts.rate ?? TOSS_RATE}건)`);
+  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner, source: opts.provider });
   if (opts.drive) process.exitCode = runDriveUpload(summary.path, summary);
 }
 
@@ -702,7 +729,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   main().catch((e) => {
     // 환경변수의 키·시크릿이 문구에 섞여 있어도 가린다.
     let msg = e instanceof Error ? e.message : '실패했어요';
-    for (const v of [process.env.KIS_APP_KEY, process.env.KIS_APP_SECRET]) if (v) msg = msg.split(v).join('***');
+    for (const v of KEY_ENV.map((k) => process.env[k])) if (v) msg = msg.split(v).join('***');
     console.error(`[collect] ${msg}`);
     process.exit(1);
   });
