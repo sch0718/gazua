@@ -12,6 +12,7 @@
   import { helpIdForRoute } from './lib/help/routing';
   import HelpButton from './lib/ui/help/HelpButton.svelte';
   import HelpIntro from './lib/ui/help/HelpIntro.svelte';
+  import TabBar from './lib/ui/TabBar.svelte';
   import Compare from './routes/Compare.svelte';
   import Help from './routes/Help.svelte';
   import Onboarding from './routes/Onboarding.svelte';
@@ -113,6 +114,8 @@
   });
 
   const route = $derived(app.route);
+  // 아래 탭 막대는 앱의 주요 화면에서만 보인다(공유 보기·프로필 고르기·잠금 풀기·처음 설정 제외).
+  const tabbed = $derived(!pendingSocial && ['compare', 'performance', 'simulate', 'settings', 'help'].includes(route.name));
 
   // 프로필을 바꾸면 이전 프로필의 스낵바(되돌리기 포함)를 닫는다.
   $effect(() => {
@@ -121,7 +124,7 @@
   });
 </script>
 
-<div class="shell">
+<div class="shell" class:tabbed>
   {#each pendingSocial || route.name === 'shared' ? [] : app.banners as b (b.id)}
     <Banner
       message={b.text}
@@ -175,50 +178,18 @@
   {:else}
     <Settings {app} {barEnd} {sync} />
   {/if}
+  <!-- 고정 위치라 자리는 상관없지만, --tabbar-h를 물려받도록 .shell 안에 둔다 -->
+  {#if tabbed}<TabBar {app} />{/if}
 </div>
 
-<!-- compact(시뮬레이션·내 성과·설정의 폰 폭)이면 상태 칩을 뺀다. 비교 화면은 인자 없이 부른다. -->
+<!-- compact(시뮬레이션·내 성과·설정의 폰 폭)이면 상태 칩을 뺀다. 비교 화면은 인자 없이 부른다.
+     화면 이동(내 성과·시뮬레이션·설정)은 폰·태블릿의 아래 탭 막대와 PC 레일이 맡는다. -->
 {#snippet barEnd(compact: boolean = false)}
   {#if !compact}
     <StatusChip {sessions} isOpenToday={day.isOpen} now={clock.now} />
   {/if}
   {@const helpId = helpIdForRoute(route)}
-  {#if helpId}<HelpButton {app} page={helpId} narrowHide={route.name === 'compare'} />{/if}
-  <button
-    type="button"
-    class="icon-btn"
-    class:on={route.name === 'performance'}
-    aria-label="내 성과"
-    aria-current={route.name === 'performance' ? 'page' : undefined}
-    onclick={() => app.navigate({ name: 'performance' })}
-  >
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <rect x="3" y="7" width="18" height="13" rx="2" />
-      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <path d="M7 15l3-3 2 2 5-5" />
-    </svg>
-  </button>
-  <button
-    type="button"
-    class="icon-btn"
-    class:on={route.name === 'simulate'}
-    aria-label="시뮬레이션"
-    aria-current={route.name === 'simulate' ? 'page' : undefined}
-    onclick={() => app.navigate({ name: 'simulate' })}
-  >
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M3 3v18h18" />
-      <path d="M7 15l4-5 3 3 5-6" />
-    </svg>
-  </button>
-  <button type="button" class="icon-btn" aria-label="설정" onclick={() => app.navigate({ name: 'settings' })}>
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path
-        d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"
-      />
-    </svg>
-  </button>
+  {#if helpId}<HelpButton {app} page={helpId} />{/if}
 {/snippet}
 
 {#if !pendingSocial && route.name !== 'shared'}<HelpIntro {app} />{/if}
@@ -272,20 +243,17 @@
       height: 100dvh;
     }
   }
-  .icon-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
-    color: var(--t2);
-    flex: none;
+  /* 폰·태블릿: 고정된 아래 탭 막대만큼 아래를 비운다. 화면 안의 하단 고정 막대(실행 단추)는 --tabbar-h 위에 붙는다. */
+  .shell.tabbed {
+    --tabbar-h: calc(58px + env(safe-area-inset-bottom, 0px));
+    --below-safe: 0px;
+    padding-bottom: var(--tabbar-h);
   }
-  .icon-btn:hover,
-  .icon-btn.on {
-    background: var(--surface2);
-  }
-  .icon-btn.on {
-    color: var(--t1);
+  @media (min-width: 1024px) {
+    .shell.tabbed {
+      --tabbar-h: 0px;
+      --below-safe: env(safe-area-inset-bottom, 0px);
+      padding-bottom: 0;
+    }
   }
 </style>

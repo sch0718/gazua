@@ -33,14 +33,14 @@ test('선정 기준 검증: 가져오기 → 새 기준 → 미리 보기 → �
   await enterDemo(page);
 
   // 설정 › 데이터 › 시장 데이터 가져오기
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
   await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
   await expectNoSeriousViolations(page, '설정(시장 데이터 있음)');
 
   // 시뮬레이션 › 선정 기준
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   const criteriaTab = page.getByRole('tab', { name: '선정 기준' });
   await expect(criteriaTab).toBeVisible();
 
@@ -111,11 +111,11 @@ test('환율·테마 기준: v2 데이터 → 테마 1개 + 원/달러 민감도
   await openApp(page);
   await enterDemo(page);
 
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
   await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('tab', { name: '선정 기준' }).click();
   await page.getByRole('button', { name: '＋ 새 기준' }).first().click();
   const run = page.getByRole('button', { name: '검증 실행' });
@@ -186,11 +186,11 @@ test('투자자 매매동향 기준: v3 데이터 → 외국인 순매수 규모
   await openApp(page);
   await enterDemo(page);
 
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
   await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('tab', { name: '선정 기준' }).click();
   await page.getByRole('button', { name: '＋ 새 기준' }).first().click();
   const run = page.getByRole('button', { name: '검증 실행' });
@@ -256,11 +256,11 @@ test('재무·가치 기준: v4 데이터 → PER 0~10 → 미리 보기 → 실
   await openApp(page);
   await enterDemo(page);
 
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await page.getByLabel('시장 데이터 파일').setInputFiles(FIXTURE);
   await expect(page.getByText(/30종목/)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: '비교로 돌아가기' }).click();
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('tab', { name: '선정 기준' }).click();
   await page.getByRole('button', { name: '＋ 새 기준' }).first().click();
   const run = page.getByRole('button', { name: '검증 실행' });

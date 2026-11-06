@@ -98,7 +98,7 @@ test('데모 흐름: 예시 그룹 → 종목 추가 → 기간·지표·거래�
   await shot(page, testInfo, '4-end');
 
   // 설정 화면
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await expect(page.getByRole('heading', { name: '데이터 공급자' })).toBeVisible();
   await expectNoHorizontalScroll(page);
   await shot(page, testInfo, '5-settings');

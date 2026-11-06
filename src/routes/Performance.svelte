@@ -156,17 +156,17 @@
         {:else if view}
           <section class="cards" aria-label="요약">
             <div class="card">
-              <h3>내 IRR</h3>
+              <h3>내 연수익률 <small>IRR</small></h3>
               <p class="big num {signClass(view.actual.irr)}">{irrText(view.actual.irr)}</p>
               <p class="sub num">{subLine(view.actual)}</p>
             </div>
             <div class="card">
-              <h3>{benchName} IRR</h3>
+              <h3>{benchName} 연수익률</h3>
               <p class="big num {signClass(view.virtual.irr)}">{irrText(view.virtual.irr)}</p>
               <p class="sub num">{subLine(view.virtual)}</p>
             </div>
             <div class="card">
-              <h3>초과</h3>
+              <h3>벤치마크보다</h3>
               <p class="big num {signClass(view.excessIrrPp)}">{ppText(view.excessIrrPp)}</p>
               <p class="sub num {signClass(view.excessProfit)}">{signedWon(view.excessProfit)}</p>
             </div>
@@ -339,6 +339,9 @@
     font-weight: 500;
     color: var(--t3);
     overflow-wrap: anywhere;
+  }
+  .card h3 small {
+    font-size: 11px;
   }
   .card .big {
     margin: 4px 0 2px;

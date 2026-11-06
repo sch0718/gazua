@@ -32,7 +32,7 @@ test('비교 화면(예시 그룹)에 심각한 접근성 위반이 없다', asy
 });
 
 test('설정 화면에 심각한 접근성 위반이 없다', async ({ page }) => {
-  await page.getByRole('banner').getByRole('button', { name: '설정', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await expect(page.getByRole('heading', { name: '데이터 공급자' })).toBeVisible();
   await expectNoSeriousViolations(page, '설정');
   await expectNoHorizontalScroll(page);
@@ -58,7 +58,7 @@ test('종목 상세가 열린 상태에 심각한 접근성 위반이 없다', a
 });
 
 test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위반이 없다', async ({ page }) => {
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
   await expectNoSeriousViolations(page, '시뮬레이션 목록');
   await expectNoHorizontalScroll(page);
@@ -87,7 +87,7 @@ test('시뮬레이션 목록·편집·결과 화면에 심각한 접근성 위�
 
 // 펼친 구역: 기본 전략에서 꺼진 조건(고점 뒤 지난 거래일·골든크로스 칸 등)이 흐리게 보여도 글자 대비를 지킨다.
 async function openEditorSections(page: Page): Promise<void> {
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
@@ -108,7 +108,7 @@ test('전략 편집 구역(매수·분할 매수·매도)을 펼친 상태에 �
 });
 
 test('거래 차트 시트가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();

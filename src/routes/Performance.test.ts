@@ -46,9 +46,9 @@ describe('Performance', () => {
     setup();
     await waitFor(() => expect(cards()).toBeTruthy(), { timeout: 5000 });
     const c = cards();
-    expect(within(c).getByText('내 IRR')).toBeTruthy();
-    expect(within(c).getByText('자동(시장 지수) IRR')).toBeTruthy();
-    expect(within(c).getByText('초과')).toBeTruthy();
+    expect(within(c).getByText(/내 연수익률/)).toBeTruthy();
+    expect(within(c).getByText('자동(시장 지수) 연수익률')).toBeTruthy();
+    expect(within(c).getByText('벤치마크보다')).toBeTruthy();
     expect(screen.getByText('데모 계좌예요')).toBeTruthy();
     await waitFor(() => expect(lwcCharts[0]?.series).toHaveLength(3));
     expect(lwcCharts[0].series[0].data.length).toBeGreaterThan(100);
@@ -66,7 +66,7 @@ describe('Performance', () => {
     await waitFor(() => expect(cards()).toBeTruthy(), { timeout: 5000 });
     await fireEvent.change(screen.getByLabelText('벤치마크'), { target: { value: '069500' } });
     expect(app.settings.perfBenchmark).toBe('069500');
-    await waitFor(() => expect(within(cards()).getByText('KODEX 200 IRR')).toBeTruthy(), { timeout: 5000 });
+    await waitFor(() => expect(within(cards()).getByText('KODEX 200 연수익률')).toBeTruthy(), { timeout: 5000 });
   });
 
   it('offers the whole period and each year, and a year narrows the dates', async () => {
@@ -130,7 +130,7 @@ describe('Performance: switching benchmarks quickly', () => {
     await screen.findByText('KODEX 200 시세를 받는 중이에요');
     await fireEvent.change(screen.getByLabelText('벤치마크'), { target: { value: '229200' } });
     release();
-    await waitFor(() => expect(within(cards()).getByText('KODEX 코스닥150 IRR')).toBeTruthy(), { timeout: 5000 });
+    await waitFor(() => expect(within(cards()).getByText('KODEX 코스닥150 연수익률')).toBeTruthy(), { timeout: 5000 });
     expect(fetched).toEqual(['069500', '229200']);
     expect(app.settings.perfBenchmark).toBe('229200');
   });
