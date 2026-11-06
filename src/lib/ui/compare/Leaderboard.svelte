@@ -397,7 +397,7 @@
         >
           <span class="nm">
             <b
-              >{r.name}{#if r.nxt}<Badge tone="nxt">NXT</Badge>{/if}{#if r.extra?.moved}<span
+              ><span class="name">{r.name}</span>{#if r.nxt}<Badge tone="nxt">NXT</Badge>{/if}{#if r.extra?.moved}<span
                   class="moved {r.extra.moved > 0 ? 'up' : 'down'}"
                   role="img"
                   aria-label="5분 전보다 {Math.abs(r.extra.moved)}칸 {r.extra.moved > 0 ? '올라감' : '내려감'}"
@@ -566,10 +566,18 @@
   .nm b {
     font-size: var(--fs-body);
     font-weight: 700;
-    display: block;
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+  }
+  .nm b .name {
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .nm b > :global(:not(.name)) {
+    flex: none;
   }
   .nm em {
     font-style: normal;
