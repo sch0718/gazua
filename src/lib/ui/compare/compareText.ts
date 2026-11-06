@@ -52,13 +52,15 @@ export function headlineLabel(a: {
   today: string;
   /** 일봉 기간의 기준 종가 날짜 */
   baseDate: string | null;
+  /** 1일 최근 구간 기준이면 그 시작 시각(epoch ms) */
+  windowFrom?: number | null;
 }): string {
   const { period, metricLabel: metric, scrubT } = a;
   const intraday = period.unit === 'D';
   if (scrubT !== null) return `${intraday ? kstHHMM(scrubT) : monthDay(kstDate(scrubT))} · ${metric}`;
   if (intraday) {
     if (a.tradingDate !== null && a.tradingDate !== a.today) return `${monthDayWeekday(a.tradingDate)} · ${metric}`;
-    return `오늘 · ${metric} · 기준 전일 종가`;
+    return `오늘 · ${metric} · 기준 ${a.windowFrom != null ? kstHHMM(a.windowFrom) : '전일 종가'}`;
   }
   const base = a.baseDate ? ` · 기준 ${monthDay(a.baseDate)} 종가` : '';
   return `${periodLabel(period)} · ${metric}${base}`;

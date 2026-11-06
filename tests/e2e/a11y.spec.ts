@@ -52,7 +52,7 @@ test('지표 시트가 열린 상태에 심각한 접근성 위반이 없다', a
 });
 
 test('종목 상세가 열린 상태에 심각한 접근성 위반이 없다', async ({ page }) => {
-  await leaderboardRows(page).first().getByRole('button', { name: /원$/ }).click();
+  await leaderboardRows(page).first().getByRole('button', { name: /원/ }).click();
   await expect(page.getByText('오늘 거래 가능 시간 (KST)')).toBeVisible();
   await expectNoSeriousViolations(page, '종목 상세');
 });

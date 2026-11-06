@@ -2,6 +2,7 @@
   import { PERIOD_COUNTS } from '../../market/periods';
   import type { Venue, VenueMode } from '../../market/tradable';
   import type { Period, PeriodUnit } from '../../state/schema';
+  import { RECENT_WINDOWS, type RecentWindow } from '../../data/windowMetrics';
   import { Chip } from '@sch0718/ui-svelte';
   import { Segmented } from '@sch0718/ui-svelte';
   import { effectiveVenueMode } from './venue';
@@ -13,9 +14,12 @@
     venues,
     autoVenue,
     metricLabel,
+    recentWindow = 0,
+    windowEnabled = false,
     onperiod,
     onvenue,
     onopenmetric,
+    onwindow,
   }: {
     period: Period;
     venueMode: VenueMode;
@@ -24,10 +28,16 @@
     /** 자동 모드가 지금 고른 거래소(시장 전체 기준). 세션 밖이면 null */
     autoVenue: 'KRX' | 'NXT' | null;
     metricLabel: string;
+    /** 1일 등락률·초과수익의 기준(0이면 전일 대비, 그 밖은 최근 N분) */
+    recentWindow?: RecentWindow;
+    /** 기준 칩을 보일지(1일 등락률·초과수익일 때만) */
+    windowEnabled?: boolean;
     onperiod: (p: Period) => void;
     onvenue: (v: VenueMode) => void;
     onopenmetric: () => void;
+    onwindow?: (w: RecentWindow) => void;
   } = $props();
+  const windowLabel = (w: RecentWindow) => (w === 0 ? '전일 대비' : `${w}분`);
 
   const UNITS: { value: PeriodUnit; label: string }[] = [
     { value: 'D', label: '일' },
@@ -86,6 +96,15 @@
     {/if}
     <Chip tone="metric" onclick={onopenmetric}>{metricLabel}</Chip>
   </div>
+  {#if windowEnabled}
+    <div class="row">
+      <div class="chips" role="group" aria-label="기준 구간">
+        {#each RECENT_WINDOWS as w (w)}
+          <Chip selected={recentWindow === w} onclick={() => onwindow?.(w)}>{windowLabel(w)}</Chip>
+        {/each}
+      </div>
+    </div>
+  {/if}
   <div class="row">
     <Segmented label="거래소" wide options={venueOptions} value={mode} onchange={(v) => onvenue(v as VenueMode)} />
     {#if unifiedOnly}

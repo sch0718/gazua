@@ -24,6 +24,8 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   colorConvention: 'kr' | 'global';
   boardOrder: BoardOrder;
+  /** 1일 등락률·초과수익의 기준: 0이면 전일 대비, 그 밖은 최근 N분 */
+  recentWindow: 0 | 5 | 15 | 30 | 60;
   /** 내 성과의 벤치마크. null이면 benchmark(AUTO·KOSPI·KOSDAQ)를 따른다. 069500 KODEX 200, 229200 KODEX 코스닥150 */
   perfBenchmark: PerfBenchmark | null;
   lastGroupId: string | null;
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   colorConvention: 'kr',
   boardOrder: 'value',
+  recentWindow: 0,
   perfBenchmark: null,
   lastGroupId: null,
   keyLock: false,

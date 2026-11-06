@@ -16,6 +16,7 @@ const ENUMS: Partial<Record<keyof Settings, readonly unknown[]>> = {
   theme: ['system', 'light', 'dark'],
   colorConvention: ['kr', 'global'],
   boardOrder: ['value', 'mine'],
+  recentWindow: [0, 5, 15, 30, 60],
   perfBenchmark: [null, 'AUTO', 'KOSPI', 'KOSDAQ', '069500', '229200'],
 };
 

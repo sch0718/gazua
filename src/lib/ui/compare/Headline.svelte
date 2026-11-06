@@ -16,6 +16,7 @@
     anyStale,
     loadFailed = false,
     lastOkAt = null,
+    windowFrom = null,
   }: {
     period: Period;
     metricLabel: string;
@@ -30,9 +31,11 @@
     /** 마지막 로딩이 모두 실패했다(● 실시간을 감춘다) */
     loadFailed?: boolean;
     lastOkAt?: number | null;
+    /** 1일 최근 구간 기준이면 그 시작 시각 */
+    windowFrom?: number | null;
   } = $props();
 
-  const label = $derived(headlineLabel({ period, metricLabel, scrubT, tradingDate, today, baseDate }));
+  const label = $derived(headlineLabel({ period, metricLabel, scrubT, tradingDate, today, baseDate, windowFrom }));
   const fresh = $derived(freshnessText({ now, inSession, tradingDate, today, closeAt, anyStale, loadFailed, lastOkAt }));
 </script>
 

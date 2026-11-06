@@ -74,7 +74,8 @@ describe('Compare (demo provider)', () => {
     expect(screen.getByText(/불러오는 중 \d\/4/)).toBeTruthy();
     await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
     for (const name of ['삼성전자', 'SK하이닉스', '한미반도체', 'DB하이텍']) {
-      expect(within(rowOf(name)).getByText(/[▲▼]|0\.00%/)).toBeTruthy();
+      // 본값 + 보조 숫자(15분)
+      expect(within(rowOf(name)).getAllByText(/[▲▼]|0\.00%/).length).toBeGreaterThan(0);
     }
     expect(screen.getByText('등락률 순 · 4/10')).toBeTruthy();
     expect(screen.getByText('오늘 · 등락률 · 기준 전일 종가')).toBeTruthy();
@@ -92,8 +93,29 @@ describe('Compare (demo provider)', () => {
     render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
     await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
     expect(within(rowOf('한미반도체')).getByText('불러오지 못했어요')).toBeTruthy();
-    expect(within(rowOf('삼성전자')).getByText(/[▲▼]|0\.00%/)).toBeTruthy();
+    expect(within(rowOf('삼성전자')).getAllByText(/[▲▼]|0\.00%/).length).toBeGreaterThan(0);
     expect(lwcCharts.at(-1)?.series.length).toBe(6);
+  });
+
+  it('최근 구간: 1일 등락률에서 15분을 고르면 기준이 바뀌고 저장되며, 전일 대비 값은 보조 숫자로 남는다', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 2));
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    const group = screen.getByRole('group', { name: '기준 구간' });
+    expect(within(rowOf('삼성전자')).getByText(/15분/)).toBeTruthy();
+    await fireEvent.click(within(group).getByRole('button', { name: '15분' }));
+    expect(app.settings.recentWindow).toBe(15);
+    expect(await screen.findByText(/^오늘 · 등락률 · 15분 · 기준 \d\d:\d\d$/)).toBeTruthy();
+    expect(screen.getByText('등락률 · 15분 순 · 2/10')).toBeTruthy();
+    expect(within(rowOf('삼성전자')).getByText(/오늘/)).toBeTruthy();
+  });
+
+  it('최근 구간: 1일이 아니면 기준 칩을 보이지 않는다', async () => {
+    const app = makeApp(EXAMPLE.slice(0, 1), { period: { unit: 'M', n: 3 }, recentWindow: 15 });
+    render(Compare, { app, now: NOW, sessions, isOpenToday: true, barEnd });
+    await vi.waitFor(() => expect(screen.queryByText(/불러오는 중/)).toBeNull(), { timeout: 3000 });
+    expect(screen.queryByRole('group', { name: '기준 구간' })).toBeNull();
+    expect(screen.getByText('등락률 순 · 1/10')).toBeTruthy();
   });
 
   it('intraday: a stale previous-day snapshot stays off today’s chart; the fresh stock keeps its real values', async () => {

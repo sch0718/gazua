@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="motion-title motion-desc">
 <title id="motion-title">가즈아 도움말 — 내 성과</title>
-<desc id="motion-desc">내 성과 사용법: 1. 벤치마크 고르기(자동(시장 지수)·KOSPI·KOSDAQ·KODEX 200·KODEX 코스닥150) 2. IRR 비교(내 IRR과 벤치마크 IRR, 그 차이(초과)) 3. 평가금액 + 회수액(내 계좌·벤치마크·넣은 돈을 한 차트에) 4. 종목별 기여도(차이 큰 순, 수량이 다르면 ‘맞지 않음’)</desc>
+<desc id="motion-desc">내 성과 사용법: 1. 벤치마크 고르기(자동(시장 지수)·KOSPI·KOSDAQ·KODEX 200·KODEX 코스닥150) 2. IRR 비교(내 연수익률(IRR)과 벤치마크 연수익률, 그 차이) 3. 평가금액 + 회수액(내 계좌·벤치마크·넣은 돈을 한 차트에) 4. 종목별 기여도(차이 큰 순, 수량이 다르면 ‘맞지 않음’)</desc>
 <style>
 text{font-family:'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif}
 .sc{opacity:0;animation:scene 15.2s linear infinite backwards}
@@ -39,7 +39,7 @@ text{font-family:'Pretendard Variable', Pretendard, -apple-system, BlinkMacSyste
 <text x="58" y="292.5" font-size="13" font-weight="800" fill="#5b6069" text-anchor="middle">2</text>
 <g class="sc s1" style="animation-delay:3.80s"><circle cx="58" cy="288" r="13" fill="#5b47e0"/><text x="58" y="292.5" font-size="13" font-weight="800" fill="#ffffff" text-anchor="middle">2</text></g>
 <text x="82" y="286" font-size="16" font-weight="800" fill="#111317" text-anchor="start">IRR 비교</text>
-<text x="82" y="304" font-size="13" font-weight="400" fill="#676d77" text-anchor="start">내 IRR과 벤치마크 IRR, 그 차이(초과)</text>
+<text x="82" y="304" font-size="13" font-weight="400" fill="#676d77" text-anchor="start">내 연수익률(IRR)과 벤치마크 연수익률, 그 차이</text>
 </g><g>
 <rect class="sc s2" style="animation-delay:7.60s" x="32" y="317" width="540" height="48" rx="14" fill="rgba(91, 71, 224, 0.1)"/>
 <circle cx="58" cy="340" r="13" fill="none" stroke="#676d77" stroke-width="1.5"/>

@@ -14,6 +14,8 @@
     openDays,
     progress,
     theme,
+    windowFrom = null,
+    windowTo = null,
     oncrosshair,
   }: {
     series: ChartSeriesInput[];
@@ -24,6 +26,10 @@
     openDays: string[];
     progress: { done: number; total: number } | null;
     theme?: string;
+    /** 최근 구간 기준이면 그 시작 시각(epoch ms) */
+    windowFrom?: number | null;
+    /** 그 끝(모든 종목의 마지막 봉) */
+    windowTo?: number | null;
     oncrosshair: (t: number | null) => void;
   } = $props();
   let chartRef = $state<ReturnType<typeof CompareChart>>();
@@ -38,7 +44,7 @@
     <div class="loading num" role="status">불러오는 중 {progress.done}/{progress.total}</div>
   {/if}
   <div class="chart">
-    <CompareChart bind:this={chartRef} {series} {mode} {sessions} {markers} {unit} {openDays} {theme} directLabels {oncrosshair} />
+    <CompareChart bind:this={chartRef} {series} {mode} {sessions} {markers} {unit} {openDays} {theme} {windowFrom} {windowTo} directLabels {oncrosshair} />
   </div>
   <div class="legend">
     {#if mode === 'intraday'}
