@@ -59,7 +59,10 @@ export function windowPoints(
   if (!index) return allNull();
   const indexBase = closeAtOrBefore(index.candles, start) ?? indexBaseFor(series, index);
   if (indexBase === null) return allNull();
-  const points = excessPct(stock, changePct(index.candles.map((c) => ({ t: c.t, v: c.c })), indexBase));
+  // 기준 봉은 start보다 앞설 수 있다(거래가 드문 종목). 그 시각의 지수가 아니라 start 시점끼리 맞춘 것이므로 0이다.
+  const points = excessPct(stock, changePct(index.candles.map((c) => ({ t: c.t, v: c.c })), indexBase)).map((p, i) =>
+    i === baseAt && p.v !== null ? { t: p.t, v: 0 } : p,
+  );
   const until = opts.indexUntil;
   return until == null ? points : points.map((p) => (p.t > until ? { t: p.t, v: null } : p));
 }

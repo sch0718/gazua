@@ -42,6 +42,11 @@ describe('windowPoints', () => {
     expect(values(windowPoints(s, 'excess', at('09:10'), { index }))).toEqual([null, 0, 15]);
   });
 
+  it('excess: 기준 봉이 구간 시작보다 앞서도 기준점은 0이다', () => {
+    const index = series([bar(at('09:00'), 1000), bar(at('09:12'), 1100), bar(at('09:20'), 1100)]);
+    expect(values(windowPoints(s, 'excess', at('09:15'), { index }))).toEqual([null, 0, 20]);
+  });
+
   it('excess: 지수가 없거나 지수 마지막 봉 뒤면 비운다', () => {
     expect(values(windowPoints(s, 'excess', at('09:10')))).toEqual([null, null, null]);
     const index = series([bar(at('09:00'), 1000), bar(at('09:10'), 1000)]);
