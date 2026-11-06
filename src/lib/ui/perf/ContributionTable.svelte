@@ -44,7 +44,7 @@
           <div class="detail" id="{idBase}-{r.symbol}">
             <p class="facts">
               내 손익 <b class="num {signClass(r.actualProfit)}">{signedWon(r.actualProfit)}</b> · {r.benchName ?? '벤치마크 없음'}
-              <b class="num {signClass(r.virtualProfit)}">{signedWon(r.virtualProfit)}</b> · 내 IRR <b class="num">{irrText(r.actualIrr)}</b>
+              <b class="num {signClass(r.virtualProfit)}">{signedWon(r.virtualProfit)}</b> · 내 연수익률 <b class="num">{irrText(r.actualIrr)}</b>
               {#if rec && rec.held !== null}
                 · 주문 합계 {fmtWon(rec.computed)}주 / 보유 {fmtWon(rec.held)}주
               {/if}

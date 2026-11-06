@@ -183,7 +183,7 @@ export const HELP_PAGES = [
       },
       {
         "title": "IRR 비교",
-        "sub": "내 IRR과 벤치마크 IRR, 그 차이(초과)"
+        "sub": "내 연수익률(IRR)과 벤치마크 연수익률, 그 차이"
       },
       {
         "title": "평가금액 + 회수액",

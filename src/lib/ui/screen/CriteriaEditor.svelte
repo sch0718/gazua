@@ -684,8 +684,9 @@
   }
   .runbar {
     position: sticky;
-    bottom: 0;
-    padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+    /* 폰·태블릿은 아래 탭 막대 위에 붙는다(App.svelte의 --tabbar-h) */
+    bottom: var(--tabbar-h, 0px);
+    padding: 12px 0 calc(12px + var(--below-safe, env(safe-area-inset-bottom)));
     background: linear-gradient(to bottom, transparent, var(--bg) 24%);
     display: flex;
     flex-direction: column;

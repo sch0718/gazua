@@ -47,7 +47,7 @@ test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트
   await loadExampleGroup(page);
 
   // 앱 바 진입점 → 빈 목록 → 새 전략
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
@@ -113,7 +113,7 @@ test('시뮬레이션 재생: ▶ → 날짜가 바뀜 → ⏸ → 타임라인 
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.getByRole('button', { name: '시뮬레이션 실행' }).click();
@@ -163,7 +163,7 @@ test('시뮬레이션: 목록·편집·로딩·결과 어느 상태에서도 가
   await enterDemo(page);
   await loadExampleGroup(page);
 
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
   await expectNoHorizontalScroll(page);
 
@@ -204,14 +204,14 @@ test('시뮬레이션: 목록·편집·로딩·결과 어느 상태에서도 가
   await expectNoHorizontalScroll(page);
 
   // 앱 바의 시뮬레이션 아이콘은 현재 위치를 알린다
-  await expect(page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('편집: 모든 구역을 펼쳐도 카드 밖으로 넘치지 않고, 숫자 칸 박스·라벨이 크게 눌린다', async ({ page }, testInfo) => {
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
@@ -252,7 +252,7 @@ test('편집: 처음 자금 칸에 키보드로 들어와 바로 치면 값이 �
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   const head = page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) });
@@ -288,7 +288,7 @@ test('편집: 폭 320px에서도 처음 자금 칸(최댓값)이 줄 안에 맞�
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
   await page.getByRole('button', { name: /하락 후 반등/ }).click();
   await page.locator('button[aria-expanded]', { has: page.getByText('기간·자금', { exact: true }) }).click();
@@ -322,7 +322,7 @@ test('앱 바: 폰 폭에서 시뮬레이션 화면에는 상태 칩이 없고 �
   const chip = page.getByRole('banner').getByRole('button', { name: /· 오늘 세션 시간표 보기$/ });
   await expect(chip).toHaveCount(1);
 
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
   const phone = page.viewportSize()!.width < 600;
   await expect(chip).toHaveCount(phone ? 0 : 1);
@@ -336,7 +336,7 @@ test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
-  await page.getByRole('banner').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
 
   await page.getByRole('button', { name: '＋ 새 전략' }).click();

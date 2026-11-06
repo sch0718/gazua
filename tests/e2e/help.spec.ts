@@ -17,16 +17,8 @@ test('first visit shows the compare intro once, and the help page shows the movi
   await expect(page.getByText('비교할 종목을 추가해 보세요')).toBeVisible();
   await expect(page.getByRole('dialog', { name: '비교 차트' })).toHaveCount(0);
 
-  // 앱 바의 ? → 이 화면의 도움말. 폰 폭에서는 비교 화면 앱 바에 자리가 없어 설정 › 도움말로 간다.
-  const bar = page.locator('header.bar');
-  if ((page.viewportSize()?.width ?? 0) < 600) {
-    await expect(bar.getByRole('button', { name: '비교 차트 도움말' })).toBeHidden();
-    await bar.getByRole('button', { name: '설정' }).click();
-    await page.getByRole('button', { name: '도움말 보기' }).click();
-    await page.getByRole('list', { name: '메뉴별 도움말' }).getByRole('button', { name: /비교 차트/ }).click();
-  } else {
-    await bar.getByRole('button', { name: '비교 차트 도움말' }).click();
-  }
+  // 앱 바의 ? → 이 화면의 도움말. 폰 폭에서도 보인다(화면 이동은 아래 탭 막대로 옮겼다).
+  await page.locator('header.bar').getByRole('button', { name: '비교 차트 도움말' }).click();
   // 그림 파일이 실제로 읽혀 그려진다.
   await expect(page.getByRole('heading', { level: 1, name: '비교 차트' })).toBeVisible();
   const img = page.getByRole('img', { name: /비교 차트 사용법/ });
@@ -41,7 +33,7 @@ test('first visit shows the compare intro once, and the help page shows the movi
 test('settings lets the intros show again', async ({ page }) => {
   await openApp(page);
   await enterDemo(page);
-  await page.locator('header.bar').getByRole('button', { name: '설정' }).click();
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
   await page.getByRole('button', { name: '처음 안내 다시 보기' }).click();
   await expect(page.getByText('메뉴에 처음 들어갈 때 안내가 다시 떠요')).toBeVisible();
   await page.getByRole('button', { name: '도움말 보기' }).click();
