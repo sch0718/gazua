@@ -3,8 +3,9 @@
 
 export const KEY_KDF = 'PBKDF2-SHA256';
 export const KEY_ITER = 600000;
-export type KeyProvider = 'kis' | 'toss';
-export const KEY_PROVIDERS: readonly KeyProvider[] = ['kis', 'toss'];
+/** 동기화할 수 있는 항목. proxy는 프록시 주소와 프록시 토큰이다(공급자는 아니지만 같은 선택 규칙을 쓴다) */
+export type KeyProvider = 'kis' | 'toss' | 'proxy';
+export const KEY_PROVIDERS: readonly KeyProvider[] = ['kis', 'toss', 'proxy'];
 /** 사용자당 살아 있는 블롭 상한(2.3) */
 export const KEY_BLOBS_MAX = 50;
 export const NONCE_CHARS = 16;
@@ -62,7 +63,15 @@ export interface KeyPlainV1 {
   v: 1;
   kis?: { appKey: string; appSecret: string };
   toss?: { clientId: string; clientSecret: string };
+  /** 프록시 주소(https, 끝 슬래시 없음)와 프록시 토큰(없을 수 있다) */
+  proxy?: ProxyKey;
 }
+export interface ProxyKey {
+  url: string;
+  token?: string;
+}
+/** 동기화로 주고받는 값(평문에서 v를 뺀 것) */
+export type SyncKeys = Omit<KeyPlainV1, 'v'>;
 export interface VaultBody {
   vaultId: string;
   kdf: typeof KEY_KDF;
@@ -279,11 +288,14 @@ export function checkBlob(raw: unknown): KeyBlob | null {
 }
 
 const isCredential = (v: unknown): v is string => typeof v === 'string' && CREDENTIAL_RE.test(v);
+/** 동기화할 수 있는 프록시 주소: https, 출력 가능한 ASCII 256자까지, 쿼리·조각·끝 슬래시 없음 */
+export const isSyncableProxyUrl = (v: unknown): v is string =>
+  isCredential(v) && /^https:\/\/[^/?#]+(\/[^?#]*)?$/.test(v) && !v.endsWith('/');
 
 /** 평문 모양(2.2): 정확한 키 집합, 공급자 하나 이상, 자격 값 규칙(2.3). 아니면 null */
 export function checkKeyPlain(raw: unknown): KeyPlainV1 | null {
   if (!isRecord(raw) || raw.v !== 1) return null;
-  if (Object.keys(raw).some((k) => k !== 'v' && k !== 'kis' && k !== 'toss')) return null;
+  if (Object.keys(raw).some((k) => k !== 'v' && k !== 'kis' && k !== 'toss' && k !== 'proxy')) return null;
   const out: KeyPlainV1 = { v: 1 };
   if (raw.kis !== undefined) {
     const k = raw.kis;
@@ -297,7 +309,13 @@ export function checkKeyPlain(raw: unknown): KeyPlainV1 | null {
     if (!isCredential(t.clientId) || !isCredential(t.clientSecret)) return null;
     out.toss = { clientId: t.clientId, clientSecret: t.clientSecret };
   }
-  return out.kis || out.toss ? out : null;
+  if (raw.proxy !== undefined) {
+    const x = raw.proxy;
+    if (!isRecord(x) || Object.keys(x).some((k) => k !== 'url' && k !== 'token')) return null;
+    if (!isSyncableProxyUrl(x.url) || (x.token !== undefined && !isCredential(x.token))) return null;
+    out.proxy = { url: x.url, ...(x.token !== undefined && { token: x.token }) };
+  }
+  return out.kis || out.toss || out.proxy ? out : null;
 }
 
 /** 평문에 든 공급자 집합(= 선택, 결정 9) */

@@ -127,4 +127,20 @@ describe('서버 응답 검사', () => {
     for (const bad of bads) expect(checkKeyPlain(bad), JSON.stringify(bad)).toBeNull();
     expect(checkKeyPlain({ v: 1, kis: { ...kis, appKey: 'a'.repeat(256) } })).not.toBeNull();
   });
+
+  it('평문의 프록시: https 주소와 선택 토큰, 프록시만 있어도 된다', () => {
+    const proxy = { url: 'https://proxy.example.net/base', token: 'FAKE-proxy-token' };
+    expect(checkKeyPlain({ v: 1, proxy })).toEqual({ v: 1, proxy });
+    expect(checkKeyPlain({ v: 1, proxy: { url: 'https://p.example.net' } })).toEqual({ v: 1, proxy: { url: 'https://p.example.net' } });
+    const bads: unknown[] = [
+      { v: 1, proxy: { url: 'http://p.example.net' } },
+      { v: 1, proxy: { url: 'https://p.example.net/' } },
+      { v: 1, proxy: { url: 'https://p.example.net/?k=v' } },
+      { v: 1, proxy: { url: 'https://' } },
+      { v: 1, proxy: { url: 'https://p.example.net', token: '' } },
+      { v: 1, proxy: { url: 'https://p.example.net', extra: 1 } },
+      { v: 1, proxy: { token: 'FAKE' } },
+    ];
+    for (const bad of bads) expect(checkKeyPlain(bad), JSON.stringify(bad)).toBeNull();
+  });
 });

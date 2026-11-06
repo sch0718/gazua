@@ -2,7 +2,6 @@
 // step()은 엔진이 직렬화 안에서 부르고, 동작 메서드는 컨트롤러가 engine.exclusive 안에서 부른다. KDF는 여기서 돌지 않는다.
 // 비밀값(평문 키·암호)은 반환값의 notes·message·상태·로그에 넣지 않는다. 평문은 한 동작이 끝날 때까지만 지역 변수에 둔다
 // (받기의 PreparedReceive만 확인 단계까지 컨트롤러 메모리에 머문다).
-import type { Secrets } from '../state/secrets';
 import type { ApiFail, SyncApi } from './api';
 import type { SyncPhase } from './engine';
 import { KeyOpenError, makeVerifier, openKeys, openRaw, randomId, sealKeys, sealRaw, type BlobContext } from './keyCrypto';
@@ -21,6 +20,7 @@ import {
   type BlobRows,
   type KeyPlainV1,
   type KeyProvider,
+  type SyncKeys,
   type KeyVaultHead,
   type RekeyBlob,
   type Sealed,
@@ -69,8 +69,8 @@ export interface PreparedReceive {
 export interface KeySyncApp {
   readonly meta: { readonly activeProfileId: string; readonly profiles: readonly { id: string }[] };
   readonly settings: { readonly provider: string; readonly keyLock: boolean };
-  syncableSecrets(profileId: string): Pick<Secrets, 'kis' | 'toss'> | null;
-  applySyncedSecrets(profileId: string, keys: Pick<Secrets, 'kis' | 'toss'>, passphrase?: string): Promise<KeyProvider[]>;
+  syncableSecrets(profileId: string): SyncKeys | null;
+  applySyncedSecrets(profileId: string, keys: SyncKeys, passphrase?: string): Promise<KeyProvider[]>;
 }
 export interface KeySyncDeps {
   store: KeyStore;
@@ -103,7 +103,9 @@ export interface KeySync {
   dismissAccount(): Promise<void>;
 }
 
-export const PROVIDER_LABEL: Record<KeyProvider, string> = { kis: 'KIS', toss: '토스' };
+export const PROVIDER_LABEL: Record<KeyProvider, string> = { kis: 'KIS', toss: '토스', proxy: '프록시' };
+/** 문구 속 항목 이름: `KIS 키`, `토스 키`, `프록시 주소·토큰` */
+export const itemName = (p: KeyProvider): string => (p === 'proxy' ? '프록시 주소·토큰' : `${PROVIDER_LABEL[p]} 키`);
 
 /** 키 영역 문구(설계 5.5~5.16, 8절). 설계에 없는 것은 계획 「스펙 빈틈」에 적은 것만 */
 export const KEY_TEXT = {
@@ -146,6 +148,7 @@ export const KEY_TEXT = {
   pendingUpload: '올릴 키 변경이 있어요. 동기화 암호를 넣으면 올려요',
   keepOne: '그만 올리려면 위 토글을 꺼 주세요',
   noKeyHere: '이 기기에 키가 없어요',
+  noProxyHere: '이 기기에 https 프록시 주소가 없어요',
   tossWarning: '토스 키는 키마다 토큰이 하나라 동시에 한 기기에서만 잘 돼요. 다른 기기에서 쓰면 이 기기의 토큰이 끊길 수 있어요',
   available: '키를 받을 수 있어요',
   newer: '다른 기기에서 키가 바뀌었어요',
@@ -157,9 +160,18 @@ export const KEY_TEXT = {
   offConfirm: '서버에서 이 프로필의 키를 지울까요? 이미 받은 다른 기기의 키는 그대로 남아요.',
   offConfirmKnown: ' 다른 기기에서 켠 키 동기화도 꺼져요',
   wipeConfirm: '서버에 올린 모든 프로필의 키와 동기화 암호 정보를 지울까요? 되돌릴 수 없어요. 이미 받은 기기의 키는 남아요.',
-  missingKey: (p: KeyProvider) => `${PROVIDER_LABEL[p]} 키가 이 기기에 없어 올리지 못했어요. 키를 넣거나 선택을 바꿔 주세요`,
-  dropped: (p: KeyProvider) => `${PROVIDER_LABEL[p]} 키는 더 이상 동기화하지 않아요. 이 기기의 ${PROVIDER_LABEL[p]} 키는 그대로예요`,
-  overwrite: (ps: KeyProvider[]) => `이 기기의 ${ps.map((p) => PROVIDER_LABEL[p]).join('·')} 키가 서버 키로 바뀌어요`,
+  missingKey: (p: KeyProvider) =>
+    p === 'proxy'
+      ? '프록시 주소(https)가 이 기기에 없어 올리지 못했어요. 주소를 넣거나 선택을 바꿔 주세요'
+      : `${PROVIDER_LABEL[p]} 키가 이 기기에 없어 올리지 못했어요. 키를 넣거나 선택을 바꿔 주세요`,
+  dropped: (p: KeyProvider) =>
+    p === 'proxy'
+      ? '프록시 주소·토큰은 더 이상 동기화하지 않아요. 이 기기의 프록시 설정은 그대로예요'
+      : `${PROVIDER_LABEL[p]} 키는 더 이상 동기화하지 않아요. 이 기기의 ${PROVIDER_LABEL[p]} 키는 그대로예요`,
+  overwrite: (ps: KeyProvider[]) =>
+    ps.includes('proxy')
+      ? `이 기기의 ${ps.map(itemName).join(', ')} 값이 서버 값으로 바뀌어요`
+      : `이 기기의 ${ps.map((p) => PROVIDER_LABEL[p]).join('·')} 키가 서버 키로 바뀌어요`,
 } as const;
 
 /** 키 요청 실패 문구(4.11·8절) */
@@ -198,10 +210,11 @@ export const sameVault = (k: VaultKey | null, h: { vaultId: string; salt: string
 
 const REMOTE_NOTICES: ReadonlySet<KeySyncState['notice']> = new Set(['available', 'newer', 'conflict', 'rollback']);
 
-function plainFor(providers: readonly KeyProvider[], s: Pick<Secrets, 'kis' | 'toss'>): KeyPlainV1 {
+function plainFor(providers: readonly KeyProvider[], s: SyncKeys): KeyPlainV1 {
   const out: KeyPlainV1 = { v: 1 };
   if (providers.includes('kis') && s.kis) out.kis = { appKey: s.kis.appKey, appSecret: s.kis.appSecret };
   if (providers.includes('toss') && s.toss) out.toss = { clientId: s.toss.clientId, clientSecret: s.toss.clientSecret };
+  if (providers.includes('proxy') && s.proxy) out.proxy = { url: s.proxy.url, ...(s.proxy.token !== undefined && { token: s.proxy.token }) };
   return out;
 }
 /** 공급자 집합과 값이 모두 같은가 */
@@ -673,7 +686,7 @@ export function createKeySync(deps: KeySyncDeps): KeySync {
       try {
         changed = await app.applySyncedSecrets(
           p.profileId,
-          { ...(p.plain.kis && { kis: p.plain.kis }), ...(p.plain.toss && { toss: p.plain.toss }) },
+          { ...(p.plain.kis && { kis: p.plain.kis }), ...(p.plain.toss && { toss: p.plain.toss }), ...(p.plain.proxy && { proxy: p.plain.proxy }) },
           lockPass,
         );
       } catch (e) {
