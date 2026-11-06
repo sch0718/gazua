@@ -172,9 +172,11 @@
     const pair = metric === 'excess' ? ctl.excessIndex(symbol, indexOf(symbol)) : null;
     const index = { index: pair?.series ?? null, indexUntil: pair?.until ?? null };
     if (from !== null && windowApplies(period, metric)) {
-      // 차트와 다른(이전) 거래일 결과나 갱신에 실패한 이전 결과에 지금 구간을 대면 마지막 봉이 기준이 되어
-      // 0%가 되므로 값을 비운다.
-      if (!onChartDay(series) || (series as { stale?: boolean }).stale) return series.candles.map((c) => ({ t: c.t, v: null }));
+      // 차트와 다른(이전) 거래일 결과나, 마지막 봉이 구간 시작 이하로 뒤처진 갱신 실패 결과(stale)에
+      // 지금 구간을 대면 마지막 봉이 기준이 되어 0%가 되므로 값을 비운다. 같은 시점의 이전 결과끼리는 값을 낸다.
+      // 갱신이 정상인데 구간 안에 체결이 없는 종목은 비우지 않고 0%로 낸다.
+      const last = series.candles.at(-1)?.t;
+      if (!onChartDay(series) || last === undefined || ((series as { stale?: boolean }).stale && last <= from)) return series.candles.map((c) => ({ t: c.t, v: null }));
       return windowPoints(series, metric, from, index);
     }
     return metricPoints(series, metric, { ...index, period });
