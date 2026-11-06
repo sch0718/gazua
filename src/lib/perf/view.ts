@@ -104,24 +104,26 @@ export function viewOf(tl: Timeline, a: number, b: number): PerfView {
     })
     .sort((x, y) => y.diff - x.diff || x.symbol.localeCompare(y.symbol));
 
-  // 곡선: 그날 평가금액 + 구간 안에서 회수한 돈, 그리고 구간 시작 평가금액 + 구간 안 매수액
+  // 곡선: 판 돈을 다시 넣는 것은 새 돈이 아니다. 순투입 = 구간 시작 평가금액 + 매수 − 회수,
+  // 넣은 돈 = 지금까지의 순투입 최댓값(실제로 필요했던 원금), 선 = 넣은 돈 + 평가금액 − 순투입(= 평가금액 + 남은 현금).
+  // 가상도 같은 넣은 돈에서 출발해, 선 − 넣은 돈이 그 구간 손익이 된다.
   const curve: CurvePoint[] = [];
-  let outA = 0;
-  let outV = 0;
-  let invested = sides.reduce((x, s) => x + s.act.start, 0);
+  let netA = sides.reduce((x, s) => x + s.act.start, 0);
+  let netV = sides.reduce((x, s) => x + s.vir.start, 0);
+  let cap = netA;
   const byDay = new Map<number, Track['events']>();
   for (const { t } of sides) for (const e of t.events) if (e.i >= a && e.i <= b) byDay.set(e.i, [...(byDay.get(e.i) ?? []), e]);
   for (let i = a; i <= b; i++) {
     for (const e of byDay.get(i) ?? []) {
-      if (e.actual > 0) outA += e.actual;
-      else invested -= e.actual;
-      if (e.virtual !== null && e.virtual > 0) outV += e.virtual;
+      netA -= e.actual;
+      if (e.virtual !== null) netV -= e.virtual;
     }
+    cap = Math.max(cap, netA);
     curve.push({
       date: days[i],
-      actual: roundMoney(used.reduce((x, t) => x + t.actual[i], 0) + outA),
-      virtual: roundMoney(used.reduce((x, t) => x + t.virtual[i], 0) + outV),
-      invested: roundMoney(invested),
+      actual: roundMoney(cap + used.reduce((x, t) => x + t.actual[i], 0) - netA),
+      virtual: roundMoney(cap + used.reduce((x, t) => x + t.virtual[i], 0) - netV),
+      invested: roundMoney(cap),
     });
   }
 

@@ -98,12 +98,37 @@ describe('viewOf', () => {
     ]);
   });
 
+  it('curve: money from a sale that is bought again is not counted as new money', () => {
+    // 1000에 사서 1100에 팔고, 그 돈으로 다시 1100에 산다. 끝 평가 1200
+    const R = track('R', {
+      actual: [1000, 0, 1100, 1200],
+      virtual: [1000, 0, 1100, 1150],
+      events: [
+        { i: 0, trade: trade('2025-12-30'), actual: -1000, virtual: -1000, excessQty: 0 },
+        { i: 1, trade: trade('2025-12-31', 'SELL'), actual: 1100, virtual: 1050, excessQty: 0 },
+        { i: 2, trade: { ...trade('2026-01-02'), orderId: 'rebuy' }, actual: -1100, virtual: -1100, excessQty: 0 },
+      ],
+    });
+    const v = viewOf({ days: DAYS, tracks: [R], missing: [] }, 0, 3);
+    expect(v.curve).toEqual([
+      { date: '2025-12-30', actual: 1000, virtual: 1000, invested: 1000 },
+      { date: '2025-12-31', actual: 1100, virtual: 1050, invested: 1000 },
+      { date: '2026-01-02', actual: 1100, virtual: 1050, invested: 1000 },
+      { date: '2026-06-30', actual: 1200, virtual: 1100, invested: 1000 },
+    ]);
+    // 손익은 그대로다
+    expect(v.actual.profit).toBe(200);
+    expect(v.virtual.profit).toBe(100);
+  });
+
   it('a year starts from the value at the end of the previous year, and counts money taken out again from zero', () => {
     const v = viewOf(TL, 2, 3);
     // 실제 시작 1600, 가상 시작 1550
     expect(v.actual).toMatchObject({ invested: 1600, endValue: 1500, profit: 200 });
     expect(v.virtual).toMatchObject({ invested: 1550, endValue: 1290, profit: 30 });
-    expect(v.curve[0]).toEqual({ date: '2026-01-02', actual: 1620, virtual: 1545, invested: 1600 });
+    // 가상도 실제의 시작 평가금액에서 출발한다: 1600 + 1255 − (1550 − 290)
+    expect(v.curve[0]).toEqual({ date: '2026-01-02', actual: 1620, virtual: 1595, invested: 1600 });
+    expect(v.curve.at(-1)).toEqual({ date: '2026-06-30', actual: 1800, virtual: 1630, invested: 1600 });
     expect(v.actual.irr).toBeCloseTo(
       xirr([
         { date: '2026-01-02', amount: -1600 },
