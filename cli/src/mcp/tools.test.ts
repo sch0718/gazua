@@ -44,7 +44,7 @@ describe('도구 표', () => {
   });
 
   it('CLI 옵션과 같은 이름만 쓴다(symbols는 위치 인자)', () => {
-    const options = new Set(['profile', 'provider', 'strategy', 'from', 'to', 'today', 'raw']);
+    const options = new Set(['profile', 'provider', 'strategy', 'from', 'to', 'today', 'raw', 'propose']);
     for (const t of TOOLS) for (const f of t.fields) expect(f.name === 'symbols' || options.has(f.name), `${t.name}.${f.name}`).toBe(true);
   });
 });

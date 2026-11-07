@@ -300,6 +300,16 @@ describe('runSignals', () => {
     await expect(runSignals({ provider: allBad, strategy: strat(), symbols: ['005930', '000660'], now: NOW, today: false })).rejects.toMatchObject({ code: 'proxy-unreachable' });
   });
 
+  it('propose면 판정을 주문안으로도 낸다(없으면 proposals 필드가 없다)', async () => {
+    const provider = stub({ candles: { '005930': barsFromCloses(CLOSES_UP, DAYS[0]), '000660': barsFromCloses(CLOSES_DOWN, DAYS[0]) } });
+    const now = kstEpoch('2026-11-02', '21:00:00');
+    const plain = await runSignals({ provider, strategy: strat(), symbols: ['005930', '000660'], now, today: true });
+    expect(plain).not.toHaveProperty('proposals');
+    const out = await runSignals({ provider, strategy: strat(), symbols: ['005930', '000660'], now, today: true, propose: true });
+    // equityPct 10% → 처음 자금 1,000만 원의 10% ÷ 종가 12
+    expect(out.proposals?.orders).toEqual([{ side: 'BUY', symbol: '005930', quantity: 83_333, refPrice: 12, amount: 999_996, reason: expect.stringMatching(/^매수 조건/) }]);
+  });
+
   it('종목이 없으면 빈 결과와 notes', async () => {
     const out = await runSignals({ provider: stub({ candles: {} }), strategy: strat(), symbols: [], now: NOW, today: false });
     expect(out).toMatchObject({ asOf: null, signals: [], notes: expect.arrayContaining([NOTES.noSymbols]) });

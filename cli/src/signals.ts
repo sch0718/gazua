@@ -1,4 +1,4 @@
-// 신호 계산(스펙 §7). 판정만 하고 주문하지 않으며 주문안도 만들지 않는다(단계 B).
+// 신호 계산(스펙 §7). 판정만 하고 주문하지 않는다. propose면 판정을 주문안 목록으로도 바꾼다(proposals.ts, 보내지 않는다).
 import type { Candle } from '../../src/lib/data/metrics';
 import type { Venue } from '../../src/lib/market/tradable';
 import { normalizeOrders } from '../../src/lib/perf/ledger';
@@ -7,6 +7,7 @@ import type { AccountOrder, MarketDataProvider } from '../../src/lib/providers/t
 import { createRuleEvaluator, rulesLookback } from '../../src/lib/sim/rules';
 import type { CondGroup, Strategy } from '../../src/lib/sim/types';
 import { addDays, kstDate, kstMinuteOfDay } from '../../src/lib/time/kst';
+import { proposeOrders, type Proposals } from './proposals';
 
 /** KST 자정부터의 분. 통합(NXT 포함)은 20:00 */
 export const CLOSE_MINUTE: Record<Venue, number> = { KRX: 15 * 60 + 30, NXT: 20 * 60, UNIFIED: 20 * 60 };
@@ -180,6 +181,8 @@ export interface SignalsDeps {
   today: boolean;
   /** 토스: 주문 이력(파일 캐시 포함). 없으면 보유 기준 판정을 하지 않는다 */
   loadOrders?: () => Promise<AccountOrder[]>;
+  /** 주문안(proposals)도 낸다 */
+  propose?: boolean;
 }
 
 export interface SignalsOutput {
@@ -191,6 +194,7 @@ export interface SignalsOutput {
   holdings?: HoldingJudgement[];
   failed: { symbol: string; reason: string }[];
   notes: string[];
+  proposals?: Proposals;
 }
 
 interface Base {
@@ -325,5 +329,8 @@ export async function runSignals(d: SignalsDeps): Promise<SignalsOutput> {
     ...(holdings ? { holdings } : {}),
     failed,
     notes,
+    ...(d.propose
+      ? { proposals: proposeOrders({ strategy, signals, holdings, closes: new Map([...bases].map(([k, b]) => [k, b.close])), symbolCount: symbols.length }) }
+      : {}),
   };
 }
