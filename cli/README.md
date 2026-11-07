@@ -62,7 +62,7 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 | `gazua strategies [--raw]` | 전략 목록과 규칙 요약(`--raw`면 원 규칙도) | ○ | |
 | `gazua quote <종목…>` | 현재가 | | ○ |
 | `gazua holdings` | 토스 국내 보유(수량·평단) | | 토스 |
-| `gazua signals --strategy <이름\|ID> [--today]` | 조건 신호 + (토스) 보유 기준 매도 판정 | ○ | ○ |
+| `gazua signals --strategy <이름\|ID> [--today] [--propose]` | 조건 신호 + (토스) 보유 기준 매도 판정(`--propose`면 주문안도) | ○ | ○ |
 | `gazua drive login` | 시장 파일 업로드용 서버 로그인 + Google 로그인 | ○ | |
 | `gazua drive upload <파일> [--keep N]` | 시장 파일을 Drive에 올리고 서버에 등록 | ○ | |
 | `gazua drive status` | Drive 로그인 상태와 올린 시장 파일 목록 | ○ | |
@@ -73,6 +73,12 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 `owner`는 만료 전 `drive-auth.json`(`gazua drive login`) → `auth.json`(`gazua login`) 순서로 토큰을 골라요. 첫 토큰이 401이면 남은 파일로 한 번 더 시도하고, 쓸 파일이 없으면 `not-logged-in`이에요. 서버가 이 경로를 모르면(옛 Worker) `server-outdated`예요. 수집 스크립트 전용이라 MCP 도구로는 내보내지 않아요.
 
 `signals`의 기준 봉은 마지막 완성 일봉이에요. `--today`가 없으면 어제까지, `--today`면 그 venue 마감 뒤(KRX 15:30·통합 20:00 KST)이고 오늘이 거래일일 때만 오늘까지예요. 토스는 통합 일봉이라 늘 20:00 기준이에요. 판정은 매수·매도 조건과 손절·익절·트레일링·기간 청산 가격만 계산하고 주문하지 않아요. 앱의 시뮬레이션과 다른 점은 출력의 `notes`에 적혀 있어요.
+
+`--propose`를 붙이면 판정을 주문안 `proposals`로도 내요. **어디에도 주문을 보내지 않아요.** 사람이 보고 증권사 앱에서 직접 주문해요.
+
+- `orders[]`: `side`(BUY·SELL)·`symbol`·`quantity`·`refPrice`(기준 봉 종가)·`amount`·`reason`. `skipped[]`는 조건은 맞았지만 안을 내지 않은 종목과 이유, `buyTotal`은 매수안 금액 합계예요(비용 제외).
+- 매수: 매수 조건이 맞고 보유하지 않은 종목. 수량은 1회 금액 ÷ 종가의 내림이에요. 1회 금액은 같은 금액이면 처음 자금 ÷ 종목 수, 그 밖에는 처음 자금 × 비율이에요(계좌 잔고를 읽지 않아요). 분할 매수(추가 매수)는 내지 않아요.
+- 매도(토스만): 손절 → 트레일링 스톱 → 기간 청산 → 조건 매도 순으로 처음 맞은 것은 전량, 아니면 맞은 가장 높은 익절 단계예요. 중간 단계는 지금 보유 수량 × 단계 비율, 마지막 단계는 전량이에요. 판정하지 못한 규칙만 있으면 `skipped`예요. 본전 손절은 1단계 익절 여부를 몰라, 종가가 평단 이하일 때 `skipped`로 알려요. 기준 봉이 다른 종목보다 오래된 종목(거래정지 등)은 매수·매도 모두 `skipped`예요.
 
 ## MCP 서버
 
@@ -89,7 +95,7 @@ gazua mcp [--env-file <경로>] [--verbose]
 | `strategies` | `profile?`, `raw?` | `gazua strategies` |
 | `quote` | `symbols`(필수, 문자열 배열), `provider?` | `gazua quote` |
 | `holdings` | `provider?` | `gazua holdings` |
-| `signals` | `strategy`(필수), `profile?`, `provider?`, `today?` | `gazua signals` |
+| `signals` | `strategy`(필수), `profile?`, `provider?`, `today?`, `propose?` | `gazua signals` |
 | `simulate` | `strategy`(필수), `profile?`, `provider?`, `from?`, `to?` | `gazua simulate` |
 
 - 인자 이름은 CLI 옵션과 같아요. 명령을 실행하다 난 오류의 코드·메시지는 CLI 그대로예요(예: 「--profile로 골라 주세요」는 `profile` 인자를 주라는 뜻). 인자 모양이 틀리면(모르는 인자, 틀린 형, 빠진 필수 인자) MCP용 문구의 `invalid-args`예요.

@@ -40,7 +40,13 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: 'signals',
     description: `전략의 조건 신호와 (토스) 보유 기준 매도 판정. 주문하지 않아요. ${SAME}`,
-    fields: [STRATEGY, PROFILE, PROVIDER, { name: 'today', type: 'boolean', description: 'true면 장 마감 뒤 오늘 봉까지 써요' }],
+    fields: [
+      STRATEGY,
+      PROFILE,
+      PROVIDER,
+      { name: 'today', type: 'boolean', description: 'true면 장 마감 뒤 오늘 봉까지 써요' },
+      { name: 'propose', type: 'boolean', description: 'true면 판정을 주문안(종목·수량·참고 가격)으로도 내요. 주문은 보내지 않아요' },
+    ],
   },
   {
     name: 'simulate',

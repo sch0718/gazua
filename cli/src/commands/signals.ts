@@ -24,6 +24,7 @@ export function makeSignals(build: typeof buildProvider = buildProvider): Comman
       symbols: resolveSymbols(strategy, profile.watchlists),
       now: ctx.now(),
       today: ctx.args.today,
+      propose: ctx.args.propose,
       ...(account
         ? { loadOrders: () => syncOrders({ dir: ctx.dir, keyHash: built.keyHash, account, now: ctx.now(), onSeq: (seq) => ctx.redact.add(seq), warn: ctx.warn }) }
         : {}),

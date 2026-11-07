@@ -18,6 +18,7 @@ export interface Args {
   verbose: boolean;
   today: boolean;
   raw: boolean;
+  propose: boolean;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -46,6 +47,7 @@ export function parseArgv(argv: string[]): Args {
           verbose: { type: 'boolean' },
           today: { type: 'boolean' },
           raw: { type: 'boolean' },
+          propose: { type: 'boolean' },
         },
       });
     } catch {
@@ -83,5 +85,6 @@ export function parseArgv(argv: string[]): Args {
     verbose: v.verbose === true,
     today: v.today === true,
     raw: v.raw === true,
+    propose: v.propose === true,
   };
 }
