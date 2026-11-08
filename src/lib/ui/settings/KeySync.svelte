@@ -560,6 +560,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    padding: 0 var(--gutter) 16px;
   }
   .sheet-form input[type='password'] {
     min-height: var(--touch);
