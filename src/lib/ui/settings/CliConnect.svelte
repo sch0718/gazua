@@ -136,6 +136,6 @@
   .btn:disabled { opacity: 0.5; }
   .warn { font-size: var(--fs-sub); color: var(--warn); }
   .done { font-size: var(--fs-sub); color: var(--t1); }
-  .sheet-form { display: flex; flex-direction: column; gap: 12px; }
+  .sheet-form { display: flex; flex-direction: column; gap: 12px; padding: 0 var(--gutter) 16px; }
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
