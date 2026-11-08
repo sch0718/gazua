@@ -8,7 +8,7 @@ import {
   matchOrigin,
   preflight,
   readJson,
-  SESSION_PATHS,
+  handleSessionRoute,
 } from '@sch0718/firebase-session/worker';
 import { KEY_BODY_MAX } from '../../src/lib/sync/keyWire';
 import { checkKeyId, createVault, deleteKeyBlob, getKeyBlob, listKeys, putKeyBlob, rekey, wipeKeys } from './keys';
@@ -25,14 +25,7 @@ import {
   requestDocVersion,
   restoreProfile,
 } from './profiles';
-import {
-  authenticate,
-  createSession,
-  createSocialSession,
-  listSessions,
-  revokeSessions,
-  type AuthContext,
-} from './session';
+import { authenticate, sessions, type AuthContext } from './session';
 import { deleteMarketFile, listMarketFiles, wipeMarketFiles } from './market';
 import { listMembers, removeMember } from './members';
 import { createShare, listShares, readShare, revokeShare } from './shares';
@@ -48,20 +41,6 @@ const authed =
     h({ ...a, ctx: await authenticate(a.req, a.env, a.deps) });
 
 const ROUTES: [string, RegExp, string, Handler][] = [
-  ['POST', new RegExp(`^${SESSION_PATHS.social}$`), SESSION_PATHS.social, async ({ req, env, deps }) => ok(await createSocialSession(req, env, deps, await readJson(req)))],
-  ['POST', /^\/v1\/session$/, '/v1/session', async ({ req, env, deps }) => ok(await createSession(req, env, deps, await readJson(req)))],
-  ['DELETE', /^\/v1\/session$/, '/v1/session', authed(async ({ env, deps, ctx }) => ok({ revoked: await revokeSessions(env, deps, ctx, 'current') }))],
-  ['GET', /^\/v1\/sessions$/, '/v1/sessions', authed(async ({ env, deps, ctx }) => ok({ sessions: await listSessions(env, deps, ctx) }))],
-  [
-    'DELETE',
-    /^\/v1\/sessions$/,
-    '/v1/sessions',
-    authed(async ({ env, deps, ctx, url }) => {
-      if (url.searchParams.get('others') !== '1') throw new HttpError(400, 'bad-request');
-      return ok({ revoked: await revokeSessions(env, deps, ctx, 'others') });
-    }),
-  ],
-  ['DELETE', /^\/v1\/sessions\/([^/]+)$/, '/v1/sessions/:id', authed(async ({ env, deps, ctx, params }) => ok({ revoked: await revokeSessions(env, deps, ctx, { id: params[0] }) }))],
   ['GET', /^\/v1\/profiles$/, '/v1/profiles', authed(async ({ env, ctx }) => ok({ profiles: await listProfiles(env, ctx) }))],
   ['GET', /^\/v1\/profiles\/([^/]+)$/, '/v1/profiles/:id', authed(async ({ env, ctx, params, url }) => ok(await getProfile(env, ctx, params[0], requestDocVersion(url))))],
   [
@@ -122,9 +101,22 @@ function route(method: string, path: string): { h: Handler; params: string[]; pa
     const hit = re.exec(path);
     if (!hit) continue;
     pathMatched = true;
-    if (m === method) return { h, params: hit.slice(1).map((p) => decodeURIComponent(p)), pattern };
+    if (m === method) {
+      try {
+        return { h, params: hit.slice(1).map((p) => decodeURIComponent(p)), pattern };
+      } catch {
+        throw new HttpError(404, 'not-found');
+      }
+    }
   }
   return pathMatched ? 'method' : null;
+}
+
+// 패키지 로그를 기존 내부 오류 형식으로 맞춘다.
+function legacyInternal(message: string): string {
+  const prefix = '@sch0718/firebase-session: ';
+  const detail = message.slice(prefix.length);
+  return detail.startsWith('internal ') ? detail : `internal Error ${message}`;
 }
 
 /** 핸들러가 던진 오류를 응답으로 바꾼다(앱 분기와 CLI 분기가 같이 쓴다) */
@@ -160,8 +152,11 @@ export async function handle(req: Request, env: SyncEnv, deps: SyncDeps): Promis
     res = preflight(origin, { methods: ALLOWED_METHODS, headers: ALLOWED_HEADERS });
     pattern = 'preflight';
   } else {
-    const r = route(req.method, url.pathname);
-    res = await guard(req, deps, () => pattern, async () => {
+    res = (await handleSessionRoute(req, sessions(env, deps), {
+      onRoute: (p) => { pattern = p; },
+      log: (m) => deps.log(`${req.method} ${pattern} ${legacyInternal(m)}`),
+    })) ?? await guard(req, deps, () => pattern, async () => {
+      const r = route(req.method, url.pathname);
       if (r === null) throw new HttpError(404, 'not-found');
       if (r === 'method') throw new HttpError(405, 'method');
       pattern = r.pattern;

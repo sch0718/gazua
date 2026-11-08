@@ -1,4 +1,4 @@
-// 테스트와 로컬 개발에서만 쓰는 공급자다. 실제 네트워크는 부르지 않는다.
+// 서비스 시험에서만 쓰는 공급자다. 실제 네트워크는 부르지 않는다.
 import { generateKeyPair, SignJWT } from 'jose';
 import { SOCIAL_PROVIDERS, type CertSource, type SocialProvider } from '@sch0718/firebase-session/worker';
 
@@ -15,12 +15,15 @@ export function createFakeSocial(o: { clientIds: Record<SocialProvider, string>;
   const keys = { kakao: source('kakao'), naver: source('naver') };
   const codes = new Map<string, { provider: SocialProvider; clientId: string; redirectUri: string; challenge: string; nonce: string; sub: string; createdAt: number }>();
   const calls: string[] = [];
+  // 기대 시크릿이 빈 값이면 시크릿을 보내지 않아야 통과한다. 시험이 바꿀 수 있게 복사해서 내보낸다.
+  const secrets = { ...o.clientSecrets };
   const random = o.random ?? ((n: number) => crypto.getRandomValues(new Uint8Array(n)));
   const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const invalid = () => Response.json({ error: 'invalid_grant' }, { status: 400 });
   return {
     keys,
     calls,
+    secrets,
     authorize(provider: SocialProvider, params: URLSearchParams | Record<string, string>, sub: string): { code: string } {
       const p = new URLSearchParams(params);
       if (p.get('response_type') !== 'code' || p.get('client_id') !== o.clientIds[provider] || p.get('code_challenge_method') !== 'S256' || !p.get('code_challenge') || !p.get('state') || !p.get('nonce') || !p.get('redirect_uri') || (provider === 'naver' && p.get('scope') !== 'openid')) throw new Error('인가 요청을 확인해 주세요');
@@ -38,7 +41,7 @@ export function createFakeSocial(o: { clientIds: Record<SocialProvider, string>;
       const form = new URLSearchParams(await req.text());
       const code = form.get('code') ?? '';
       const saved = codes.get(code);
-      if (!saved || saved.provider !== provider || o.now() - saved.createdAt >= 10 * 60 * 1000 || form.get('grant_type') !== 'authorization_code' || form.get('client_id') !== saved.clientId || form.get('client_secret') !== o.clientSecrets[provider] || form.get('redirect_uri') !== saved.redirectUri) return invalid();
+      if (!saved || saved.provider !== provider || o.now() - saved.createdAt >= 10 * 60 * 1000 || form.get('grant_type') !== 'authorization_code' || form.get('client_id') !== saved.clientId || (secrets[provider] ? form.get('client_secret') !== secrets[provider] : form.has('client_secret')) || form.get('redirect_uri') !== saved.redirectUri) return invalid();
       const challenge = encode(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(form.get('code_verifier') ?? ''))));
       if (challenge !== saved.challenge) return invalid();
       if (!codes.delete(code)) return invalid();

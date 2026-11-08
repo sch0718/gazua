@@ -34,8 +34,8 @@ importers:
         specifier: 1.63.0
         version: 1.63.0
       '@sch0718/firebase-session':
-        specifier: 0.3.0
-        version: 0.3.0(firebase@12.19.0)
+        specifier: 0.5.0
+        version: 0.5.0(firebase@12.19.0)
       '@sch0718/license-notices':
         specifier: 0.1.0
         version: 0.1.0
@@ -46,8 +46,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(svelte@5.57.2)
       '@sch0718/vite-app':
-        specifier: 0.1.0
-        version: 0.1.0(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
+        specifier: 0.1.1
+        version: 0.1.1(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.1.1
         version: 5.1.1(svelte@5.57.2)(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
@@ -130,8 +130,8 @@ importers:
   sync-worker:
     dependencies:
       '@sch0718/firebase-session':
-        specifier: 0.3.0
-        version: 0.3.0(firebase@12.19.0)
+        specifier: 0.5.0
+        version: 0.5.0(firebase@12.19.0)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260702.1
@@ -1793,8 +1793,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@sch0718/firebase-session@0.3.0':
-    resolution: {integrity: sha512-eNY36l9D9Bys55wOLZV3HMpb6oYpHpfQN3DSwVhDNwoCxyjXXtIB7btJr3nKxb4kJIF+DdTRxPi4R6NGeWf2DQ==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.3.0/8f438e466f42dab44e339920c216b1347de426ea}
+  '@sch0718/firebase-session@0.5.0':
+    resolution: {integrity: sha512-158gYMN/piLW/Blw/oEs3H/NHzXMwWeo+GjivjVFYuKZkFM2Bf5dJtYSTvsuIoD5ZecrFLVoHrHHWtk5wzKTbg==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.5.0/c2926d5703d91944a984feabbf764aad2b978d73}
     peerDependencies:
       firebase: ^12.0.0
 
@@ -1817,8 +1817,8 @@ packages:
     peerDependencies:
       svelte: ^5.57.0
 
-  '@sch0718/vite-app@0.1.0':
-    resolution: {integrity: sha512-bcSRBvLAhWyI/e5Iha/Mn+JQePnyQmZDuFD8B1k+3igj/LOjz9XWqMKeaYrBRjAYzzT+8tg/DN+gpdR2dbU9jA==, tarball: https://npm.pkg.github.com/download/@sch0718/vite-app/0.1.0/3bbcfc15ea2349bf79477adce1ef6ab6eaa87b3c}
+  '@sch0718/vite-app@0.1.1':
+    resolution: {integrity: sha512-l13AE2odwtrXB9VHxqmZ5Ug1jqAD70eFy2c3bVG3Y7G8tNY7zvdkw821o27nVXemsnO7XGcDbN8SNSxHjsKxdQ==, tarball: https://npm.pkg.github.com/download/@sch0718/vite-app/0.1.1/3b7121d36a542dfd69db19c930f55c34059b759e}
     peerDependencies:
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
       vite-plugin-pwa: ^2.0.0
@@ -4983,7 +4983,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
-  '@sch0718/firebase-session@0.3.0(firebase@12.19.0)':
+  '@sch0718/firebase-session@0.5.0(firebase@12.19.0)':
     dependencies:
       firebase: 12.19.0
       jose: 6.2.13
@@ -5000,7 +5000,7 @@ snapshots:
     dependencies:
       svelte: 5.57.2
 
-  '@sch0718/vite-app@0.1.0(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))':
+  '@sch0718/vite-app@0.1.1(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))':
     dependencies:
       vite: 6.4.4(@types/node@22.20.5)(terser@5.51.2)
       vite-plugin-pwa: 2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1)

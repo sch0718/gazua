@@ -18,10 +18,13 @@ describe('소셜 로그인 왕복', () => {
     const assign = vi.fn();
     vi.stubGlobal('location', { origin: ORIGIN, assign });
     await startSocialSignIn('kakao', { clientId: 'key', apiUrl: 'http://localhost:8788', label: '', returnHash: '#/settings', storage: memoryBacking(), random });
-    expect(assign.mock.lastCall![0]).toMatch(/^http:\/\/localhost:8788\/__dev\/social\/kakao\/authorize\?/);
+    const fake = new URL(assign.mock.lastCall![0]);
+    expect(fake.origin + fake.pathname).toBe('http://localhost:8788/__dev/social/authorize');
+    expect(fake.searchParams.get('provider')).toBe('kakao');
     vi.stubEnv('DEV', false);
     await startSocialSignIn('kakao', { clientId: 'key', apiUrl: 'http://localhost:8788', label: '', returnHash: '#/settings', storage: memoryBacking(), random });
     expect(assign.mock.lastCall![0]).toMatch(/^https:\/\/kauth.kakao.com\/oauth\/authorize\?/);
+    expect([...fake.searchParams].filter(([key]) => key !== 'provider')).toEqual([...new URL(assign.mock.lastCall![0]).searchParams]);
   });
 
   it('가짜 공급자를 켜도 주입한 이동 함수를 그대로 쓴다', async () => {

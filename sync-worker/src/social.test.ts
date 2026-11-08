@@ -49,10 +49,21 @@ describe('소셜 세션', () => {
     expect(h.fake.calls).toHaveLength(0);
   });
 
-  it.each(['', '   ', undefined])('시크릿이 비면 해당 공급자를 끈다(%s)', async (secret) => {
+  it.each(['', '   ', undefined])('카카오는 시크릿 없이도 켜지고 토큰 요청에서 시크릿을 뺀다(%s)', async (secret) => {
     const h = harness({ social: true });
     h.env.KAKAO_CLIENT_SECRET = secret;
-    expect((await h.socialLogin('kakao', 'kakao-me')).response.status).toBe(400);
+    h.fake.secrets.kakao = '';
+    const fetch = h.deps.socialFetch!;
+    h.deps.socialFetch = async (input, init) => {
+      expect(new URLSearchParams(String(init?.body)).has('client_secret')).toBe(false);
+      return fetch(input, init);
+    };
+    expect((await h.socialLogin('kakao', 'kakao-me')).response.status).toBe(200);
+    expect(h.fake.calls).toHaveLength(1);
+  });
+
+  it.each(['', '   ', undefined])('네이버는 시크릿이 비면 끈다(%s)', async (secret) => {
+    const h = harness({ social: { kakao: false } });
     h.env.NAVER_CLIENT_SECRET = secret;
     expect((await h.socialLogin('naver', 'naver-me')).response.status).toBe(404);
     expect(h.fake.calls).toHaveLength(0);
@@ -215,7 +226,7 @@ describe('소셜 배포 설정', () => {
     expect(toml.match(/^SOCIAL_REDIRECT_URIS\s*=\s*"([^"]*)"/m)?.[1]).toBe('https://gazua.sch0718.dev/auth/callback/');
     expect(toml.match(/^SOCIAL_REDIRECT_URIS.*$/m)?.[0]).not.toMatch(/localhost|127\.0\.0\.1/);
     for (const file of readdirSync(new URL('.', import.meta.url), { recursive: true }).filter((f) => String(f).endsWith('.ts') && !String(f).endsWith('.test.ts'))) {
-      expect(readFileSync(new URL(String(file), import.meta.url), 'utf8')).not.toMatch(/(?:from\s*|import\s*\()\s*['"](?:\.\.\/test(?:\/|['"])|test\/)/);
+      expect(readFileSync(new URL(String(file), import.meta.url), 'utf8')).not.toMatch(/(?:from\s*|import\s*\()\s*['"](?:\.\.\/test(?:\/|['"])|test\/|@sch0718\/firebase-session\/testing)/);
     }
   });
 });

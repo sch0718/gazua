@@ -84,7 +84,7 @@ corepack pnpm collect -- --years 5 --drive
 
 ## 개발
 
-Node 22 이상이 필요해요. 패키지 관리자는 `package.json`의 `packageManager`가 정한 pnpm이에요.
+Node 22.16 이상이 필요해요. 패키지 관리자는 `package.json`의 `packageManager`가 정한 pnpm이에요.
 
 **설치에는 GitHub Packages 토큰이 필요해요.** 공용 패키지(`@sch0718/seen-store` 등)는 [sch0718-toolkit-web](https://github.com/sch0718/sch0718-toolkit-web)에서 GitHub Packages로 발행돼요. 저장소 루트의 `.npmrc`는 `@sch0718/*`만 GitHub Packages에서 받게 하고, 나머지 의존성은 그대로 npmjs.com에서 받아요.
 

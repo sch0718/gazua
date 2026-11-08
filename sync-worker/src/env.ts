@@ -10,9 +10,9 @@ export interface SyncEnv {
   ALLOWED_EMAILS?: string;
   /** 콤마로 구분한 허용 공급자 계정(secret). 비면 모두 거절한다. */
   ALLOWED_ACCOUNTS?: string;
-  /** 카카오 로그인 클라이언트 ID(secret). 시크릿과 함께 있어야 켜진다. */
+  /** 카카오 로그인 클라이언트 ID(secret). ID만 있어도 켜진다. */
   KAKAO_CLIENT_ID?: string;
-  /** 카카오 로그인 클라이언트 시크릿(secret). */
+  /** 카카오 로그인 클라이언트 시크릿(secret). 공급자에서 켰을 때만 필요하다. */
   KAKAO_CLIENT_SECRET?: string;
   /** 네이버 로그인 클라이언트 ID(secret). 시크릿과 함께 있어야 켜진다. */
   NAVER_CLIENT_ID?: string;
