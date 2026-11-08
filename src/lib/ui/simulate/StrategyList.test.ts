@@ -15,8 +15,8 @@ it('새 전략: 템플릿을 고르면 그 규칙으로 만들고 편집으로 �
   render(StrategyList, { app });
   await fireEvent.click(screen.getAllByRole('button', { name: '＋ 새 전략' })[0]);
   expect(app.strategies).toHaveLength(0);
-  await fireEvent.click(screen.getByRole('button', { name: /RSI 과매도 반등/ }));
+  await fireEvent.click(screen.getByRole('button', { name: /RSI\(2\) 눌림목/ }));
   expect(app.strategies).toHaveLength(1);
-  expect(app.strategies[0].rules.buy[0].conds[0]).toEqual({ kind: 'rsi', period: 14, level: 30, op: 'crossUp' });
+  expect(app.strategies[0].rules.buy[0].conds[0]).toEqual({ kind: 'rsi', period: 2, level: 10, op: 'below' });
   expect(app.route).toEqual({ name: 'simulate', strategyId: app.strategies[0].id });
 });

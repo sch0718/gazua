@@ -9,7 +9,8 @@
   import { kstDate } from '../../time/kst';
   import { Sheet } from '@sch0718/ui-svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
-  import { strategyLine } from './simText';
+  import { fmtReturnPct, strategyLine } from './simText';
+  import { compareTemplates, type CompareOutcome } from '../../sim/compareTemplates';
   import { duplicateStrategy, nextStrategyName } from './strategyActions.svelte';
   import { canShare, openShare } from '../../share/shareStore.svelte';
   import { built, strategySnapshot } from '../../share/snapshot';
@@ -22,14 +23,56 @@
 
   function create() {
     if (full()) return showSnackbar(STRATEGY_CAP_MESSAGE);
+    cmpGroup = defaultGroup();
     picking = true;
   }
 
-  function createFrom(t: (typeof TEMPLATES)[number]) {
-    picking = false;
+  const defaultGroup = () => {
     const ids = app.watchlists.groups.map((g) => g.id);
     const last = app.settings.lastGroupId;
-    const groupId = last && ids.includes(last) ? last : (ids[0] ?? null);
+    return last && ids.includes(last) ? last : (ids[0] ?? null);
+  };
+
+  // 프리셋 비교(같은 그룹·최근 3년·처음 자금). 결과는 이 시트에만 둔다
+  let cmpGroup = $state<string | null>(null);
+  let cmpRun = 0;
+  let cmp = $state.raw<null | { kind: 'loading'; done: number; total: number } | CompareOutcome>(null);
+  const cmpLoading = $derived(cmp !== null && 'kind' in cmp ? cmp : null);
+  const cmpOf = (id: string) => (cmp && 'ok' in cmp && cmp.ok ? cmp.rows.find((r) => r.template.id === id) : undefined);
+  const holdPct = $derived(cmp && 'ok' in cmp && cmp.ok && cmp.rows[0] ? cmp.rows[0].summary.totalReturnPct - cmp.rows[0].summary.vsHoldPp : null);
+  const CMP_FAIL: Record<string, string> = {
+    noSymbols: '그룹에 종목이 없어요',
+    noData: '기간 안에 데이터가 없어요',
+    error: '일봉을 받지 못했어요. 연결 설정을 확인해 주세요',
+  };
+
+  async function runCompare() {
+    const groupId = cmpGroup;
+    if (!groupId) return;
+    const id = ++cmpRun;
+    cmp = { kind: 'loading', done: 0, total: 0 };
+    const out = await compareTemplates({
+      provider: app.provider,
+      watchlists: app.watchlists,
+      groupId,
+      now: Date.now(),
+      onProgress: (p) => {
+        if (id === cmpRun) cmp = { kind: 'loading', done: p.done, total: p.total };
+      },
+      isCancelled: () => id !== cmpRun,
+    }).catch((error: unknown): CompareOutcome => ({ ok: false, reason: 'error', error }));
+    if (id === cmpRun) cmp = out;
+  }
+
+  function closePicker() {
+    picking = false;
+    cmpRun++;
+    cmp = null;
+  }
+
+  function createFrom(t: (typeof TEMPLATES)[number]) {
+    const groupId = cmp && 'ok' in cmp && cmp.ok && cmpGroup ? cmpGroup : defaultGroup();
+    closePicker();
     const s = fromTemplate(t, Date.now(), groupId, nextStrategyName(app.strategies));
     app.setStrategies([...app.strategies, s]);
     app.navigate({ name: 'simulate', strategyId: s.id });
@@ -174,20 +217,102 @@
   {/if}
 </Sheet>
 
-<Sheet open={picking} title="어떤 전략으로 시작할까요?" onclose={() => (picking = false)} returnFocus={() => listEl?.querySelector<HTMLElement>('[data-new-strategy]')}>
-  <ul class="templates">
-    {#each TEMPLATES as t (t.id)}
-      <li>
-        <button type="button" class="tpl" onclick={() => createFrom(t)}>
-          <b>{t.name}</b>
-          <span>{t.desc}</span>
-        </button>
-      </li>
-    {/each}
-  </ul>
+<Sheet open={picking} title="어떤 전략으로 시작할까요?" onclose={closePicker} returnFocus={() => listEl?.querySelector<HTMLElement>('[data-new-strategy]')}>
+  <div class="picker">
+    {#if app.watchlists.groups.length > 0}
+      <div class="cmp">
+        <label class="cmp-label" for="cmp-group">내 종목으로 먼저 비교해 보기</label>
+        <div class="cmp-row">
+          <select id="cmp-group" bind:value={cmpGroup} disabled={cmpLoading !== null} onchange={() => ((cmpRun += 1), (cmp = null))}>
+            {#each app.watchlists.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+          </select>
+          <button type="button" class="ghost" disabled={cmpLoading !== null || !cmpGroup} onclick={() => void runCompare()}>
+            {cmpLoading ? cmpLoading.total > 0 ? `받는 중… ${cmpLoading.done}/${cmpLoading.total}` : '받는 중…' : '비교'}
+          </button>
+        </div>
+        <p class="cmp-note" aria-live="polite">
+          {#if cmp && 'ok' in cmp && cmp.ok}
+            {cmp.from.replaceAll('-', '.')}~{cmp.to.replaceAll('-', '.')} · {cmp.symbols}종목{cmp.failed > 0 ? `(${cmp.failed}종목 못 받음)` : ''} · 그냥 보유 {holdPct === null ? '—' : fmtReturnPct(holdPct, true)}. 과거 결과일 뿐 앞으로를 약속하지 않아요
+          {:else if cmp && 'ok' in cmp && cmp.reason !== 'cancelled'}
+            <span class="err" role="alert">{CMP_FAIL[cmp.reason]}</span>
+          {:else}
+            같은 종목·최근 3년·처음 자금 1,000만 원으로 아래 전략을 모두 돌려요
+          {/if}
+        </p>
+      </div>
+    {/if}
+    <ul class="templates">
+      {#each TEMPLATES as t (t.id)}
+        {@const r = cmpOf(t.id)}
+        <li>
+          <button type="button" class="tpl" onclick={() => createFrom(t)}>
+            <b>{t.name}</b>
+            <span>{t.desc}</span>
+            {#if t.source}<small>근거: {t.source}</small>{/if}
+            {#if r}
+              <span class="stats">
+                총수익 {fmtReturnPct(r.summary.totalReturnPct, true)} · 최대 낙폭 {fmtReturnPct(-Math.abs(r.summary.mddPct))} · 거래 {r.summary.roundTrips}회{r.summary.winRatePct === null ? '' : ` · 승률 ${Math.round(r.summary.winRatePct)}%`}
+              </span>
+            {/if}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  </div>
 </Sheet>
 
 <style>
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 var(--gutter) 16px;
+  }
+  .cmp {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .cmp-label {
+    font-size: var(--fs-sub);
+    font-weight: 700;
+  }
+  .cmp-row {
+    display: flex;
+    gap: 8px;
+  }
+  .cmp-row select {
+    flex: 1;
+    min-width: 0;
+    min-height: var(--touch);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--t1);
+    padding: 0 10px;
+  }
+  .ghost {
+    min-height: var(--touch);
+    padding: 0 16px;
+    border-radius: 12px;
+    background: var(--surface2);
+    color: var(--t1);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .ghost:disabled {
+    opacity: 0.6;
+  }
+  .cmp-note,
+  .tpl small {
+    font-size: var(--fs-label);
+    color: var(--t3);
+  }
+  .stats {
+    font-size: var(--fs-sub);
+    color: var(--t1);
+    font-weight: 600;
+  }
   .templates {
     list-style: none;
     margin: 0;
