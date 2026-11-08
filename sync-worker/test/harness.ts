@@ -1,11 +1,13 @@
 // 테스트 하네스: 지어낸 RSA 키로 Firebase 모양 토큰을 만들고, 테스트용 D1 위에서 핸들러를 부른다.
-import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { exportJWK, generateKeyPair } from 'jose';
+import { join } from 'node:path';
 import { socialAuthorizeUrl, socialNonce } from '@sch0718/firebase-session/client';
 import { createFakeSocial } from './fakeSocial';
 import type { CertSource, SocialProvider } from '@sch0718/firebase-session/worker';
 import type { SyncDeps, SyncEnv } from '../src/env';
 import { handle } from '../src/handler';
-import { createTestD1, type TestD1 } from './d1';
+import { createTestD1, type TestD1 } from '@sch0718/firebase-session/testing/d1';
+import { createTestTokens } from '@sch0718/firebase-session/testing';
 
 export const PROJECT = 'gazua-test';
 export const ORIGIN = 'https://app.example.test';
@@ -14,7 +16,8 @@ export const OTHER = 'other@example.test';
 export const BASE = 'https://sync.example.test';
 export const T0 = Date.UTC(2026, 9, 25, 3, 0, 0);
 
-const keys = await generateKeyPair('RS256', { extractable: true });
+const tokens = await createTestTokens({ projectId: PROJECT });
+const keys = tokens.keys;
 const otherKeys = await generateKeyPair('RS256', { extractable: true });
 export { keys, otherKeys, exportJWK };
 
@@ -50,7 +53,7 @@ export function harness(opts: { allowed?: string; social?: SocialOptions } = {})
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
     log: (l) => logs.push(l),
   };
-  const env: Harness['env'] = { DB: createTestD1(), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}`, CLI_IP_SALT: 'test-cli-ip-salt' };
+  const env: Harness['env'] = { DB: createTestD1({ migrations: join(import.meta.dirname, '..', 'migrations') }), ALLOWED_ORIGINS: `${ORIGIN}, https://second.example.test`, FIREBASE_PROJECT_ID: PROJECT, ALLOWED_EMAILS: opts.allowed ?? `${ME},${OTHER.toUpperCase()}`, CLI_IP_SALT: 'test-cli-ip-salt' };
 
   if (opts.social) {
     const social = typeof opts.social === 'object' ? opts.social : {};
@@ -60,22 +63,8 @@ export function harness(opts: { allowed?: string; social?: SocialOptions } = {})
     if (social.naver !== false) { env.NAVER_CLIENT_ID = 'naver-test-client'; env.NAVER_CLIENT_SECRET = 'naver-test-secret'; }
   }
 
-  const token: Harness['token'] = async (claims = {}, o = {}) => {
-    const sec = Math.floor(clock.now / 1000);
-    const body = {
-      iss: `https://securetoken.google.com/${PROJECT}`,
-      aud: PROJECT,
-      sub: 'uid-me',
-      auth_time: sec,
-      iat: sec,
-      exp: sec + 3600,
-      email: ME,
-      email_verified: true,
-      ...claims,
-    };
-    for (const [k, v] of Object.entries(body)) if (v === undefined) delete (body as Record<string, unknown>)[k];
-    return new SignJWT(body).setProtectedHeader({ alg: o.alg ?? 'RS256', kid: o.kid ?? 'k1', typ: 'JWT' }).sign(o.key ?? keys.privateKey);
-  };
+  const token: Harness['token'] = (claims = {}, o = {}) =>
+    tokens.token({ email: ME, ...claims }, { ...o, now: clock.now });
 
   const call: Harness['call'] = (method, path, o = {}) => {
     const headers: Record<string, string> = { ...o.headers };

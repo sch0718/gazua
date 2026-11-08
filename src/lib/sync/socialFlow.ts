@@ -14,8 +14,8 @@ export async function startSocialSignIn(provider: SocialProvider, o: {
   let navigate = o.navigate;
   if (import.meta.env.DEV && import.meta.env.VITE_SOCIAL_DEV_MOCK === 'true') {
     if (!navigate) {
-      const { devAuthorizeUrl } = await import('./socialDev');
-      navigate = (url) => location.assign(devAuthorizeUrl(url, o.apiUrl));
+      const { fakeAuthorizeUrl } = await import('@sch0718/firebase-session/testing');
+      navigate = (url) => location.assign(fakeAuthorizeUrl(url, o.apiUrl + '/__dev/social'));
     }
   }
   await beginSocialSignIn(provider, { clientId: o.clientId, redirectUri: (o.origin ?? location.origin) + callbackPath(o.base), storage, navigate, now: o.now, random: o.random, ...(provider === 'kakao' && o.reauth && !/KAKAOTALK/i.test(userAgent) && { prompt: 'login' }) });

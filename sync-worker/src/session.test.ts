@@ -178,6 +178,26 @@ describe('세션', () => {
 });
 
 describe('라우터', () => {
+  it.each([
+    ['DELETE', '/v1/sessions/%ZZ'],
+    ['GET', '/v1/profiles/%ZZ'],
+  ])('디코딩할 수 없는 경로는 CORS가 있는 404다: %s %s', async (method, path) => {
+    const h = harness();
+    const { as } = await h.login();
+    const r = await as(method, path);
+    expect(r.status).toBe(404);
+    expect(await body(r)).toEqual({ error: 'not-found' });
+    expect(r.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+  });
+
+  it('다른 기기 철회 쿼리에 추가 항목이 있으면 거절한다', async () => {
+    const h = harness();
+    const { as } = await h.login();
+    const r = await as('DELETE', '/v1/sessions?others=1&x=1');
+    expect(r.status).toBe(400);
+    expect(await body(r)).toEqual({ error: 'bad-request' });
+  });
+
   it('없는 경로 404, 다른 메서드 405, 큰 본문 413', async () => {
     const h = harness();
     const me = await h.login();

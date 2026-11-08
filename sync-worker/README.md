@@ -91,16 +91,16 @@ DEV_APP_ORIGIN=http://localhost:4175 corepack pnpm --filter sync-worker dev:soci
 
 ```dotenv
 VITE_SYNC_API_URL=http://localhost:8788
-VITE_KAKAO_LOGIN_CLIENT_ID=dev-kakao
-VITE_NAVER_LOGIN_CLIENT_ID=dev-naver
+VITE_KAKAO_LOGIN_CLIENT_ID=dev-fake-kakao
+VITE_NAVER_LOGIN_CLIENT_ID=dev-fake-naver
 VITE_SOCIAL_DEV_MOCK=true
 ```
 
-다른 터미널에서 `corepack pnpm dev -- --port 4175`로 앱을 시작해요(일반형은 `corepack pnpm dev -- --port <포트>`). 설정 › 동기화·공유에서 로그인 단추를 누르면 가짜 공급자 화면이 열려요. 계정 ID 기본값 `dev-user`는 허용돼요. 다른 ID는 403, `error-503`·`error-code`·`no-id-token`은 각각 공급자 장애·코드 오류·토큰 누락을 재현해요. 로그인·취소도 눌러 봐요. ID·시크릿·서명 키는 모두 지어낸 값이에요.
+다른 터미널에서 `corepack pnpm dev -- --port 4175`로 앱을 시작해요(일반형은 `corepack pnpm dev -- --port <포트>`). 설정 › 동기화·공유에서 로그인 단추를 누르면 가짜 공급자 화면이 열려요. 계정 ID 기본값 `dev-user`는 허용돼요. 다른 ID에는 `dev-` 접두가 붙고 허용 목록 밖이면 403이에요. 「로그인 결과」에서 정상 로그인·취소·공급자 오류·코드 거절·공급자 장애를 고를 수 있어요. 토큰 누락은 개발 화면에서 지원하지 않으며 서비스 시험의 `fakeSocial.ts`로 확인해요. ID·시크릿·서명 키는 모두 지어낸 값이에요.
 
 `DEV_SOCIAL_PORT`는 Worker 포트(기본 8788), `DEV_ALLOWED_ACCOUNTS`는 허용 계정(기본 `kakao:dev-user,naver:dev-user`)을 바꿔요. Worker 포트를 바꾸면 `VITE_SYNC_API_URL`도 맞춰요. 실제 로컬 비밀값으로 `wrangler dev`를 쓸 때는 `.dev.vars.example`을 참고해 저장소에서 제외된 `.dev.vars`에 넣어요.
 
-**`test/`의 가짜 공급자는 배포하지 않아요.** `wrangler.toml`의 `main`은 `src/worker.ts`이고, 운영 코드가 `test/`를 가져오지 않는지 시험으로 막아요. 앱은 `import.meta.env.DEV`일 때만 가짜 공급자를 쓰며 운영 빌드에서는 해당 코드가 빠져요. 끄려면 `.env.local`의 `VITE_SOCIAL_DEV_MOCK`를 지우고 앱 개발 서버를 다시 시작한 뒤 가짜 Worker를 종료해요.
+**`test/`의 가짜 공급자는 배포하지 않아요.** `wrangler.toml`의 `main`은 `src/worker.ts`이고, 운영 코드가 `test/`와 패키지 `/testing`을 가져오지 않는지 시험으로 막아요. 앱은 `import.meta.env.DEV`일 때만 가짜 공급자를 쓰며 운영 빌드에서는 해당 코드가 빠져요. 끄려면 `.env.local`의 `VITE_SOCIAL_DEV_MOCK`를 지우고 앱 개발 서버를 다시 시작한 뒤 가짜 Worker를 종료해요.
 
 ## 처음 배포하기 (사용자가 직접 해요)
 
@@ -179,7 +179,7 @@ GitHub 저장소 Settings › Secrets and variables › Actions › **Variables*
 
 Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서대로 준비해요. 운영 시크릿과 허용 계정은 저장소·명령 인수·파일에 적지 않고 프롬프트에만 입력해요.
 
-1. [Kakao Developers](https://developers.kakao.com/)에서 카카오톡 공유에 쓰는 앱을 그대로 열어요(없으면 만들어요). 카카오 로그인 사용 설정을 **ON**, OpenID Connect도 **ON**으로 켜요. **[앱] › [플랫폼 키] › [REST API 키]**의 Redirect URI에 `https://gazua.sch0718.dev/auth/callback/`를 등록해요. **끝 슬래시까지 정확히 같아야 해요.** REST API 키와 카카오 로그인 › 보안의 클라이언트 시크릿을 확인해요. 새 앱은 클라이언트 시크릿이 기본으로 켜져 있지만, 기존(공유용으로 만든) 앱은 꺼져 있을 수 있어요. 꺼져 있으면 켜고 코드를 발급받아요. Worker는 ID·시크릿이 둘 다 있어야 켜지며, `KAKAO_CLIENT_SECRET`이 없으면 카카오 로그인을 켜지 않아요. 동의항목은 필수가 아니면 건드리지 않아도 돼요. 이메일 수집이나 비즈 앱 전환은 필요 없어요. 로컬 실계정 시험은 운영 앱에 localhost를 더하지 말고 별도 개발용 앱을 만드는 것을 권해요. 그 앱에 `http://localhost:<포트>/auth/callback/`를 등록해요. 로컬 `wrangler dev`를 쓰면 `sync-worker/.dev.vars`(저장소 제외)에 `ALLOWED_ORIGINS=http://localhost:<포트>`, `SOCIAL_REDIRECT_URIS=http://localhost:<포트>/auth/callback/`과 개발용 앱의 키·시크릿·`ALLOWED_ACCOUNTS`를 넣어요(`.dev.vars.example` 참고). 포트는 앱 개발 서버에 맞추고, 콜백 주소는 끝 슬래시까지 등록한 값과 같아야 해요. 앱 `.env.local`의 `VITE_SYNC_API_URL`은 그 Worker 주소로, `VITE_KAKAO_LOGIN_CLIENT_ID`·`VITE_NAVER_LOGIN_CLIENT_ID`는 개발용 앱 값으로 둬요. 운영 `wrangler.toml`에는 localhost를 넣지 않아요. 공유는 JavaScript 키, 로그인은 REST API 키와 시크릿을 써요.
+1. [Kakao Developers](https://developers.kakao.com/)에서 카카오톡 공유에 쓰는 앱을 그대로 열어요(없으면 만들어요). 카카오 로그인 사용 설정을 **ON**, OpenID Connect도 **ON**으로 켜요. **[앱] › [플랫폼 키] › [REST API 키]**의 Redirect URI에 `https://gazua.sch0718.dev/auth/callback/`를 등록해요. **끝 슬래시까지 정확히 같아야 해요.** REST API 키와 카카오 로그인 › 보안의 클라이언트 시크릿을 확인해요. 새 앱은 클라이언트 시크릿이 기본으로 켜져 있지만, 기존(공유용으로 만든) 앱은 꺼져 있을 수 있어요. Worker는 ID만 있어도 카카오 로그인을 켜요. 카카오 앱에서 클라이언트 시크릿을 켰다면 토큰 교환에 `KAKAO_CLIENT_SECRET`이 필요해요. 동의항목은 필수가 아니면 건드리지 않아도 돼요. 이메일 수집이나 비즈 앱 전환은 필요 없어요. 로컬 실계정 시험은 운영 앱에 localhost를 더하지 말고 별도 개발용 앱을 만드는 것을 권해요. 그 앱에 `http://localhost:<포트>/auth/callback/`를 등록해요. 로컬 `wrangler dev`를 쓰면 `sync-worker/.dev.vars`(저장소 제외)에 `ALLOWED_ORIGINS=http://localhost:<포트>`, `SOCIAL_REDIRECT_URIS=http://localhost:<포트>/auth/callback/`과 개발용 앱의 키·시크릿·`ALLOWED_ACCOUNTS`를 넣어요(`.dev.vars.example` 참고). 포트는 앱 개발 서버에 맞추고, 콜백 주소는 끝 슬래시까지 등록한 값과 같아야 해요. 앱 `.env.local`의 `VITE_SYNC_API_URL`은 그 Worker 주소로, `VITE_KAKAO_LOGIN_CLIENT_ID`·`VITE_NAVER_LOGIN_CLIENT_ID`는 개발용 앱 값으로 둬요. 운영 `wrangler.toml`에는 localhost를 넣지 않아요. 공유는 JavaScript 키, 로그인은 REST API 키와 시크릿을 써요.
 2. [네이버 개발자센터](https://developers.naver.com/apps/)에서 애플리케이션을 등록하고 사용 API로 **네이버 로그인**을 골라요. PC 웹·모바일 웹의 서비스 URL 출처는 `https://gazua.sch0718.dev`, Callback URL은 `https://gazua.sch0718.dev/auth/callback/`로 등록해요(끝 슬래시 포함). Client ID와 Client Secret을 확인해요. 「개발 중」 상태에서는 멤버관리에 로그인할 네이버 아이디를 테스터로 등록해요. 등록한 본인 아이디는 바로 돼요. **OIDC의 `/oauth2/*` 경로 사용에 별도 앱 설정이 필요한지는 실앱 확인이 남아 있어요.** 기존 네이버 로그인 설정만으로 된다고 단정하지 않아요([실연결 점검 ㉙](../docs/live-check.md)).
 3. **Worker 배포·비밀값 입력보다 먼저** 원격 D1에 `0002_social_sessions`를 적용해요. 이미 `0001_init`이 적용된 운영 DB에서는 아직 적용되지 않은 `0002`만 적용돼요. 마이그레이션 명령은 미적용 파일을 순서대로 적용해요.
 
@@ -187,7 +187,7 @@ Google을 켜지 않고 소셜 로그인만 쓸 수도 있어요. 아래 순서�
    corepack pnpm --filter sync-worker migrate:remote
    ```
 
-4. 아래 다섯 명령을 하나씩 실행하고 값은 프롬프트에 입력해요. `ALLOWED_ACCOUNTS`는 아직 계정 값을 모르니 처음에는 `none`처럼 어느 계정과도 맞지 않는 값을 넣어 둬요(아무도 허용되지 않아요. 6단계에서 바꿔요). 공급자별 ID·시크릿이 둘 다 있어야 그 공급자가 켜지고, 값이 없으면 꺼져요. `sync-worker/wrangler.toml`의 `SOCIAL_REDIRECT_URIS`가 위 운영 콜백과 정확히 같은지 확인한 뒤 배포해요. 로컬 콜백은 운영 Worker에 더하지 않아요.
+4. 아래 다섯 명령을 하나씩 실행하고 값은 프롬프트에 입력해요. `ALLOWED_ACCOUNTS`는 아직 계정 값을 모르니 처음에는 `none`처럼 어느 계정과도 맞지 않는 값을 넣어 둬요(아무도 허용되지 않아요. 6단계에서 바꿔요). 카카오는 ID만 있어도 켜지고, 네이버는 ID·시크릿이 둘 다 있어야 켜져요. `sync-worker/wrangler.toml`의 `SOCIAL_REDIRECT_URIS`가 위 운영 콜백과 정확히 같은지 확인한 뒤 배포해요. 로컬 콜백은 운영 Worker에 더하지 않아요.
 
    ```bash
    corepack pnpm --filter sync-worker exec wrangler secret put KAKAO_CLIENT_ID
