@@ -332,7 +332,7 @@ test('앱 바: 폰 폭에서 시뮬레이션 화면에는 상태 칩이 없고 �
   await expect(chip).toHaveCount(1);
 });
 
-test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 확인 → 실행 → 결과·재생', async ({ page }) => {
+test('전략 빌더: 골든크로스 50/200 프리셋 → 매수 조건·매도 확인 → 실행 → 결과·재생', async ({ page }) => {
   await openApp(page);
   await enterDemo(page);
   await loadExampleGroup(page);
@@ -340,7 +340,7 @@ test('전략 빌더: 골든크로스 추세 템플릿 → 매수 조건·매도 
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
 
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
-  await page.getByRole('button', { name: /골든크로스 추세/ }).click();
+  await page.getByRole('button', { name: /골든크로스 50\/200/ }).click();
   await page.getByRole('button', { name: /매수 조건/ }).click();
   await expect(page.getByRole('group', { name: '매수 묶음 1', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^매도/ }).click();
