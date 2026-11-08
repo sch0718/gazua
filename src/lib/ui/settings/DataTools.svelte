@@ -38,6 +38,7 @@
   const uid = Math.random().toString(36).slice(2, 8);
   /** 내보낸 파일은 수십 KB다. 그보다 훨씬 큰 파일은 읽지 않는다. */
   const MAX_IMPORT_BYTES = 1024 * 1024;
+  const REVOKE_DELAY_MS = 30_000;
   let includeSecrets = $state(false);
   let usage = $state<number | null>(null);
   let clearing = $state(false);
@@ -51,7 +52,8 @@
     document.body.append(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    // 브라우저가 파일을 가져갈 시간을 준 뒤 해제한다. WebKit은 바로 해제하면 빈 파일이 되거나 실패한다.
+    setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
   }
 
   async function storageUsage(): Promise<number> {
