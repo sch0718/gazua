@@ -20,7 +20,7 @@ describe('cli/README.md', () => {
   });
 
   it('환경변수 이름과 옵션이 모두 적혀 있다', () => {
-    for (const name of ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_SYNC_URL', 'XDG_CONFIG_HOME', '--env-file', '--profile', '--provider', '--strategy', '--today', '--from', '--to', '--raw', '--pretty', '--verbose', '--server', '--label']) {
+    for (const name of ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_SYNC_URL', 'XDG_CONFIG_HOME', '--env-file', '--symbols', '--profile', '--provider', '--strategy', '--today', '--from', '--to', '--raw', '--pretty', '--verbose', '--server', '--label']) {
       expect(readme, name).toContain(name);
     }
   });

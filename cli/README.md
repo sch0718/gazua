@@ -3,7 +3,7 @@
 터미널 AI 도구가 가즈아의 데이터를 읽고 계산하게 해 주는 명령줄 도구예요. 앱과 같은 엔진·같은 데이터를 쓰고, 출력은 JSON 한 줄이에요.
 
 - 읽을 수 있는 것: 동기화한 프로필·관심 그룹·전략, 증권사 시세, 토스 보유, 전략 신호, 시뮬레이션 요약.
-- 할 수 없는 것: **주문**과 모든 쓰기. 서버(Worker)는 CLI 토큰으로 `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회만 받아요. 증권사 호출도 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로를 막아요. 주문은 다음 단계예요.
+- 할 수 없는 것: **주문**. 알람은 로컬 기록을 저장하고 ntfy로 알림을 보내요. 서버(Worker)는 CLI 토큰으로 `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회만 받아요. 증권사 호출도 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로를 막아요. 주문은 다음 단계예요.
 
 ## 설치
 
@@ -51,7 +51,7 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 
 ## 명령
 
-공통 옵션: `--profile <이름|ID>`, `--keep <1~5>`(`drive upload`에서 Drive에 남길 보관본 수, 기본 2), `--pretty`(들여쓴 JSON), `--verbose`(진행 로그를 표준 오류로), `--env-file <경로>`. 프로필이 여럿인데 `--profile`이 없으면 `profile-required`와 목록이 나와요.
+공통 옵션: `--symbols <000660,005930>`(알람 대상 코드를 직접 지정), `--profile <이름|ID>`, `--keep <1~5>`(`drive upload`에서 Drive에 남길 보관본 수, 기본 2), `--pretty`(들여쓴 JSON), `--verbose`(진행 로그를 표준 오류로), `--env-file <경로>`. 프로필이 여럿인데 `--profile`이 없으면 `profile-required`와 목록이 나와요.
 
 | 명령 | 하는 일 | 동기화 | 증권사 |
 |---|---|---|---|
@@ -67,6 +67,7 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 | `gazua drive upload <파일> [--keep N]` | 시장 파일을 Drive에 올리고 서버에 등록 | ○ | |
 | `gazua drive status` | Drive 로그인 상태와 올린 시장 파일 목록 | ○ | |
 | `gazua drive logout` | 서버·Google 접근 철회 + 파일 삭제 | ○ | |
+| `gazua alert watch\|test\|stats [--symbols 000660,005930]` | 장중 선물 급변 알람·연결 시험·기록 집계 | 관심 그룹 사용 시 ○ | |
 | `gazua owner` | 시장 파일에 넣을 수집 계정 표시(`{ owner }`, 32자 hex) | ○ | |
 | `gazua simulate --strategy <이름\|ID> [--from YYYY-MM-DD --to YYYY-MM-DD]` | 시뮬레이션 요약 | ○ | ○ |
 
@@ -214,3 +215,38 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 4. Worker를 배포해요: `corepack pnpm --filter sync-worker run deploy`(= `wrangler deploy`).
 
 앱이 Worker보다 먼저 나가면 CLI 연결 화면이 「서버 업데이트가 필요해요」를 보여 줘요. 다른 동작은 그대로예요.
+
+## 해외 지표 알람
+
+`gazua alert watch`는 KST 09:00~15:30이고 코스피가 개장 중일 때 ES·NQ 선물의 10분 급변을 찾아 ntfy로 보내요. 네이버 자료는 10분 지연이며, 정규장 시간대의 동행 베타로 함께 움직일 종목을 표시해요. 종목명 없는 동기화 문서는 코드로 표시해요. `--symbols 000660,005930`을 주면 로그인 없이 그 코드들을 쓰고, 생략하면 로그인한 프로필의 숨기지 않은 관심 종목을 그룹 순서대로 중복 없이 앞 30개까지 써요. 프로필이 여럿이면 `--profile <ID>`로 골라요. MCP 도구로는 내보내지 않아요.
+
+```bash
+./cli/macos/alert-agent/install.sh                     # 빌드 후 설치
+./cli/macos/alert-agent/install.sh --symbols 000660,005930  # 로그인 없이 사용
+./cli/macos/alert-agent/uninstall.sh                   # 에이전트만 제거
+```
+
+설치하면 `~/.config/gazua/alert.env`(또는 `$XDG_CONFIG_HOME/gazua/alert.env`)를 권한 600으로 만들고 시험 알림을 한 번 보내요. 터미널에 나온 토픽을 **휴대폰 ntfy 앱에서 구독하세요**. 토픽은 설치 때 무작위로 만들고 기존 파일은 덮어쓰지 않아요. 토픽을 아는 사람이 구독할 수 있으므로 공유하거나 저장소에 적지 마세요. CLI 결과·오류에서 토픽은 `[숨김]`으로 가려요.
+
+| 환경변수 | 기본값·뜻 |
+|---|---|
+| `GAZUA_ALERT_NTFY_TOPIC` | 설치 시 생성한 토픽, 필수 |
+| `GAZUA_ALERT_NTFY_SERVER` | `https://ntfy.sh` |
+| `GAZUA_ALERT_SPIKE_SIGMA` | `2.5`, 급변 기준 표준편차 배수 |
+| `GAZUA_ALERT_COOLDOWN_MIN` | `0`, 같은 지표 발송 간격(분), 0은 제한 없음 |
+| `GAZUA_ALERT_DAILY_MAX` | `0`, KST 하루 발송 상한, 0은 제한 없음 |
+| `GAZUA_ALERT_TOP` | `5`, 오름·내림 각각 표시할 종목 수 |
+
+같은 지표의 같은 봉은 설정과 관계없이 다시 보내지 않아요. 전송 실패도 기록하고 자동 재시도하지 않아요. 유가·금리·달러는 전일 대비 방향 참고값으로만 붙이며, 받지 못한 자료는 알림에 표시해요.
+
+```bash
+gazua alert test --env-file ~/.config/gazua/alert.env
+gazua alert watch --env-file ~/.config/gazua/alert.env --symbols 000660,005930
+gazua alert stats --pretty
+```
+
+`stats`는 실제로 보낸 장중 기록과 지금 받을 수 있는 최근 5거래일 자료를 맞춰 봐요. 발송 시각 뒤 첫 완성 10분 봉의 방향을 써요. `hit`는 방향 적중 비율, `n`은 평가 표본 수, `days`는 평가한 KST 거래일 수, `baseUp`은 늘 오름으로 보았을 때의 적중 비율이에요. 기록이 없으면 모두 0이에요. 기록에 결과를 덧쓰지 않고 실행할 때 계산해요.
+
+에이전트는 `~/Library/LaunchAgents/com.gazua.alert.{watch,premarket}.plist`에 설치돼요. 맥 시간대를 **Asia/Seoul**로 두세요. watch는 월~금 09:10~15:20에 10분마다 실행해요. premarket은 월~금 08:40으로 함께 등록하지만 현재는 `invalid-args`로 끝나며 발송하지 않아요. 로그는 `~/Library/Logs/gazua/alert.log`, 상태와 월별 기록은 `<설정 디렉터리>/alerts/`예요. 제거해도 `alert.env`·기록·로그는 남아요. 저장소를 옮기거나 다시 빌드하면 설치 스크립트를 다시 실행하세요.
+
+설치 없이 plist만 확인하려면 `GAZUA_ALERT_DRY=1 GAZUA_ALERT_DRY_DIR=<임시 디렉터리> ./cli/macos/alert-agent/install.sh`를 써요. 이 모드는 설정 파일·에이전트를 바꾸지 않고 launchctl과 시험 발송을 건너뛰어요.

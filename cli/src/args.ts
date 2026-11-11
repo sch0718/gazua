@@ -6,6 +6,7 @@ export interface Args {
   command: string;
   positionals: string[];
   profile?: string;
+  symbols?: string[];
   provider?: 'kis' | 'toss';
   label?: string;
   server?: string;
@@ -35,6 +36,7 @@ export function parseArgv(argv: string[]): Args {
         strict: true,
         options: {
           profile: { type: 'string' },
+          symbols: { type: 'string' },
           provider: { type: 'string' },
           label: { type: 'string' },
           server: { type: 'string' },
@@ -67,11 +69,14 @@ export function parseArgv(argv: string[]): Args {
     keep = Number(keepRaw);
     if (!Number.isInteger(keep) || keep < 1 || keep > 5) throw bad('--keep은 1~5 사이 정수예요');
   }
+  const symbols = typeof v.symbols === 'string' ? v.symbols.split(',').map((s) => s.trim()) : undefined;
+  if (symbols?.some((s) => !/^\d{6}$/.test(s))) throw bad('--symbols는 쉼표로 구분한 6자리 종목 코드여야 해요');
   const [command = '', ...positionals] = parsed.positionals;
   const str = (k: string) => (typeof v[k] === 'string' ? (v[k] as string) : undefined);
   return {
     command,
     positionals,
+    ...(symbols !== undefined && { symbols }),
     ...(provider !== undefined && { provider }),
     ...(str('profile') !== undefined && { profile: str('profile') }),
     ...(str('label') !== undefined && { label: str('label') }),
