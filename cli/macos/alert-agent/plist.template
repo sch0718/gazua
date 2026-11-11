@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__CLI__</string>
+    <string>alert</string>
+    <string>__SUBCOMMAND__</string>
+    <string>--env-file</string>
+    <string>__ENV__</string>
+__PROFILE_ARGS__
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+__SCHEDULE__
+  </array>
+  <key>StandardOutPath</key><string>__LOG__</string>
+  <key>StandardErrorPath</key><string>__LOG__</string>
+</dict>
+</plist>
