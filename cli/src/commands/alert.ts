@@ -55,7 +55,8 @@ async function watch(ctx: Ctx): Promise<unknown> {
   const futures: Partial<Record<'ES' | 'NQ', Bar10[]>> = {};
   const missing: string[] = [];
   for (const sym of ['ES', 'NQ'] as const) {
-    const bars = parseFuturesWeek(await get(ctx, NAVER.futuresWeek(sym))).filter((b) => b.end <= ctx.now());
+    // 선물 10분 자료는 10분 지연이라 end가 지난 봉도 아직 쌓이는 중이다. 한 봉 더 지난 것만 완성으로 본다.
+    const bars = parseFuturesWeek(await get(ctx, NAVER.futuresWeek(sym))).filter((b) => b.end <= ctx.now() - STEP_MS);
     if (bars.length) futures[sym] = bars;
     else missing.push(sym);
   }

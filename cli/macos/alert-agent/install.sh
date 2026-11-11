@@ -51,8 +51,17 @@ CONFIG
   fi
   chmod 600 "$ENV"
   if [[ -z "$SYMBOLS" && -z "$PROFILE" ]]; then
-    PROFILES=$("$NODE" "$CLI" profiles)
-    COUNT=$(printf '%s' "$PROFILES" | "$NODE" -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const r=JSON.parse(s);if(!r.ok||!Array.isArray(r.data?.profiles))process.exit(1);console.log(r.data.profiles.length)})')
+    HINT='gazua login을 하거나 --symbols를 지정해 주세요'
+    if ! PROFILES=$("$NODE" "$CLI" profiles); then
+      printf '%s\n' "$PROFILES" >&2
+      echo "프로필 목록을 가져오지 못했어요. $HINT" >&2
+      exit 1
+    fi
+    COUNT=$(printf '%s' "$PROFILES" | "$NODE" -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{const r=JSON.parse(s);if(!r.ok||!Array.isArray(r.data?.profiles))process.exit(1);console.log(r.data.profiles.length)})') || {
+      printf '%s\n' "$PROFILES" >&2
+      echo "프로필 응답을 읽지 못했어요. $HINT" >&2
+      exit 1
+    }
     if (( COUNT == 0 )); then echo '프로필이 없어요. --symbols를 지정하거나 앱에서 프로필을 동기화해 주세요' >&2; exit 1; fi
     if (( COUNT >= 2 )); then
       printf '%s' "$PROFILES" | "$NODE" -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{for(const p of JSON.parse(s).data.profiles)console.log(`${p.id}\t${p.name}`)})'

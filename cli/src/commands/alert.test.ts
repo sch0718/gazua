@@ -50,6 +50,16 @@ describe('gazua alert', () => {
     expect(again.sends()).toHaveLength(0);
     expect(readLogs(t.dir)).toHaveLength(1);
   });
+  it('선물 10분 지연 자료의 진행 중인 봉은 완성 봉으로 판정하지 않는다', async () => {
+    const week = fixture('es-week');
+    const sorted = Object.values(week.priceInfos).flat().sort((a: any, b: any) => a.localDateTime.localeCompare(b.localDateTime)) as { localDateTime: string; currentPrice: number }[];
+    expect(sorted.at(-1)!.localDateTime).toBe('20261110205000'); // end = KST 12:00, 받은 시각 12:01에는 1분치만 쌓인 봉
+    sorted.at(-1)!.currentPrice = sorted.at(-2)!.currentPrice * 1.01;
+    const { t, sends } = setup({ now: kstEpoch('2026-11-11', '12:01:00'), route: (c) => (c.url.pathname.includes('EScv1') ? { body: week } : undefined) });
+    await run(['alert', 'watch', '--symbols', '000660'], t.io);
+    expect(t.result().data).toEqual({ spikes: [] });
+    expect(sends()).toHaveLength(0);
+  });
   it('장 시간 밖이면 설정·네트워크 없이 끝낸다', async () => {
     const { t, f } = setup({ now: kstEpoch('2026-11-11', '08:30:00') });
     t.io.env = {};
