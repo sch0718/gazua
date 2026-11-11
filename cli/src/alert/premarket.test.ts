@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { addDays } from '../../../src/lib/time/kst';
 import type { DayBar } from '../naverMarket';
-import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, type Sample } from './premarket';
+import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, todayX, type Sample } from './premarket';
 import * as regress from './regress';
 
 const bar = (date: string, close: number, open = close): DayBar => ({ date, open, close });
@@ -18,6 +18,9 @@ describe('개장 전 계산', () => {
     expect(futAt(fut, '2026-10-02')).toBeNull();
     const stock = [bar('2026-10-05', 100), bar('2026-10-08', 104, 103)];
     expect(samples(stock, fut)).toEqual([{ date: '2026-10-08', x: Math.log(103 / 100), y: Math.log(103 / 100) }]);
+    // 오늘 예상도 같은 정의: 국내 전 거래일(10/05) → 오늘(10/08), 진행 중인 10/08 봉은 빼고 연휴 세션을 쌓는다
+    expect(todayX(fut, '2026-10-05', '2026-10-08')).toBe(Math.log(103 / 100));
+    expect(todayX(fut, '2026-10-02', '2026-10-08')).toBeNull();
   });
   it('분할 의심·비유한 표본과 선물 자료가 없는 날을 뺀다', () => {
     const fut = [bar('2026-10-01', 100), bar('2026-10-02', 101), bar('2026-10-03', 102)];

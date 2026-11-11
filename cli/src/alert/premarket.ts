@@ -11,6 +11,12 @@ export function futAt(fut: DayBar[], date: string): number | null {
   return last?.close ?? null;
 }
 
+/** 오늘 예상의 x: 학습과 같은 정의(국내 전 거래일 → 오늘). 연휴로 쌓인 세션도 그대로 들어간다 */
+export function todayX(fut: DayBar[], prevDate: string, today: string): number | null {
+  const a = futAt(fut, prevDate), b = futAt(fut, today);
+  return a === null || b === null ? null : Math.log(b / a);
+}
+
 export interface Sample { date: string; x: number; y: number }
 export function samples(stock: DayBar[], fut: DayBar[]): Sample[] {
   const sorted = [...stock].sort((a, b) => a.date.localeCompare(b.date));

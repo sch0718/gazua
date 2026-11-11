@@ -2,7 +2,7 @@ import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../../../src/lib/tim
 import { readAlertConfig, type AlertConfig } from '../alert/config';
 import { fetchFredSeries } from '../alert/fred';
 import { allowSend, detectSpike, formatSpike, markSent, rankMovers, returns10, STEP_MS, type WatchState } from '../alert/intraday';
-import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, type Backtest } from '../alert/premarket';
+import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, todayX, type Backtest } from '../alert/premarket';
 import { appendLog, readLogs, readState, writeState, type LogLine } from '../alert/state';
 import type { Command, Ctx } from '../context';
 import { CliError } from '../errors';
@@ -185,12 +185,16 @@ async function premarket(ctx: Ctx): Promise<unknown> {
     if (!bars.length) { missing.push(s.name); return []; }
     return [{ ...s, bars, byFut: { ES: samples(bars, futures.ES), NQ: samples(bars, futures.NQ) } }];
   });
+  if (!stocks.length) {
+    appendLog(ctx.dir, { kind: 'premarket', receivedAt: ctx.now(), sentAt: null, changes: {}, picks: [], delivered: false, note: 'nostocks' });
+    return { sent: false, reason: 'nostocks', backtest: backtest([]), picks: [] };
+  }
   const predictions = stocks.flatMap((stock) => {
     const model = fitModel(stock.byFut, today);
     if (!model) { missing.push(`${stock.name}(학습 표본 부족)`); return []; }
-    const a = futAt(futures[model.sym], stock.bars.at(-1)!.date), b = futAt(futures[model.sym], today);
-    if (a === null || b === null) return [];
-    const pct = predict(model, Math.log(b / a));
+    const x = todayX(futures[model.sym], stock.bars.at(-1)!.date, today);
+    if (x === null) return [];
+    const pct = predict(model, x);
     return Number.isFinite(pct) ? [{ code: stock.code, name: stock.name, sym: model.sym, pct }] : [];
   });
   const up = predictions.filter((p) => p.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, cfg.top);
@@ -201,7 +205,7 @@ async function premarket(ctx: Ctx): Promise<unknown> {
     try {
       const fred = await fetchFredSeries(ctx, id, from, addDays(today, -1));
       const quote = parseIndexQuote(await get(ctx, NAVER.marketIndex(kind)));
-      if (!fred.d.length || quote.tradedAt === null || ctx.now() - quote.tradedAt > 36 * 3600_000 || (kind === 'rate' ? quote.changeAbs : quote.changePct) === null) { missing.push(label); continue; }
+      if (!fred.d.length || quote.tradedAt === null || ctx.now() - quote.tradedAt > 72 * 3600_000 || (kind === 'rate' ? quote.changeAbs : quote.changePct) === null) { missing.push(label); continue; }
       const same: string[] = [], opposite: string[] = [];
       for (const stock of stocks) {
         const side = macroSide(stock.bars, fred, kind);

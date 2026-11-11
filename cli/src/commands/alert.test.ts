@@ -228,8 +228,8 @@ describe('gazua alert premarket', () => {
     expect(msg).toContain('빠진 지표: 유가, 금리, 달러');
     expect(msg).not.toMatch(/같은 쪽|반대쪽/);
   });
-  it('36시간 지난 참고값을 빼고 금리는 fluctuations를 bp로 표시한다', async () => {
-    const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.includes('/marketindex/energy/') ? { body: { ...fixture('oil'), localTradedAt: '2026-11-09T19:00:00+09:00' } } : undefined });
+  it('72시간 지난 참고값을 빼고 금리는 fluctuations를 bp로 표시한다', async () => {
+    const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.includes('/marketindex/energy/') ? { body: { ...fixture('oil'), localTradedAt: '2026-11-08T08:00:00+09:00' } } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     const msg = (sends()[0].body as { message: string }).message;
     expect(msg).toContain('금리 +14bp');
@@ -290,17 +290,25 @@ describe('gazua alert premarket', () => {
     expect(msg).toContain('기록 방향 적중 100%');
     expect(msg).not.toContain('백테스트');
   });
-  it('19거래일 기록은 백테스트와 섞지 않으며 오늘 개장 전 기록은 평가하지 않는다', async () => {
+  it('19거래일 기록은 백테스트를, 20거래일부터 기록을 쓰며 오늘 개장 전 기록은 평가하지 않는다', async () => {
+    const stock = parseDayBars(fixture('item-day')).filter((s) => s.date < '2026-11-11');
     const { t } = setupPremarket();
-    for (let i = 1; i <= 19; i++) {
-      const sentAt = kstEpoch(addDays('2026-11-11', -i), '08:40:00');
+    const log = (date: string) => {
+      const sentAt = kstEpoch(date, '08:40:00');
       appendLog(t.dir, { kind: 'premarket', receivedAt: sentAt, sentAt, changes: {}, picks: [{ code: '000660', expected: 0.01 }], delivered: true });
-    }
+    };
+    const days = stock.filter((b, i) => i > 0 && b.open !== stock[i - 1].close).slice(-20).map((b) => b.date);
+    for (const d of days.slice(1)) log(d); // 실제 거래일 19개
+    log('2026-11-11'); // 오늘 08:40 기록: 시가 전이라 세지 않는다
+    await run(['alert', 'stats'], t.io);
+    expect(t.result().data.kinds.premarket.days).toBe(19);
+    t.out.length = 0;
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     expect(t.result().data.record.source).toBe('백테스트');
+    log(days[0]); // 20번째 거래일
     t.out.length = 0;
     await run(['alert', 'stats'], t.io);
-    expect(t.result().data.kinds.premarket.days).toBeLessThan(20);
+    expect(t.result().data.kinds.premarket.days).toBe(20);
   });
   it('stats는 당일 종가 방향 대신 시가 방향을 쓰며 실패·시가 보합을 제외한다', async () => {
     const bars = [
