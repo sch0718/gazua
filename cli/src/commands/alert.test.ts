@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
-import { kstEpoch } from '../../../src/lib/time/kst';
-import { appendLog, readLogs, readState } from '../alert/state';
+import { addDays, kstEpoch } from '../../../src/lib/time/kst';
+import { appendLog, readLogs, readState, writeState } from '../alert/state';
+import { parseDayBars } from '../naverMarket';
 import { writeAuth } from '../config';
 import { execute } from '../execute';
 import { parseArgv } from '../args';
@@ -100,7 +101,7 @@ describe('gazua alert', () => {
     await run(['alert', 'watch', '--symbols', '000660'], again.t.io);
     expect(again.sends()).toHaveLength(0);
   });
-  it.each([['watch', '--symbols', '12345'], ['foo'], ['premarket'], ['test', '추가']])('잘못된 하위 명령·옵션은 종료 코드 2다: %j', async (...args) => {
+  it.each([['watch', '--symbols', '12345'], ['foo'], ['test', '추가']])('잘못된 하위 명령·옵션은 종료 코드 2다: %j', async (...args) => {
     const { t, f } = setup();
     expect(await run(['alert', ...args], t.io)).toBe(2);
     expect(t.result().error.code).toBe('invalid-args');
@@ -125,7 +126,7 @@ describe('gazua alert', () => {
   it('stats는 기록이 없으면 네트워크·설정 없이 표본 0을 돌려준다', async () => {
     const { t, f } = setup(); t.io.env = {};
     await run(['alert', 'stats'], t.io);
-    expect(t.result().data).toEqual({ kinds: { watch: { hit: 0, n: 0, days: 0, baseUp: 0 } } });
+    expect(t.result().data).toMatchObject({ kinds: { watch: { hit: 0, n: 0, days: 0, baseUp: 0 }, premarket: { hit: 0, n: 0, days: 0, baseUp: 0, recent20: [] } } });
     expect(f.calls).toHaveLength(0);
   });
   it('stats는 발송 뒤 첫 완성 봉의 방향만 평가하고 실패·오래된 기록은 뺀다', async () => {
@@ -143,6 +144,181 @@ describe('gazua alert', () => {
     await run(['alert', 'stats'], t.io);
     expect(t.result().data.kinds.watch).toEqual({ hit: 1, n: 1, days: 1, baseUp: 1 });
     expect(readLogs(t.dir)[0]).not.toHaveProperty('outcome');
+  });
+});
+
+function setupPremarket(o: { now?: number; dir?: string; ntfy?: FakeReply; route?: (c: FakeCall) => FakeReply | undefined } = {}) {
+  const csv = readFileSync(new URL('../fixtures/fred/DGS10.csv', import.meta.url), 'utf8');
+  const f = fakeFetch((c) => {
+    const override = o.route?.(c);
+    if (override !== undefined) return override;
+    if (c.url.hostname === 'ntfy.sh') return o.ntfy ?? { body: {} };
+    if (c.url.hostname === 'fred.stlouisfed.org') return { body: csv.replaceAll('DGS10', c.url.searchParams.get('id')!) };
+    if (c.url.pathname.endsWith('/KOSPI')) return { body: { ...fixture('kospi-polling'), datas: [{ marketStatus: 'PREOPEN' }] } };
+    if (c.url.pathname.includes('EScv1/day')) return { body: fixture('es-day') };
+    if (c.url.pathname.includes('NQcv1/day')) return { body: fixture('nq-day') };
+    if (c.url.pathname.includes('/item/')) return { body: fixture('item-day') };
+    if (c.url.pathname.includes('/marketindex/bond/')) return { body: fixture('rate') };
+    if (c.url.pathname.includes('/marketindex/energy/')) return { body: fixture('oil') };
+    if (c.url.pathname.includes('/marketindex/exchange/')) return { body: fixture('dxy') };
+  });
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const res = await f(input, init);
+    // fakeFetch는 JSON 응답용이므로 FRED만 실제 CSV 응답으로 바꾼다.
+    return String(input).includes('fred.stlouisfed.org') && res.ok ? new Response(await res.json()) : res;
+  };
+  const t = makeIo({ env: { ...ENV }, now: o.now ?? kstEpoch('2026-11-11', '08:40:00'), fetch, dir: o.dir });
+  return { t, f, sends: () => f.calls.filter((c) => c.url.hostname === 'ntfy.sh') };
+}
+
+describe('gazua alert premarket', () => {
+  it('08:40 PREOPEN에 한 번 보내고 KST 같은 날의 재발송을 막는다', async () => {
+    const { t, f, sends } = setupPremarket();
+    expect(await run(['alert', 'premarket', '--symbols', '000660'], t.io)).toBe(0);
+    expect(sends()).toHaveLength(1);
+    const data = t.result().data;
+    expect(data).toMatchObject({ sent: true, backtest: { days: 60 }, picks: [expect.objectContaining({ code: '000660', sym: expect.stringMatching(/ES|NQ/) })] });
+    expect(readState(t.dir, 'premarket', null)).toMatchObject({ sentDate: '2026-11-11' });
+    expect(readLogs(t.dir)).toMatchObject([{ kind: 'premarket', delivered: true, sentAt: expect.any(Number), barStart: expect.any(Number), barEnd: expect.any(Number) }]);
+    expect((sends()[0].body as { message: string }).message).toContain('백테스트');
+    expect((sends()[0].body as { message: string }).message).toContain('과거 경향이며 투자 조언이 아님');
+    expect((sends()[0].body as { message: string }).message).not.toMatch(/매수|매도/);
+    for (const c of f.calls.filter((c) => c.url.hostname === 'api.stock.naver.com' || c.url.hostname === 'polling.finance.naver.com')) expect(c.headers.get('user-agent')).toBeTruthy();
+    const day = f.calls.find((c) => c.url.pathname.includes('EScv1/day'))!;
+    expect(day.url.searchParams.get('startDateTime')).toBe('202411110000');
+    expect(day.url.searchParams.get('endDateTime')).toBe('202611112359');
+    const again = setupPremarket({ dir: t.dir });
+    await run(['alert', 'premarket', '--symbols', '000660'], again.t.io);
+    expect(again.t.result().data).toEqual({ skipped: 'sent' });
+    expect(again.f.calls).toHaveLength(0);
+  });
+  it.each(['07:59:00', '09:00:00', '09:05:00'])('%s에는 보내지 않고 late 기록을 남긴다', async (clock) => {
+    const { t, sends } = setupPremarket({ now: kstEpoch('2026-11-11', clock) });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(sends()).toHaveLength(0);
+    expect(t.result().data).toMatchObject({ sent: false, reason: 'late' });
+    expect(readLogs(t.dir)).toMatchObject([{ sentAt: null, delivered: false, note: 'late' }]);
+    expect(readState(t.dir, 'premarket', {})).not.toHaveProperty('sentDate');
+  });
+  it('08:59:59에 시작해 자료 수집 중 09:00을 넘기면 보내지 않는다', async () => {
+    const { t, sends } = setupPremarket({ now: kstEpoch('2026-11-11', '08:59:59') + 500 });
+    await run(['alert', 'premarket', '--symbols', '000660,005930,035420'], t.io);
+    expect(t.clock.now).toBeGreaterThanOrEqual(kstEpoch('2026-11-11', '09:00:00'));
+    expect(sends()).toHaveLength(0);
+    expect(t.result().data).toMatchObject({ sent: false, reason: 'late' });
+  });
+  it.each(['CLOSE', 'AFTER_HOURS'])('marketStatus %s면 휴장으로 끝낸다', async (status) => {
+    const { t, f, sends } = setupPremarket({ route: (c) => c.url.pathname.endsWith('/KOSPI') ? { body: { datas: [{ marketStatus: status }] } } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(t.result().data).toEqual({ skipped: 'closed' });
+    expect(sends()).toHaveLength(0);
+    expect(f.calls).toHaveLength(1);
+    expect(readLogs(t.dir)).toHaveLength(0);
+  });
+  it('polling 실패 때 계속 보내고 휴장 판단 불가를 알린다', async () => {
+    const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.endsWith('/KOSPI') ? { status: 503 } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(sends()).toHaveLength(1);
+    expect((sends()[0].body as { message: string }).message).toContain('휴장 여부 확인 못 함');
+  });
+  it('FRED 실패 때 매크로 줄을 빼고 빠진 지표를 적는다', async () => {
+    const { t, sends } = setupPremarket({ route: (c) => c.url.hostname === 'fred.stlouisfed.org' ? { status: 503 } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    const msg = (sends()[0].body as { message: string }).message;
+    expect(msg).toContain('빠진 지표: 유가, 금리, 달러');
+    expect(msg).not.toMatch(/같은 쪽|반대쪽/);
+  });
+  it('36시간 지난 참고값을 빼고 금리는 fluctuations를 bp로 표시한다', async () => {
+    const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.includes('/marketindex/energy/') ? { body: { ...fixture('oil'), localTradedAt: '2026-11-09T19:00:00+09:00' } } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    const msg = (sends()[0].body as { message: string }).message;
+    expect(msg).toContain('금리 +14bp');
+    expect(msg).toContain('빠진 지표: 유가');
+    expect(msg).not.toContain('유가 +');
+  });
+  it('선물 일부·종목 일부 실패에도 남은 종목을 쓰고, 선물이 모두 없으면 기록만 쓴다', async () => {
+    const partial = setupPremarket({ route: (c) => c.url.pathname.includes('NQcv1/day') || c.url.pathname.includes('/item/005930/') ? { status: 503 } : undefined });
+    await run(['alert', 'premarket', '--symbols', '005930,000660'], partial.t.io);
+    expect(partial.sends()).toHaveLength(1);
+    expect(partial.t.result().data.picks[0].sym).toBe('ES');
+    expect((partial.sends()[0].body as { message: string }).message).toContain('빠진 지표: NQ, 005930');
+    const none = setupPremarket({ route: (c) => c.url.pathname.includes('/futures/') ? { status: 503 } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], none.t.io);
+    expect(none.sends()).toHaveLength(0);
+    expect(none.t.result().data).toMatchObject({ sent: false, reason: 'nodata' });
+    expect(readLogs(none.t.dir)).toMatchObject([{ kind: 'premarket', sentAt: null, delivered: false }]);
+  });
+  it('발송 실패는 기록하고 발송일 상태에 넣지 않으며 토픽을 노출하지 않는다', async () => {
+    const { t } = setupPremarket({ ntfy: new TypeError(`https://ntfy.sh/${ENV.GAZUA_ALERT_NTFY_TOPIC}`) });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(t.result().data.sent).toBe(false);
+    expect(readLogs(t.dir)).toMatchObject([{ delivered: false, sentAt: null, note: '보내지 못함' }]);
+    expect(readState(t.dir, 'premarket', {})).not.toHaveProperty('sentDate');
+    expect(t.out.join('') + t.err.join('') + JSON.stringify(readLogs(t.dir))).not.toContain(ENV.GAZUA_ALERT_NTFY_TOPIC);
+  });
+  it('로그인 필요 알림을 상태 이름별로 하루 한 번만 보낸다', async () => {
+    const { t, sends } = setupPremarket();
+    writeState(t.dir, 'watch', { loginNotified: '2026-11-11' });
+    expect(await run(['alert', 'premarket'], t.io)).toBe(1);
+    expect(t.result().error.code).toBe('not-logged-in');
+    expect(sends()).toHaveLength(1);
+    t.out.length = 0;
+    await run(['alert', 'premarket'], t.io);
+    expect(sends()).toHaveLength(1);
+    expect(readState(t.dir, 'premarket', {})).toMatchObject({ loginNotified: '2026-11-11' });
+  });
+  it('stats와 다음 실행은 실제 발송 기록만 시가/전일 종가로 평가하고 20일부터 기록을 표시한다', async () => {
+    const stock = parseDayBars(fixture('item-day')).filter((s) => s.date < '2026-11-11');
+    const { t, sends } = setupPremarket();
+    for (const b of stock.slice(-21)) {
+      const i = stock.indexOf(b), sentAt = kstEpoch(b.date, '08:40:00');
+      appendLog(t.dir, { kind: 'premarket', receivedAt: sentAt, sentAt, changes: {}, picks: [{ code: '000660', expected: b.open / stock[i - 1].close - 1 }], delivered: true });
+    }
+    const first = readLogs(t.dir)[0];
+    appendLog(t.dir, { ...first, delivered: false });
+    appendLog(t.dir, { ...first, sentAt: null });
+    await run(['alert', 'stats'], t.io);
+    const record = t.result().data.kinds.premarket;
+    expect(record.hit).toBe(1);
+    expect(record.n).toBe(stock.slice(-21).filter((b) => b.open !== stock[stock.indexOf(b) - 1].close).length);
+    expect(record.days).toBeGreaterThanOrEqual(20);
+    expect(record.recent20).toHaveLength(20);
+    t.out.length = 0;
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(t.result().data.record).toMatchObject({ ...record, source: '기록' });
+    const msg = (sends()[0].body as { message: string }).message;
+    expect(msg).toContain('기록 방향 적중 100%');
+    expect(msg).not.toContain('백테스트');
+  });
+  it('19거래일 기록은 백테스트와 섞지 않으며 오늘 개장 전 기록은 평가하지 않는다', async () => {
+    const { t } = setupPremarket();
+    for (let i = 1; i <= 19; i++) {
+      const sentAt = kstEpoch(addDays('2026-11-11', -i), '08:40:00');
+      appendLog(t.dir, { kind: 'premarket', receivedAt: sentAt, sentAt, changes: {}, picks: [{ code: '000660', expected: 0.01 }], delivered: true });
+    }
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(t.result().data.record.source).toBe('백테스트');
+    t.out.length = 0;
+    await run(['alert', 'stats'], t.io);
+    expect(t.result().data.kinds.premarket.days).toBeLessThan(20);
+  });
+  it('stats는 당일 종가 방향 대신 시가 방향을 쓰며 실패·시가 보합을 제외한다', async () => {
+    const bars = [
+      { localDate: '20261106', openPrice: 100, closePrice: 100 },
+      { localDate: '20261109', openPrice: 110, closePrice: 90 },
+      { localDate: '20261110', openPrice: 80, closePrice: 100 },
+      { localDate: '20261111', openPrice: 100, closePrice: 80 },
+    ];
+    const { t } = setupPremarket({ now: kstEpoch('2026-11-11', '09:05:00'), route: (c) => c.url.pathname.includes('/item/') ? { body: bars } : undefined });
+    for (const [date, expected] of [['2026-11-09', 0.01], ['2026-11-10', -0.01], ['2026-11-11', 0.01]] as const) {
+      const sentAt = kstEpoch(date, '08:40:00');
+      const line = { kind: 'premarket' as const, receivedAt: sentAt, sentAt, changes: {}, picks: [{ code: '000660', expected }], delivered: true };
+      appendLog(t.dir, line);
+      appendLog(t.dir, { ...line, delivered: false });
+      appendLog(t.dir, { ...line, sentAt: null });
+    }
+    await run(['alert', 'stats'], t.io);
+    expect(t.result().data.kinds.premarket).toMatchObject({ hit: 1, n: 2, days: 2, baseUp: 0.5, recent20: [{ date: '2026-11-09', hit: 1, n: 1 }, { date: '2026-11-10', hit: 1, n: 1 }] });
   });
 });
 

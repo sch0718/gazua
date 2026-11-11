@@ -1,10 +1,12 @@
-import { kstDate, kstMinuteOfDay } from '../../../src/lib/time/kst';
+import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../../../src/lib/time/kst';
 import { readAlertConfig, type AlertConfig } from '../alert/config';
+import { fetchFredSeries } from '../alert/fred';
 import { allowSend, detectSpike, formatSpike, markSent, rankMovers, returns10, STEP_MS, type WatchState } from '../alert/intraday';
-import { appendLog, readLogs, readState, writeState } from '../alert/state';
+import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, type Backtest } from '../alert/premarket';
+import { appendLog, readLogs, readState, writeState, type LogLine } from '../alert/state';
 import type { Command, Ctx } from '../context';
 import { CliError } from '../errors';
-import { NAVER, naverGet, parseDomesticWeek, parseFuturesWeek, parseIndexQuote, parseMarketStatus, type Bar10, type IndexQuote } from '../naverMarket';
+import { NAVER, naverGet, parseDayBars, parseDomesticWeek, parseFuturesWeek, parseIndexQuote, parseMarketStatus, type Bar10, type DayBar, type IndexQuote } from '../naverMarket';
 import { pickProfile } from '../profileData';
 import { authedClient } from '../session';
 
@@ -45,6 +47,19 @@ function watchState(dir: string): WatchState {
   return st && numbers(st.lastBar) && numbers(st.lastSent) && numbers(st.sentByDate) ? st : emptyState();
 }
 
+async function symbolsWithLogin(ctx: Ctx, cfg: AlertConfig, name: 'watch' | 'premarket', st: { loginNotified?: string }, notify = true): Promise<Awaited<ReturnType<typeof targetSymbols>>> {
+  try { return await targetSymbols(ctx); } catch (e) {
+    if (notify && e instanceof CliError && ['not-logged-in', 'cli-token-expired', 'cli-token-revoked'].includes(e.code)) {
+      const date = kstDate(ctx.now());
+      if (st.loginNotified !== date) {
+        await sendNtfy(ctx, cfg, { title: 'gazua login 필요', body: '관심 종목을 읽으려면 gazua login을 실행해 주세요' });
+        writeState(ctx.dir, name, { ...st, loginNotified: date });
+      }
+    }
+    throw e;
+  }
+}
+
 async function watch(ctx: Ctx): Promise<unknown> {
   const minute = kstMinuteOfDay(ctx.now());
   if (minute < 540 || minute > 930) return { skipped: 'hours' };
@@ -69,19 +84,7 @@ async function watch(ctx: Ctx): Promise<unknown> {
     return spike ? [spike] : [];
   });
   if (!spikes.length) return { spikes: [] };
-  let symbols: Awaited<ReturnType<typeof targetSymbols>>;
-  try {
-    symbols = await targetSymbols(ctx);
-  } catch (e) {
-    if (e instanceof CliError && ['not-logged-in', 'cli-token-expired', 'cli-token-revoked'].includes(e.code)) {
-      const date = kstDate(ctx.now());
-      if (st.loginNotified !== date) {
-        await sendNtfy(ctx, cfg, { title: 'gazua login 필요', body: '관심 종목을 읽으려면 gazua login을 실행해 주세요' });
-        writeState(ctx.dir, 'watch', { ...st, loginNotified: date });
-      }
-    }
-    throw e;
-  }
+  const symbols = await symbolsWithLogin(ctx, cfg, 'watch', st);
   const stocks: { code: string; name: string; ret: Map<number, number> }[] = [];
   for (const stock of symbols) {
     const bars = parseDomesticWeek(await get(ctx, NAVER.itemWeek(stock.code))).filter((b) => b.end <= ctx.now());
@@ -113,6 +116,125 @@ async function watch(ctx: Ctx): Promise<unknown> {
   return { spikes: results };
 }
 
+const sentPremarket = (logs: LogLine[]) => logs.filter((l) => l.kind === 'premarket' && l.delivered && l.sentAt !== null);
+const dayStamp = (date: string, time: string) => date.replaceAll('-', '') + time;
+function historyFrom(today: string, logs: LogLine[] = []): string {
+  return [addDays(today, -730), ...logs.map((l) => addDays(kstDate(l.sentAt!), -14))].sort()[0];
+}
+async function stockDays(ctx: Ctx, codes: Iterable<string>, from: string, today: string): Promise<Map<string, DayBar[]>> {
+  const byCode = new Map<string, DayBar[]>();
+  for (const code of new Set(codes)) {
+    const bars = parseDayBars(await get(ctx, NAVER.itemDay(code, dayStamp(from, '0000'), dayStamp(today, '2359')))).filter((b) => b.date <= today);
+    byCode.set(code, bars);
+  }
+  return byCode;
+}
+
+/** 다음 개장 전 실행과 stats는 같은 시가 평가를 쓴다. 미발송·개장 전 기록은 세지 않는다. */
+function premarketRecord(logs: LogLine[], byCode: Map<string, DayBar[]>, now: number): Backtest & { recent20: { date: string; hit: number; baseUp: number; n: number }[] } {
+  const byDate = new Map<string, { hit: number; up: number; n: number }>();
+  for (const line of sentPremarket(logs)) {
+    const date = kstDate(line.sentAt!);
+    if (date > kstDate(now) || (date === kstDate(now) && kstMinuteOfDay(now) < 540)) continue;
+    for (const pick of line.picks) {
+      const bars = byCode.get(pick.code) ?? [];
+      const i = bars.findIndex((b) => b.date === date);
+      if (i < 1) continue;
+      const actual = bars[i].open / bars[i - 1].close - 1;
+      if (!Number.isFinite(actual) || actual === 0) continue;
+      const counts = byDate.get(date) ?? { hit: 0, up: 0, n: 0 };
+      counts.n++;
+      if (Math.sign(actual) === Math.sign(pick.expected)) counts.hit++;
+      if (actual > 0) counts.up++;
+      byDate.set(date, counts);
+    }
+  }
+  const totals = [...byDate.values()].reduce((a, b) => ({ hit: a.hit + b.hit, up: a.up + b.up, n: a.n + b.n }), { hit: 0, up: 0, n: 0 });
+  return {
+    hit: totals.n ? totals.hit / totals.n : 0, baseUp: totals.n ? totals.up / totals.n : 0, n: totals.n, days: byDate.size,
+    recent20: [...byDate].sort(([a], [b]) => a.localeCompare(b)).slice(-20).map(([date, c]) => ({ date, hit: c.hit / c.n, baseUp: c.up / c.n, n: c.n })),
+  };
+}
+
+interface PremarketState { sentDate?: string; loginNotified?: string }
+async function premarket(ctx: Ctx): Promise<unknown> {
+  const today = kstDate(ctx.now());
+  const raw = readState<PremarketState | null>(ctx.dir, 'premarket', null);
+  const st: PremarketState = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  if (st.sentDate === today) return { skipped: 'sent' };
+  const status = parseMarketStatus(await get(ctx, NAVER.kospiStatus));
+  if (status !== null && !['PREOPEN', 'OPEN'].includes(status)) return { skipped: 'closed' };
+  const cfg = readAlertConfig(ctx.env);
+  const inHours = () => kstDate(ctx.now()) === today && kstMinuteOfDay(ctx.now()) >= 480 && kstMinuteOfDay(ctx.now()) < 540;
+  const from = historyFrom(today);
+  const futures: Record<'ES' | 'NQ', DayBar[]> = { ES: [], NQ: [] };
+  const missing: string[] = [];
+  for (const sym of ['ES', 'NQ'] as const) {
+    futures[sym] = parseDayBars(await get(ctx, NAVER.futuresDay(sym, dayStamp(from, '0000'), dayStamp(today, '2359')))).filter((b) => b.date < today);
+    if (!futures[sym].length) missing.push(sym);
+  }
+  if (!futures.ES.length && !futures.NQ.length) {
+    appendLog(ctx.dir, { kind: 'premarket', receivedAt: ctx.now(), sentAt: null, changes: {}, picks: [], delivered: false, note: 'nodata' });
+    return { sent: false, reason: 'nodata', backtest: backtest([]), picks: [] };
+  }
+  const symbols = await symbolsWithLogin(ctx, cfg, 'premarket', st, inHours());
+  const logs = sentPremarket(readLogs(ctx.dir));
+  const byCode = await stockDays(ctx, [...symbols.map((s) => s.code), ...logs.flatMap((l) => l.picks.map((p) => p.code))], historyFrom(today, logs), today);
+  const stocks = symbols.flatMap((s) => {
+    const bars = (byCode.get(s.code) ?? []).filter((b) => b.date < today);
+    if (!bars.length) { missing.push(s.name); return []; }
+    return [{ ...s, bars, byFut: { ES: samples(bars, futures.ES), NQ: samples(bars, futures.NQ) } }];
+  });
+  const predictions = stocks.flatMap((stock) => {
+    const model = fitModel(stock.byFut, today);
+    if (!model) { missing.push(`${stock.name}(학습 표본 부족)`); return []; }
+    const a = futAt(futures[model.sym], stock.bars.at(-1)!.date), b = futAt(futures[model.sym], today);
+    if (a === null || b === null) return [];
+    const pct = predict(model, Math.log(b / a));
+    return Number.isFinite(pct) ? [{ code: stock.code, name: stock.name, sym: model.sym, pct }] : [];
+  });
+  const up = predictions.filter((p) => p.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, cfg.top);
+  const down = predictions.filter((p) => p.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, cfg.top);
+  const picks = [...up, ...down];
+  const macro: Parameters<typeof formatPremarket>[0]['macro'] = [];
+  for (const [kind, id, label] of [['oil', 'DCOILWTICO', '유가'], ['rate', 'DGS10', '금리'], ['dollar', 'DTWEXBGS', '달러']] as const) {
+    try {
+      const fred = await fetchFredSeries(ctx, id, from, addDays(today, -1));
+      const quote = parseIndexQuote(await get(ctx, NAVER.marketIndex(kind)));
+      if (!fred.d.length || quote.tradedAt === null || ctx.now() - quote.tradedAt > 36 * 3600_000 || (kind === 'rate' ? quote.changeAbs : quote.changePct) === null) { missing.push(label); continue; }
+      const same: string[] = [], opposite: string[] = [];
+      for (const stock of stocks) {
+        const side = macroSide(stock.bars, fred, kind);
+        if (side === 'same') same.push(stock.name);
+        if (side === 'opposite') opposite.push(stock.name);
+      }
+      macro.push({ kind, quote, same, opposite });
+    } catch { missing.push(label); }
+  }
+  const tested = backtest(stocks.map((s) => s.byFut));
+  const actual = premarketRecord(logs, byCode, ctx.now());
+  const record = actual.days >= 20 ? { ...actual, source: '기록' as const } : { ...tested, source: '백테스트' as const };
+  const previous = stocks.map((s) => s.bars.at(-1)!.date).sort().at(-1);
+  const changes: Record<string, number> = {};
+  for (const sym of ['ES', 'NQ'] as const) {
+    const a = previous ? futAt(futures[sym], previous) : null, b = futAt(futures[sym], today);
+    if (a !== null && b !== null) changes[sym] = b / a - 1;
+  }
+  const sessions = [...new Set(Object.values(futures).flatMap((bars) => bars.at(-1)?.date ?? []))].sort().map((d) => d.slice(5).replace('-', '/'));
+  const msg = formatPremarket({ esPct: changes.ES ?? null, nqPct: changes.NQ ?? null, session: `${sessions.join('·')} 미국 세션`, up, down, macro, record, missing, statusUnknown: status === null });
+  const receivedAt = ctx.now();
+  // 자료를 받는 동안 09:00을 넘겼어도 발송하지 않는다.
+  const late = !inHours();
+  const sent = !late && await sendNtfy(ctx, cfg, msg);
+  const sentAt = sent ? ctx.now() : null;
+  appendLog(ctx.dir, {
+    kind: 'premarket', ...(previous ? { barStart: kstEpoch(previous, '00:00:00'), barEnd: kstEpoch(today, '00:00:00') } : {}), receivedAt, sentAt, changes,
+    picks: picks.map((p) => ({ code: p.code, expected: p.pct })), delivered: sent, ...(!sent ? { note: late ? 'late' : '보내지 못함' } : {}),
+  });
+  if (sent) writeState(ctx.dir, 'premarket', { ...st, sentDate: today });
+  return { sent, ...(late ? { reason: 'late' } : {}), backtest: tested, picks, record };
+}
+
 async function stats(ctx: Ctx): Promise<unknown> {
   const logs = readLogs(ctx.dir).filter((l) => l.kind === 'watch' && l.delivered && l.sentAt !== null);
   const byCode = new Map<string, { bars: Bar10[]; ret: Map<number, number>; dates: Set<string> }>();
@@ -138,14 +260,18 @@ async function stats(ctx: Ctx): Promise<unknown> {
       days.add(kstDate(sentAt));
     }
   }
-  return { kinds: { watch: { hit: n ? hit / n : 0, n, days: days.size, baseUp: n ? up / n : 0 } } };
+  const preLogs = sentPremarket(readLogs(ctx.dir));
+  const today = kstDate(ctx.now());
+  const daily = await stockDays(ctx, preLogs.flatMap((l) => l.picks.map((p) => p.code)), historyFrom(today, preLogs), today);
+  return { kinds: { watch: { hit: n ? hit / n : 0, n, days: days.size, baseUp: n ? up / n : 0 }, premarket: premarketRecord(preLogs, daily, ctx.now()) } };
 }
 
 export const alert: Command = async (ctx) => {
   const [sub, ...rest] = ctx.args.positionals;
-  if (rest.length || !['watch', 'test', 'stats'].includes(sub)) throw new CliError('invalid-args', 'alert는 watch, test, stats 중 하나를 써 주세요. premarket은 아직 준비 중이에요');
+  if (rest.length || !['watch', 'test', 'stats', 'premarket'].includes(sub)) throw new CliError('invalid-args', 'alert는 watch, test, stats, premarket 중 하나를 써 주세요');
   if (sub === 'watch') return watch(ctx);
   if (sub === 'stats') return stats(ctx);
+  if (sub === 'premarket') return premarket(ctx);
   const cfg = readAlertConfig(ctx.env), now = ctx.now();
   const delivered = await sendNtfy(ctx, cfg, { title: 'gazua 알람 시험', body: '알람 연결을 확인했어요' });
   appendLog(ctx.dir, { kind: 'test', receivedAt: now, sentAt: delivered ? now : null, changes: {}, picks: [], delivered, ...(!delivered ? { note: '보내지 못함' } : {}) });
