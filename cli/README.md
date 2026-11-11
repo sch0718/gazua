@@ -67,7 +67,7 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 | `gazua drive upload <파일> [--keep N]` | 시장 파일을 Drive에 올리고 서버에 등록 | ○ | |
 | `gazua drive status` | Drive 로그인 상태와 올린 시장 파일 목록 | ○ | |
 | `gazua drive logout` | 서버·Google 접근 철회 + 파일 삭제 | ○ | |
-| `gazua alert watch\|test\|stats [--symbols 000660,005930]` | 장중 선물 급변 알람·연결 시험·기록 집계 | 관심 그룹 사용 시 ○ | |
+| `gazua alert premarket\|watch\|test\|stats [--symbols 000660,005930]` | 개장 전 예상·장중 선물 급변 알람·연결 시험·기록 집계 | 관심 그룹 사용 시 ○ | |
 | `gazua owner` | 시장 파일에 넣을 수집 계정 표시(`{ owner }`, 32자 hex) | ○ | |
 | `gazua simulate --strategy <이름\|ID> [--from YYYY-MM-DD --to YYYY-MM-DD]` | 시뮬레이션 요약 | ○ | ○ |
 
@@ -218,6 +218,12 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 
 ## 해외 지표 알람
 
+`gazua alert premarket`은 KST 08:00~08:59에 ES·NQ 일봉으로 관심 종목의 시초가 방향과 등락을 예상해요. 지난 250개 표본으로 두 선물 중 설명력이 높은 하나를 고르며, 유효 표본이 120개보다 적은 종목은 빼요. 진행 중인 선물 봉과 오늘 국내 일봉은 학습에 쓰지 않고, 국내 연휴 동안 쌓인 선물 변화도 반영해요. 유가·미국 금리·달러는 FRED 이력으로 같은 쪽·반대쪽 경향을 구하고 네이버의 오늘 등락을 방향 참고로만 붙여요. 72시간보다 오래된 참고값은 빼고, 금리는 bp로 표시해요.
+
+같은 KST 날짜에 이미 보냈으면 다시 보내지 않아요. 시간 밖 실행은 보내지 않고 `late` 기록을 남겨요. 코스피 상태가 `PREOPEN`·`OPEN` 이외이면 휴장으로 보고 끝내며, 상태 조회가 실패하면 「휴장 여부 확인 못 함」을 붙여 보내요. 일부 자료가 없으면 빠진 지표를 적고, ES·NQ가 모두 없으면 기록만 남겨요. 문구에는 「과거 경향이며 투자 조언이 아님」을 붙여요.
+
+적중 줄은 평가한 실제 발송 기록이 20거래일 이상이면 「기록」으로, 그 전에는 마지막 60거래일을 날짜별로 다시 학습한 「백테스트」로 표시해요. 두 성적은 섞지 않아요. `stats`와 다음 개장 전 실행은 실제 보낸 종목만 `시가/전일 종가 − 1`의 방향과 비교해요. `stats`는 종류별 적중률·평가 거래일 수·표본 수·늘 오름 기준을 내고, 개장 전 기록에는 최근 20거래일 추이(`recent20`)도 포함해요. 백테스트 실데이터 관문(적중률 55% 이상이며 늘 오름 기준 초과)은 별도로 확인해야 해요.
+
 `gazua alert watch`는 KST 09:00~15:30이고 코스피가 개장 중일 때 ES·NQ 선물의 10분 급변을 찾아 ntfy로 보내요. 네이버 자료는 10분 지연이며, 정규장 시간대의 동행 베타로 함께 움직일 종목을 표시해요. 종목명 없는 동기화 문서는 코드로 표시해요. `--symbols 000660,005930`을 주면 로그인 없이 그 코드들을 쓰고, 생략하면 로그인한 프로필의 숨기지 않은 관심 종목을 그룹 순서대로 중복 없이 앞 30개까지 써요. 프로필이 여럿이면 `--profile <ID>`로 골라요. MCP 도구로는 내보내지 않아요.
 
 ```bash
@@ -241,12 +247,13 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 
 ```bash
 gazua alert test --env-file ~/.config/gazua/alert.env
+gazua alert premarket --env-file ~/.config/gazua/alert.env --symbols 000660,005930
 gazua alert watch --env-file ~/.config/gazua/alert.env --symbols 000660,005930
 gazua alert stats --pretty
 ```
 
 `stats`는 실제로 보낸 장중 기록과 지금 받을 수 있는 최근 5거래일 자료를 맞춰 봐요. 발송 시각 뒤 첫 완성 10분 봉의 방향을 써요. `hit`는 방향 적중 비율, `n`은 평가 표본 수, `days`는 평가한 KST 거래일 수, `baseUp`은 늘 오름으로 보았을 때의 적중 비율이에요. 기록이 없으면 모두 0이에요. 기록에 결과를 덧쓰지 않고 실행할 때 계산해요.
 
-에이전트는 `~/Library/LaunchAgents/com.gazua.alert.{watch,premarket}.plist`에 설치돼요. 맥 시간대를 **Asia/Seoul**로 두세요. watch는 월~금 09:10~15:20에 10분마다 실행해요. premarket은 월~금 08:40으로 함께 등록하지만 현재는 `invalid-args`로 끝나며 발송하지 않아요. 로그는 `~/Library/Logs/gazua/alert.log`, 상태와 월별 기록은 `<설정 디렉터리>/alerts/`예요. 제거해도 `alert.env`·기록·로그는 남아요. 저장소를 옮기거나 다시 빌드하면 설치 스크립트를 다시 실행하세요.
+에이전트는 `~/Library/LaunchAgents/com.gazua.alert.{watch,premarket}.plist`에 설치돼요. 맥 시간대를 **Asia/Seoul**로 두세요. watch는 월~금 09:10~15:20에 10분마다, premarket은 월~금 08:40에 실행해요. CLI의 날짜·발송 시간 판정은 실행 환경 시간대와 관계없이 KST를 써요. 로그는 `~/Library/Logs/gazua/alert.log`, 상태와 월별 기록은 `<설정 디렉터리>/alerts/`예요. 제거해도 `alert.env`·기록·로그는 남아요. 저장소를 옮기거나 다시 빌드하면 설치 스크립트를 다시 실행하세요.
 
 설치 없이 plist만 확인하려면 `GAZUA_ALERT_DRY=1 GAZUA_ALERT_DRY_DIR=<임시 디렉터리> ./cli/macos/alert-agent/install.sh`를 써요. 이 모드는 설정 파일·에이전트를 바꾸지 않고 launchctl과 시험 발송을 건너뛰어요.
