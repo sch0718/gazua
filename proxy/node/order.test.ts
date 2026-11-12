@@ -48,6 +48,12 @@ describe('주문 설정', () => {
     expect(cfg.disabledReason).toBeTruthy();
   });
 
+  it.each([{ ORDER_DAILY_MAX_AMONT: '1000' }, { ORDER_STOP_FLIE: '~/stop' }, { ORDER_STOP_FILE: 'gazua.stop' }, { ORDER_AUDIT_LOG: 'logs/orders.jsonl' }])('키 오타나 상대 경로 %j는 전체를 끈다', (extra) => {
+    const cfg = readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ...extra }, '/fake-home');
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.disabledReason).toBeTruthy();
+  });
+
   it.each(['ORDER_DAILY_MAX_AMOUNT', 'ORDER_MAX_PER_MINUTE', 'ORDER_MAX_PER_DAY'])('선택 값 %s도 잘못되면 전체를 끈다', (name) => {
     expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', [name]: 'wrong' }).enabled).toBe(false);
   });
@@ -84,6 +90,8 @@ describe('주문 처리기', () => {
     const f = await fixture({ enabled: false });
     expect(await code(await f.handler(request()))).toBe('order-disabled');
     expect(f.fetchImpl).not.toHaveBeenCalled();
+    // 꺼져 있으면 감사 로그 파일도 만들지 않는다.
+    await expect(stat(f.cfg.auditLog)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it.each(['BUY', 'SELL'])('%s 금액이 한도와 같으면 거절하고 한도 미만만 보낸다', async (side) => {
@@ -166,11 +174,13 @@ describe('주문 처리기', () => {
     expect((await f.handler(request())).status).toBe(200);
   });
 
-  it.each([307, 308, 422])('상류 %s도 한 번만 보내고 보낸 카운터를 유지한다', async (status) => {
+  it.each([[307, 'upstream-unreachable'], [308, 'upstream-unreachable'], [422, 'order-upstream'], [500, 'upstream-unreachable'], [503, 'upstream-unreachable'], [201, 'upstream-unreachable']] as const)('상류 %s는 %s로, 한 번만 보내고 보낸 카운터를 유지한다', async (status, expected) => {
     const f = await fixture();
     f.fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'price-out-of-range', message: '호가가 맞지 않아요' } }), { status, headers: { location: 'https://other.example' } }));
     const res = await f.handler(request());
-    expect(await code(res)).toBe('order-upstream');
+    // 4xx만 토스 거절이고 나머지는 주문이 들어갔을 수 있는 결과 불명(502)이다.
+    expect(res.status).toBe(expected === 'order-upstream' ? status : 502);
+    expect(await code(res)).toBe(expected);
     expect(f.fetchImpl).toHaveBeenCalledTimes(1);
     expect((await (await f.handler(new Request('https://proxy.example/order/status'))).json()).usedToday).toEqual({ count: 1, amount: 99 });
   });

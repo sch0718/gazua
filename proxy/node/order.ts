@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, open, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { UPSTREAM } from '../src/allowlist.js';
 
 export interface OrderConfig {
@@ -30,6 +30,7 @@ interface Order {
   amount: number;
 }
 
+const ORDER_KEYS = ['ORDER_ENABLED', 'ORDER_MAX_AMOUNT', 'ORDER_DAILY_MAX_AMOUNT', 'ORDER_MAX_PER_MINUTE', 'ORDER_MAX_PER_DAY', 'ORDER_STOP_FILE', 'ORDER_AUDIT_LOG'];
 const positive = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
 const timestamp = (now: number) => new Date(now + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
 const dayOf = (now: number) => timestamp(now).slice(0, 10);
@@ -50,11 +51,22 @@ export function readOrderConfig(env: Record<string, string | undefined>, home = 
   const dailyMaxAmount = env.ORDER_DAILY_MAX_AMOUNT === undefined || env.ORDER_DAILY_MAX_AMOUNT === '' ? undefined : integer('ORDER_DAILY_MAX_AMOUNT');
   const maxPerMinute = integer('ORDER_MAX_PER_MINUTE', 3);
   const maxPerDay = integer('ORDER_MAX_PER_DAY', 20);
-  const expand = (path: string) => path === '~' ? home : path.startsWith('~/') ? join(home, path.slice(2)) : path;
+  // 키 이름 오타는 그 설정이 조용히 빠지는 것이므로 주문을 끈다.
+  const unknownKey = Object.keys(env).find((key) => key.startsWith('ORDER_') && !ORDER_KEYS.includes(key));
+  if (unknownKey) reason = `알 수 없는 설정 ${unknownKey}가 있어요(오타인지 확인해 주세요)`;
+  const expand = (name: string, fallback: string) => {
+    const path = env[name] || fallback;
+    if (path === '~') return home;
+    if (path.startsWith('~/')) return join(home, path.slice(2));
+    // launchd의 작업 폴더는 /라서 상대 경로는 엉뚱한 곳을 본다.
+    if (!isAbsolute(path)) reason = `${name}는 절대 경로나 ~/로 시작해야 해요`;
+    return path;
+  };
+  const stopFile = expand('ORDER_STOP_FILE', '~/gazua-order.stop');
+  const auditLog = expand('ORDER_AUDIT_LOG', '~/Library/Logs/gazua-orders.jsonl');
   return {
     enabled: reason === undefined, maxAmount, dailyMaxAmount, maxPerMinute, maxPerDay,
-    stopFile: expand(env.ORDER_STOP_FILE || '~/gazua-order.stop'),
-    auditLog: expand(env.ORDER_AUDIT_LOG || '~/Library/Logs/gazua-orders.jsonl'),
+    stopFile, auditLog,
     ...(reason !== undefined && { disabledReason: reason }),
   };
 }
@@ -107,6 +119,8 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
   };
 
   const ready = (async () => {
+    // 설정으로 꺼져 있으면 감사 로그 파일도 건드리지 않는다.
+    if (!cfg.enabled) return;
     try {
       await mkdir(dirname(cfg.auditLog), { recursive: true });
       const file = await open(cfg.auditLog, 'a', 0o600);
@@ -183,9 +197,12 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       const tossCode = typeof error?.code === 'string' ? error.code : undefined;
       const message = typeof error?.message === 'string' ? error.message : undefined;
       await bestEffort({ event: 'result', clientOrderId, status: upstream.status, ...(tossCode && { tossCode }) });
-      // 3xx는 Location을 따라가지 않고 실패로 돌려준다. 깨진 성공 본문도 성공으로 보지 않는다.
-      const status = upstream.status === 200 || upstream.status === 0 ? 502 : upstream.status;
-      return json(status, { error: { code: 'order-upstream', status: upstream.status, tossCode, message, data: { clientOrderId } } });
+      // 4xx만 「토스가 거절함」이다. 2xx·3xx·5xx는 주문이 들어갔을 수 있으므로 502(결과 불명)로 돌려준다.
+      // 3xx는 Location을 따라가지 않는다.
+      if (upstream.status >= 400 && upstream.status < 500) {
+        return json(upstream.status, { error: { code: 'order-upstream', status: upstream.status, tossCode, message, data: { clientOrderId } } });
+      }
+      return json(502, { error: { code: 'upstream-unreachable', status: upstream.status, tossCode, data: { clientOrderId } } });
     } catch {
       const status = signal.aborted ? 504 : 502;
       await bestEffort({ event: 'result', clientOrderId, status });

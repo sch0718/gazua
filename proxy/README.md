@@ -38,11 +38,11 @@ ORDER_STOP_FILE=~/gazua-order.stop
 ORDER_AUDIT_LOG=~/Library/Logs/gazua-orders.jsonl
 ```
 
-`~`는 홈으로 바꿔요. 설정 변경은 사용자가 `proxy/macos/install.sh`로 빌드·재시작해야 적용돼요. 중지 파일은 재시작 없이 만들거나 지워요. 멈추는 순서는 중지 파일 만들기(`touch ~/gazua-order.stop`) → 토스 앱에서 미체결 주문 확인·필요하면 취소 → 필요하면 `ORDER_ENABLED`를 끄고 재시작이에요. 중지 파일을 지우면 다시 주문을 받아요.
+`~`는 홈으로 바꿔요. 경로는 절대 경로나 `~/`로 시작해야 해요(launchd의 작업 폴더가 `/`라서 상대 경로는 막아요). 위 목록에 없는 `ORDER_` 설정(키 오타)이 있어도 주문이 꺼져요. 주문은 맥 Node 판에서만 써요. Docker 판은 `ORDER_*`를 넘기지 않아 꺼져 있고, 켜면 감사 로그가 컨테이너와 함께 사라지므로 쓰지 않아요. 설정 변경은 사용자가 `proxy/macos/install.sh`로 빌드·재시작해야 적용돼요. 중지 파일은 재시작 없이 만들거나 지워요. 멈추는 순서는 중지 파일 만들기(`touch ~/gazua-order.stop`) → 토스 앱에서 미체결 주문 확인·필요하면 취소 → 필요하면 `ORDER_ENABLED`를 끄고 재시작이에요. 중지 파일을 지우면 다시 주문을 받아요.
 
 감사 로그는 기본 `~/Library/Logs/gazua-orders.jsonl`이고 권한은 600이에요. 거절(`reject`)·보내기(`send`)·결과(`result`)를 한 줄 JSON으로 남겨요. 토큰·계좌 번호·요청 원문은 쓰지 않아요. `send`를 쓰지 못하면 `503 order-audit-failed`로 거절하고 토스에 보내지 않아요. 시작 때 로그를 만들거나 열고 오늘 합계와 최근 60초 기록을 복원한 뒤 주문을 받아요. 그 전에는 `order-disabled`예요. 깨진 로그나 복원 실패가 있으면 주문을 끄고 시작 로그에 이유·깨진 줄 번호를 남겨요. 해당 줄을 확인·정리한 뒤 재시작하고, **감사 로그는 지우지 않아요**.
 
-토스에는 고정 HTTPS 주소로 한 번만 보내며 리다이렉트를 따라가지 않아요. 연결 끊김·시간 초과는 `502 upstream-unreachable`·`504 upstream-timeout`과 `clientOrderId`를 돌려줘요. 주문이 들어갔을 수 있으므로 토스 앱에서 확인하기 전에는 다시 보내지 마세요. CLI가 ID를 못 받았다면 감사 로그의 `send`에서 시각·종목으로 찾아요.
+토스에는 고정 HTTPS 주소로 한 번만 보내며 리다이렉트를 따라가지 않아요. 토스의 4xx만 `order-upstream`(토스가 거절함)으로 돌려줘요. 토스의 5xx·200 아닌 2xx·3xx와 연결 끊김은 `502 upstream-unreachable`, 시간 초과는 `504 upstream-timeout`이고 모두 `clientOrderId`를 붙여요. 주문이 들어갔을 수 있으므로 토스 앱에서 확인하기 전에는 다시 보내지 마세요. CLI가 ID를 못 받았다면 감사 로그의 `send`에서 시각·종목으로 찾아요.
 
 ## 맥의 시장 데이터 조회
 

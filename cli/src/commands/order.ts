@@ -83,7 +83,8 @@ export const order: Command = async (ctx) => {
   const limits = limitsOf(await proxyCall(ctx, `${server}/order/status`, { headers }));
   const amount = input.quantity * input.price;
   if (!ctx.args.yes) return { sent: false, order: { ...input, amount }, limits,
-    hint: '보내려면 --yes를 붙여요' + (amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요' : '') };
+    hint: '보내려면 --yes를 붙여요' + (!limits.enabled ? '. 맥 프록시에서 주문이 꺼져 있어 거절돼요'
+      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요' : '') };
   if (ctx.args.provider !== undefined && ctx.args.provider !== 'toss') throw new CliError('provider-unsupported');
   const account = buildProvider(ctx, 'toss', readCreds(ctx.env)).provider.account;
   if (!account?.orderHeaders) throw new CliError('provider-unsupported');

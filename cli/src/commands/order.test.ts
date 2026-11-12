@@ -62,6 +62,15 @@ describe('gazua order', () => {
     expect(posts(f)).toHaveLength(0);
   });
 
+  it('주문이 꺼져 있으면 한도 대신 꺼짐을 알린다', async () => {
+    const f = fixture((c) => c.url.pathname === '/order/status' ? { body: { ...LIMITS, enabled: false, maxAmount: 0 } } : undefined);
+    const t = makeIo({ fetch: f, env: ENV });
+    await run(ARGS, t.io);
+    expect(t.result().data.hint).toContain('주문이 꺼져 있어');
+    expect(t.result().data.hint).not.toContain('한도 이상');
+    expect(posts(f)).toHaveLength(0);
+  });
+
   it('요약 금액이 한도 이상이면 프록시 거절을 알린다', async () => {
     const f = fixture();
     const t = makeIo({ fetch: f, env: ENV });
