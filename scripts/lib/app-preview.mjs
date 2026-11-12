@@ -24,7 +24,7 @@ export async function startPreview({ port }) {
   const url = `http://127.0.0.1:${port}/`;
   const vite = fileURLToPath(new URL('./bin/vite.js', import.meta.resolve('vite/package.json')));
   const child = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
-    cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NO_COLOR: '1' },
   });
   let output = '';
   let error;
@@ -32,7 +32,7 @@ export async function startPreview({ port }) {
   const closed = new Promise((resolve) => child.once('close', () => { ended = true; resolve(); }));
   child.on('error', (e) => { error = e; });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', (data) => { output = (output + data).slice(-8000); });
-  // 부모가 신호로 종료되어도 이 스크립트가 띄운 서버만 정리해요.
+  // 정상 종료 경로의 보조 정리예요. 평소에는 호출한 쪽의 finally에서 stop()으로 닫아요.
   const onExit = () => child.kill('SIGTERM');
   process.once('exit', onExit);
   let stopping;

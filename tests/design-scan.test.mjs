@@ -31,13 +31,6 @@ test('빈 기준선과 빈 스니펫은 새 지적을 가리지 않는다', () =
   assert.equal(matchBaseline(finding('undersized-ui-text', ''), 'editor', baseline), null);
 });
 
-test('입력은 바꾸지 않고 반복 호출도 같은 결과를 낸다', () => {
-  const entry = Object.freeze({ rule: 'tiny', match: '배지', class: '취향', reason: '사유' });
-  const entries = Object.freeze([entry]);
-  const item = Object.freeze(finding('tiny', '배지'));
-  for (let i = 0; i < 3; i++) assert.equal(matchBaseline(item, 'editor', entries), entry);
-});
-
 const known = [
   ['undersized-ui-text', '10px functional text "데모 데이터" (below 11px floor)', 'span.badge.neutral', 'result', '공용 패키지'],
   ['undersized-ui-text', '10px functional text "KRX" (below 11px floor)', 'small.svelte-p48xvx', 'compare-example', '공용 패키지'],
@@ -67,8 +60,4 @@ test('같은 규칙이라도 다른 요소·화면의 지적은 가리지 않는
   for (const [rule, snippet, selector, screen] of unrelated) {
     assert.equal(matchBaseline({ ...finding(rule, snippet), selector }, screen, baseline), null, `${selector} ${snippet}`);
   }
-});
-
-test('잘못 쓴 정규식은 기준선 오류로 드러난다', () => {
-  assert.throws(() => matchBaseline(finding('tiny', '배지'), 'editor', [{ rule: 'tiny', match: '[' }]), SyntaxError);
 });

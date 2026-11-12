@@ -71,7 +71,7 @@ async function main() {
   const app = await import('./lib/app-preview.mjs');
   const baseline = JSON.parse(await readFile(new URL('./design-scan-baseline.json', import.meta.url), 'utf8'));
   // 잘못된 기준선은 화면을 열기 전에 드러내요.
-  for (const entry of baseline) new RegExp(entry.match);
+  for (const entry of baseline) { new RegExp(entry.match); if (entry.selector) new RegExp(entry.selector); }
   const report = { screens: [], errors: [], exitCode: 0 };
   const steps = [
     ['onboarding', '온보딩', (page, url) => app.openApp(page, url)],

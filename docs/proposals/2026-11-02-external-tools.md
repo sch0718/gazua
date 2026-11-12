@@ -94,7 +94,7 @@
 
 - 렌더 스캔: `pnpm lint:design:render`(`scripts/design-scan.mjs`). 빌드한 뒤 `vite preview`(포트 4181)와 headless Chromium(CDP 9341)을 띄우고, 위 시범 순서대로 화면 11개 × 폰 375·데스크톱 1440에서 `impeccable detect --json --cdp`를 돌려요. 포트는 `DESIGN_SCAN_PORT`·`DESIGN_SCAN_CDP_PORT`로 바꿔요.
   - 지적을 `scripts/design-scan-baseline.json`(규칙·스니펫·선택자·화면과 분류·사유)과 맞춰 「기준선」·「새 지적」으로 나눠 보여요. 보고서는 `test-results/design-scan/report.json`이에요.
-  - 종료 코드: 건너뛴 화면이 있으면 2, 새 지적이 있으면 1, 없으면 0. CI에는 넣지 않았어요.
+  - 종료 코드: 건너뛴 화면이나 검사·실행 실패가 있으면 2, 새 지적이 있으면 1, 없으면 0. CI에는 넣지 않았어요.
   - 새 지적은 실제 문제면 고치고, 오탐·취향이면 사유와 함께 기준선 파일에 더해요.
 - HTML 엔진: 저장소 루트에 `.impeccable/config.local.json`을 `{"detector":{"extensions":[{"ext":".svelte","engine":"html"}]}}`로 잠깐 만들고 `pnpm lint:design`을 돌린 뒤 지워요.
 

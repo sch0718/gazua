@@ -32,7 +32,7 @@
   {
     "rule": "first-viewport-column-overflow",
     "match": "^div\\.sim\\.svelte-[a-z0-9]+\\.split opens the page",
-    "screens": ["editor", "editor-open", "result"],
+    "screens": ["editor", "editor-open"],
     "class": "오탐",
     "reason": "시범 8번: 데스크톱 시뮬레이션은 편집기와 결과를 나란히 두고, 실행 전 결과 칸은 짧은 게 맞아요."
   },

@@ -31,7 +31,7 @@
 ### D2. 렌더 스캔 기준선 `scripts/design-scan-baseline.json`
 
 - 렌더 지적은 소스 줄이 없어 줄 단위 무시 주석을 쓸 수 없어요. 그래서 시범 분류표(4~9번)를 기계가 읽는 표로 옮겨요.
-- 항목: `{ "rule": "<규칙 ID>", "match": "<스니펫 정규식>", "screens": ["<화면 ID>", …] (선택), "class": "오탐|취향|공용 패키지|보류", "reason": "<사유>" }`. 규칙이 같고 스니펫이 맞으면(화면을 적었으면 화면도 맞으면) 기준선으로 봐요.
+- 항목: `{ "rule": "<규칙 ID>", "match": "<스니펫 정규식>", "selector": "<선택자 정규식>" (선택), "screens": ["<화면 ID>", …] (선택), "class": "오탐|취향|공용 패키지|보류", "reason": "<사유>" }`. 규칙이 같고 스니펫이 맞으면(화면을 적었으면 화면도 맞으면) 기준선으로 봐요.
 - 새로 나온 지적은 분류해서: 실제 문제면 고치고, 오탐·취향이면 이 파일에 사유와 함께 더하고, 금지 파일에 걸린 실제 문제는 `class: "보류"`로 넣고 인계 메모에 적어요.
 - 정적 검사(`pnpm lint:design`)의 기준선은 지금처럼 줄 끝 인라인 주석이에요.
 
@@ -46,7 +46,7 @@
 - 흐름: D1과 같은 방식으로 `vite preview`(포트 4182, `DEMO_VIDEO_PORT`)를 띄우고, 폰 375×812 한 뷰포트에서 온보딩 → `데모로 둘러보기` → `예시 그룹 불러오기` → 시뮬레이션 → `＋ 새 전략` → `하락 후 반등` → `시뮬레이션 실행` → 결과 → 재생 막대 `재생` 몇 초 → `일시정지`. 동작 사이에 사람이 보기 좋게 쉬어요(약 1초). 시계 고정은 `setFixedTime`이라 재생 타이머는 돌아요.
 - 결과: `test-results/demo-video/gazua-demo.webm`. `ffmpeg`가 PATH에 있으면 `gazua-demo.mp4`(H.264, `yuv420p`, `+faststart`)도 만들어요. 없으면 webm만 두고 알려요. 결과물은 커밋하지 않아요(`test-results/`는 git 무시).
 - 스크립트 항목: `"demo:video": "pnpm build && node scripts/demo-video.mjs"`.
-- `scripts/build-motion.mjs`·`motion/`은 SVG·HTML 모션이라 실제 앱 녹화와 겹치지 않아요. 두 스크립트가 같이 쓰는 「preview 띄우기·컨텍스트 만들기」는 `scripts/lib/app-preview.mjs` 하나로 둬요(쓰는 곳 두 곳이지만 같은 PR에서 같이 생기고 30줄 남짓이라 복사보다 나아요).
+- `scripts/build-motion.mjs`·`motion/`은 SVG·HTML 모션이라 실제 앱 녹화와 겹치지 않아요. 두 스크립트가 같이 쓰는 「preview 띄우기·컨텍스트 만들기」는 `scripts/lib/app-preview.mjs` 하나로 둬요(쓰는 곳 두 곳이지만 같은 PR에서 같이 생기고 화면 이동 함수까지 겹쳐서 복사보다 나아요).
 
 ### D5. hyperframes는 들이지 않음 (2026-11-12 확인)
 
