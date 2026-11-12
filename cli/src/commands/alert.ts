@@ -6,7 +6,7 @@ import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples
 import { appendLog, readLogs, readState, writeState, type LogLine } from '../alert/state';
 import type { Command, Ctx } from '../context';
 import { CliError } from '../errors';
-import { NAVER, naverGet, parseDayBars, parseDomesticWeek, parseFuturesWeek, parseIndexQuote, parseMarketStatus, type Bar10, type DayBar, type IndexQuote } from '../naverMarket';
+import { NAVER, naverGet, parseDayBars, parseDomesticWeek, parseFuturesWeek, parseIndexQuote, parseMarketStatus, type Bar10, type DayBar, type IndexQuote, parseStockName } from '../naverMarket';
 import { pickProfile } from '../profileData';
 import { authedClient } from '../session';
 
@@ -26,14 +26,20 @@ export async function sendNtfy(ctx: Ctx, cfg: AlertConfig, msg: { title: string;
 }
 
 export async function targetSymbols(ctx: Ctx): Promise<{ code: string; name: string }[]> {
-  if (ctx.args.symbols) return [...new Set(ctx.args.symbols)].map((code) => ({ code, name: code }));
+  if (ctx.args.symbols) return withNames(ctx, [...new Set(ctx.args.symbols)]);
   const profile = await pickProfile(authedClient(ctx), ctx.args.profile, ctx.now());
   const codes = new Set<string>();
   for (const group of profile.watchlists.groups) {
     for (const item of group.items) if (!item.hidden) codes.add(item.symbol);
   }
-  // 동기화 문서에는 종목명이 없어 코드로 표시한다.
-  return [...codes].slice(0, 30).map((code) => ({ code, name: code }));
+  return withNames(ctx, [...codes].slice(0, 30));
+}
+
+/** 동기화 문서에는 종목명이 없어 네이버에서 찾는다. 못 찾으면 코드로 표시한다. */
+async function withNames(ctx: Ctx, codes: string[]): Promise<{ code: string; name: string }[]> {
+  const out: { code: string; name: string }[] = [];
+  for (const code of codes) out.push({ code, name: parseStockName(await get(ctx, NAVER.stockBasic(code))) ?? code });
+  return out;
 }
 
 /** 네이버 오류 원문에는 URL이 들어갈 수 있어 해당 자료만 제외한다. */

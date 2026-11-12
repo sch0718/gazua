@@ -96,15 +96,19 @@ describe('매크로 방향과 알림 문구', () => {
     expect(macroSide(stock, { d, v: stock.map((_, i) => stock[Math.min(i + 1, stock.length - 1)].close) }, 'oil')).toBe('same');
     expect(macroSide(stock, { d: d.slice(-2), v: [100, 101] }, 'oil')).toBeNull();
   });
-  it('백테스트·휴장 불명·빠진 지표·면책 문구와 금리 bp를 표시한다', () => {
+  it('쉬운 말로 종목 이름·방향·적중률·면책 문구를 보여 준다', () => {
     const msg = formatPremarket({ esPct: 0.008, nqPct: null, session: '11/10 미국 세션', up: [{ name: '가', pct: 0.012, sym: 'ES' }], down: [], macro: [{ kind: 'rate', quote: { changeAbs: 0.138, changePct: 2.84, tradedAt: 1 }, same: ['나'], opposite: ['다'] }], record: { hit: 0.6, baseUp: 0.5, n: 100, days: 60, source: '백테스트' }, missing: ['NQ'], statusUnknown: true });
+    expect(msg.title).toBe('아침 예상 · 밤사이 미국 선물 올랐어요 (S&P +0.8%)');
     const text = msg.title + msg.body;
-    expect(text).toContain('과거 경향이며 투자 조언이 아님');
-    expect(text).not.toMatch(/매수|매도/);
-    expect(text).toContain('백테스트');
-    expect(text).toContain('휴장 여부 확인 못 함');
-    expect(text).toContain('빠진 지표: NQ');
-    expect(text).toContain('+14bp');
-    expect(text).toContain('+1.2%(ES)');
+    expect(text).toContain('투자 조언이 아니에요');
+    expect(text).not.toMatch(/매수|매도|bp|\(ES\)|▲/);
+    expect(msg.body).toContain('오를 것 같은 종목\n· 가 +1.2%');
+    expect(msg.body).toContain('미국 금리 올랐어요(+0.14%p) → 보통 오르는 편: 나 / 내리는 편: 다');
+    expect(msg.body).toContain('지난 자료로 시험해 보니 최근 60일 방향 적중 60% (「매일 오른다」로 찍으면 50%)');
+    expect(msg.body).toContain('오늘 장이 열리는지 확인하지 못했어요');
+    expect(msg.body).toContain('못 가져온 자료: 나스닥 선물');
+    const mixed = formatPremarket({ esPct: 0.01, nqPct: -0.01, session: '', up: [], down: [], macro: [], record: { hit: 0, baseUp: 0, n: 0, days: 0, source: '기록' }, missing: [], statusUnknown: false });
+    expect(mixed.title).toContain('엇갈렸어요');
+    expect(mixed.body).toContain('예상할 수 있는 종목이 없어요');
   });
 });

@@ -70,17 +70,20 @@ const clock = (ms: number) => {
 const signed = (n: number, digits = 1) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(digits)}`;
 export function formatSpike(spike: Spike, movers: { up: Mover[]; down: Mover[] }, ref: { oil?: IndexQuote; rate?: IndexQuote; dollar?: IndexQuote }, missing: string[]): { title: string; body: string } {
   const lines: string[] = [];
-  const list = (items: Mover[], arrow: string) => items.map((m) => `${m.name} ${signed(Math.expm1(m.expected) * 100)}%`).join(` ${arrow} `);
-  if (spike.change < 0 || movers.down.length) lines.push(`함께 눌릴 종목 ▼ ${list(movers.down, '▼') || '없음'}`);
-  if (spike.change >= 0 || movers.up.length) lines.push(`함께 오를 종목 ▲ ${list(movers.up, '▲') || '없음'}`);
+  const list = (items: Mover[]) => items.map((m) => `· ${m.name} ${signed(Math.expm1(m.expected) * 100)}%`);
+  const block = (title: string, items: Mover[]) => lines.push(title, ...(items.length ? list(items) : ['· 없음']));
+  if (spike.change < 0 || movers.down.length) block('같이 내릴 것 같은 종목', movers.down);
+  if (spike.change >= 0 || movers.up.length) block('같이 오를 것 같은 종목', movers.up);
   const refs: string[] = [];
   if (ref.oil?.changePct != null) refs.push(`유가 ${signed(ref.oil.changePct)}%`);
   if (ref.dollar?.changePct != null) refs.push(`달러 ${signed(ref.dollar.changePct)}%`);
-  if (ref.rate?.changeAbs != null) refs.push(`금리 ${signed(ref.rate.changeAbs * 100, 0)}bp`);
-  if (refs.length) lines.push(`참고(전일 대비) ${refs.join(' ')}`);
-  if (missing.length) lines.push(`빠진 지표: ${missing.join(', ')}`);
+  if (ref.rate?.changeAbs != null) refs.push(`미국 금리 ${signed(ref.rate.changeAbs, 2)}%p`);
+  if (refs.length) lines.push('', `참고(어제보다): ${refs.join(', ')}`);
+  if (missing.length) lines.push(`못 가져온 자료: ${missing.map((m) => ({ ES: 'S&P 선물', NQ: '나스닥 선물' } as Record<string, string>)[m] ?? m).join(', ')}`);
+  lines.push(`${clock(spike.end - STEP_MS)}~${clock(spike.end)} 움직임이에요(자료가 10분 늦게 들어와요)`);
+  const label = spike.sym === 'ES' ? 'S&P' : '나스닥';
   return {
-    title: `장중 ${clock(spike.end + STEP_MS)} · ${spike.sym} ${signed(Math.expm1(spike.change) * 100)}%(${clock(spike.end - STEP_MS)}~${clock(spike.end)} 봉, 데이터 10분 지연) 급변`,
+    title: `장중 알림 · ${label} 선물 10분 새 ${signed(Math.expm1(spike.change) * 100)}% ${spike.change < 0 ? '급락' : '급등'}`,
     body: lines.join('\n'),
   };
 }

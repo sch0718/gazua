@@ -43,7 +43,7 @@ describe('gazua alert', () => {
     const { t, sends } = setup();
     expect(await run(['alert', 'watch', '--symbols', '000660'], t.io)).toBe(0);
     expect(sends()).toHaveLength(1);
-    expect(sends()[0]).toMatchObject({ method: 'POST', body: { topic: ENV.GAZUA_ALERT_NTFY_TOPIC, title: expect.stringContaining('ES') } });
+    expect(sends()[0]).toMatchObject({ method: 'POST', body: { topic: ENV.GAZUA_ALERT_NTFY_TOPIC, title: expect.stringContaining('S&P 선물') } });
     expect(sends()[0].headers.get('title')).toBeNull();
     expect(readLogs(t.dir)).toMatchObject([{ kind: 'watch', delivered: true, barEnd: kstEpoch('2026-11-11', '10:30:00') }]);
     const again = setup({ dir: t.dir });
@@ -88,7 +88,7 @@ describe('gazua alert', () => {
     } });
     expect(await run(['alert', 'watch', '--symbols', '005930,000660'], t.io)).toBe(0);
     expect(sends()).toHaveLength(1);
-    expect((sends()[0].body as { message: string }).message).toContain('빠진 지표:');
+    expect((sends()[0].body as { message: string }).message).toContain('못 가져온 자료:');
   });
   it.each([500, new TypeError(`https://ntfy.sh/${ENV.GAZUA_ALERT_NTFY_TOPIC}`)])('ntfy 실패를 기록하고 URL·토픽을 출력하지 않는다: %s', async (failure) => {
     const { t, sends } = setup({ ntfy: typeof failure === 'number' ? { status: failure } : failure });
@@ -180,8 +180,8 @@ describe('gazua alert premarket', () => {
     expect(data).toMatchObject({ sent: true, backtest: { days: 60 }, picks: [expect.objectContaining({ code: '000660', sym: expect.stringMatching(/ES|NQ/) })] });
     expect(readState(t.dir, 'premarket', null)).toMatchObject({ sentDate: '2026-11-11' });
     expect(readLogs(t.dir)).toMatchObject([{ kind: 'premarket', delivered: true, sentAt: expect.any(Number), barStart: expect.any(Number), barEnd: expect.any(Number) }]);
-    expect((sends()[0].body as { message: string }).message).toContain('백테스트');
-    expect((sends()[0].body as { message: string }).message).toContain('과거 경향이며 투자 조언이 아님');
+    expect((sends()[0].body as { message: string }).message).toContain('지난 자료로 시험해 보니');
+    expect((sends()[0].body as { message: string }).message).toContain('투자 조언이 아니에요');
     expect((sends()[0].body as { message: string }).message).not.toMatch(/매수|매도/);
     for (const c of f.calls.filter((c) => c.url.hostname === 'api.stock.naver.com' || c.url.hostname === 'polling.finance.naver.com')) expect(c.headers.get('user-agent')).toBeTruthy();
     const day = f.calls.find((c) => c.url.pathname.includes('EScv1/day'))!;
@@ -219,29 +219,29 @@ describe('gazua alert premarket', () => {
     const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.endsWith('/KOSPI') ? { status: 503 } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     expect(sends()).toHaveLength(1);
-    expect((sends()[0].body as { message: string }).message).toContain('휴장 여부 확인 못 함');
+    expect((sends()[0].body as { message: string }).message).toContain('오늘 장이 열리는지 확인하지 못했어요');
   });
   it('FRED 실패 때 매크로 줄을 빼고 빠진 지표를 적는다', async () => {
     const { t, sends } = setupPremarket({ route: (c) => c.url.hostname === 'fred.stlouisfed.org' ? { status: 503 } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     const msg = (sends()[0].body as { message: string }).message;
-    expect(msg).toContain('빠진 지표: 유가, 금리, 달러');
-    expect(msg).not.toMatch(/같은 쪽|반대쪽/);
+    expect(msg).toContain('못 가져온 자료: 유가, 금리, 달러');
+    expect(msg).not.toMatch(/오르는 편|내리는 편/);
   });
   it('72시간 지난 참고값을 빼고 금리는 fluctuations를 bp로 표시한다', async () => {
     const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.includes('/marketindex/energy/') ? { body: { ...fixture('oil'), localTradedAt: '2026-11-08T08:00:00+09:00' } } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     const msg = (sends()[0].body as { message: string }).message;
-    expect(msg).toContain('금리 +14bp');
-    expect(msg).toContain('빠진 지표: 유가');
-    expect(msg).not.toContain('유가 +');
+    expect(msg).toContain('미국 금리 올랐어요(+0.14%p)');
+    expect(msg).toContain('못 가져온 자료: 유가');
+    expect(msg).not.toContain('유가 올랐어요');
   });
   it('선물 일부·종목 일부 실패에도 남은 종목을 쓰고, 선물이 모두 없으면 기록만 쓴다', async () => {
     const partial = setupPremarket({ route: (c) => c.url.pathname.includes('NQcv1/day') || c.url.pathname.includes('/item/005930/') ? { status: 503 } : undefined });
     await run(['alert', 'premarket', '--symbols', '005930,000660'], partial.t.io);
     expect(partial.sends()).toHaveLength(1);
     expect(partial.t.result().data.picks[0].sym).toBe('ES');
-    expect((partial.sends()[0].body as { message: string }).message).toContain('빠진 지표: NQ, 005930');
+    expect((partial.sends()[0].body as { message: string }).message).toContain('못 가져온 자료: 나스닥 선물, 005930');
     const none = setupPremarket({ route: (c) => c.url.pathname.includes('/futures/') ? { status: 503 } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], none.t.io);
     expect(none.sends()).toHaveLength(0);
@@ -287,8 +287,8 @@ describe('gazua alert premarket', () => {
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     expect(t.result().data.record).toMatchObject({ ...record, source: '기록' });
     const msg = (sends()[0].body as { message: string }).message;
-    expect(msg).toContain('기록 방향 적중 100%');
-    expect(msg).not.toContain('백테스트');
+    expect(msg).toMatch(/실제 알림 최근 \d+일 방향 적중 100%/);
+    expect(msg).not.toContain('지난 자료로 시험해 보니');
   });
   it('19거래일 기록은 백테스트를, 20거래일부터 기록을 쓰며 오늘 개장 전 기록은 평가하지 않는다', async () => {
     const stock = parseDayBars(fixture('item-day')).filter((s) => s.date < '2026-11-11');
@@ -331,10 +331,11 @@ describe('gazua alert premarket', () => {
 });
 
 describe('대상 종목', () => {
-  it('명시한 코드라면 로그인 없이 중복을 뺀다', async () => {
-    const t = makeIo();
+  it('명시한 코드라면 로그인 없이 중복을 빼고, 네이버 종목명을 못 찾으면 코드로 둔다', async () => {
+    const f = fakeFetch((c) => c.url.pathname === '/api/stock/000660/basic' ? { body: { stockName: 'SK하이닉스' } } : { status: 404, body: {} });
+    const t = makeIo({ fetch: f });
     const r = await execute(targetSymbols, parseArgv(['alert', '--symbols', '000660,005930,000660']), t.io, createRedactor());
-    expect(r).toMatchObject({ ok: true, data: [{ code: '000660', name: '000660' }, { code: '005930', name: '005930' }] });
+    expect(r).toMatchObject({ ok: true, data: [{ code: '000660', name: 'SK하이닉스' }, { code: '005930', name: '005930' }] });
   });
   it('숨김·중복을 빼고 그룹 순서대로 30개까지 읽는다', async () => {
     const doc = profileDoc(2) as any;

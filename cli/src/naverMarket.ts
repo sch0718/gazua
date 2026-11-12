@@ -100,4 +100,9 @@ export const NAVER = {
   itemDay: (code: string, from: string, to: string): string => `${BASE}/chart/domestic/item/${encodeURIComponent(code)}/day?${dayQuery(from, to)}`,
   marketIndex: (kind: 'oil' | 'rate' | 'dollar'): string => `${BASE}/marketindex/${({ oil: 'energy/CLcv1', rate: 'bond/US10YT=RR', dollar: 'exchange/.DXY' })[kind]}`,
   kospiStatus: 'https://polling.finance.naver.com/api/realtime/domestic/index/KOSPI',
+  stockBasic: (code: string): string => `https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/basic`,
 };
+
+export function parseStockName(json: unknown): string | null {
+  return row(json) && typeof json.stockName === 'string' && json.stockName.trim() ? json.stockName.trim() : null;
+}

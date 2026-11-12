@@ -74,8 +74,8 @@ describe('장중 급변', () => {
     const s = { sym: 'ES' as const, end: at('2026-11-11', '10:30'), change: -0.005, sigma: 0.001 };
     const msg = formatSpike(s, { up: [], down: [{ code: '000660', name: 'SK하이닉스', expected: -0.009 }] }, { rate: { changeAbs: 0.02, changePct: 0.5, tradedAt: s.end } }, ['달러']);
     const text = msg.title + msg.body;
-    for (const word of ['데이터 10분 지연', '10:20~10:30', '함께 눌릴 종목 ▼', '빠진 지표: 달러', '+2bp']) expect(text).toContain(word);
+    for (const word of ['10분 늦게', '10:20~10:30', '같이 내릴 것 같은 종목\n· SK하이닉스 −0.9%', '못 가져온 자료: 달러', '미국 금리 +0.02%p', '급락']) expect(text).toContain(word);
     expect(text).not.toMatch(/투자|매수|매도/);
-    expect(formatSpike({ ...s, change: 0.005 }, { up: [], down: [] }, {}, []).body).toContain('함께 오를 종목 ▲');
+    expect(formatSpike({ ...s, change: 0.005 }, { up: [], down: [] }, {}, []).body).toContain('같이 오를 것 같은 종목\n· 없음');
   });
 });
