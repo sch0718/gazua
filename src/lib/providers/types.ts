@@ -114,6 +114,8 @@ export interface AccountHolding {
 }
 
 export interface AccountSource {
+  /** 주문에만 쓰는 토스 토큰과 종합매매 계좌 헤더. 읽기 계좌의 대체 선택을 쓰지 않는다. */
+  orderHeaders?(): Promise<{ authorization: string; 'x-tossinvest-account': string }>;
   /** 계좌를 구분하는 값(토스 accountSeq). 캐시 키에만 쓰고 화면·로그에는 보이지 않는다. */
   accountId(): Promise<string>;
   /** 종료된 주문 중 체결이 있는 것. from/to는 주문일(KST, 양끝 포함), 없으면 전체 기간. onPage는 지금까지 받은 행 수. */

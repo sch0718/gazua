@@ -1,4 +1,4 @@
-// 읽기 전용 CLI 번들: src/main.ts → dist/gazua.mjs (esbuild 단일 파일, Node 22.13 이상).
+// CLI 번들: src/main.ts → dist/gazua.mjs (esbuild 단일 파일, Node 22.13 이상).
 // 앱 코드를 상대 경로로 묶으므로 브라우저 전용 코드(import.meta.env, window, navigator.locks)가 딸려 들어오면 빌드를 실패시킨다.
 import { build } from 'esbuild';
 import { chmodSync, readFileSync } from 'node:fs';

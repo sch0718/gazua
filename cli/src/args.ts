@@ -20,6 +20,7 @@ export interface Args {
   today: boolean;
   raw: boolean;
   propose: boolean;
+  yes: boolean;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -50,6 +51,7 @@ export function parseArgv(argv: string[]): Args {
           today: { type: 'boolean' },
           raw: { type: 'boolean' },
           propose: { type: 'boolean' },
+          yes: { type: 'boolean' },
         },
       });
     } catch {
@@ -91,5 +93,6 @@ export function parseArgv(argv: string[]): Args {
     today: v.today === true,
     raw: v.raw === true,
     propose: v.propose === true,
+    yes: v.yes === true,
   };
 }

@@ -55,15 +55,16 @@ describe('execute', () => {
   });
 
   it('registerEnvSecrets는 증권사 키와 Drive 시크릿·알람 토픽을 거르기에 등록한다', () => {
-    expect(SECRET_ENV).toEqual(['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_ALERT_NTFY_TOPIC']);
+    expect(SECRET_ENV).toEqual(['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_ALERT_NTFY_TOPIC', 'GAZUA_PROXY_TOKEN']);
     const r = createRedactor();
-    registerEnvSecrets(r, { KIS_APP_KEY: 'kis-key-123', TOSS_CLIENT_SECRET: ' toss-secret-1 ', GAZUA_ALERT_NTFY_TOPIC: 'testtopic-abcdefghijkl' });
+    registerEnvSecrets(r, { KIS_APP_KEY: 'kis-key-123', TOSS_CLIENT_SECRET: ' toss-secret-1 ', GAZUA_ALERT_NTFY_TOPIC: 'testtopic-abcdefghijkl', GAZUA_PROXY_TOKEN: 'fake-proxy-secret' });
     expect(r.apply('a kis-key-123 b toss-secret-1')).toBe('a [숨김] b [숨김]');
     expect(r.apply('토픽 testtopic-abcdefghijkl')).toBe('토픽 [숨김]');
+    expect(r.apply('프록시 fake-proxy-secret')).toBe('프록시 [숨김]');
   });
 
-  it('COMMANDS에 CLI 명령 열두 개가 있다', () => {
-    expect(Object.keys(COMMANDS).sort()).toEqual(['alert', 'drive', 'holdings', 'login', 'logout', 'owner', 'profiles', 'quote', 'signals', 'simulate', 'strategies', 'watchlists']);
+  it('COMMANDS에 CLI 명령 열세 개가 있다', () => {
+    expect(Object.keys(COMMANDS).sort()).toEqual(['alert', 'drive', 'holdings', 'login', 'logout', 'order', 'owner', 'profiles', 'quote', 'signals', 'simulate', 'strategies', 'watchlists']);
   });
 });
 

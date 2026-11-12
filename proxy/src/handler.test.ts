@@ -380,3 +380,50 @@ describe('시장 처리기 주입', () => {
     expect(await code(res)).toBe('market-unavailable');
   });
 });
+
+describe('주문 처리기 주입', () => {
+  const guarded = { ...env, PROXY_TOKEN: 'fake-proxy-token' };
+  it.each([undefined, 'wrong'])('토큰이 없거나 다르면 주문 처리기에 닿지 않는다: %s', async (token) => {
+    const f = fakeFetch();
+    const order = vi.fn(async () => new Response('{}'));
+    const res = await handle(req('/order/toss', { method: 'POST', headers: token ? { 'x-proxy-token': token } : {} }), guarded, f, { order });
+    expect(res.status).toBe(401);
+    expect(await code(res)).toBe('proxy-token-invalid');
+    expect(order).not.toHaveBeenCalled();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('서버 토큰이 없거나 Worker처럼 처리기가 없으면 주문을 열지 않는다', async () => {
+    const f = fakeFetch();
+    const order = vi.fn(async () => new Response('{}'));
+    for (const [serverEnv, opts] of [[env, { order }], [guarded, {}]] as const) {
+      const res = await handle(req('/order/toss', { method: 'POST', headers: { 'x-proxy-token': 'fake-proxy-token' } }), serverEnv, f, opts);
+      expect(res.status).toBe(404);
+      expect(await code(res)).toBe('order-unavailable');
+    }
+    expect(order).not.toHaveBeenCalled();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('인증 뒤 주문 처리기를 호출하고 CORS를 붙인다', async () => {
+    const f = fakeFetch();
+    const order = vi.fn(async () => new Response('{"enabled":false}', { headers: { 'content-type': 'application/json' } }));
+    const res = await handle(req('/order/status', { headers: { 'x-proxy-token': 'fake-proxy-token' } }), guarded, f, { order });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ enabled: false });
+    expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
+    expect(res.headers.get('vary')).toContain('Origin');
+    expect(order).toHaveBeenCalledTimes(1);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('기존 토스 주문 POST는 허용 목록에서 계속 막는다', async () => {
+    const f = fakeFetch();
+    const order = vi.fn(async () => new Response('{}'));
+    const res = await handle(req('/toss/api/v1/orders', { method: 'POST', headers: { 'x-proxy-token': 'fake-proxy-token' } }), guarded, f, { order });
+    expect(res.status).toBe(403);
+    expect(await code(res)).toBe('proxy-path-blocked');
+    expect(order).not.toHaveBeenCalled();
+    expect(f).not.toHaveBeenCalled();
+  });
+});

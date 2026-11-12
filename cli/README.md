@@ -1,9 +1,9 @@
-# gazua CLI (읽기 전용)
+# gazua CLI
 
 터미널 AI 도구가 가즈아의 데이터를 읽고 계산하게 해 주는 명령줄 도구예요. 앱과 같은 엔진·같은 데이터를 쓰고, 출력은 JSON 한 줄이에요.
 
 - 읽을 수 있는 것: 동기화한 프로필·관심 그룹·전략, 증권사 시세, 토스 보유, 전략 신호, 시뮬레이션 요약.
-- 할 수 없는 것: **주문**. 알람은 로컬 기록을 저장하고 ntfy로 알림을 보내요. 서버(Worker)는 CLI 토큰으로 `GET /v1/profiles`, `GET /v1/profiles/:id?docVersion=2`, 자기 토큰 철회만 받아요. 증권사 호출도 프록시와 같은 허용 목록(`proxy/src/allowlist.ts`)으로 주문 경로를 막아요. 주문은 다음 단계예요.
+- 주문은 사람이 `gazua order … --yes`를 실행할 때만 맥 프록시를 거쳐 보내요. 국내 토스 지정가·당일 주문만 받으며 KIS·정정·취소는 지원하지 않아요. MCP 도구에는 주문이 없어요. 알람은 로컬 기록을 저장하고 ntfy로 알림을 보내요. 증권사 직접 호출은 읽기 허용 목록으로 계속 제한해요.
 
 ## 설치
 
@@ -61,6 +61,7 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 | `gazua watchlists` | 관심 그룹과 종목 | ○ | |
 | `gazua strategies [--raw]` | 전략 목록과 규칙 요약(`--raw`면 원 규칙도) | ○ | |
 | `gazua quote <종목…>` | 현재가 | | ○ |
+| `gazua order buy\|sell <종목> <수량> <지정가> [--yes]` | 요약, --yes면 맥 프록시로 토스 주문 한 건 | | 토스 |
 | `gazua holdings` | 토스 국내 보유(수량·평단) | | 토스 |
 | `gazua signals --strategy <이름\|ID> [--today] [--propose]` | 조건 신호 + (토스) 보유 기준 매도 판정(`--propose`면 주문안도) | ○ | ○ |
 | `gazua drive login` | 시장 파일 업로드용 서버 로그인 + Google 로그인 | ○ | |
@@ -75,11 +76,32 @@ Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 
 `signals`의 기준 봉은 마지막 완성 일봉이에요. `--today`가 없으면 어제까지, `--today`면 그 venue 마감 뒤(KRX 15:30·통합 20:00 KST)이고 오늘이 거래일일 때만 오늘까지예요. 토스는 통합 일봉이라 늘 20:00 기준이에요. 판정은 매수·매도 조건과 손절·익절·트레일링·기간 청산 가격만 계산하고 주문하지 않아요. 앱의 시뮬레이션과 다른 점은 출력의 `notes`에 적혀 있어요.
 
-`--propose`를 붙이면 판정을 주문안 `proposals`로도 내요. **어디에도 주문을 보내지 않아요.** 사람이 보고 증권사 앱에서 직접 주문해요.
+`--propose`를 붙이면 판정을 주문안 `proposals`로도 내요. **어디에도 주문을 보내지 않아요.** 사람이 확인한 뒤 토스 앱이나 `gazua order` 명령으로 직접 주문해요.
 
 - `orders[]`: `side`(BUY·SELL)·`symbol`·`quantity`·`refPrice`(기준 봉 종가)·`amount`·`reason`. `skipped[]`는 조건은 맞았지만 안을 내지 않은 종목과 이유, `buyTotal`은 매수안 금액 합계예요(비용 제외).
 - 매수: 매수 조건이 맞고 보유하지 않은 종목. 수량은 1회 금액 ÷ 종가의 내림이에요. 1회 금액은 같은 금액이면 처음 자금 ÷ 종목 수, 그 밖에는 처음 자금 × 비율이에요(계좌 잔고를 읽지 않아요). 분할 매수(추가 매수)는 내지 않아요.
 - 매도(토스만): 손절 → 트레일링 스톱 → 기간 청산 → 조건 매도 순으로 처음 맞은 것은 전량, 아니면 맞은 가장 높은 익절 단계예요. 중간 단계는 지금 보유 수량 × 단계 비율, 마지막 단계는 전량이에요. 판정하지 못한 규칙만 있으면 `skipped`예요. 본전 손절은 1단계 익절 여부를 몰라, 종가가 평단 이하일 때 `skipped`로 알려요. 기준 봉이 다른 종목보다 오래된 종목(거래정지 등)은 매수·매도 모두 `skipped`예요.
+
+## 주문
+
+```bash
+gazua order buy 005930 10 70000          # 요약만 표시
+gazua order sell 005930 1 70000 --yes    # 사람이 확인한 주문 한 건
+```
+
+`buy|sell`, 6자리 종목 코드, 양의 정수 수량·지정가(원)를 받아요. 쉼표·소수·지수 표기는 쓰지 않아요. `--yes`가 없으면 프록시 상태를 받아 주문 금액과 한도만 보여 주고, 토스 토큰·계좌도 조회하지 않아요. 1회 주문 금액이 한도와 같거나 크면 프록시가 거절해요. 최종 판정은 맥 프록시가 해요.
+
+| 환경변수 | 쓰임 |
+|---|---|
+| `GAZUA_PROXY_URL` | 맥 프록시 주소. HTTPS, 로컬 localhost·127.0.0.1·[::1]만 HTTP 허용 |
+| `GAZUA_PROXY_TOKEN` | 프록시의 PROXY_TOKEN과 같은 값. 출력에서 가림 |
+| `GAZUA_PROXY_ORIGIN` | 프록시 ALLOWED_ORIGINS에 등록한 출처 |
+
+`--yes` 실행에는 기존 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`도 필요해요. 토큰·종합매매 계좌 조회는 실행 기기에서 토스에 직접 보내므로 그 기기의 공인 IP도 토스 **허용 IP**로 등록해야 해요. 프록시 접속 설정만으로는 조회할 수 없어요. 종합매매 계좌가 없으면 주문을 보내지 않아요.
+
+상태 GET·주문 POST는 리디렉션을 따라가지 않아요. POST는 한 번만 보내며 자동 재시도하지 않아요. `order-unknown`이면 주문이 들어갔을 수 있어요. **토스 앱에서 확인하기 전에는 다시 보내지 마세요.** 응답에 `clientOrderId`가 있으면 함께 표시하고, 없으면 맥 감사 로그의 `send` 줄에서 시각·종목으로 찾아요. `signals --propose`는 계속 주문안 출력만 해요.
+
+Claude는 실제 주문을 실행하지 않는다. 개발·검토는 가짜 fetch와 임시 디렉터리로만 시험하고, 첫 소액 주문은 사용자가 직접 해요. 맥의 설정·중지 파일·감사 로그는 [프록시 안내](../proxy/README.md)의 「주문 경로」를 보세요.
 
 ## MCP 서버
 
@@ -171,6 +193,19 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | `drive-failed` | Drive 요청 실패(서버 시장 파일 경로의 500 포함) |
 | `market-file-invalid` | 올릴 수 없는 시장 파일 |
 | `market-limit` | Drive 보관본이 서버 한도(10개)에 참 → 앱에서 보관본 지우기 |
+| `order-not-configured` | 주문 프록시 환경변수 세 개가 없음 |
+| `order-disabled` | 맥 프록시에서 주문이 꺼짐(ORDER_ENABLED·ORDER_MAX_AMOUNT 확인) |
+| `order-stopped` | 주문 중지 파일이 있음 |
+| `order-over-limit` | 1회 최대 금액 이상(이번 금액과 한도 표시) |
+| `order-daily-limit` | 오늘 주문 금액 합계가 하루 한도를 넘음 |
+| `order-rate-limited` | 분당·하루 주문 건수 한도 도달 |
+| `order-busy` | 다른 주문 처리 중 |
+| `order-invalid` | 주문 내용이 올바르지 않음 |
+| `order-unavailable` | Worker 판이거나 맥 프록시 토큰 설정이 없음 |
+| `order-upstream` | 토스 주문 거절(토스 메시지 포함) |
+| `order-unknown` | 결과 불명. 토스 앱에서 확인하기 전 재전송 금지 |
+| `order-audit-failed` | 맥 감사 로그를 쓸 수 없어 보내지 않음 |
+| `proxy-rejected` | GAZUA_PROXY_TOKEN·GAZUA_PROXY_ORIGIN 설정 확인 |
 | `internal` | 그 밖 |
 
 ## Drive 전달

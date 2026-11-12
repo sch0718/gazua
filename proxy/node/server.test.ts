@@ -108,7 +108,10 @@ describe('시장 본문 제한', () => {
     const directory = await mkdtemp(join(tmpdir(), 'gazua-body-'));
     const data = mkFile([mkStock('000001', Array(10).fill(100))], 10);
     await writeFile(join(directory, 'market-data-20261112.json.gz'), gzipSync(JSON.stringify(data)));
-    const large = createProxyServer({ ALLOWED_ORIGINS: 'https://a.example', PROXY_TOKEN: 'test-token' }, { marketDataDir: directory });
+    const large = createProxyServer({ ALLOWED_ORIGINS: 'https://a.example', PROXY_TOKEN: 'test-token' }, {
+      marketDataDir: directory, orderEnv: { ORDER_AUDIT_LOG: join(directory, 'orders.jsonl'), ORDER_STOP_FILE: join(directory, 'stop') },
+      fetchImpl: vi.fn<typeof fetch>().mockRejectedValue(new Error('가짜 fetch에 없는 경로예요')),
+    });
     await new Promise<void>((resolve) => large.listen(0, '127.0.0.1', resolve));
     try {
       const to = (large.address() as AddressInfo).port;
@@ -143,5 +146,30 @@ describe('시장 본문 제한', () => {
     const headers = { origin: 'https://a.example' };
     expect(JSON.parse((await get('/market/meta', headers)).body)).toEqual({ error: { code: 'market-unavailable' } });
     expect(JSON.parse((await send(port, 'POST', '/market/screen', headers, '{}')).body)).toEqual({ error: { code: 'market-unavailable' } });
+  });
+});
+
+describe('서버 주문 처리기', () => {
+  it('서버 토큰이 있으면 주문 상태 처리기를 주입하고 없으면 404다', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'gazua-server-order-'));
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('실제 API는 부르지 않아요'));
+    const orders = createProxyServer({ ALLOWED_ORIGINS: 'https://a.example', PROXY_TOKEN: 'fake-token' }, {
+      marketDataDir: directory, fetchImpl, now: () => Date.parse('2026-11-12T10:00:00+09:00'),
+      orderEnv: { ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_AUDIT_LOG: join(directory, 'orders.jsonl'), ORDER_STOP_FILE: join(directory, 'stop') },
+    });
+    try {
+      await new Promise<void>((resolve, reject) => { orders.once('error', reject); orders.listen(0, '127.0.0.1', resolve); });
+      const headers = { origin: 'https://a.example', 'x-proxy-token': 'fake-token' };
+      const status = await send((orders.address() as AddressInfo).port, 'GET', '/order/status', headers);
+      expect(status.status).toBe(200);
+      expect(JSON.parse(status.body)).toMatchObject({ maxAmount: 100 });
+      const unavailable = await get('/order/status', headers);
+      expect(unavailable.status).toBe(404);
+      expect(JSON.parse(unavailable.body)).toEqual({ error: { code: 'order-unavailable' } });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      if (orders.listening) await new Promise<void>((resolve) => orders.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
