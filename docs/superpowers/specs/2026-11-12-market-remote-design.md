@@ -31,6 +31,8 @@
 
 모든 `/market/*` 경로는 기존 증권사 경로와 같은 규칙을 지난다: 허용한 출처만(`ALLOWED_ORIGINS`), 토큰(`x-proxy-token`)이 맞아야 한다, OPTIONS 사전 요청도 같은 방식.
 
+- 기존 증권사 경로는 서버 `PROXY_TOKEN`이 비어 있으면 토큰 검사를 끄지만(`handler.ts`, `server.ts`), 시장 경로는 토큰을 필수로 한다. 서버 토큰이 비어 있으면 `server.ts`가 시장 처리기를 붙이지 않아 `/market/*`는 404 `market-unavailable`을 준다(설치 스크립트를 거치지 않고 직접 띄운 경우도 같다).
+
 | 경로 | 응답 |
 |---|---|
 | `GET /market/meta` | `{ info, sectors, themes }`. `info`는 `MarketDataInfo`와 같은 이름의 필드(`collectedAt, stocks, range, version, hasMacro, themeCount, hasFlow, flowStocks, hasFin, finStocks`)에 `file`(파일 이름)을 더한다. `themes`는 `{ code, name, symbols }[]` 전체(작다) |
@@ -47,14 +49,16 @@
 - 폴더: 환경변수 `MARKET_DATA_DIR`(`.env`), 없으면 `~/gazua-data`(`os.homedir()`). `~`로 시작하는 값도 홈으로 바꾼다.
 - 요청마다 폴더를 읽어 `market-data-YYYYMMDD.json.gz` 이름 중 날짜가 가장 큰 파일을 고른다. 수집 세션이 새 파일을 쓰고 이전 하나를 백업으로 남기므로 「가장 새 이름」이 지금 파일이다.
 - 그 파일의 `이름|mtimeMs|size`가 지난번과 같으면 메모리에 풀어 둔 값을 쓴다. 다르면 다시 읽는다(gunzip → JSON.parse → `validateMarketData`). 읽는 중에 온 요청은 같은 읽기를 기다린다. 실패도 같은 키로 기억해 같은 파일을 매 요청 다시 풀지 않는다(파일이 바뀌면 다시 시도).
-- 수집 계정 표시(`owner`)는 보지 않는다. 프록시 토큰이 이미 본인 기기임을 보장한다.
-- 검증 계산기(`createWorkerHandler`)는 하나만 만들어 두고, 저장소로 `{ info, load }`를 넘긴다. `info()`의 키(`collectedAt|stocks|range|bytes`)가 바뀌면 처리기가 알아서 다시 읽고 미리 계산 캐시를 버린다. `bytes`에는 gzip 파일 크기를 넣어 같은 날 다시 수집해도 키가 바뀌게 한다.
+- 수집 계정 표시(`owner`)는 보지 않는다. 시장 경로는 토큰이 있을 때만 열리므로(위 「경로」) 프록시 토큰이 이미 본인 기기임을 보장한다.
+- 검증 계산기(`createWorkerHandler`)는 하나만 만들어 두고, 저장소로 `{ info, load }`를 넘긴다. 프록시의 `info()`는 `importId`에 파일 교체 식별자 `이름|mtimeMs|size`를 넣는다. `src/lib/screen/workerHandler.ts`의 데이터 캐시 키(`loadData`)에 `info.importId`를 더해, 이름·크기·요약이 같고 내용만 바뀐 파일도 다시 읽고 미리 계산 캐시(`cachedPrecompute`의 키)도 함께 버리게 한다. 이 기기에 가져온 파일(IndexedDB)은 가져올 때마다 `importId`가 새로 정해지므로 같은 규칙이 그대로 맞는다.
 
 ### 빌드·배포
 
 - `proxy/build.mjs`(esbuild, `platform: node`, `format: esm`, `bundle: true`) → `proxy/dist/node/server.js`. CLI처럼 번들에 `import.meta.env`·`window.`·`navigator.locks`가 있으면 실패시킨다.
-- `proxy/package.json`: `build`는 `tsc --noEmit -p tsconfig.json && node build.mjs`, devDependency에 `esbuild`(CLI와 같은 `0.25.12`). `tsconfig.json`은 `rootDir`을 빼고 `noEmit`.
-- Dockerfile(NAS용)은 저장소 루트를 빌드 문맥으로 쓰도록 바꾼다(`docker-compose.yml`의 `build.context: ..`, `dockerfile: proxy/Dockerfile`). 컨테이너에는 시장 파일이 없으므로 `/market/*`는 `market-file-missing`을 준다.
+- `proxy/package.json`: `build`는 `tsc --noEmit -p tsconfig.json && node build.mjs`, devDependency에 `esbuild`(CLI와 같은 `0.25.12`). `proxy/tsconfig.json`은 `rootDir`을 빼고 `noEmit: true`, CLI(`cli/tsconfig.json`)처럼 `lib: ["ES2022", "DOM", "DOM.Iterable"]`, `types: ["node", "vite/client"]`로 둔다. `createWorkerHandler`의 타입 전용 import도 검사 대상이므로 `src/lib/marketData/store.ts`의 `navigator.storage`, `src/lib/state/secrets.ts`의 `CryptoKey`, `src/lib/state/profileStore.ts`·`src/lib/ui/settings/connection.ts`의 `import.meta.env` 타입이 필요하다. 이 타입 설정과 별개로 브라우저 전용 코드의 실행 번들 유입은 위 빌드 검사로 막는다.
+- DOM 타입을 함께 쓰면 `proxy/node/server.ts`의 `toRequest`에서 `readBody`가 반환하는 `Buffer`를 `RequestInit.body`에 바로 넣을 수 없다. `init.body = new Uint8Array(await readBody(incoming, maxBodyBytes)).buffer`로 복사해 `ArrayBuffer`를 넘긴다(타입 단언으로 덮지 않는다).
+- 루트 `pnpm-lock.yaml`의 `proxy` 항목도 갱신한다(CI는 `pnpm install --frozen-lockfile`).
+- Dockerfile(NAS용)은 저장소 루트를 빌드 문맥으로 쓰도록 바꾼다(`docker-compose.yml`의 `build.context: ..`, `dockerfile: proxy/Dockerfile`). Docker 빌드 단계는 타입 검사를 하지 않고 `esbuild@0.25.12`만 설치해 `node proxy/build.mjs`로 번들한다(타입 검사는 저장소의 `pnpm --filter proxy build`와 CI가 맡으므로 이미지에 vite 타입이 필요 없다). 컨테이너에는 시장 파일이 없으므로 `/market/*`는 `market-file-missing`을 준다.
 - `.githooks/proxy-auto-update`가 보는 경로에 `proxy/build.mjs`와, 번들에 들어가는 웹 코드 `src/lib/screen`, `src/lib/sim`, `src/lib/marketData`, `src/lib/time`, `src/lib/data`를 더한다.
 
 ## 4. 웹 앱
@@ -77,22 +81,28 @@
 
 ### 화면
 
+- `src/lib/ui/screen/screenText.ts`: `FAILURE_TEXT`는 `Record<WorkerErrorCode, string>`이므로 `'remote': '맥 데이터에 닿지 않아요'`를 추가한다. 검증 실패 화면(`ValidationRun.svelte`)은 이 매핑으로 원격 오류를 표시한다.
+- `CriteriaEditor.svelte` → `PreviewPanel.svelte`: `validationController.svelte.ts`가 전달하는 `PreviewError.code`를 버리지 않고 미리 보기 표시 컴포넌트까지 넘긴다. `'remote'`이면 `FAILURE_TEXT.remote`를 표시하고, 다른 오류는 기존 「미리 보기를 계산하지 못했어요」를 유지한다. `'cancelled'`는 지금처럼 오류로 표시하지 않는다.
 - `Simulate.svelte`: 기본 `marketData`를 `createMarketSource(...)`로 바꾸고, 검증 컨트롤러의 `makeWorker` 기본값을 「원본이 remote면 `makeRemoteWorker`, 아니면 지금 Worker」로 한다(컨트롤러는 첫 실행 때 만든다). 테스트가 넣는 `makeWorker`·`marketData`는 그대로 우선한다.
 - `DataTools.svelte` 시장 데이터 영역: 「지금 쓰는 데이터: 이 기기 파일 / 맥(원격) / 없음」과 수집 날짜를 보인다. 이 기기 파일이 없을 때만 원격 요약을 읽는다.
 
 ## 5. 시험
 
-- 프록시 `proxy/node/market.test.ts`(임시 폴더에 작은 gz 파일, `src/lib/screen/testData.ts`의 `mkFile` 사용): 토큰 틀림 401, 허용 안 된 출처 403, 파일 없음 404, 깨진 파일 503, 가장 새 이름 고르기, 파일 교체(mtime·크기 변경) 뒤 다시 읽기와 같은 파일은 다시 안 읽기, `/market/meta` 모양, gzip 머리글, `/market/screen` preview 결과.
+- 프록시 `proxy/node/market.test.ts`(임시 폴더에 작은 gz 파일, `src/lib/screen/testData.ts`의 `mkFile` 사용): 토큰 틀림 401, 서버 토큰 미설정이면 `/market/meta`·`/market/screen` 404 `market-unavailable`, 허용 안 된 출처 403, 파일 없음 404, 깨진 파일 503, 가장 새 이름 고르기, 파일 교체(mtime·크기 변경) 뒤 다시 읽기와 같은 파일은 다시 안 읽기, `/market/meta` 모양, gzip 머리글, `/market/screen` preview 결과.
 - `proxy/src/handler.test.ts`: 시장 처리기 없으면 `/market/meta` 404 `market-unavailable`.
 - 웹 `remote.test.ts`: meta는 한 번만 요청, 토큰 머리글, 원격 Worker가 결과·오류를 넘김, terminate가 요청을 끊음. `source.test.ts`: local/remote/none/remote-error 고르기.
+- 화면: 검증 실패와 미리 보기 모두 `'remote'` 오류에 「맥 데이터에 닿지 않아요」를 표시하는지 확인한다. 미리 보기의 다른 오류 문구와 취소를 표시하지 않는 동작도 유지하는지 확인한다.
+- 프록시 파일 교체 시험에는 이름·gzip 크기·요약이 같고 주식수와 mtime만 다른 파일로 바꾼 뒤 `/market/screen` 결과가 새 파일을 따르는지도 넣는다. `run` 결과 하나도 확인한다.
+- e2e(`tests/e2e/`, Playwright `page.route`로 `/market/meta`·`/market/screen`을 흉내 낸다): ① 로컬 파일 없이 프록시 주소·토큰만 설정한 상태에서 선정 기준 탭이 원격 요약을 보이고, 미리 보기와 검증 실행 결과가 표시된다(Simulate에 `marketData`·`makeWorker`를 주입하지 않아 기본 선택을 거친다). ② 로컬 파일을 가져온 상태에서는 `/market/*` 요청이 0건이다.
+- `tests/proxy-auto-update.test.mjs`: 새로 감시하는 경로(`proxy/build.mjs`, `src/lib/screen/...`)가 바뀐 병합 뒤에도 설치가 다시 실행되는 경우를 더한다.
 - 기존 시험·e2e는 프록시가 설정되지 않은 상태라 그대로 지나가야 한다.
 
 ## 6. 구현 순서
 
-1. 프록시: `market.ts`(파일 읽기·경로), `handler.ts`(시장 처리기 주입·404), `server.ts`(본문 제한·`MARKET_DATA_DIR`), `build.mjs`·`package.json`·`tsconfig.json`·Dockerfile·compose·githook, 시험.
-2. 웹: `remote.ts`, `source.ts`, `runValidation.ts`의 오류 코드, `Simulate.svelte`, `DataTools.svelte`, `MarketDataNotice.svelte` 문구, 시험.
+1. 프록시: `market.ts`(파일 읽기·경로·`importId`), `src/lib/screen/workerHandler.ts`(캐시 키에 `importId`), `handler.ts`(시장 처리기 주입·404), `server.ts`(본문 제한·`MARKET_DATA_DIR`), `build.mjs`·`package.json`·`tsconfig.json`·Dockerfile·compose·githook, 루트 `pnpm-lock.yaml`, 시험.
+2. 웹: `remote.ts`, `source.ts`, `runValidation.ts`의 오류 코드, `screenText.ts`의 `FAILURE_TEXT`, `CriteriaEditor.svelte`·`PreviewPanel.svelte`의 미리 보기 오류 코드 전달·표시, `Simulate.svelte`, `DataTools.svelte`, `MarketDataNotice.svelte` 문구, 시험.
 3. 문서: `proxy/README.md`(경로·`MARKET_DATA_DIR`·다시 시작), `docs/roadmap.md` 한 줄.
-4. 검사: `pnpm --filter proxy test`, `pnpm --filter proxy build`, 루트 `pnpm test`, `pnpm check`, `pnpm build`, 관련 e2e.
+4. 검사: `pnpm --filter proxy test`, `pnpm --filter proxy build`, 루트 `pnpm test`, `pnpm test:scripts`, `pnpm check`, `pnpm build`, 관련 e2e. Docker 이미지 빌드(`docker build -f proxy/Dockerfile .`)는 이 기기에 Docker가 없으면 미확인으로 기록한다.
 
 ## 범위 밖
 
