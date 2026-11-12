@@ -58,6 +58,8 @@ node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --year
 node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --update ~/gazua-data/market-data-20261106.json.gz
 ```
 
+- **과거로 늘리기.** `node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --extend-back ~/gazua-data/market-data-20261111.json.gz`로 기존 파일을 1년씩 과거로 늘려요. `--years`로 늘릴 기간, `--max-years`로 오늘 기준 목표(기본 5년, 최대 10년)를 바꿔요. 기본은 초당 1건이고, 끝 날짜는 그대로예요. `--update`와 함께 쓰지 않아요.
+- **밤 예약 작업.** [맥 예약 수집](../scripts/macos/collect-agent/README.md)을 설치하면 매일 03:30에 한 번 늘려요. 목표에 닿으면 파일만 읽고 끝나고, 성공할 때마다 이전 파일은 `market-data-backup.json.gz.bak` 하나로 남겨요. 키는 `.env.toss`에만 둬요.
 - **수집용 키를 따로 만들어요.** 토스는 키 하나에 토큰 하나라, 앱과 같은 키로 수집하면 앱의 토큰이 무효가 돼요(앱에서 다시 연결해야 해요).
 - **허용 IP에서만 돼요.** 토스 Open API에 등록한 IP의 기기에서 돌려요. 아니면 토큰 발급에서 멈춰요.
 - **매매동향·재무는 없어요.** 토스는 매매동향을 수량으로만 주고 재무는 주지 않아요. 파일에 넣지 않고, `--update`로 KIS 파일을 이어 받아도 이전 매매동향·재무를 지워요(끝 날짜가 멈춘 값이 조건에 쓰이지 않게). 앱은 이 조건들을 `다시 수집하면 쓸 수 있어요`로 막아요. `--no-flows`·`--no-fins`는 붙이지 않아도 돼요.

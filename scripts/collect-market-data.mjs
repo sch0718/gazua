@@ -1,9 +1,10 @@
-// 전 종목 일봉을 KIS에서 모아 시장 데이터 파일(market-data-YYYYMMDD.json.gz)로 만든다.
+// 전 종목 일봉을 KIS·토스에서 모아 시장 데이터 파일(market-data-YYYYMMDD.json.gz)로 만들어요.
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --years 5 --out ~/gazua-data/
 //   KIS_APP_KEY=... KIS_APP_SECRET=... pnpm collect -- --update ~/gazua-data/market-data-20261016.json.gz
 //   GAZUA_DRIVE_CLIENT_ID=... GAZUA_DRIVE_CLIENT_SECRET=... pnpm collect -- --update <파일> --drive
 //   node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --years 5   (일봉만, 설계 2026-11-06-toss-collect)
-// 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않는다. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
+//   node --env-file=.env.toss scripts/collect-market-data.mjs --provider toss --extend-back ~/gazua-data/market-data-20261111.json.gz --max-years 5
+// 키는 환경변수로만 받고, 파일·로그·오류에는 쓰지 않아요. 형식: docs/superpowers/specs/2026-10-16-selection-criteria-validation-design.md 3.4
 // v4(종목별 재무 fin): docs/superpowers/specs/2026-10-17-fundamental-criteria-design.md 2.2·5장
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -168,6 +169,55 @@ export async function mergeUpdate(old, fresh, refetch) {
   return { cols, refetched: false };
 }
 
+// ── 과거로 늘리기 ─────────────────────────────────────────────────────
+// 날짜는 요청에 쓰는 YYYYMMDD로 돌려줘요. 14일 여유로 주말·연휴를 흡수해요.
+export function planExtendBack(prev, { years = 1, maxYears = 5, today }) {
+  if (prev?.format !== 'gazua-market-data') throw new Error('--extend-back 파일이 시장 데이터 파일이 아니에요');
+  // KIS 파일을 토스로 늘리면 매매동향·재무가 지워지므로 토스 파일만 늘려요
+  if (prev.source !== 'toss') throw new Error('--extend-back은 토스로 수집한 파일만 늘려요');
+  const oldFrom = compactDate(prev.range.from);
+  const target = yearsBefore(today, maxYears);
+  const grace = kstCompact(Date.UTC(+target.slice(0, 4), +target.slice(4, 6) - 1, +target.slice(6, 8) + 14));
+  return {
+    reached: oldFrom <= grace,
+    from: [yearsBefore(oldFrom, years), target].sort().at(-1),
+    to: compactDate(prev.range.to),
+  };
+}
+
+// 앞 5거래일과 공통인 날의 가격을 비교해요. 공통 날짜가 없어도 붙이지 않아요.
+export function mergeBack(old, fresh) {
+  const keys = COMPARE.filter((k) => k in old);
+  const freshAt = new Map(fresh.d.map((d, i) => [d, i]));
+  let overlap = 0;
+  for (let i = 0; i < Math.min(OVERLAP_DAYS, old.d.length); i++) {
+    const j = freshAt.get(old.d[i]);
+    if (j === undefined) continue;
+    overlap++;
+    if (keys.some((k) => fresh[k][j] !== old[k][i])) return { cols: old, mismatch: true };
+  }
+  if (!overlap) return { cols: old, mismatch: true, noOverlap: true };
+  const before = fresh.d.filter((d) => d < old.d[0]).length;
+  if (!before) return { cols: old, mismatch: false };
+  return { cols: Object.fromEntries(Object.keys(old).map((k) => [k, [...fresh[k].slice(0, before), ...old[k]]])), mismatch: false };
+}
+
+// 같은 파일·공급자의 진행분이면 실행 날짜가 바뀌어도 요청 기간을 지켜요.
+function extendPlan(prev, { years, maxYears, today, out, extendBack, source }) {
+  const planned = planExtendBack(prev, { years, maxYears, today });
+  const partial = join(out, 'market-data-extend-back.partial');
+  if (typeof extendBack !== 'string' || !existsSync(partial)) return planned;
+  try {
+    const h = JSON.parse(readFileSync(partial, 'utf8').split('\n')[0]);
+    if (h.kind === 'header' && h.extendFrom === resolve(extendBack) && h.source === source && /^\d{8}$/.test(h.from) && /^\d{8}$/.test(h.to)) {
+      return { reached: false, from: h.from, to: h.to };
+    }
+  } catch {
+    // 쓰다 끊긴 헤더는 이어 받지 않아요.
+  }
+  return planned;
+}
+
 // ── 진행분(.partial): 한 줄에 한 JSON. 끝난 종목마다 덧붙인다 ───────────────
 // 온전한 줄만 돌려준다. 호출한 쪽이 그 줄들로 파일을 다시 써서, 끊긴 마지막 줄 뒤에 덧붙이는 일이 없게 한다.
 function readPartial(path, header) {
@@ -188,6 +238,7 @@ function readPartial(path, header) {
         rec.from === header.from &&
         rec.to === header.to &&
         rec.updateFrom === header.updateFrom &&
+        (rec.extendFrom ?? null) === (header.extendFrom ?? null) &&
         (rec.source ?? 'kis') === header.source &&
         (rec.flowFrom ?? null) === (header.flowFrom ?? null) &&
         // 재무 줄이 없는 예전 진행분(이 필드가 없음)은 그대로 이어 받는다
@@ -236,12 +287,15 @@ function finApiSignature() {
 }
 
 /**
- * @param {{ years?: number; flows?: boolean; fins?: boolean; flowsYears?: number | null; out: string; update?: string | object; client: ReturnType<typeof createKisClient>; secrets?: string[];
+ * @param {{ years?: number; flows?: boolean; fins?: boolean; flowsYears?: number | null; out: string; update?: string | object; extendBack?: string | object; maxYears?: number; client: ReturnType<typeof createKisClient>; secrets?: string[];
  *   master: { stocks: any[]; idxcode: { code: string; name: string }[]; themes?: { code: string; name: string; symbols: string[] }[]; themeDropped?: number; themeFailed?: boolean };
  *   fredFetch?: typeof fetch; sleep?: (ms: number) => Promise<void>; source?: 'kis' | 'toss';
  *   now?: () => number; log?: (line: string) => void; repoRoot?: string }} o
  */
-export async function collect({ years = 5, out, update, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep, owner, source = 'kis' }) {
+export async function collect({ years, out, update, extendBack, maxYears = 5, client, master, flows = true, fins = true, flowsYears = null, now = Date.now, log: rawLog = () => {}, repoRoot = REPO_ROOT, secrets = [], fredFetch, sleep, owner, source = 'kis' }) {
+  years ??= extendBack ? 1 : 5;
+  if (extendBack && update) throw new Error('--extend-back과 --update는 함께 쓸 수 없어요');
+  if (extendBack && source !== 'toss') throw new Error('--extend-back은 --provider toss와 함께 써요');
   // 토스는 일봉만 준다(매매동향은 수량뿐, 재무는 없음). 받지 않고, --update의 이전 KIS 값도 남기지 않는다
   // (끝 날짜가 멈춘 수급·재무가 조건에 쓰이지 않게. 앱은 없으면 「다시 수집하면 쓸 수 있어요」로 막는다)
   const kisExtras = source === 'kis';
@@ -263,12 +317,20 @@ export async function collect({ years = 5, out, update, client, master, flows = 
 
   // 이어 받기: 기존 파일을 읽어 둔다.
   let prev = null;
-  if (update) {
-    prev = typeof update === 'string' ? JSON.parse(gunzipSync(readFileSync(update)).toString('utf8')) : update;
-    if (prev?.format !== 'gazua-market-data') throw new Error('--update 파일이 시장 데이터 파일이 아니에요');
+  const previous = extendBack ?? update;
+  if (previous) {
+    prev = typeof previous === 'string' ? JSON.parse(gunzipSync(readFileSync(previous)).toString('utf8')) : previous;
+    if (prev?.format !== 'gazua-market-data') throw new Error(`${extendBack ? '--extend-back' : '--update'} 파일이 시장 데이터 파일이 아니에요`);
+  }
+  const back = extendBack ? extendPlan(prev, { years, maxYears, today, out: outDir, extendBack, source }) : null;
+  if (back?.reached) {
+    log(`이미 ${maxYears}년치예요`);
+    return null;
   }
   let from;
-  if (prev) {
+  if (back) {
+    from = back.from;
+  } else if (prev) {
     from = compactDate(prev.range.from);
   } else {
     const t = new Date(Date.UTC(+today.slice(0, 4) - years, +today.slice(4, 6) - 1, +today.slice(6, 8)));
@@ -277,19 +339,19 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   // 장 마감(KST 18시) 전의 평일에는 아직 끝나지 않은 오늘 봉을 받지 않는다.
   const kst = new Date(now() + KST_MS);
   const weekday = kst.getUTCDay() >= 1 && kst.getUTCDay() <= 5;
-  const to = weekday && kst.getUTCHours() < 18 ? prevDay(today) : today;
+  const to = back ? back.to : weekday && kst.getUTCHours() < 18 ? prevDay(today) : today;
   const oldStock = new Map((prev?.stocks ?? []).map((s) => [s.s, s]));
   const oldIndex = new Map((prev?.indices ?? []).map((i) => [i.id, i]));
 
   mkdirSync(outDir, { recursive: true });
   const filePath = join(outDir, `market-data-${today}.json.gz`);
-  const partialPath = `${filePath}.partial`;
-  const updateFrom = prev ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
+  const partialPath = back ? join(outDir, 'market-data-extend-back.partial') : `${filePath}.partial`;
+  const updateFrom = update ? (typeof update === 'string' ? resolve(update) : '(object)') : null;
   // 수급 기간 하한: --flows-years N이면 오늘부터 N년 전, 아니면 일봉 시작
   const flowFloor = flowsYears ? (yearsBefore(today, flowsYears) > from ? yearsBefore(today, flowsYears) : from) : from;
   // FIN_API의 어느 값이든(경로·필드·단위·누적 여부) 바뀌면 헤더가 달라져 readPartial이 빈 결과를 돌려주므로
   // 옛 규칙으로 받은 재무 줄을 이어 받지 않는다(고친 금액과 옛 금액이 섞이는 것을 막는다)
-  const header = { kind: 'header', from, to, updateFrom, source, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative, finApi: finApiSignature() };
+  const header = { kind: 'header', from, to, updateFrom, ...(back ? { extendFrom: typeof extendBack === 'string' ? resolve(extendBack) : '(object)' } : {}), source, flowFrom: flowsYears ? flowFloor : null, finCumulative: FIN_API.cumulative, finApi: finApiSignature() };
   const done = readPartial(partialPath, header);
   if (done.stocks.size + done.indices.size === 0) writeFileSync(partialPath, `${JSON.stringify(header)}\n`);
   else {
@@ -297,7 +359,12 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     log(`진행분을 이어서 받아요 (종목 ${done.stocks.size}개 완료)`);
   }
 
-  const masterStocks = [...master.stocks].sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
+  const masterStocks = master.stocks.filter((s) => !back || oldStock.has(s.s)).sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
+  if (back) {
+    const inMaster = new Set(master.stocks.map((s) => s.s));
+    const gone = [...oldStock.keys()].filter((s) => !inMaster.has(s));
+    if (gone.length) log(`오늘 종목 목록에 없는 ${gone.length}종목(상장폐지 등)은 넣지 않았어요: ${gone.join(', ')}`);
+  }
   let refetched = 0;
   const failed = [];
 
@@ -309,7 +376,12 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       const oldRec = oldIndex.get(id);
       const old = oldRec && oldRec.d.length ? pick(oldRec, INDEX_KEYS) : null;
       let cols;
-      if (old) {
+      if (back && old) {
+        const fresh = await client.indexDaily(id, dashed(from), old.d[Math.min(OVERLAP_DAYS - 1, old.d.length - 1)]);
+        const merged = mergeBack(old, fresh);
+        cols = merged.cols;
+        if (merged.mismatch) log(`${merged.noOverlap ? '겹친 날을 받지 못해' : '수정주가가 달라'} 늘리지 않았어요: ${id}`);
+      } else if (old) {
         const overlapFrom = old.d[Math.max(0, old.d.length - OVERLAP_DAYS)];
         const fresh = await client.indexDaily(id, overlapFrom, to);
         cols = (await mergeUpdate(old, fresh, () => client.indexDaily(id, dashed(from), to))).cols;
@@ -318,6 +390,11 @@ export async function collect({ years = 5, out, update, client, master, flows = 
       }
       rec = { kind: 'index', id, ...cols };
       appendFileSync(partialPath, `${JSON.stringify(rec)}\n`);
+    }
+    if (back && id === 'KOSPI' && rec.d.length <= (oldIndex.get(id)?.d.length ?? 0)) {
+      log('KOSPI를 더 늘리지 못했어요(더 오래된 지수가 없거나 겹친 날이 달라요)');
+      rmSync(partialPath, { force: true });
+      return null;
     }
     indices.push({ id, d: rec.d, o: rec.o, c: rec.c });
   }
@@ -340,7 +417,12 @@ export async function collect({ years = 5, out, update, client, master, flows = 
     try {
       let cols;
       let didRefetch = false;
-      if (old) {
+      if (back && old) {
+        const fresh = await client.dailyCandles(m.s, dashed(from), old.d[Math.min(OVERLAP_DAYS - 1, old.d.length - 1)]);
+        const merged = mergeBack(old, fresh);
+        cols = merged.cols;
+        if (merged.mismatch) log(`${merged.noOverlap ? '겹친 날을 받지 못해' : '수정주가가 달라'} 늘리지 않았어요: ${m.s}`);
+      } else if (old) {
         const overlapFrom = old.d[Math.max(0, old.d.length - OVERLAP_DAYS)];
         const fresh = await client.dailyCandles(m.s, overlapFrom, to);
         const merged = await mergeUpdate(old, fresh, () => client.dailyCandles(m.s, dashed(from), to));
@@ -526,11 +608,12 @@ export async function collect({ years = 5, out, update, client, master, flows = 
 
   const axis = indices.find((i) => i.id === 'KOSPI')?.d ?? [];
   const allDates = axis.length ? axis : stocks.flatMap((s) => [s.d[0], s.d.at(-1)]).sort();
-  const range = { from: dashed(allDates[0] ?? from), to: dashed(allDates.at(-1) ?? to) };
+  const range = { from: dashed(allDates[0] ?? from), to: back ? dashed(to) : dashed(allDates.at(-1) ?? to) };
   const file = {
     format: 'gazua-market-data',
     version: 4,
-    collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
+    // 늘리기는 끝 날짜가 그대로라, 앱의 「데이터가 오래됐어요」 안내가 꺼지지 않게 이전 수집 시각을 지켜요
+    collectedAt: back && prev.collectedAt ? prev.collectedAt : new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
     // 수집 계정 표시: 이번 실행에서 받은 것만 쓴다(--update여도 이전 파일 값은 쓰지 않는다)
     ...(owner ? { owner } : {}),
     source,
@@ -546,6 +629,7 @@ export async function collect({ years = 5, out, update, client, master, flows = 
   // 임시 파일에 쓴 뒤 이름을 바꿔 원자적으로 교체한다.
   const tmp = `${filePath}.tmp`;
   await writeGzipJson(tmp, file);
+  if (back && typeof extendBack === 'string') renameSync(extendBack, join(outDir, 'market-data-backup.json.gz.bak'));
   renameSync(tmp, filePath);
   rmSync(partialPath, { force: true });
 
@@ -618,7 +702,7 @@ export async function loadMaster({ fetchImpl = fetch } = {}) {
 }
 
 export function parseArgs(argv) {
-  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false, owner: true, provider: 'kis', rate: null };
+  const o = { years: 5, out: null, update: null, paper: false, flows: true, fins: true, flowsYears: null, drive: false, owner: true, provider: 'kis', rate: null, extendBack: null, maxYears: 5 };
   const args = argv.filter((a) => a !== '--');
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -627,12 +711,17 @@ export function parseArgs(argv) {
     else if (a === '--no-fins') o.fins = false;
     else if (a === '--drive') o.drive = true;
     else if (a === '--no-owner') o.owner = false;
-    else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update' || a === '--provider' || a === '--rate') {
+    else if (a === '--years' || a === '--flows-years' || a === '--out' || a === '--update' || a === '--provider' || a === '--rate' || a === '--extend-back' || a === '--max-years') {
       const v = args[++i];
       if (v === undefined) throw new Error(`${a} 값이 필요해요`);
       if (a === '--years') {
         o.years = Number(v);
         if (!Number.isInteger(o.years) || o.years < 1 || o.years > MAX_YEARS) throw new Error(`--years는 1~${MAX_YEARS} 사이 정수예요`);
+      } else if (a === '--max-years') {
+        o.maxYears = Number(v);
+        if (!Number.isInteger(o.maxYears) || o.maxYears < 1 || o.maxYears > MAX_YEARS) throw new Error(`--max-years는 1~${MAX_YEARS} 사이 정수예요`);
+      } else if (a === '--extend-back') {
+        o.extendBack = v;
       } else if (a === '--flows-years') {
         o.flowsYears = Number(v);
         if (!Number.isInteger(o.flowsYears) || o.flowsYears < 1 || o.flowsYears > MAX_YEARS) throw new Error(`--flows-years는 1~${MAX_YEARS} 사이 정수예요`);
@@ -645,11 +734,19 @@ export function parseArgs(argv) {
       } else o[a.slice(2)] = v;
     } else throw new Error(`알 수 없는 옵션: ${a}`);
   }
+  if (o.extendBack) {
+    if (o.update) throw new Error('--extend-back과 --update는 함께 쓸 수 없어요');
+    if (o.provider !== 'toss') throw new Error('--extend-back은 --provider toss와 함께 써요');
+    if (!args.includes('--years')) o.years = 1;
+    o.rate ??= 1;
+  }
+  if (args.includes('--max-years') && !o.extendBack) throw new Error('--max-years는 --extend-back과 함께 써요');
   if (o.rate !== null && o.provider !== 'toss') throw new Error('--rate는 --provider toss와 함께 써요');
   if (o.paper && o.provider !== 'kis') throw new Error('--paper는 KIS에서만 써요');
   const home = (p) => (p === '~' || p.startsWith('~/') ? join(homedir(), p.slice(1)) : p);
+  if (o.extendBack) o.extendBack = resolve(home(o.extendBack));
   if (o.update) o.update = resolve(home(o.update));
-  o.out = resolve(home(o.out ?? (o.update ? dirname(o.update) : '~/gazua-data/')));
+  o.out = resolve(home(o.out ?? (o.extendBack ? dirname(o.extendBack) : o.update ? dirname(o.update) : '~/gazua-data/')));
   return o;
 }
 
@@ -703,6 +800,15 @@ export function fetchOwner(deps = {}) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  const log = (line) => console.log(line);
+  if (opts.extendBack) {
+    const prev = JSON.parse(gunzipSync(readFileSync(opts.extendBack)).toString('utf8'));
+    const back = extendPlan(prev, { ...opts, today: kstCompact(Date.now()), source: opts.provider });
+    if (back.reached) {
+      log(`이미 ${opts.maxYears}년치예요`);
+      return;
+    }
+  }
   const toss = opts.provider === 'toss';
   const names = toss ? ['TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'] : ['KIS_APP_KEY', 'KIS_APP_SECRET'];
   const [appKey, appSecret] = names.map((k) => process.env[k]);
@@ -711,7 +817,6 @@ async function main() {
   }
   validateCreds(appKey, appSecret, names);
   assertOutAllowed(opts.out);
-  const log = (line) => console.log(line);
   // 계정 표시는 긴 수집 전에 먼저 확인한다
   const owner = opts.owner ? fetchOwner() : undefined;
   if (!opts.owner) log('수집 계정 표시 없이 수집해요(어느 계정의 앱이든 가져올 수 있어요)');
@@ -721,8 +826,8 @@ async function main() {
     ? createTossClient({ clientId: appKey, clientSecret: appSecret, ...(opts.rate ? { perSecond: opts.rate } : {}) })
     : createKisClient({ appKey, appSecret, paper: opts.paper });
   if (toss) log(`토스로 종목·지수 일봉만 받아요 (초당 ${opts.rate ?? TOSS_RATE}건)`);
-  const { summary } = await collect({ years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner, source: opts.provider });
-  if (opts.drive) process.exitCode = runDriveUpload(summary.path, summary);
+  const result = await collect({ extendBack: opts.extendBack ?? undefined, maxYears: opts.maxYears, years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner, source: opts.provider });
+  if (opts.drive && result) process.exitCode = runDriveUpload(result.summary.path, result.summary);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
