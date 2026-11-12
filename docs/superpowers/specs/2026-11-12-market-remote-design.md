@@ -75,7 +75,7 @@
 ### 원격 원본 (`src/lib/marketData/remote.ts`)
 
 - `createRemoteMarketData({ baseUrl, token, fetchImpl })`. `meta()`는 `/market/meta`를 한 번 받아 메모리에 10분 둔다(같은 세션에서 업종·테마·테마 종목은 다시 요청하지 않는다). IndexedDB 캐시는 만들지 않는다(받는 양이 작다).
-- `screen(msg, signal)`: `/market/screen`에 POST. 시간 제한 120초.
+- `screen(msg, signal)`: `/market/screen`에 POST. 시간 제한 90초(Cloudflare Tunnel의 약 100초 한도 안).
 - 요청은 `redirect: 'manual'`, 토큰은 `x-proxy-token` 머리글(기존 `http.ts`와 같은 규칙).
 - `makeRemoteWorker(remote)`: `WorkerLike`를 구현한다. `postMessage`는 `screen`을 불러 받은 메시지를 `onmessage`로 넘긴다. 연결 실패·시간 초과·프록시 오류는 `{ type:'error', code:'remote', id }`. `terminate`는 진행 중 요청을 모두 끊는다. `WorkerErrorCode`에 `'remote'`를 더하고 문구는 「맥 데이터에 닿지 않아요」.
 

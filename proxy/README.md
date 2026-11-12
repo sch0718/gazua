@@ -27,7 +27,7 @@ Node 프록시가 맥의 시장 파일을 읽고 선정 기준 미리 보기·�
 
 파일 폴더는 `MARKET_DATA_DIR`, 기본값은 `~/gazua-data`이다. `~`로 시작하는 설정도 홈으로 바꾼다. 이 폴더에서 `market-data-YYYYMMDD.json.gz` 중 날짜가 가장 큰 파일을 고른다. 이름·수정 시각·크기가 바뀌면 데이터와 계산 캐시를 다시 만든다. 파일 교체만으로는 프록시를 다시 시작할 필요가 없다.
 
-`proxy/.env`에서 `MARKET_DATA_DIR`을 바꾸면 `proxy/macos/install.sh`로 빌드·재시작한다. 직접 실행할 때는 같은 환경변수를 설정하고 `pnpm --filter proxy build` 뒤 `pnpm --filter proxy start`로 다시 띄운다. 맥이 잠들거나 터널이 끊기면 앱에 「맥 데이터에 닿지 않아요」가 표시된다.
+`proxy/.env`에서 `MARKET_DATA_DIR`을 바꾸면 `proxy/macos/install.sh`로 빌드·재시작한다. 직접 실행할 때는 같은 환경변수를 설정하고 `pnpm --filter proxy build` 뒤 `pnpm --filter proxy start`로 다시 띄운다. 맥이 잠들거나 터널이 끊기면 앱에 「맥 데이터에 닿지 않아요」가 표시된다. 앱에서 취소하거나 90초 시간 제한에 걸려도 맥의 계산은 끝까지 돌고 결과만 버린다. `MARKET_DATA_DIR`을 `~/Documents`·iCloud 아래에 두면 macOS 개인정보 보호 때문에 LaunchAgent가 파일을 읽지 못해 `market-file-invalid`가 난다. 기본값 `~/gazua-data`를 쓴다.
 
 Node 빌드는 웹의 순수 계산기를 esbuild로 묶어 `proxy/dist/node/server.js`를 만든다. 브라우저 전용 코드가 번들에 들어오면 실패한다. Docker는 저장소 루트를 빌드 문맥으로 쓴다(`docker build -f proxy/Dockerfile .`). 컨테이너에 시장 파일을 넣지 않으면 `market-file-missing`이다. 시장 파일은 본인 기기 사이에서만 쓰며 공개 배포하지 않는다.
 

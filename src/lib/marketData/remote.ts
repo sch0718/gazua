@@ -38,7 +38,8 @@ export function createRemoteMarketData({ baseUrl, token, fetchImpl = fetch }: { 
       const abort = () => ctl.abort();
       if (signal?.aborted) ctl.abort();
       else signal?.addEventListener('abort', abort, { once: true });
-      const timer = setTimeout(abort, 120_000);
+      // Cloudflare Tunnel은 원 서버 응답을 약 100초까지만 기다린다. 그보다 먼저 끊어 「닿지 않아요」로 보인다
+      const timer = setTimeout(abort, 90_000);
       try {
         // 전 종목 파일은 전송하지 않는다. 계산기는 맥의 파일을 읽는다.
         const { data: _data, ...input } = msg.input;

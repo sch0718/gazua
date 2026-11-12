@@ -35,7 +35,7 @@ describe('원격 시장 데이터', () => {
     worker.terminate();
     expect(signal?.aborted).toBe(true); expect(receive).not.toHaveBeenCalled();
   });
-  it('계산은 120초 뒤 끊고 프록시 HTTP 오류를 거절한다', async () => {
+  it('계산은 90초 뒤 끊고 프록시 HTTP 오류를 거절한다', async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
     const remote = createRemoteMarketData({ baseUrl: 'https://mac.test', fetchImpl: vi.fn(async (_u, init) => {
@@ -44,7 +44,7 @@ describe('원격 시장 데이터', () => {
     }) });
     const pending = remote.screen({ type: 'run', input: {} as never });
     const rejected = expect(pending).rejects.toThrow();
-    await vi.advanceTimersByTimeAsync(120_000); await rejected; expect(signal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(89_999); expect(signal?.aborted).toBe(false); await vi.advanceTimersByTimeAsync(1); await rejected; expect(signal?.aborted).toBe(true);
     const broken = createRemoteMarketData({ baseUrl: 'https://mac.test', fetchImpl: async () => new Response('', { status: 503 }) });
     await expect(broken.meta()).rejects.toThrow();
   });
