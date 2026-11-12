@@ -8,12 +8,41 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 - `{GET|POST} /{kis|toss}/{상위 경로}?{쿼리}` → 허용 목록에 있는 경로만 상위로 전달하고, 응답(상태·본문·`content-type`·`retry-after`·`x-ratelimit-remaining`·`tr_cont`)을 그대로 돌려줘요.
 - 확인 순서: 출처(`Origin`이 `ALLOWED_ORIGINS`에 있어야 함, 아니면 `403 origin-not-allowed`) → `X-Proxy-Token`(`PROXY_TOKEN`을 설정한 경우, 아니면 `401 proxy-token-invalid`) → 경로·메서드 허용 목록(아니면 `403 proxy-path-blocked`, 상위 호출 없음) → 전달.
 - 상위 네트워크 오류는 `502 upstream-unreachable`.
-- 주문·매수가능금액 같은 계좌 경로는 허용 목록에 없어서 항상 거절돼요. 예외로 열린 토스 경로는 **조회(GET)만** 받아요.
+- 주문·매수가능금액 같은 계좌 경로는 허용 목록에서 계속 거절해요. 별도 검사를 거치는 Node의 `POST /order/toss`만 주문을 받아요. 아래 토스 경로는 **조회(GET)만** 받아요.
   - 계좌 목록(`/api/v1/accounts`)과 보유 주식(`/api/v1/holdings`): 관심그룹 가져오기와 내 성과의 수량 대조에 써요.
   - 주문 목록(`/api/v1/orders`): 내 성과의 체결 내역을 받는 데 써요. 사용자가 허락한 예외예요. 같은 경로의 `POST`(주문 생성)는 막아요. 주문 상세·정정·취소(`/api/v1/orders/{id}`, `…/modify`, `…/cancel`), 조건주문(`/api/v1/conditional-orders`), 매수가능금액(`/api/v1/buying-power`), 매도가능수량, 수수료 경로도 계속 막아요.
   - 보유 주식과 주문 목록에 필요한 `X-Tossinvest-Account` 헤더를 함께 전달해요.
-- 이 프록시를 고칠 때 허용 목록을 더 넓히지 마세요. 주문 경로가 열리면 토큰만으로 주문이 나갈 수 있어요.
+- 이 프록시를 고칠 때 허용 목록을 더 넓히지 마세요. 주문은 아래의 별도 경로와 한도 검사를 거쳐요.
 - 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
+
+## 주문 경로
+
+Node 프록시에서 본인 토스 계좌의 국내 주식 지정가(`LIMIT`)·당일(`DAY`) 매수·매도만 받아요. CLI의 `gazua order`가 이 경로를 써요. 웹 화면과 MCP에는 주문 기능이 없어요. `Claude는 실제 주문을 실행하지 않는다`는 원칙에 따라 Claude·Codex 개발 시험은 가짜 fetch와 임시 디렉터리로만 해요. 첫 소액 주문은 사용자가 직접 확인해요.
+
+- `GET /order/status`: 켜짐·중지 여부, 1회·하루 금액 한도, 분당·하루 건수 한도와 오늘(KST) 보낸 건수·금액을 돌려줘요. 비밀값은 없어요.
+- `POST /order/toss`: `authorization`, `x-tossinvest-account` 헤더와 `{symbol, side, quantity, price}`만 받아요. 종목은 영문 대문자·숫자 6자리, 방향은 `BUY`·`SELL`, 수량·지정가는 양의 안전한 정수예요. 프록시가 지정가 본문과 UUID를 새로 만들어요.
+- 출처와 프록시 토큰을 먼저 검사해요. 서버 `PROXY_TOKEN`이 비었거나 Worker 판이면 `404 order-unavailable`이에요. 허용 목록의 `/toss/api/v1/orders` POST와 정정·취소·조건주문 경로는 계속 막혀요.
+- 주문 금액은 `수량 × 지정가`예요. **1회 금액이 한도 이상이면 거절**해요. 매수·매도 모두 같고 수수료·세금은 포함하지 않아요. 매도 체결가는 지정가보다 높아 받을 금액이 한도를 넘을 수 있어요.
+- 하루 금액 합은 선택 한도까지 허용해요. 기본 반복 상한은 최근 60초 3건·KST 하루 20건이에요. 처리 중인 다른 주문은 `409 order-busy`로 즉시 거절해요. 토스 오류·시간 초과도 보낸 건수와 금액에 포함해요.
+
+맥의 `proxy/.env`에 아래 설정을 넣어요. `ORDER_ENABLED=true`와 올바른 `ORDER_MAX_AMOUNT`가 함께 있어야 켜져요. 금액·건수는 쉼표·소수 없는 양의 안전한 정수예요. 선택 설정도 잘못되면 주문 전체가 꺼져요. 하루 금액 한도는 비우면 검사하지 않아요.
+
+```dotenv
+ORDER_ENABLED=true
+ORDER_MAX_AMOUNT=300000
+# 선택 설정
+ORDER_DAILY_MAX_AMOUNT=1000000
+ORDER_MAX_PER_MINUTE=3
+ORDER_MAX_PER_DAY=20
+ORDER_STOP_FILE=~/gazua-order.stop
+ORDER_AUDIT_LOG=~/Library/Logs/gazua-orders.jsonl
+```
+
+`~`는 홈으로 바꿔요. 경로는 절대 경로나 `~/`로 시작해야 해요(launchd의 작업 폴더가 `/`라서 상대 경로는 막아요). 위 목록에 없는 `ORDER_` 설정(키 오타)이 있어도 주문이 꺼져요. 주문은 맥 Node 판에서만 써요. Docker 판은 `ORDER_*`를 넘기지 않아 꺼져 있고, 켜면 감사 로그가 컨테이너와 함께 사라지므로 쓰지 않아요. 설정 변경은 사용자가 `proxy/macos/install.sh`로 빌드·재시작해야 적용돼요. 중지 파일은 재시작 없이 만들거나 지워요. 멈추는 순서는 중지 파일 만들기(`touch ~/gazua-order.stop`) → 토스 앱에서 미체결 주문 확인·필요하면 취소 → 필요하면 `ORDER_ENABLED`를 끄고 재시작이에요. 중지 파일을 지우면 다시 주문을 받아요.
+
+감사 로그는 기본 `~/Library/Logs/gazua-orders.jsonl`이고 권한은 600이에요. 거절(`reject`)·보내기(`send`)·결과(`result`)를 한 줄 JSON으로 남겨요. 토큰·계좌 번호·요청 원문은 쓰지 않아요. `send`를 쓰지 못하면 `503 order-audit-failed`로 거절하고 토스에 보내지 않아요. 시작 때 로그를 만들거나 열고 오늘 합계와 최근 60초 기록을 복원한 뒤 주문을 받아요. 그 전에는 `order-disabled`예요. 깨진 로그나 복원 실패가 있으면 주문을 끄고 시작 로그에 이유·깨진 줄 번호를 남겨요. 해당 줄을 확인·정리한 뒤 재시작하고, **감사 로그는 지우지 않아요**.
+
+토스에는 고정 HTTPS 주소로 한 번만 보내며 리다이렉트를 따라가지 않아요. 토스의 4xx만 `order-upstream`(토스가 거절함)으로 돌려줘요. 토스의 5xx·200 아닌 2xx·3xx와 연결 끊김은 `502 upstream-unreachable`, 시간 초과는 `504 upstream-timeout`이고 모두 `clientOrderId`를 붙여요. 주문이 들어갔을 수 있으므로 토스 앱에서 확인하기 전에는 다시 보내지 마세요. CLI가 ID를 못 받았다면 감사 로그의 `send`에서 시각·종목으로 찾아요.
 
 ## 맥의 시장 데이터 조회
 

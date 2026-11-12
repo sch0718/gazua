@@ -1,4 +1,4 @@
-// gazua 진입점: 인자 해석 → 명령 분기 → JSON 한 줄. 읽기 전용이라 쓰기·주문 명령은 없다.
+// gazua 진입점: 인자 해석 → 명령 분기 → JSON 한 줄. 주문은 사람이 --yes로 확인한 뒤 맥 프록시로만 보낸다.
 import { realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { createInterface } from 'node:readline';

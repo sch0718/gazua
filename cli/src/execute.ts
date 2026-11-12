@@ -10,6 +10,7 @@ import { simulateCmd } from './commands/simulate';
 import { drive } from './commands/drive';
 import { owner } from './commands/owner';
 import { alert } from './commands/alert';
+import { order } from './commands/order';
 import { configDir } from './config';
 import type { Command, Ctx, Io } from './context';
 import { CliError, toCliError } from './errors';
@@ -28,10 +29,11 @@ export const COMMANDS: Record<string, Command> = {
   drive,
   owner,
   alert,
+  order,
 };
 
 /** 증권사 키·클라이언트 시크릿·알람 토픽을 담는 환경변수. 명령 검증보다 먼저 출력 거르기에 등록해, 인자 오류 메시지가 입력을 되풀이해도 키가 나가지 않게 한다 */
-export const SECRET_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_ALERT_NTFY_TOPIC'] as const;
+export const SECRET_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_DRIVE_CLIENT_SECRET', 'GAZUA_ALERT_NTFY_TOPIC', 'GAZUA_PROXY_TOKEN'] as const;
 
 export function registerEnvSecrets(redact: Redactor, env: Io['env']): void {
   for (const name of SECRET_ENV) redact.add(env[name]?.trim());

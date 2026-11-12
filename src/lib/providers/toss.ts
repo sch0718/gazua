@@ -426,6 +426,15 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   const account: AccountSource = {
     accountId: brokerageSeq,
 
+    async orderHeaders() {
+      const result = await api({ group: 'ACCOUNT', path: '/api/v1/accounts', query: {}, priority: 0 });
+      const rows = Array.isArray(result) ? result.filter(isRecord) : [];
+      const account = rows.find((row) => row.accountType === 'BROKERAGE');
+      const seq = account ? text(account.accountSeq) : '';
+      if (!seq) throw upstream('주문할 종합매매 계좌가 없어요');
+      return { authorization: `Bearer ${await tokens.get()}`, 'x-tossinvest-account': seq };
+    },
+
     async closedOrders(opts = {}) {
       const seq = await brokerageSeq();
       const out: AccountOrder[] = [];

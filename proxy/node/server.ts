@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { createMarketHandler } from './market.js';
+import { createOrderHandler, readOrderConfig } from './order.js';
 import { handle, type ProxyEnv } from '../src/handler.js';
 
 const PORT = 8787;
@@ -17,6 +18,8 @@ export interface ServerOptions {
   upstreamTimeoutMs?: number;
   /** 테스트용 */
   fetchImpl?: typeof fetch;
+  orderEnv?: Record<string, string | undefined>;
+  now?: () => number;
 }
 
 class PayloadTooLarge extends Error {}
@@ -59,6 +62,10 @@ export function createProxyServer(env: ProxyEnv, opts: ServerOptions = {}): Serv
   const upstreamTimeoutMs = opts.upstreamTimeoutMs ?? NODE_LIMITS.upstreamTimeoutMs;
   const fetchImpl = opts.fetchImpl ?? fetch;
   const market = env.PROXY_TOKEN ? createMarketHandler({ directory: opts.marketDataDir ?? (process.env.MARKET_DATA_DIR || undefined) }) : undefined;
+  const cfg = env.PROXY_TOKEN ? readOrderConfig(opts.orderEnv ?? process.env) : undefined;
+  const order = cfg ? createOrderHandler(cfg, { fetchImpl, now: opts.now ?? Date.now, upstreamTimeoutMs }) : undefined;
+  if (order && cfg) void order.ready.then(() => console.log(cfg.enabled ? `order: on max=${cfg.maxAmount}` : `order: off (${cfg.disabledReason})`));
+  else console.log('order: off (PROXY_TOKEN이 없어요)');
   return createServer((incoming, res) => {
     const started = Date.now();
     const method = incoming.method ?? 'GET';
@@ -75,7 +82,7 @@ export function createProxyServer(env: ProxyEnv, opts: ServerOptions = {}): Serv
       .then(() => toRequest(incoming, path === '/market/screen' ? 1024 * 1024 : maxBodyBytes))
       .then(
         (request) =>
-          handle(request, env, fetchImpl, { upstreamTimeoutMs, market }).then(async (response) => {
+          handle(request, env, fetchImpl, { upstreamTimeoutMs, market, order: order?.handler }).then(async (response) => {
             await send(res, response);
             log(response.status);
           }),

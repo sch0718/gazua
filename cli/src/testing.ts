@@ -41,6 +41,7 @@ export function makeIo(o: { env?: Record<string, string | undefined>; fetch?: ty
 
 export interface FakeCall {
   method: string;
+  redirect?: RequestRedirect;
   url: URL;
   headers: Headers;
   /** JSON 본문은 파싱해서, 그 밖(폼)은 문자열 그대로 */
@@ -60,7 +61,7 @@ export function fakeFetch(handler: (call: FakeCall) => FakeReply | undefined | P
         body = raw;
       }
     }
-    const call: FakeCall = { method: init?.method ?? 'GET', url: new URL(String(input)), headers: new Headers(init?.headers), body };
+    const call: FakeCall = { method: init?.method ?? 'GET', url: new URL(String(input)), headers: new Headers(init?.headers), body, redirect: init?.redirect };
     calls.push(call);
     const r = await handler(call);
     if (r instanceof Error) throw r;

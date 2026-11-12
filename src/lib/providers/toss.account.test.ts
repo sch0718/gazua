@@ -234,3 +234,16 @@ describe('toss account: holdings and id', () => {
     await expect(account.accountId()).rejects.toMatchObject({ code: 'upstream' });
   });
 });
+
+describe('토스 주문용 계좌 헤더', () => {
+  it('종합매매 계좌만 골라 토큰과 함께 돌려준다', async () => {
+    const { account, calls } = setup({ '/api/v1/accounts': ACCOUNTS });
+    expect(await account.orderHeaders!()).toEqual({ authorization: 'Bearer tok', 'x-tossinvest-account': '3' });
+    expect(calls.map((c) => c.path)).toEqual(['/api/v1/accounts']);
+  });
+
+  it.each([[], [{ accountType: 'PENSION_SAVINGS', accountSeq: 7 }]].map((accounts) => ({ accounts })))('종합매매 계좌가 없으면 실패한다: $accounts', async ({ accounts }) => {
+    const { account } = setup({ '/api/v1/accounts': () => ok(accounts) });
+    await expect(account.orderHeaders!()).rejects.toMatchObject({ code: 'upstream' });
+  });
+});

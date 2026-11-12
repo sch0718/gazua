@@ -20,7 +20,7 @@ describe('cli/README.md', () => {
   });
 
   it('환경변수 이름과 옵션이 모두 적혀 있다', () => {
-    for (const name of ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_SYNC_URL', 'XDG_CONFIG_HOME', '--env-file', '--symbols', '--profile', '--provider', '--strategy', '--today', '--from', '--to', '--raw', '--pretty', '--verbose', '--server', '--label']) {
+    for (const name of ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_SYNC_URL', 'XDG_CONFIG_HOME', '--env-file', '--symbols', '--profile', '--provider', '--strategy', '--today', '--from', '--to', '--raw', '--pretty', '--verbose', '--server', '--label', '--yes', 'GAZUA_PROXY_URL', 'GAZUA_PROXY_TOKEN', 'GAZUA_PROXY_ORIGIN']) {
       expect(readme, name).toContain(name);
     }
   });
@@ -42,7 +42,7 @@ describe('cli/README.md', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('읽기 전용(주문 없음)과 비밀값 출력 금지를 밝힌다', () => {
+  it('주문 범위와 비밀값 출력 금지를 밝힌다', () => {
     expect(readme).toContain('주문');
     expect(readme).toContain('[숨김]');
   });

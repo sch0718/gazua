@@ -19,13 +19,17 @@ const code = (fn: () => unknown): string | undefined => {
 };
 
 describe('도구 표', () => {
+  it('주문은 MCP 도구로 내보내지 않는다', () => {
+    expect(TOOLS.some((t) => t.name === 'order')).toBe(false);
+    expect(findTool('order')).toBeUndefined();
+  });
   // drive는 사람이 터미널에서 하는 로그인·업로드라 login·logout처럼 도구로 내보내지 않는다. owner는 수집 스크립트 전용이고 alert는 알림 전송용이다
-  it('도구 이름은 COMMANDS에서 login·logout·drive·owner·alert를 뺀 것과 정확히 같다', () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(Object.keys(COMMANDS).filter((n) => !['login', 'logout', 'drive', 'owner', 'alert'].includes(n)).sort());
+  it('도구 이름은 COMMANDS에서 login·logout·drive·owner·alert·order를 뺀 것과 정확히 같다', () => {
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(Object.keys(COMMANDS).filter((n) => !['login', 'logout', 'drive', 'owner', 'alert', 'order'].includes(n)).sort());
   });
 
   it('findTool은 표에 있는 이름만 찾는다', () => {
-    for (const n of ['login', 'logout', 'drive', 'owner', 'alert', '__proto__', 'constructor', 'toString', 'nope']) expect(findTool(n), n).toBeUndefined();
+    for (const n of ['login', 'logout', 'drive', 'owner', 'alert', 'order', '__proto__', 'constructor', 'toString', 'nope']) expect(findTool(n), n).toBeUndefined();
     expect(findTool('quote')?.name).toBe('quote');
   });
 
