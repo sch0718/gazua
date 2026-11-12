@@ -90,6 +90,8 @@ export function macroSide(stockClose: DayBar[], fred: FredSeries, kind: 'oil' | 
 }
 
 const signed = (n: number, digits = 1) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(digits)}`;
+const FUT_LABEL: Record<string, string> = { ES: 'S&P 선물', NQ: '나스닥 선물' };
+const plain = (names: string[]) => names.map((n) => FUT_LABEL[n] ?? n);
 interface Pick { name: string; pct: number; sym: string }
 export function formatPremarket(args: {
   esPct: number | null; nqPct: number | null; session: string; up: Pick[]; down: Pick[];
@@ -97,21 +99,30 @@ export function formatPremarket(args: {
   record: Backtest & { source: '기록' | '백테스트' }; missing: string[]; statusUnknown: boolean;
 }): { title: string; body: string } {
   const lines: string[] = [];
-  for (const [picks, arrow] of [[args.up, '▲'], [args.down, '▼']] as const) {
-    if (picks.length) lines.push(picks.map((p) => `${arrow} ${p.name} ${signed(p.pct * 100)}%(${p.sym})`).join(' '));
-  }
+  const list = (picks: Pick[]) => picks.map((p) => `· ${p.name} ${signed(p.pct * 100)}%`);
+  if (args.up.length) lines.push('오를 것 같은 종목', ...list(args.up));
+  if (args.down.length) lines.push('내릴 것 같은 종목', ...list(args.down));
+  if (!args.up.length && !args.down.length) lines.push('예상할 수 있는 종목이 없어요');
+  const extra: string[] = [];
   for (const m of args.macro) {
     const value = m.kind === 'rate' ? m.quote.changeAbs : m.quote.changePct;
-    if (value === null) continue;
-    const label = { oil: '유가', rate: '금리', dollar: '달러' }[m.kind];
-    const change = m.kind === 'rate' ? `${signed(value * 100, 0)}bp` : `${signed(value)}%`;
-    lines.push(`${label} ${change} ${value >= 0 ? '↑' : '↓'} 같은 쪽: ${m.same.join('·') || '없음'} / 반대쪽: ${m.opposite.join('·') || '없음'}`);
+    if (value === null || (!m.same.length && !m.opposite.length)) continue;
+    const label = { oil: '유가', rate: '미국 금리', dollar: '달러' }[m.kind];
+    const change = m.kind === 'rate' ? `${signed(value, 2)}%p` : `${signed(value)}%`;
+    const rose = value >= 0;
+    const groups = [[m.same, rose], [m.opposite, !rose]] as const;
+    const parts = groups.filter(([names]) => names.length).map(([names, up]) => `${up ? '오르는' : '내리는'} 편: ${names.join('·')}`);
+    extra.push(`${label} ${rose ? '올랐어요' : '내렸어요'}(${change}) → 보통 ${parts.join(' / ')}`);
   }
+  if (extra.length) lines.push('', ...extra);
   const r = args.record;
-  lines.push(`${r.source} 방향 적중 ${(r.hit * 100).toFixed(0)}%(${r.days}일, 표본 ${r.n} · 늘 오름 기준 ${(r.baseUp * 100).toFixed(0)}%)`);
-  if (args.statusUnknown) lines.push('휴장 여부 확인 못 함');
-  if (args.missing.length) lines.push(`빠진 지표: ${args.missing.join(', ')}`);
-  lines.push('과거 경향이며 투자 조언이 아님');
-  const pct = (v: number | null) => v === null ? '자료 없음' : `${signed(v * 100)}%`;
-  return { title: `개장 전 · ES ${pct(args.esPct)} NQ ${pct(args.nqPct)} (${args.session})`, body: lines.join('\n') };
+  lines.push('', `${r.source === '기록' ? '실제 알림' : '지난 자료로 시험해 보니'} 최근 ${r.days}일 방향 적중 ${(r.hit * 100).toFixed(0)}% (「매일 오른다」로 찍으면 ${(r.baseUp * 100).toFixed(0)}%)`);
+  if (args.statusUnknown) lines.push('오늘 장이 열리는지 확인하지 못했어요');
+  if (args.missing.length) lines.push(`못 가져온 자료: ${plain(args.missing).join(', ')}`);
+  lines.push('과거 흐름으로 본 예상일 뿐, 투자 조언이 아니에요');
+  const moves = [['S&P', args.esPct], ['나스닥', args.nqPct]] as const;
+  const known = moves.filter(([, v]) => v !== null) as [string, number][];
+  const mood = !known.length ? '자료 없음' : known.every(([, v]) => v >= 0) ? '올랐어요' : known.every(([, v]) => v < 0) ? '내렸어요' : '엇갈렸어요';
+  const detail = known.map(([k, v]) => `${k} ${signed(v * 100)}%`).join(', ');
+  return { title: `아침 예상 · 밤사이 미국 선물 ${mood}${detail ? ` (${detail})` : ''}`, body: lines.join('\n') };
 }
