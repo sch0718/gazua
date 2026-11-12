@@ -21,7 +21,7 @@
 
 순서:
 
-1. 이전 파일을 읽고(`format` 확인) 계획을 계산한다(순수 함수 `planExtendBack(prev, { years, maxYears, today })`).
+1. 이전 파일을 읽고(`format` 확인, `source`가 `toss`가 아니면 거부: KIS 파일의 매매동향·재무를 지우지 않게) 계획을 계산한다(순수 함수 `planExtendBack(prev, { years, maxYears, today })`).
    - `oldFrom = prev.range.from`, `target = today − maxYears년`.
    - `oldFrom ≤ target + 14일`이면 **이미 도달**: 「이미 N년치예요」를 남기고 아무것도 하지 않고 끝난다(종료 코드 0). `main()`은 `fetchOwner()`·`loadMaster()`·토스 클라이언트를 만들기 **전에** 이 판단을 한다(마스터·토큰·owner도 받지 않는다). 14일은 연휴·주말로 첫 거래일이 목표일보다 늦는 것을 흡수한다.
    - 아니면 `from = max(oldFrom − years년, target)`, `to = prev.range.to`(끝은 그대로 둔다).
@@ -36,7 +36,7 @@
    - 같으면 `fresh` 중 `d < old.d[0]`인 행만 앞에 붙인다. 겹친 날은 기존 값을 지킨다. 붙일 행이 없으면 같은 참조를 돌려준다.
 5. 수급·재무: 토스라 받지 않는다(기존 규칙 그대로). 환율·유가는 새 `from` 기준으로 다시 받는다(실패 시 이전 계열 유지는 기존 코드 그대로).
 6. 진행분: `.partial` 경로를 날짜 없는 `<out>/market-data-extend-back.partial`로 둔다. 헤더에 `extendFrom`(이전 파일 절대 경로), `source`, `from`, `to`를 넣는다. 다시 돌 때 `.partial`의 `extendFrom`·`source`가 같으면 **그 헤더의 `from`·`to`를 그대로 쓴다**(오늘 날짜로 다시 계산한 `from`이 하루 밀려도 이어 받는다). 다르면 처음부터 받는다.
-7. 쓰기: 이름 규칙·형식은 지금과 같다(`market-data-<오늘>.json.gz`, `gazua-market-data` v4). 임시 파일에 쓴 뒤 이름을 바꾼다. 성공하면 이전 파일을 `<out>/market-data-backup.json.gz.bak`으로 옮긴다(이전 백업은 덮어써 하나만 남는다). `.bak`이라 `run.sh`와 (다른 세션이 만드는) 맥 프록시의 「가장 새 `market-data-*.json.gz`」 고르기에 걸리지 않는다. 이전 파일과 새 파일 이름이 같으면(같은 날) 먼저 백업으로 옮긴 뒤 새 파일로 바꾼다.
+7. 쓰기: `collectedAt`은 이전 값을 지킨다(끝 날짜가 그대로라 앱의 오래됨 안내가 꺼지지 않게). 오늘 종목 목록에 없는 이전 종목은 넣지 않고 로그에 남긴다. 이름 규칙·형식은 지금과 같다(`market-data-<오늘>.json.gz`, `gazua-market-data` v4). 임시 파일에 쓴 뒤 이름을 바꾼다. 성공하면 이전 파일을 `<out>/market-data-backup.json.gz.bak`으로 옮긴다(이전 백업은 덮어써 하나만 남는다). `.bak`이라 `run.sh`와 (다른 세션이 만드는) 맥 프록시의 「가장 새 `market-data-*.json.gz`」 고르기에 걸리지 않는다. 이전 파일과 새 파일 이름이 같으면(같은 날) 먼저 백업으로 옮긴 뒤 새 파일로 바꾼다.
 
 ## 예약 작업 (`scripts/macos/collect-agent/`)
 
@@ -45,7 +45,7 @@
 - 설정 파일 `~/.config/gazua/collect.env`(없으면 만든다, 권한 600): `GAZUA_COLLECT_DIR=$HOME/gazua-data`, `GAZUA_COLLECT_MAX_YEARS=5`, `GAZUA_COLLECT_RATE=1`. 키는 여기 넣지 않는다.
 - `run.sh`가 실제 한 번의 실행이다.
   - 저장소 경로는 `run.sh` 위치에서 절대 경로로 구하고, 실행 전에 `cd <저장소>`한다.
-  - 잠금: `<DIR>/.collect-extend.lock` 디렉터리를 `mkdir`로 잡는다. 이미 있고 그 안의 pid가 살아 있으면 「다른 실행이 돌고 있어요」를 남기고 0으로 끝난다. pid가 죽었으면 잠금을 치우고 잡는다. 끝나면 `trap`으로 지운다.
+  - 잠금: `<DIR>/.collect-extend.lock`을 macOS `/usr/bin/lockf -t 0`으로 잡은 채 자신을 다시 실행한다. 못 잡으면(75) 「다른 실행이 돌고 있어요」를 남기고 0으로 끝난다. 프로세스가 끝나면 커널이 풀어 남은 잠금을 치울 일이 없다.
   - `<DIR>`에서 이름순으로 가장 새 `market-data-*.json.gz`를 고른다. 없으면 「먼저 수집해 주세요」로 끝난다(1).
   - `node --env-file=<저장소>/.env.toss <저장소>/scripts/collect-market-data.mjs --provider toss --extend-back <파일> --years 1 --max-years $MAX --rate $RATE --out <DIR>`. 키 값은 다루지 않는다. 출력은 launchd가 로그로 보낸다.
 - 일정: **매일 03:30 한 번**(`StartCalendarInterval`). 이유: 1년 늘리기는 초당 1건에서 약 2~3시간이라 하루 한 번이면 4번(4일)에 5년에 닿고, 낮 시간 앱·알람의 토스 호출과 겹치지 않는다. 맥이 잠들어 있으면 깬 뒤 한 번 돈다. 5년에 닿은 뒤에는 파일만 읽고 바로 끝난다.
@@ -54,7 +54,7 @@
 - `install.sh`: Node·`.env.toss` 있음·`cli/dist/gazua.mjs`(owner 표시용) 확인 → 설정 파일 → plist 생성·`plutil -lint` → `launchctl bootstrap`. `GAZUA_COLLECT_DRY=1`이면 임시 폴더에 plist만 만든다(시험용). 바로 한 번 돌리지 않는다.
 - `uninstall.sh`: 에이전트만 내리고 설정·로그·데이터는 남긴다고 알린다.
 
-## 시험 (`tests/collect-market-data.test.mjs`, 가짜 토스 클라이언트)
+## 시험 (`tests/collect-extend-back.test.mjs`·`tests/collect-agent.test.mjs`, 가짜 토스 클라이언트)
 
 토스 가짜 서버는 `tests/toss-collect.test.mjs`의 `fakeToss`와 같은 모양으로 둔다. 한 동작은 한 곳에서만 시험한다.
 

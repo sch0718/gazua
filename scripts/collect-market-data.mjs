@@ -173,6 +173,8 @@ export async function mergeUpdate(old, fresh, refetch) {
 // 날짜는 요청에 쓰는 YYYYMMDD로 돌려줘요. 14일 여유로 주말·연휴를 흡수해요.
 export function planExtendBack(prev, { years = 1, maxYears = 5, today }) {
   if (prev?.format !== 'gazua-market-data') throw new Error('--extend-back 파일이 시장 데이터 파일이 아니에요');
+  // KIS 파일을 토스로 늘리면 매매동향·재무가 지워지므로 토스 파일만 늘려요
+  if (prev.source !== 'toss') throw new Error('--extend-back은 토스로 수집한 파일만 늘려요');
   const oldFrom = compactDate(prev.range.from);
   const target = yearsBefore(today, maxYears);
   const grace = kstCompact(Date.UTC(+target.slice(0, 4), +target.slice(4, 6) - 1, +target.slice(6, 8) + 14));
@@ -194,7 +196,7 @@ export function mergeBack(old, fresh) {
     overlap++;
     if (keys.some((k) => fresh[k][j] !== old[k][i])) return { cols: old, mismatch: true };
   }
-  if (!overlap) return { cols: old, mismatch: true };
+  if (!overlap) return { cols: old, mismatch: true, noOverlap: true };
   const before = fresh.d.filter((d) => d < old.d[0]).length;
   if (!before) return { cols: old, mismatch: false };
   return { cols: Object.fromEntries(Object.keys(old).map((k) => [k, [...fresh[k].slice(0, before), ...old[k]]])), mismatch: false };
@@ -358,6 +360,11 @@ export async function collect({ years, out, update, extendBack, maxYears = 5, cl
   }
 
   const masterStocks = master.stocks.filter((s) => !back || oldStock.has(s.s)).sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
+  if (back) {
+    const inMaster = new Set(master.stocks.map((s) => s.s));
+    const gone = [...oldStock.keys()].filter((s) => !inMaster.has(s));
+    if (gone.length) log(`오늘 종목 목록에 없는 ${gone.length}종목(상장폐지 등)은 넣지 않았어요: ${gone.join(', ')}`);
+  }
   let refetched = 0;
   const failed = [];
 
@@ -373,7 +380,7 @@ export async function collect({ years, out, update, extendBack, maxYears = 5, cl
         const fresh = await client.indexDaily(id, dashed(from), old.d[Math.min(OVERLAP_DAYS - 1, old.d.length - 1)]);
         const merged = mergeBack(old, fresh);
         cols = merged.cols;
-        if (merged.mismatch) log(`수정주가가 달라 늘리지 않았어요: ${id}`);
+        if (merged.mismatch) log(`${merged.noOverlap ? '겹친 날을 받지 못해' : '수정주가가 달라'} 늘리지 않았어요: ${id}`);
       } else if (old) {
         const overlapFrom = old.d[Math.max(0, old.d.length - OVERLAP_DAYS)];
         const fresh = await client.indexDaily(id, overlapFrom, to);
@@ -385,7 +392,7 @@ export async function collect({ years, out, update, extendBack, maxYears = 5, cl
       appendFileSync(partialPath, `${JSON.stringify(rec)}\n`);
     }
     if (back && id === 'KOSPI' && rec.d.length <= (oldIndex.get(id)?.d.length ?? 0)) {
-      log('더 오래된 지수가 없어요');
+      log('KOSPI를 더 늘리지 못했어요(더 오래된 지수가 없거나 겹친 날이 달라요)');
       rmSync(partialPath, { force: true });
       return null;
     }
@@ -414,7 +421,7 @@ export async function collect({ years, out, update, extendBack, maxYears = 5, cl
         const fresh = await client.dailyCandles(m.s, dashed(from), old.d[Math.min(OVERLAP_DAYS - 1, old.d.length - 1)]);
         const merged = mergeBack(old, fresh);
         cols = merged.cols;
-        if (merged.mismatch) log(`수정주가가 달라 늘리지 않았어요: ${m.s}`);
+        if (merged.mismatch) log(`${merged.noOverlap ? '겹친 날을 받지 못해' : '수정주가가 달라'} 늘리지 않았어요: ${m.s}`);
       } else if (old) {
         const overlapFrom = old.d[Math.max(0, old.d.length - OVERLAP_DAYS)];
         const fresh = await client.dailyCandles(m.s, overlapFrom, to);
@@ -605,7 +612,8 @@ export async function collect({ years, out, update, extendBack, maxYears = 5, cl
   const file = {
     format: 'gazua-market-data',
     version: 4,
-    collectedAt: new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
+    // 늘리기는 끝 날짜가 그대로라, 앱의 「데이터가 오래됐어요」 안내가 꺼지지 않게 이전 수집 시각을 지켜요
+    collectedAt: back && prev.collectedAt ? prev.collectedAt : new Date(now() + KST_MS).toISOString().replace('Z', '+09:00'),
     // 수집 계정 표시: 이번 실행에서 받은 것만 쓴다(--update여도 이전 파일 값은 쓰지 않는다)
     ...(owner ? { owner } : {}),
     source,

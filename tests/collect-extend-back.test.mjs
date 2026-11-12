@@ -14,7 +14,7 @@ const dates = ['20241112', '20241113', '20251112', '20251113', '20251114', '2025
 const cols = (ds) => ({ d: ds, ...Object.fromEntries(['o', 'h', 'l', 'c', 'v', 'tv'].map((k, j) => [k, ds.map((d) => Number(d.slice(4)) + j)])) });
 const meta = (s) => ({ s, n: `종목${s}`, m: 'KOSPI', t: 'STOCK', sec: ['', '', ''], shares: 100, managed: false, halted: false });
 const oldFile = (ds = dates.slice(2)) => ({
-  format: 'gazua-market-data', version: 4, source: 'toss', adjusted: true,
+  format: 'gazua-market-data', version: 4, source: 'toss', adjusted: true, collectedAt: '2026-11-11T19:00:00.000+09:00',
   range: { from: `${ds[0].slice(0, 4)}-${ds[0].slice(4, 6)}-${ds[0].slice(6)}`, to: '2026-11-11' },
   stocks: ['A', 'B', 'C'].map((s) => ({ ...meta(s), ...cols(ds) })),
   indices: ['KOSPI', 'KOSDAQ'].map((id) => { const c = cols(ds); return { id, d: c.d, o: c.o, c: c.c }; }),
@@ -64,6 +64,7 @@ test('계획: 목표일·14일 여유·연도 하한을 계산해요', () => {
   prev.range.from = '2021-11-27';
   assert.equal(collector.planExtendBack(prev, { years: 1, maxYears: 5, today: '20261112' }).reached, false);
   assert.throws(() => collector.planExtendBack({}, { years: 1, maxYears: 5, today: '20261112' }), /시장 데이터/);
+  assert.throws(() => collector.planExtendBack({ ...oldFile(), source: 'kis' }, { years: 1, maxYears: 5, today: '20261112' }), /토스로 수집한 파일만/);
 });
 
 test('1: 지수·종목 앞에 붙이고 겹친 날과 끝 날짜·v4·이름을 지키며 백업 하나를 덮어써요', async () => fixture(async ({ dir, path, run }) => {
@@ -79,6 +80,8 @@ test('1: 지수·종목 앞에 붙이고 겹친 날과 끝 날짜·v4·이름을
   assert.deepEqual(result.file.stocks[0].d, dates);
   assert.deepEqual(result.file.stocks[0].tv.slice(2), before.stocks[0].tv);
   assert.equal(result.summary.path, join(dir, 'market-data-20261112.json.gz'));
+  // 끝 날짜가 그대로라 수집 시각도 이전 값을 지켜요(앱의 오래됨 안내)
+  assert.equal(result.file.collectedAt, before.collectedAt);
   assert.deepEqual(read(backup), before);
   assert.equal(existsSync(path), false);
   // 같은 날 다시 늘려도 원본을 먼저 백업해요.
@@ -100,6 +103,13 @@ test('2: 상장일 종목도 한 번 요청하고, 지난 실패로 늦게 시�
   assert.deepEqual(file.stocks[0], prev.stocks[0]);
   assert.deepEqual(file.stocks[1].d, dates);
   assert.equal(fake.calls.some((r) => r.symbol === 'NEW'), false);
+}));
+
+test('오늘 종목 목록에 없는 이전 종목은 빼고 로그에 남겨요', async () => fixture(async ({ run }) => {
+  const lines = [];
+  const { file } = await run(fakeToss(), { master: { ...master, stocks: ['A', 'B'].map(meta) }, log: (l) => lines.push(l) });
+  assert.deepEqual(file.stocks.map((s) => s.s), ['A', 'B']);
+  assert.ok(lines.some((l) => /목록에 없는 1종목.*C/.test(l)));
 }));
 
 test('3: mergeBack은 가격 불일치·공통 날짜 없음이면 붙이지 않고, 공통 날짜가 같으면 기존 값을 지켜요', () => {
@@ -170,7 +180,7 @@ test('KOSPI가 늘지 않으면 종목·매크로를 받지 않고 원본을 지
   const before = readFileSync(path);
   await run(fake, { log: (s) => logs.push(s), fredFetch: () => { assert.fail('매크로를 요청했어요'); } });
   assert.equal(fake.calls.length, 1);
-  assert.ok(logs.some((s) => s.includes('더 오래된 지수가 없어요')));
+  assert.ok(logs.some((s) => s.includes('KOSPI를 더 늘리지 못했어요')));
   assert.deepEqual(readFileSync(path), before);
   assert.deepEqual(readdirSync(dir), ['market-data-20261111.json.gz']);
 }));

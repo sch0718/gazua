@@ -26,7 +26,7 @@ GAZUA_COLLECT_DRY=1 bash scripts/macos/collect-agent/install.sh
 
 한 번 직접 실행할 때는 `bash scripts/macos/collect-agent/run.sh`를 써요. 어디에서 실행해도 저장소 경로를 찾아요. 가장 새 시장 파일을 고르고, 살아 있는 다른 실행이 있으면 잠금을 지키고 끝나요. 잠금은 데이터 폴더의 `.collect-extend.lock`을 macOS `lockf`로 잡아요. 실행이 끝나거나 죽으면 저절로 풀려요.
 
-늘리기가 끝나면 이전 파일은 `market-data-backup.json.gz.bak` 하나로 남아요. 수정주가가 달라 늘리지 못한 종목은 로그로 알려 줘요. 이때는 새로 수집해 주세요. 새 종목이나 최근 일봉을 더하려면 기존 `--update`를 써요.
+늘리기가 끝나면 이전 파일은 `market-data-backup.json.gz.bak` 하나로 남아요. 드물게 바꾸는 도중에 멈추면 `.bak`과 `market-data-YYYYMMDD.json.gz.tmp`만 남을 수 있어요. 이때는 `.tmp`의 끝 `.tmp`를 지워 이름을 바꿔 주세요. 토스로 수집한 파일만 늘려요(KIS 파일이면 거부해요). 수정주가가 달라 늘리지 못한 종목은 로그로 알려 줘요. 이때는 새로 수집해 주세요. 새 종목이나 최근 일봉을 더하려면 기존 `--update`를 써요.
 
 ```sh
 bash scripts/macos/collect-agent/uninstall.sh
