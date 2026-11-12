@@ -8,12 +8,14 @@ import { test } from 'node:test';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const agent = join(repo, 'scripts/macos/collect-agent');
+// run.sh·install.sh는 맥 전용(/usr/bin/lockf, plutil, launchd)이라 맥에서만 시험해요
+const macOnly = { skip: process.platform !== 'darwin' };
 const temporary = (fn) => {
   const dir = mkdtempSync(join(tmpdir(), 'gazua-collect-agent-'));
   try { fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 };
 
-test('예약 수집: DRY 설치는 03:30 일정의 plist만 만들어요', { skip: process.platform !== 'darwin' }, () => temporary((dir) => {
+test('예약 수집: DRY 설치는 03:30 일정의 plist만 만들어요', macOnly, () => temporary((dir) => {
   const home = join(dir, '집 & 테스트');
   const dest = join(dir, 'plist');
   const result = spawnSync('/bin/bash', [join(agent, 'install.sh')], {
@@ -46,7 +48,7 @@ function runner(dir) {
   return { data, called, run };
 }
 
-test('예약 수집: 저장소 밖에서 실행해도 절대 경로로 가장 새 파일을 받아요', () => temporary((dir) => {
+test('예약 수집: 저장소 밖에서 실행해도 절대 경로로 가장 새 파일을 받아요', macOnly, () => temporary((dir) => {
   const { data, called, run } = runner(dir);
   writeFileSync(join(data, 'market-data-20261110.json.gz'), '이전');
   const latest = join(data, 'market-data-20261111.json.gz');
@@ -60,7 +62,7 @@ test('예약 수집: 저장소 밖에서 실행해도 절대 경로로 가장 �
   ]);
 }));
 
-test('예약 수집: 다른 실행이 잠금을 잡고 있으면 node를 부르지 않아요', () => temporary((dir) => {
+test('예약 수집: 다른 실행이 잠금을 잡고 있으면 node를 부르지 않아요', macOnly, () => temporary((dir) => {
   const { data, called, run } = runner(dir);
   writeFileSync(join(data, 'market-data-20261111.json.gz'), '최신');
   const lock = join(data, '.collect-extend.lock');
@@ -79,7 +81,7 @@ test('예약 수집: 다른 실행이 잠금을 잡고 있으면 node를 부르�
   }
 }));
 
-test('예약 수집: 이전 파일이 없으면 먼저 수집하라고 알려 줘요', () => temporary((dir) => {
+test('예약 수집: 이전 파일이 없으면 먼저 수집하라고 알려 줘요', macOnly, () => temporary((dir) => {
   const { data, called, run } = runner(dir);
   const result = run();
   assert.equal(result.status, 1);
