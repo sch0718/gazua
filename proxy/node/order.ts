@@ -52,7 +52,7 @@ export function readOrderConfig(env: Record<string, string | undefined>, home = 
   const maxPerMinute = integer('ORDER_MAX_PER_MINUTE', 3);
   const maxPerDay = integer('ORDER_MAX_PER_DAY', 20);
   // 키 이름 오타는 그 설정이 조용히 빠지는 것이므로 주문을 끈다.
-  const unknownKey = Object.keys(env).find((key) => key.startsWith('ORDER_') && !ORDER_KEYS.includes(key));
+  const unknownKey = Object.keys(env).find((key) => key.toUpperCase().startsWith('ORDER_') && !ORDER_KEYS.includes(key));
   if (unknownKey) reason = `알 수 없는 설정 ${unknownKey}가 있어요(오타인지 확인해 주세요)`;
   const expand = (name: string, fallback: string) => {
     const path = env[name] || fallback;

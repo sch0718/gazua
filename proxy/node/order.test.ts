@@ -48,7 +48,7 @@ describe('주문 설정', () => {
     expect(cfg.disabledReason).toBeTruthy();
   });
 
-  it.each([{ ORDER_DAILY_MAX_AMONT: '1000' }, { ORDER_STOP_FLIE: '~/stop' }, { ORDER_STOP_FILE: 'gazua.stop' }, { ORDER_AUDIT_LOG: 'logs/orders.jsonl' }])('키 오타나 상대 경로 %j는 전체를 끈다', (extra) => {
+  it.each([{ ORDER_DAILY_MAX_AMONT: '1000' }, { order_daily_max_amount: '1000' }, { ORDER_STOP_FLIE: '~/stop' }, { ORDER_STOP_FILE: 'gazua.stop' }, { ORDER_AUDIT_LOG: 'logs/orders.jsonl' }])('키 오타나 상대 경로 %j는 전체를 끈다', (extra) => {
     const cfg = readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ...extra }, '/fake-home');
     expect(cfg.enabled).toBe(false);
     expect(cfg.disabledReason).toBeTruthy();
