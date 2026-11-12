@@ -4,12 +4,14 @@
   // 화면이 바뀌어 누른 버튼이 사라지면 포커스를 옮긴다: 실행 → 결과 자리, 취소 → 실행 버튼, 구역 없는 규칙 고치기 → 이름 칸(좁은 화면).
   import { onDestroy, onMount, tick, untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
+  import { createRemoteMarketData, makeRemoteWorker } from '../lib/marketData/remote';
+  import { createMarketSource, type MarketSourceMode } from '../lib/marketData/source';
   import { openMarketData, type MarketDataInfo, type MarketDataStore, type MarketSector, type MarketThemeSummary } from '../lib/marketData/store';
   import type { UniverseItem } from '../lib/data/universe';
   import type { Basket } from '../lib/screen/baskets';
   import { usesMacro } from '../lib/screen/precompute';
   import type { MacroSeriesKey, SelectionCriteria } from '../lib/screen/types';
-  import { createValidationController, type WorkerLike } from '../lib/screen/validationController.svelte';
+  import { createValidationController, makeValidationWorker, type WorkerLike } from '../lib/screen/validationController.svelte';
   import type { Strategy } from '../lib/sim/types';
   import { strategyIssues, type Issue } from '../lib/sim/validate';
   import type { App } from '../lib/state/app.svelte';
@@ -36,7 +38,7 @@
   let {
     app,
     barEnd,
-    marketData = openMarketData(),
+    marketData: suppliedMarketData,
     makeWorker,
     loadItems = sharedUniverse,
     now = Date.now,
@@ -51,6 +53,11 @@
     loadItems?: () => Promise<UniverseItem[]>;
     now?: () => number;
   } = $props();
+
+  const remote = untrack(() => app.settings.proxyUrl.trim() ? createRemoteMarketData({ baseUrl: app.settings.proxyUrl.trim(), token: app.secrets?.proxyToken }) : null);
+  const defaultSource = createMarketSource({ local: openMarketData(), remote });
+  const marketData = untrack(() => suppliedMarketData) ?? defaultSource;
+  let sourceMode = $state<MarketSourceMode>('none');
 
   const strategy = $derived(app.strategies.find((s) => s.id === app.route.strategyId) ?? null);
 
@@ -134,7 +141,7 @@
   const panelId = `sim-panel-${Math.random().toString(36).slice(2, 9)}`;
 
   // 검증은 Worker가 돌린다. 결과는 이 컨트롤러 메모리에만 있다(화면을 떠나면 버린다)
-  const vctl = createValidationController({ makeWorker: untrack(() => makeWorker) });
+  const vctl = createValidationController({ makeWorker: untrack(() => makeWorker) ?? (() => defaultSource.mode() === 'remote' && remote ? makeRemoteWorker(remote) : makeValidationWorker()) });
   onDestroy(() => vctl.cancel());
   // 선정 기준 탭을 떠나면 Worker(전 종목 데이터와 미리 계산을 쥐고 있다)를 끝낸다. 다음에 쓸 때 다시 만든다
   $effect(() => {
@@ -153,6 +160,7 @@
     marketData.info().then(
       (i) => {
         info = i;
+        sourceMode = suppliedMarketData ? (i ? 'local' : 'none') : defaultSource.mode();
         if (i) marketData.sectors().then((x) => (sectors = x), () => {});
         // v1 파일은 테마가 없다(빈 목록). 읽지 못해도 빈 목록으로 둔다
         if (i) {
@@ -322,7 +330,7 @@
           <!-- 기준마다 편집기를 새로 만든다 -->
           {#key crit.id}
             <div class="notice">
-              <MarketDataNotice {info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
+              <MarketDataNotice mode={sourceMode} {info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
             </div>
             <CriteriaEditor
               bind:this={criteriaEditor}
@@ -371,7 +379,7 @@
           {#if criteriaTab}
             {#if info !== undefined}
               <div class="notice">
-                <MarketDataNotice info={info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
+                <MarketDataNotice mode={sourceMode} info={info} {ageDays} onimport={goData} ondismiss={() => (staleDismissed = true)} />
               </div>
             {/if}
             <CriteriaList {app} {dataRange} {lastResults} {sectors} />

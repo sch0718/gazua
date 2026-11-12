@@ -207,6 +207,7 @@ export const FAILURE_TEXT: Record<WorkerErrorCode, string> = {
   ...ERROR_TEXT,
   'no-data': NO_DATA_TEXT,
   crash: '계산 중 문제가 생겼어요',
+  remote: '맥 데이터에 닿지 않아요',
 };
 
 export const ALL_EMPTY_TEXT = '기간 내내 조건을 통과한 종목이 없어요';

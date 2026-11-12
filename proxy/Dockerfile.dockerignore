@@ -1,0 +1,7 @@
+# 빌드 문맥은 저장소 루트다. 번들에 필요한 것만 보낸다
+*
+!proxy/build.mjs
+!proxy/src
+!proxy/node
+!src
+**/*.test.ts

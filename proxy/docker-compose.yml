@@ -1,6 +1,8 @@
 services:
   proxy:
-    build: .
+    build:
+      context: ..
+      dockerfile: proxy/Dockerfile
     restart: unless-stopped
     environment:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS를 설정해 주세요}

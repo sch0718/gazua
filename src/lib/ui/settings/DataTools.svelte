@@ -8,6 +8,7 @@
   import type { SyncController } from '../../sync/controller.svelte';
   import { readDriveClientId } from '../../marketData/driveConfig';
   import MarketDrive from './MarketDrive.svelte';
+  import { createRemoteMarketData } from '../../marketData/remote';
   import { openMarketData, OWNER_TEXT, type ImportDeps, type MarketDataInfo, type MarketDataStore } from '../../marketData/store';
 
   let {
@@ -74,14 +75,23 @@
 
   // 시장 데이터(스펙 4): 기기 단위. 프로필·내보내기와 무관하다.
   let marketInfo = $state<MarketDataInfo | null>(null);
+  let remoteInfo = $state<MarketDataInfo | null>(null);
+  let remoteFailed = $state(false);
   let marketBusy = $state(false);
   let marketInput = $state<HTMLInputElement>();
-  onMount(() => {
-    marketData
-      .info()
-      .then((i) => (marketInfo = i))
-      .catch(() => {});
-  });
+  async function refreshMarket() {
+    remoteInfo = null;
+    remoteFailed = false;
+    try {
+      marketInfo = await marketData.info();
+      if (!marketInfo && app.settings.proxyUrl.trim()) {
+        const remote = createRemoteMarketData({ baseUrl: app.settings.proxyUrl.trim(), token: app.secrets?.proxyToken });
+        try { remoteInfo = (await remote.meta()).info; }
+        catch { remoteFailed = true; }
+      }
+    } catch { marketInfo = null; }
+  }
+  onMount(() => { void refreshMarket(); });
 
   // 파일에 실제로 있는 것만 적는다. 수집이 일부 실패한 v2 파일도 있다.
   function marketMacroThemes(i: MarketDataInfo): string {
@@ -127,7 +137,7 @@
   async function clearMarket() {
     try {
       await marketData.clear();
-      marketInfo = null;
+      await refreshMarket();
       showSnackbar('시장 데이터를 지웠어요');
     } catch {
       showSnackbar('시장 데이터를 지우지 못했어요');
@@ -227,7 +237,8 @@
   <div class="row">
     <div class="text">
       <b>시장 데이터</b>
-      <p class="num">{marketBusy ? '가져오는 중…' : marketInfo ? marketLine(marketInfo) : '수집한 .json.gz 파일을 가져와요.'}</p>
+      <p>지금 쓰는 데이터: {marketInfo ? '이 기기 파일' : remoteInfo ? '맥(원격)' : '없음'}</p>
+      <p class="num">{marketBusy ? '가져오는 중…' : marketInfo ? marketLine(marketInfo) : remoteInfo ? marketLine(remoteInfo) : remoteFailed ? '맥 데이터에 닿지 않아요' : '수집한 .json.gz 파일을 가져와요.'}</p>
     </div>
     {#if marketInfo}
       <button type="button" class="btn" disabled={marketBusy} onclick={clearMarket}>지우기</button>

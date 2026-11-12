@@ -8,6 +8,11 @@ const selection: Selection = { date: '2026-10-16', passed: 3, picked: [{ symbol:
 const props = { hasData: true, asOf: '2026.10.16', selection, pending: false, failed: false, names: { '005930': '삼성전자' } };
 
 describe('PreviewPanel', () => {
+  it.each([['remote', '맥 데이터에 닿지 않아요'], ['crash', '미리 보기를 계산하지 못했어요']] as const)('오류 %s 안내를 보인다', (error, text) => {
+    render(PreviewPanel, { ...props, failed: true, error });
+    expect(screen.getByText(text)).toBeTruthy();
+  });
+
   it('막히지 않았으면 기준일과 결과를 보인다', () => {
     render(PreviewPanel, props);
     expect(screen.getByText('2026.10.16 기준')).toBeTruthy();

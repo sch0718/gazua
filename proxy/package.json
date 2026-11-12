@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json && node build.mjs",
     "start": "node dist/node/server.js",
     "dev:worker": "wrangler dev",
     "deploy:worker": "wrangler deploy"
@@ -16,6 +16,7 @@
     "@types/node": "^22.10.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7",
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.0.0",
+    "esbuild": "0.25.12"
   }
 }

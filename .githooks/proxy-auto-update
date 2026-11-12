@@ -12,8 +12,8 @@ installer=${GAZUA_PROXY_INSTALL:-$top/proxy/macos/install.sh}
 [ -f "$plist" ] || exit 0
 git rev-parse -q --verify "$1^{commit}" >/dev/null || exit 0
 
-# install.sh가 읽는 것: 프록시 소스·빌드 설정, 그리고 install.sh 자신.
-changed=$(git diff --name-only "$1" "$2" -- proxy/src proxy/node proxy/package.json proxy/tsconfig.json proxy/macos/install.sh) || exit 0
+# 프록시 소스·빌드 설정과 번들에 들어가는 웹 계산 코드, install.sh 자신을 본다.
+changed=$(git diff --name-only "$1" "$2" -- proxy/src proxy/node proxy/package.json proxy/tsconfig.json proxy/build.mjs proxy/macos/install.sh src/lib/screen src/lib/sim src/lib/marketData src/lib/time src/lib/data) || exit 0
 [ -n "$changed" ] || exit 0
 
 # GUI 앱(에디터 등)에서 pull하면 PATH에 node·corepack이 없을 수 있다.

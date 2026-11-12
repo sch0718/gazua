@@ -15,6 +15,7 @@
   import type { Selection } from '../../screen/select';
   import type { SelectionCriteria } from '../../screen/types';
   import { criteriaIssues, type Issue } from '../../screen/validate';
+  import type { WorkerErrorCode } from '../../screen/runValidation';
   import { PreviewError } from '../../screen/validationController.svelte';
   import { defaultPatternEntry } from '../../sim/defaults';
   import { patternEntryOf } from '../../sim/patternBlock';
@@ -178,6 +179,7 @@
   let previewSel = $state.raw<Selection | null>(null);
   let previewPending = $state(false);
   let previewFailed = $state(false);
+  let previewError = $state<WorkerErrorCode | null>(null);
   let previewSeq = 0;
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -185,6 +187,7 @@
     const seq = ++previewSeq;
     previewPending = true;
     previewFailed = false;
+    previewError = null;
     try {
       const sel = await preview({
         criteria: $state.snapshot(draft) as SelectionCriteria,
@@ -194,7 +197,10 @@
       if (seq === previewSeq) previewSel = sel;
     } catch (e) {
       // 취소(다음 계산이나 실행에 밀림)는 조용히 둔다
-      if (seq === previewSeq && !(e instanceof PreviewError && e.code === 'cancelled')) previewFailed = true;
+      if (seq === previewSeq && !(e instanceof PreviewError && e.code === 'cancelled')) {
+        previewFailed = true;
+        previewError = e instanceof PreviewError && e.code !== 'cancelled' ? e.code : null;
+      }
     } finally {
       if (seq === previewSeq) previewPending = false;
     }
@@ -587,6 +593,7 @@
     selection={previewSel}
     pending={previewPending}
     failed={previewFailed}
+    error={previewError}
     blocked={previewBlocked}
     {names}
   />

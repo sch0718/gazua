@@ -401,7 +401,7 @@ function assertFinite(r: ValidationResult): void {
 }
 
 /** Worker가 돌려줄 오류 코드 */
-export type WorkerErrorCode = ValidationErrorCode | 'no-data' | 'crash';
+export type WorkerErrorCode = ValidationErrorCode | 'no-data' | 'crash' | 'remote';
 
 export function errorCode(e: unknown): WorkerErrorCode {
   if (e instanceof ValidationError) return e.code;

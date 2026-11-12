@@ -48,7 +48,11 @@ export async function tokenMatches(given: string | null, expected: string): Prom
   return diff === 0;
 }
 
+export type MarketHandler = (req: Request) => Promise<Response>;
+
 export interface HandleOptions {
+  /** Node에서만 시장 처리기를 주입한다. */
+  market?: MarketHandler;
   /** 상류 응답을 기다리는 최대 시간. 넘으면 504 upstream-timeout. 없으면 기다린다(Worker는 플랫폼 제한을 따른다). */
   upstreamTimeoutMs?: number;
 }
@@ -83,6 +87,15 @@ export async function handle(
 
   if (env.PROXY_TOKEN && !(await tokenMatches(req.headers.get('x-proxy-token'), env.PROXY_TOKEN))) {
     return errorResponse(401, 'proxy-token-invalid', origin);
+  }
+
+  if (url.pathname.startsWith('/market/')) {
+    if (!env.PROXY_TOKEN || !opts.market) return errorResponse(404, 'market-unavailable', origin);
+    const response = await opts.market(req);
+    const headers = new Headers(response.headers);
+    headers.set('access-control-allow-origin', origin);
+    headers.append('vary', 'Origin');
+    return new Response(response.body, { status: response.status, headers });
   }
 
   const [, provider, ...rest] = url.pathname.split('/');
