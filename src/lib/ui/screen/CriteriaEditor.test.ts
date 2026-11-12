@@ -381,6 +381,12 @@ describe('오늘 기준 미리 보기', () => {
     expect(screen.getByText('통과 7개 · 상위 2개')).toBeTruthy();
   });
 
+  it('원격 미리 보기 오류 코드를 안내까지 전달한다', async () => {
+    setup({ preview: vi.fn().mockRejectedValue(new PreviewError('remote')) });
+    await vi.advanceTimersByTimeAsync(300); await settle();
+    expect(screen.getByText('맥 데이터에 닿지 않아요')).toBeTruthy();
+  });
+
   it('a failed preview says so; a cancelled one stays quiet', async () => {
     const preview = vi.fn().mockRejectedValueOnce(new PreviewError('crash')).mockRejectedValue(new PreviewError('cancelled'));
     setup({ preview });

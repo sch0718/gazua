@@ -41,6 +41,21 @@ function setup() {
 afterEach(() => vi.mocked(precompute).mockClear());
 
 describe('createWorkerHandler', () => {
+  it('요약이 같아도 importId가 바뀌면 파일과 미리 계산을 다시 읽는다', async () => {
+    let importId = 'first';
+    const store = { info: vi.fn(async () => ({ ...INFO, importId })), load: vi.fn(async () => fixture) };
+    const handler = createWorkerHandler({ store, post: () => {} });
+    const msg = { type: 'preview' as const, id: 1, input: { criteria: crit(), strategies: [] } };
+    await handler(msg);
+    await handler(msg);
+    expect(store.load).toHaveBeenCalledTimes(1);
+    expect(precompute).toHaveBeenCalledTimes(1);
+    importId = 'second';
+    await handler(msg);
+    expect(store.load).toHaveBeenCalledTimes(2);
+    expect(precompute).toHaveBeenCalledTimes(2);
+  });
+
   it('읽는 중에 온 메시지는 같은 읽기를 기다린다: 미리 보기 3개에 load 한 번', async () => {
     const { store, posted, handle, release } = setup();
     const c = crit();

@@ -372,3 +372,11 @@ describe('forwarding', () => {
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
   });
 });
+
+describe('시장 처리기 주입', () => {
+  it('Worker처럼 시장 처리기가 없으면 시장 경로를 열지 않는다', async () => {
+    const res = await handle(req('/market/meta'), env, fakeFetch());
+    expect(res.status).toBe(404);
+    expect(await code(res)).toBe('market-unavailable');
+  });
+});

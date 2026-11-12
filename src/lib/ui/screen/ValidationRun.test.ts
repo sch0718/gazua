@@ -32,6 +32,7 @@ describe('ValidationRun', () => {
     ['invalid-strategy', '매매 규칙 전략에 고칠 곳이 있어요'],
     ['no-macro', '이 데이터에는 환율·유가가 없어요'],
     ['crash', '계산 중 문제가 생겼어요'],
+    ['remote', '맥 데이터에 닿지 않아요'],
   ] as const)('error %s reads %s', (error, text) => {
     render(ValidationRun, { running: false, progress: { done: 0, total: 0 }, error, oncancel: () => {}, onfix: () => {} });
     expect(screen.getByRole('alert').textContent).toBe(text);

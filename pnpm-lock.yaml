@@ -117,6 +117,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.5
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1797,6 +1800,9 @@ packages:
     resolution: {integrity: sha512-158gYMN/piLW/Blw/oEs3H/NHzXMwWeo+GjivjVFYuKZkFM2Bf5dJtYSTvsuIoD5ZecrFLVoHrHHWtk5wzKTbg==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.5.0/c2926d5703d91944a984feabbf764aad2b978d73}
     peerDependencies:
       firebase: ^12.0.0
+    peerDependenciesMeta:
+      firebase:
+        optional: true
 
   '@sch0718/kakao-share@0.1.1':
     resolution: {integrity: sha512-kdct0RCf/R2opgkGYnePJEIDGR7t5gH7xdaLJh8or9skqPrEyJXb/j8KZCQkxhjLqjkaSVqpWRMqPYFNtPCqNw==, tarball: https://npm.pkg.github.com/download/@sch0718/kakao-share/0.1.1/b004e9d981adb6d5f1227e1120fc0b2b05988f93}
@@ -4985,8 +4991,9 @@ snapshots:
 
   '@sch0718/firebase-session@0.5.0(firebase@12.19.0)':
     dependencies:
-      firebase: 12.19.0
       jose: 6.2.13
+    optionalDependencies:
+      firebase: 12.19.0
 
   '@sch0718/kakao-share@0.1.1': {}
 

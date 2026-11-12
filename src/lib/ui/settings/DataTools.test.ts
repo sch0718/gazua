@@ -36,6 +36,29 @@ afterEach(() => {
 });
 
 describe('DataTools', () => {
+  it('이 기기 파일이 없으면 맥 원격 요약을 표시한다', async () => {
+    const app = makeTestApp({ groups: [], now: NOW, settings: { proxyUrl: 'https://mac.test' } });
+    apps.push(app);
+    await app.setSecrets({ proxyToken: '시험토큰' });
+    const fetcher = vi.fn(async () => Response.json({ info: { collectedAt: '2026-11-12', stocks: 2, range: { from: '2026-01-01', to: '2026-11-12' } }, sectors: [], themes: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      render(DataTools, { app, estimate: async () => 0, marketData: { info: async () => null } as never });
+      expect(await screen.findByText('지금 쓰는 데이터: 맥(원격)')).toBeTruthy();
+      expect(screen.getByText(/수집 2026-11-12 · 2종목/)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '지우기' })).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('이 기기 파일이 있으면 원격을 읽지 않는다', async () => {
+    const app = makeTestApp({ groups: [], now: NOW, settings: { proxyUrl: 'https://mac.test' } }); apps.push(app);
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    try {
+      render(DataTools, { app, estimate: async () => 0, marketData: { info: async () => ({ collectedAt: '2026-11-12', stocks: 2, range: { from: '2026-01-01', to: '2026-11-12' } }) } as never });
+      expect(await screen.findByText('지금 쓰는 데이터: 이 기기 파일')).toBeTruthy();
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('sync나 driveClientId가 없으면 Drive 영역이 없다', async () => {
     await setup();
     expect(screen.queryByText(/Drive/)).toBeNull();

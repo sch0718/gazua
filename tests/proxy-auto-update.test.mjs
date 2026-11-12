@@ -54,6 +54,17 @@ afterEach(() => {
 });
 
 describe('proxy auto-update hook', () => {
+  for (const path of ['proxy/build.mjs', 'src/lib/screen/workerHandler.ts', 'src/lib/sim/simulate.ts', 'src/lib/marketData/format.ts', 'src/lib/time/kst.ts', 'src/lib/data/metrics.ts']) {
+    it(`${path}가 바뀐 병합도 프록시를 다시 설치한다`, () => {
+      const r = repo();
+      r.git('switch', '-q', '-c', 'feat');
+      r.commit(path, 'v2');
+      r.git('switch', '-q', 'main');
+      r.git('merge', '-q', '--ff-only', 'feat');
+      assert.equal(r.runs(), 1);
+    });
+  }
+
   it('a merge that changes proxy code re-runs install.sh once', () => {
     const r = repo();
     r.git('switch', '-q', '-c', 'feat');

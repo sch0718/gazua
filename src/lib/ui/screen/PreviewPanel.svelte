@@ -1,5 +1,7 @@
 <script lang="ts">
   // 오늘 기준 미리 보기(스펙 7.3): 데이터 마지막 날 기준 통과 수와 뽑힌 종목 이름.
+  import type { WorkerErrorCode } from '../../screen/runValidation';
+  import { FAILURE_TEXT } from './screenText';
   import type { Selection } from '../../screen/select';
 
   let {
@@ -8,6 +10,7 @@
     selection,
     pending,
     failed,
+    error = null,
     names,
     blocked = false,
   }: {
@@ -18,6 +21,7 @@
     /** 새로 계산하는 중(이전 결과는 그대로 보인다) */
     pending: boolean;
     failed: boolean;
+    error?: WorkerErrorCode | null;
     names: Record<string, string>;
     /** 막는 경고가 있어 계산하지 않는 중 */
     blocked?: boolean;
@@ -41,7 +45,7 @@
     {#if blocked}
       <!-- 막는 경고가 있으면 옛 결과를 보이지 않는다 -->
     {:else if failed}
-      <p class="err">미리 보기를 계산하지 못했어요</p>
+      <p class="err">{error === 'remote' ? FAILURE_TEXT.remote : '미리 보기를 계산하지 못했어요'}</p>
     {:else if selection}
       {#if pending}<p class="count">{countText(selection)}</p>{/if}
       <ol>

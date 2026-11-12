@@ -18,7 +18,7 @@ export function createWorkerHandler({ store, post }: WorkerHandlerDeps): (msg: W
   async function loadData(): Promise<{ key: string; data: MarketDataFile } | null> {
     const info = await store.info();
     if (!info) return null;
-    const key = `${info.collectedAt}|${info.stocks}|${info.range.from}|${info.range.to}|${info.bytes ?? ''}`;
+    const key = `${info.collectedAt}|${info.stocks}|${info.range.from}|${info.range.to}|${info.bytes ?? ''}|${info.importId ?? ''}`;
     if (cache?.key !== key) {
       const entry = { key, data: store.load() };
       cache = entry;

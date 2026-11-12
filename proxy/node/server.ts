@@ -1,17 +1,19 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { createMarketHandler } from './market.js';
 import { handle, type ProxyEnv } from '../src/handler.js';
 
 const PORT = 8787;
 
 /**
- * 집 NAS 컨테이너용 제한. 본문은 토큰 발급 POST에만 필요해 작게 두고(16 KB, 넘으면 413),
+ * Node 프록시 기본 제한. 시장 계산 본문만 1 MiB, 나머지는 16 KB까지 받는다(넘으면 413).
  * 상류가 15초 안에 답하지 않으면 504로 끊어요. Origin은 브라우저 밖에서 위조될 수 있어 서버에서 막아요.
  */
 export const NODE_LIMITS = { maxBodyBytes: 16 * 1024, upstreamTimeoutMs: 15_000 };
 
 export interface ServerOptions {
   maxBodyBytes?: number;
+  marketDataDir?: string;
   upstreamTimeoutMs?: number;
   /** 테스트용 */
   fetchImpl?: typeof fetch;
@@ -41,7 +43,7 @@ async function toRequest(incoming: IncomingMessage, maxBodyBytes: number): Promi
   }
   const method = incoming.method ?? 'GET';
   const init: RequestInit = { method, headers };
-  if (method !== 'GET' && method !== 'HEAD') init.body = await readBody(incoming, maxBodyBytes);
+  if (method !== 'GET' && method !== 'HEAD') init.body = new Uint8Array(await readBody(incoming, maxBodyBytes)).buffer;
   // Host 헤더는 신뢰하지 않고 고정 base로 URL을 만들어요.
   return new Request(new URL(incoming.url ?? '/', 'http://localhost'), init);
 }
@@ -56,6 +58,7 @@ export function createProxyServer(env: ProxyEnv, opts: ServerOptions = {}): Serv
   const maxBodyBytes = opts.maxBodyBytes ?? NODE_LIMITS.maxBodyBytes;
   const upstreamTimeoutMs = opts.upstreamTimeoutMs ?? NODE_LIMITS.upstreamTimeoutMs;
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const market = env.PROXY_TOKEN ? createMarketHandler({ directory: opts.marketDataDir ?? (process.env.MARKET_DATA_DIR || undefined) }) : undefined;
   return createServer((incoming, res) => {
     const started = Date.now();
     const method = incoming.method ?? 'GET';
@@ -69,10 +72,10 @@ export function createProxyServer(env: ProxyEnv, opts: ServerOptions = {}): Serv
     };
     // toRequest도 프라미스 체인 안에서 실행해 변환 오류가 프로세스를 죽이지 않게 해요.
     Promise.resolve()
-      .then(() => toRequest(incoming, maxBodyBytes))
+      .then(() => toRequest(incoming, path === '/market/screen' ? 1024 * 1024 : maxBodyBytes))
       .then(
         (request) =>
-          handle(request, env, fetchImpl, { upstreamTimeoutMs }).then(async (response) => {
+          handle(request, env, fetchImpl, { upstreamTimeoutMs, market }).then(async (response) => {
             await send(res, response);
             log(response.status);
           }),

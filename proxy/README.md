@@ -15,6 +15,22 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 - 이 프록시를 고칠 때 허용 목록을 더 넓히지 마세요. 주문 경로가 열리면 토큰만으로 주문이 나갈 수 있어요.
 - 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
 
+## 맥의 시장 데이터 조회
+
+Node 프록시가 맥의 시장 파일을 읽고 선정 기준 미리 보기·검증을 계산한다. 휴대폰에는 요약과 계산 결과만 보낸다. 앱에 이 기기 파일이 있으면 그 파일을 먼저 쓴다. 없으면 설정에 저장한 프록시 주소와 토큰으로 맥에 요청한다.
+
+- `GET /market/meta`: 수집일·기간·종목 수·파일 형식과 업종·테마 목록을 반환한다. `info.file`은 선택한 파일 이름이다.
+- `POST /market/screen`: Worker의 `preview`·`run` 요청을 받고 마지막 결과·오류만 반환한다. 요청의 `input.data`는 버린다. 요청을 차례로 계산하며 원격 진행률은 보내지 않는다.
+- 모든 시장 경로는 `ALLOWED_ORIGINS`와 `x-proxy-token`을 검사한다. 서버의 `PROXY_TOKEN`이 비어 있거나 Cloudflare Worker 판이면 `404 market-unavailable`이다.
+- 파일이 없으면 `404 market-file-missing`, gzip·JSON·형식 검사에 실패하면 `503 market-file-invalid`이다. 다른 시장 경로는 `404 market-not-found`, 잘못된 메서드는 `405 method-not-allowed`이다.
+- `/market/screen` 본문은 1 MiB까지, 다른 경로는 16 KB까지 받는다. 넘으면 `413 payload-too-large`이다. `Accept-Encoding: gzip` 요청에는 압축해 응답한다.
+
+파일 폴더는 `MARKET_DATA_DIR`, 기본값은 `~/gazua-data`이다. `~`로 시작하는 설정도 홈으로 바꾼다. 이 폴더에서 `market-data-YYYYMMDD.json.gz` 중 날짜가 가장 큰 파일을 고른다. 이름·수정 시각·크기가 바뀌면 데이터와 계산 캐시를 다시 만든다. 파일 교체만으로는 프록시를 다시 시작할 필요가 없다.
+
+`proxy/.env`에서 `MARKET_DATA_DIR`을 바꾸면 `proxy/macos/install.sh`로 빌드·재시작한다. 직접 실행할 때는 같은 환경변수를 설정하고 `pnpm --filter proxy build` 뒤 `pnpm --filter proxy start`로 다시 띄운다. 맥이 잠들거나 터널이 끊기면 앱에 「맥 데이터에 닿지 않아요」가 표시된다.
+
+Node 빌드는 웹의 순수 계산기를 esbuild로 묶어 `proxy/dist/node/server.js`를 만든다. 브라우저 전용 코드가 번들에 들어오면 실패한다. Docker는 저장소 루트를 빌드 문맥으로 쓴다(`docker build -f proxy/Dockerfile .`). 컨테이너에 시장 파일을 넣지 않으면 `market-file-missing`이다. 시장 파일은 본인 기기 사이에서만 쓰며 공개 배포하지 않는다.
+
 ## 개발
 
 ```bash
@@ -87,7 +103,7 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 6. 이 맥의 공인 IP를 토스 허용 IP에 등록해요(위 `토스 허용 IP 등록`). 토스로 나가는 요청은 터널이 아니라 이 맥에서 바로 나가요.
 7. `https://gazua-proxy.<도메인>/health`가 200을 주면 앱 설정의 프록시 URL에 그 주소를, 프록시 토큰에 `PROXY_TOKEN` 값을 넣어요.
 
-- `install.sh`는 저장소 hook(`git config core.hooksPath .githooks`)도 켜요. 그 뒤로는 `git pull`(병합·앞으로 감기·rebase)로 프록시 코드(`proxy/src`·`proxy/node`·`proxy/package.json`·`proxy/tsconfig.json`·`install.sh`)가 바뀌면 hook이 `install.sh`를 한 번 다시 돌려 새 버전으로 재시작해요. 로컬 커밋이 이미 상대 쪽에 있어 rebase가 모두 생략하는 경우도 `post-checkout`이 잡아요(브랜치만 바꾸는 checkout에는 반응하지 않아요). 프록시가 설치되지 않은 기기에서는 아무것도 하지 않고, 실패해도 `git pull`은 막지 않아요.
+- `install.sh`는 저장소 hook(`git config core.hooksPath .githooks`)도 켜요. 그 뒤로는 `git pull`(병합·앞으로 감기·rebase)로 프록시 코드(`proxy/src`·`proxy/node`·`proxy/package.json`·`proxy/tsconfig.json`·`proxy/build.mjs`·`install.sh`, 번들에 들어가는 `src/lib/screen`·`sim`·`marketData`·`time`·`data`)가 바뀌면 hook이 `install.sh`를 한 번 다시 돌려 새 버전으로 재시작해요. 로컬 커밋이 이미 상대 쪽에 있어 rebase가 모두 생략하는 경우도 `post-checkout`이 잡아요(브랜치만 바꾸는 checkout에는 반응하지 않아요). 프록시가 설치되지 않은 기기에서는 아무것도 하지 않고, 실패해도 `git pull`은 막지 않아요.
 - 다른 hook 경로를 이미 쓰고 있거나 `.git/hooks`에 직접 둔 hook(`.sample` 말고 실행 가능한 파일)이 있으면, 그 hook이 꺼지지 않게 hook 경로를 바꾸지 않고 켜는 방법만 알려 줘요(`proxy/macos/enable-hooks.sh`). 기존 hook이 필요 없으면 `git config core.hooksPath .githooks`로, 계속 쓰려면 `.git/hooks`의 `post-merge`·`post-rewrite`·`post-checkout`에서 `.githooks`의 같은 이름 hook을 `"$@"`와 함께 불러요.
 - 자동 반영은 기본 rebase 방식(merge 백엔드) 기준이에요. `git rebase --apply`로 커밋이 전부 생략되면 hook이 불리지 않으니 `install.sh`를 직접 실행해요.
 - `.env`를 고친 뒤에는 `proxy/macos/install.sh`를 직접 다시 실행해요(hook은 코드 변경만 봐요).
