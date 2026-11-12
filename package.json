@@ -20,6 +20,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && svelte-check --tsconfig ./tsconfig.json",
     "check:e2e": "tsc -p tsconfig.e2e.json",
     "lint:design": "DO_NOT_TRACK=1 IMPECCABLE_NO_TELEMETRY=1 impeccable detect src index.html",
+    "lint:design:render": "pnpm build && node scripts/design-scan.mjs",
+    "demo:video": "pnpm build && node scripts/demo-video.mjs",
     "test": "TZ=America/New_York vitest run",
     "test:watch": "TZ=America/New_York vitest",
     "test:demo": "node --test tests/demo.test.mjs",

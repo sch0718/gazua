@@ -1,8 +1,8 @@
 # 외부 도구 적용 검토: impeccable · hyperframes · TradingAgents
 
-> 검토: 2026-11-02 · Claude와 Codex(`gpt-6.1-sol` high) 교차 검증 · impeccable만 2026-11-03에 가즈아에서 시범 적용했어요(1절 「가즈아 시범 결과」)
+> 검토: 2026-11-02 · Claude와 Codex(`gpt-6.1-sol` high) 교차 검증 · impeccable은 2026-11-03에 가즈아에서 시범 적용했고 2026-11-12에 렌더 스캔을 스크립트로 묶었어요(1절). hyperframes는 2026-11-12에 확인하고 들이지 않았어요(2절 「2026-11-12 확인」)
 
-- 「프로젝트 도구 검토」 세션에서 정리한 향후 적용 방안을 옮겨 적었어요. 2026-11-03 기준으로 impeccable은 가즈아에 설치해 실측했고, 3절 (a)안(전략 비판 스킬)은 구현했고, (c)안은 점검했어요([백테스트 점검표](2026-11-03-backtest-checklist.md)). hyperframes와 (b)안은 아직 기록만 있어요.
+- 「프로젝트 도구 검토」 세션에서 정리한 향후 적용 방안을 옮겨 적었어요. 2026-11-03 기준으로 impeccable은 가즈아에 설치해 실측했고, 3절 (a)안(전략 비판 스킬)은 구현했고, (c)안은 점검했어요([백테스트 점검표](2026-11-03-backtest-checklist.md)). (b)안은 아직 기록만 있어요. hyperframes는 2026-11-12에 확인하고 들이지 않았어요(2절).
 - impeccable과 hyperframes는 repass·landmark와 같은 방식으로 쓰는 세 프로젝트 공통안이에요. TradingAgents는 가즈아에만 해당하고, 통합하지 않고 아이디어만 빌려요.
 - 적용 순서는 정하지 않았어요. 시작할 때 이 문서를 근거로 별도 설계를 써요.
 
@@ -90,14 +90,19 @@
   - 그래서 `.impeccable/config.json`은 만들지 않았어요.
 - HTML 엔진 지적(2·3번)과 렌더 스캔 지적(4~9번)은 위 분류표가 기준선이에요. 다시 돌릴 때 `--json` 결과의 규칙 ID와 원본을 이 표와 맞춰 봐요.
 
-**다시 돌리는 법**
+**다시 돌리는 법** (2026-11-12부터 스크립트)
 
-- 렌더 스캔
-  1. `pnpm build` 뒤 `vite preview --port 4174 --strictPort`로 띄워요.
-  2. Playwright Chromium을 `--remote-debugging-port=9333`으로 띄워요. e2e와 같은 설정(`ko-KR`, `Asia/Seoul`, 서비스 워커 차단, 시계 고정, 메뉴 안내 본 것으로)을 써요.
-  3. 폰 375×812(`isMobile`)와 데스크톱 1440×900에서 화면에 들어가요. 순서는 온보딩 → `데모로 둘러보기` → `예시 그룹 불러오기` → 시뮬레이션 → `＋ 새 전략` → `하락 후 반등` → 모든 구역 펼침 → 실행 결과 → `#/performance`·`#/settings`·`#/help`예요.
-  4. 화면마다 `DO_NOT_TRACK=1 IMPECCABLE_NO_TELEMETRY=1 pnpm exec impeccable detect --json --cdp 9333`을 돌려요. `--cdp`는 지금 보이는 페이지를 이동하지 않고 검사해요.
+- 렌더 스캔: `pnpm lint:design:render`(`scripts/design-scan.mjs`). 빌드한 뒤 `vite preview`(포트 4181)와 headless Chromium(CDP 9341)을 띄우고, 위 시범 순서대로 화면 11개 × 폰 375·데스크톱 1440에서 `impeccable detect --json --cdp`를 돌려요. 포트는 `DESIGN_SCAN_PORT`·`DESIGN_SCAN_CDP_PORT`로 바꿔요.
+  - 지적을 `scripts/design-scan-baseline.json`(규칙·스니펫·선택자·화면과 분류·사유)과 맞춰 「기준선」·「새 지적」으로 나눠 보여요. 보고서는 `test-results/design-scan/report.json`이에요.
+  - 종료 코드: 건너뛴 화면이 있으면 2, 새 지적이 있으면 1, 없으면 0. CI에는 넣지 않았어요.
+  - 새 지적은 실제 문제면 고치고, 오탐·취향이면 사유와 함께 기준선 파일에 더해요.
 - HTML 엔진: 저장소 루트에 `.impeccable/config.local.json`을 `{"detector":{"extensions":[{"ext":".svelte","engine":"html"}]}}`로 잠깐 만들고 `pnpm lint:design`을 돌린 뒤 지워요.
+
+**렌더 스캔 재실행 결과 (2026-11-12)**
+
+- 22개 화면이 모두 돌았고 원인 단위 지적은 9개예요. 실제 문제는 0건이에요. 시범에서 고친 placeholder `low-contrast`는 다시 나오지 않았어요.
+- 8개는 시범 4~9번과 같아 기준선으로 옮겼어요. `Badge`·`Segmented` 10px은 공용 패키지 기본 스타일이고 WCAG 하한이 없는 취향이라, 가즈아 `tokens.css`에서 덮지 않았어요(덮으면 세 저장소 모양이 갈라져요).
+- 새로 1개가 나왔어요. 시뮬레이션 템플릿 화면의 프리셋 비교 안내(`StrategyList.svelte` `.cmp-note`) 11px `tiny-text`예요. 앱 라벨 토큰(`--fs-label`)을 쓰는 보조 문구라 시범 3번처럼 취향으로 기준선에 넣었어요.
 
 **공용화**
 
@@ -144,6 +149,20 @@
 3. **산출물:** MP4는 커서 git에 넣지 않아요. 배포 위치는 따로 정해요.
 
 가즈아에서 템플릿이 굳으면 repass·landmark가 가져다 써요. 영상을 실제로 배포할 필요가 확실해질 때 시작해요.
+
+### 2026-11-12 확인: 들이지 않음
+
+- 확인한 것: 저장소 `heygen-com/hyperframes`, Apache-2.0, npm `hyperframes@0.9.38`(압축 해제 25MB, `puppeteer-core`·`esbuild` 등 의존). 설치 스크립트는 없고, 텔레메트리(PostHog)는 `HYPERFRAMES_NO_TELEMETRY`·`DO_NOT_TRACK`으로 꺼져요.
+- 들이지 않은 이유
+  - 자동 업데이트가 기본으로 `npm|pnpm|bun install -g`를 백그라운드에서 돌려요(사람 없는 실행이나 `HYPERFRAMES_NO_AUTO_INSTALL=1`이면 꺼짐). 적용 원칙의 「전역 설치 금지」와 맞지 않아요.
+  - 설정을 `~/.hyperframes`에, 브라우저를 `~/.cache/hyperframes`·`~/.cache/puppeteer`에 둬요.
+  - 같은 패키지의 `usage` 명령이 macOS 키체인의 Claude Code 자격 증명과 `~/.codex/auth.json`을 읽어 각 회사 사용량 API로 보내요. 렌더에는 쓰이지 않지만 들일 코드에 들어 있어요.
+  - 릴리스가 하루에도 여러 번이에요.
+  - 무엇보다 위 파이프라인 1단계(원재료)는 이미 있는 Playwright 녹화로 충분해요. hyperframes가 더하는 건 2단계 합성(인트로·자막)이고, 배포할 영상이 필요해질 때 버전 고정과 `HYPERFRAMES_CONFIG_DIR`·`HYPERFRAMES_BROWSER_PATH`·`HYPERFRAMES_NO_AUTO_INSTALL=1`·`HYPERFRAMES_NO_TELEMETRY=1`로 저장소 안에 가둬 다시 따져요.
+- 대신 만든 것: `pnpm demo:video`(`scripts/demo-video.mjs`). 데모 데이터로 폰 375×812에서 온보딩 → `데모로 둘러보기` → `예시 그룹 불러오기` → 시뮬레이션 → `＋ 새 전략` → `하락 후 반등` → 실행 → 재생·일시정지를 Playwright로 녹화해요(약 16초).
+  - 결과는 `test-results/demo-video/gazua-demo.webm`이고, `ffmpeg`가 있으면 `gazua-demo.mp4`도 만들어요. 커밋하지 않아요.
+  - 포트는 4182(`DEMO_VIDEO_PORT`)예요.
+  - 손으로 녹화하던 `motion/gazua-demo.html`(모션 그래픽)과는 대상이 달라 그대로 둬요.
 
 ## 3. TradingAgents — 아이디어만 빌림 (가즈아 전용)
 
