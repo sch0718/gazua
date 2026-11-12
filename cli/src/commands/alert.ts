@@ -1,7 +1,7 @@
 import { addDays, kstDate, kstEpoch, kstMinuteOfDay } from '../../../src/lib/time/kst';
 import { readAlertConfig, type AlertConfig } from '../alert/config';
 import { fetchFredSeries } from '../alert/fred';
-import { allowSend, detectSpike, formatSpike, markSent, rankMovers, returns10, STEP_MS, type WatchState } from '../alert/intraday';
+import { allowSend, detectSpike, formatSpike, formatStockSpikes, markSent, rankMovers, returns10, STEP_MS, type Mover, type Spike, type WatchState } from '../alert/intraday';
 import { backtest, fitModel, formatPremarket, futAt, macroSide, predict, samples, todayX, type Backtest } from '../alert/premarket';
 import { appendLog, readLogs, readState, writeState, type LogLine } from '../alert/state';
 import type { Command, Ctx } from '../context';
@@ -26,13 +26,17 @@ export async function sendNtfy(ctx: Ctx, cfg: AlertConfig, msg: { title: string;
 }
 
 export async function targetSymbols(ctx: Ctx): Promise<{ code: string; name: string }[]> {
-  if (ctx.args.symbols) return withNames(ctx, [...new Set(ctx.args.symbols)]);
+  return withNames(ctx, await targetCodes(ctx));
+}
+
+async function targetCodes(ctx: Ctx): Promise<string[]> {
+  if (ctx.args.symbols) return [...new Set(ctx.args.symbols)];
   const profile = await pickProfile(authedClient(ctx), ctx.args.profile, ctx.now());
   const codes = new Set<string>();
   for (const group of profile.watchlists.groups) {
     for (const item of group.items) if (!item.hidden) codes.add(item.symbol);
   }
-  return withNames(ctx, [...codes].slice(0, 30));
+  return [...codes].slice(0, 30);
 }
 
 /** 동기화 문서에는 종목명이 없어 네이버에서 찾는다. 못 찾으면 코드로 표시한다. */
@@ -53,8 +57,8 @@ function watchState(dir: string): WatchState {
   return st && numbers(st.lastBar) && numbers(st.lastSent) && numbers(st.sentByDate) ? st : emptyState();
 }
 
-async function symbolsWithLogin(ctx: Ctx, cfg: AlertConfig, name: 'watch' | 'premarket', st: { loginNotified?: string }, notify = true): Promise<Awaited<ReturnType<typeof targetSymbols>>> {
-  try { return await targetSymbols(ctx); } catch (e) {
+async function withLogin<T>(ctx: Ctx, cfg: AlertConfig, name: 'watch' | 'premarket', st: { loginNotified?: string }, load: () => Promise<T>, notify = true): Promise<T> {
+  try { return await load(); } catch (e) {
     if (notify && e instanceof CliError && ['not-logged-in', 'cli-token-expired', 'cli-token-revoked'].includes(e.code)) {
       const date = kstDate(ctx.now());
       if (st.loginNotified !== date) {
@@ -81,45 +85,71 @@ async function watch(ctx: Ctx): Promise<unknown> {
     if (bars.length) futures[sym] = bars;
     else missing.push(sym);
   }
-  if (!futures.ES && !futures.NQ) {
-    ctx.say('선물 자료를 받지 못했어요');
-    return { skipped: 'nodata' };
-  }
+  if (!futures.ES && !futures.NQ) ctx.say('선물 자료를 받지 못했어요');
   const spikes = (['ES', 'NQ'] as const).flatMap((sym) => {
     const spike = detectSpike(sym, futures[sym] ?? [], ctx.now(), cfg.spikeSigma);
     return spike ? [spike] : [];
   });
-  if (!spikes.length) return { spikes: [] };
-  const symbols = await symbolsWithLogin(ctx, cfg, 'watch', st);
+  // 관심 종목 자체의 급변도 매번 본다. 종목명은 알림에 쓸 종목만 찾는다.
+  const codes = await withLogin(ctx, cfg, 'watch', st, () => targetCodes(ctx));
+  const names = new Map<string, string>();
+  const nameOf = async (code: string) => {
+    if (!names.has(code)) names.set(code, parseStockName(await get(ctx, NAVER.stockBasic(code))) ?? code);
+    return names.get(code)!;
+  };
   const stocks: { code: string; name: string; ret: Map<number, number> }[] = [];
-  for (const stock of symbols) {
-    const bars = parseDomesticWeek(await get(ctx, NAVER.itemWeek(stock.code))).filter((b) => b.end <= ctx.now());
-    if (bars.length) stocks.push({ ...stock, ret: returns10(bars) });
-    else missing.push(stock.name);
-  }
-  const ref: { oil?: IndexQuote; rate?: IndexQuote; dollar?: IndexQuote } = {};
-  for (const [kind, label] of [['oil', '유가'], ['rate', '금리'], ['dollar', '달러']] as const) {
-    const quote = parseIndexQuote(await get(ctx, NAVER.marketIndex(kind)));
-    if ((kind === 'rate' ? quote.changeAbs : quote.changePct) === null) missing.push(label);
-    else ref[kind] = quote;
+  const stockSpikes: Spike[] = [];
+  const missingCodes: string[] = [];
+  for (const code of codes) {
+    const bars = parseDomesticWeek(await get(ctx, NAVER.itemWeek(code))).filter((b) => b.end <= ctx.now());
+    if (!bars.length) { missingCodes.push(code); continue; }
+    stocks.push({ code, name: code, ret: returns10(bars) });
+    const spike = detectSpike(code, bars, ctx.now(), cfg.spikeSigma);
+    if (spike) stockSpikes.push(spike);
   }
   const results = [];
-  for (const spike of spikes) {
-    const now = ctx.now();
-    if (!allowSend(st, spike, now, cfg.cooldownMin, cfg.dailyMax)) continue;
-    const movers = rankMovers(spike, returns10(futures[spike.sym]!), stocks, cfg.top);
-    const receivedAt = now;
-    const delivered = await sendNtfy(ctx, cfg, formatSpike(spike, movers, ref, missing));
-    st = markSent(st, spike, now);
-    appendLog(ctx.dir, {
-      kind: 'watch', barStart: spike.end - STEP_MS, barEnd: spike.end, receivedAt, sentAt: delivered ? now : null,
-      changes: { [spike.sym]: spike.change }, picks: [...movers.up, ...movers.down].map(({ code, expected }) => ({ code, expected })), delivered,
-      ...(!delivered ? { note: '보내지 못함' } : {}),
-    });
-    results.push({ ...spike, delivered, movers });
+  if (spikes.length) {
+    for (const code of missingCodes) missing.push(await nameOf(code));
+    const ref: { oil?: IndexQuote; rate?: IndexQuote; dollar?: IndexQuote } = {};
+    for (const [kind, label] of [['oil', '유가'], ['rate', '금리'], ['dollar', '달러']] as const) {
+      const quote = parseIndexQuote(await get(ctx, NAVER.marketIndex(kind)));
+      if ((kind === 'rate' ? quote.changeAbs : quote.changePct) === null) missing.push(label);
+      else ref[kind] = quote;
+    }
+    for (const spike of spikes) {
+      const now = ctx.now();
+      if (!allowSend(st, spike, now, cfg.cooldownMin, cfg.dailyMax)) continue;
+      const ranked = rankMovers(spike, returns10(futures[spike.sym as 'ES' | 'NQ']!), stocks, cfg.top);
+      const named = async (list: Mover[]) => { const out: Mover[] = []; for (const m of list) out.push({ ...m, name: await nameOf(m.code) }); return out; };
+      const movers = { up: await named(ranked.up), down: await named(ranked.down) };
+      const receivedAt = now;
+      const delivered = await sendNtfy(ctx, cfg, formatSpike(spike, movers, ref, missing));
+      st = markSent(st, spike, now);
+      appendLog(ctx.dir, {
+        kind: 'watch', barStart: spike.end - STEP_MS, barEnd: spike.end, receivedAt, sentAt: delivered ? now : null,
+        changes: { [spike.sym]: spike.change }, picks: [...movers.up, ...movers.down].map(({ code, expected }) => ({ code, expected })), delivered,
+        ...(!delivered ? { note: '보내지 못함' } : {}),
+      });
+      results.push({ ...spike, delivered, movers });
+    }
   }
-  writeState(ctx.dir, 'watch', st);
-  return { spikes: results };
+  const stockResults = [];
+  const now = ctx.now();
+  const allowed = stockSpikes.filter((s) => allowSend(st, s, now, cfg.cooldownMin, cfg.dailyMax));
+  if (allowed.length) {
+    const named: (Spike & { name: string })[] = [];
+    for (const s of allowed) named.push({ ...s, name: await nameOf(s.sym) });
+    const delivered = await sendNtfy(ctx, cfg, formatStockSpikes(named));
+    allowed.forEach((s, i) => { st = markSent(st, s, now, i === 0 ? 1 : 0); });
+    const ends = allowed.map((s) => s.end);
+    appendLog(ctx.dir, {
+      kind: 'stock', barStart: Math.min(...ends) - STEP_MS, barEnd: Math.max(...ends), receivedAt: now, sentAt: delivered ? ctx.now() : null,
+      changes: Object.fromEntries(allowed.map((s) => [s.sym, s.change])), picks: [], delivered, ...(!delivered ? { note: '보내지 못함' } : {}),
+    });
+    stockResults.push(...named.map((s) => ({ ...s, delivered })));
+  }
+  if (results.length || stockResults.length) writeState(ctx.dir, 'watch', st);
+  return { spikes: results, stocks: stockResults };
 }
 
 const sentPremarket = (logs: LogLine[]) => logs.filter((l) => l.kind === 'premarket' && l.delivered && l.sentAt !== null);
@@ -183,7 +213,7 @@ async function premarket(ctx: Ctx): Promise<unknown> {
     appendLog(ctx.dir, { kind: 'premarket', receivedAt: ctx.now(), sentAt: null, changes: {}, picks: [], delivered: false, note: 'nodata' });
     return { sent: false, reason: 'nodata', backtest: backtest([]), picks: [] };
   }
-  const symbols = await symbolsWithLogin(ctx, cfg, 'premarket', st, inHours());
+  const symbols = await withLogin(ctx, cfg, 'premarket', st, () => targetSymbols(ctx), inHours());
   const logs = sentPremarket(readLogs(ctx.dir));
   const byCode = await stockDays(ctx, [...symbols.map((s) => s.code), ...logs.flatMap((l) => l.picks.map((p) => p.code))], historyFrom(today, logs), today);
   const stocks = symbols.flatMap((s) => {

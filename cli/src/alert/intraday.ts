@@ -18,9 +18,10 @@ export function returns10(bars: Bar10[]): Map<number, number> {
   return ret;
 }
 
-export interface Spike { sym: 'ES' | 'NQ'; end: number; change: number; sigma: number }
+/** sym은 선물(ES·NQ)이나 국내 종목 코드다. */
+export interface Spike { sym: string; end: number; change: number; sigma: number }
 
-export function detectSpike(sym: 'ES' | 'NQ', bars: Bar10[], now: number, spikeSigma: number): Spike | null {
+export function detectSpike(sym: string, bars: Bar10[], now: number, spikeSigma: number): Spike | null {
   const completed = bars.filter((b) => b.end <= now).sort((a, b) => a.end - b.end);
   const last = completed.at(-1);
   if (!last || now - last.end > 30 * 60_000) return null;
@@ -47,8 +48,8 @@ export function rankMovers(spike: Spike, futRet: Map<number, number>, stocks: { 
 }
 
 export interface WatchState {
-  lastBar: Partial<Record<'ES' | 'NQ', number>>;
-  lastSent: Partial<Record<'ES' | 'NQ', number>>;
+  lastBar: Record<string, number>;
+  lastSent: Record<string, number>;
   sentByDate: Record<string, number>;
   loginNotified?: string;
 }
@@ -58,9 +59,10 @@ export function allowSend(st: WatchState, spike: Spike, now: number, cooldownMin
   if (cooldownMin > 0 && last !== undefined && now - last < cooldownMin * 60_000) return false;
   return !(dailyMax > 0 && (st.sentByDate[kstDate(now)] ?? 0) >= dailyMax);
 }
-export function markSent(st: WatchState, spike: Spike, now: number): WatchState {
+/** 관심 종목 여러 개를 한 알림으로 묶을 때는 첫 종목만 count 1로 센다. */
+export function markSent(st: WatchState, spike: Spike, now: number, count = 1): WatchState {
   const date = kstDate(now);
-  return { ...st, lastBar: { ...st.lastBar, [spike.sym]: spike.end }, lastSent: { ...st.lastSent, [spike.sym]: now }, sentByDate: { ...st.sentByDate, [date]: (st.sentByDate[date] ?? 0) + 1 } };
+  return { ...st, lastBar: { ...st.lastBar, [spike.sym]: spike.end }, lastSent: { ...st.lastSent, [spike.sym]: now }, sentByDate: { ...st.sentByDate, [date]: (st.sentByDate[date] ?? 0) + count } };
 }
 
 const clock = (ms: number) => {
@@ -86,4 +88,13 @@ export function formatSpike(spike: Spike, movers: { up: Mover[]; down: Mover[] }
     title: `장중 알림 · ${label} 선물 10분 새 ${signed(Math.expm1(spike.change) * 100)}% ${spike.change < 0 ? '급락' : '급등'}`,
     body: lines.join('\n'),
   };
+}
+
+/** 관심 종목이 자기 평소 10분 움직임보다 크게 움직였을 때의 문구. 국내 10분봉은 지연이 없다. */
+export function formatStockSpikes(spikes: (Spike & { name: string })[]): { title: string; body: string } {
+  const pct = (s: Spike) => `${signed(Math.expm1(s.change) * 100)}% ${s.change < 0 ? '급락' : '급등'}`;
+  const sorted = [...spikes].sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+  const lines = sorted.map((s) => `· ${s.name} ${pct(s)} (평소의 ${(Math.abs(s.change) / s.sigma).toFixed(1)}배, ${clock(s.end - STEP_MS)}~${clock(s.end)})`);
+  const head = sorted.length === 1 ? `${sorted[0].name} 10분 새 ${pct(sorted[0])}` : `관심 종목 ${sorted.length}개 급변`;
+  return { title: `장중 알림 · ${head}`, body: [...lines, '', '평소 10분 움직임보다 크게 움직인 관심 종목이에요'].join('\n') };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kstEpoch } from '../../../src/lib/time/kst';
 import type { Bar10 } from '../naverMarket';
-import { allowSend, detectSpike, formatSpike, markSent, rankMovers, returns10, STEP_MS, type WatchState } from './intraday';
+import { allowSend, detectSpike, formatSpike, formatStockSpikes, markSent, rankMovers, returns10, STEP_MS, type WatchState } from './intraday';
 
 const at = (d: string, t: string) => kstEpoch(d, `${t}:00`);
 const empty = (): WatchState => ({ lastBar: {}, lastSent: {}, sentByDate: {} });
@@ -77,5 +77,15 @@ describe('장중 급변', () => {
     for (const word of ['10분 늦게', '10:20~10:30', '같이 내릴 것 같은 종목\n· SK하이닉스 −0.9%', '못 가져온 자료: 달러', '미국 금리 +0.02%p', '급락']) expect(text).toContain(word);
     expect(text).not.toMatch(/투자|매수|매도/);
     expect(formatSpike({ ...s, change: 0.005 }, { up: [], down: [] }, {}, []).body).toContain('같이 오를 것 같은 종목\n· 없음');
+  });
+  it('관심 종목 급변은 큰 움직임부터 평소 대비 배수와 봉 구간을 보여 준다', () => {
+    const end = at('2026-11-11', '10:40');
+    const msg = formatStockSpikes([
+      { sym: '005930', name: '삼성전자', end, change: Math.log(1.02), sigma: 0.005 },
+      { sym: '000660', name: 'SK하이닉스', end, change: Math.log(0.97), sigma: 0.01 },
+    ]);
+    expect(msg.title).toBe('장중 알림 · 관심 종목 2개 급변');
+    expect(msg.body.split('\n').slice(0, 2)).toEqual(['· SK하이닉스 −3.0% 급락 (평소의 3.0배, 10:30~10:40)', '· 삼성전자 +2.0% 급등 (평소의 4.0배, 10:30~10:40)']);
+    expect(formatStockSpikes([{ sym: '005930', name: '삼성전자', end, change: Math.log(1.02), sigma: 0.005 }]).title).toBe('장중 알림 · 삼성전자 10분 새 +2.0% 급등');
   });
 });

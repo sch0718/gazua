@@ -11,7 +11,7 @@ export function writeState(dir: string, name: 'watch' | 'premarket', value: unkn
   writeJsonFile(join(alertsDir(dir), `${name}-state.json`), value);
 }
 export interface LogLine {
-  kind: 'watch' | 'premarket' | 'test';
+  kind: 'watch' | 'stock' | 'premarket' | 'test';
   barStart?: number;
   barEnd?: number;
   receivedAt: number;
@@ -38,7 +38,7 @@ export function readLogs(dir: string): LogLine[] {
     for (const line of text.split('\n')) {
       try {
         const v = JSON.parse(line) as LogLine | null;
-        if (!v || !['watch', 'premarket', 'test'].includes(v.kind) || !Number.isFinite(v.receivedAt) || (v.sentAt !== null && !Number.isFinite(v.sentAt)) || typeof v.delivered !== 'boolean' || !v.changes || typeof v.changes !== 'object' || !Array.isArray(v.picks)) continue;
+        if (!v || !['watch', 'stock', 'premarket', 'test'].includes(v.kind) || !Number.isFinite(v.receivedAt) || (v.sentAt !== null && !Number.isFinite(v.sentAt)) || typeof v.delivered !== 'boolean' || !v.changes || typeof v.changes !== 'object' || !Array.isArray(v.picks)) continue;
         if (!v.picks.every((p) => p && typeof p.code === 'string' && Number.isFinite(p.expected))) continue;
         logs.push(v);
       } catch { /* 잘리거나 깨진 줄은 집계에서 뺀다. */ }

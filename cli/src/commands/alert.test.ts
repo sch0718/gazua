@@ -58,7 +58,7 @@ describe('gazua alert', () => {
     sorted.at(-1)!.currentPrice = sorted.at(-2)!.currentPrice * 1.01;
     const { t, sends } = setup({ now: kstEpoch('2026-11-11', '12:01:00'), route: (c) => (c.url.pathname.includes('EScv1') ? { body: week } : undefined) });
     await run(['alert', 'watch', '--symbols', '000660'], t.io);
-    expect(t.result().data).toEqual({ spikes: [] });
+    expect(t.result().data).toEqual({ spikes: [], stocks: [] });
     expect(sends()).toHaveLength(0);
   });
   it('장 시간 밖이면 설정·네트워크 없이 끝낸다', async () => {
@@ -76,11 +76,47 @@ describe('gazua alert', () => {
         if (kind === 'quiet' && c.url.pathname.includes('/futures/')) return { body: fixture('es-week') };
       } });
       await run(['alert', 'watch', '--symbols', '000660'], t.io);
-      if (kind === 'quiet') expect(t.result().data).toEqual({ spikes: [] });
-      else expect(t.result().data.skipped).toBe(kind);
+      if (kind === 'closed') expect(t.result().data.skipped).toBe(kind);
+      else expect(t.result().data).toEqual({ spikes: [], stocks: [] });
+      if (kind === 'nodata') expect(t.err.join('')).toContain('선물 자료를 받지 못했어요');
       expect(sends()).toHaveLength(0);
       expect(readState(t.dir, 'watch', null)).toBeNull();
     }
+  });
+  it('관심 종목이 평소보다 크게 움직이면 선물과 따로 한 알림으로 묶어 보내고 같은 봉은 다시 보내지 않는다', async () => {
+    const spikyItem = (code: string) => {
+      const week = fixture('item-week');
+      const bars = Object.values(week.priceInfos).flat() as { localDateTime: string; currentPrice: number }[];
+      const prev = bars.find((b) => b.localDateTime === '20261111102000')!, last = bars.find((b) => b.localDateTime === '20261111103000')!;
+      last.currentPrice = prev.currentPrice * (code === '000660' ? 1.05 : 0.96);
+      return week;
+    };
+    const route = (c: FakeCall): FakeReply | undefined => {
+      if (c.url.pathname.includes('/futures/')) return { body: fixture('es-week') };
+      const item = c.url.pathname.match(/\/item\/(\d{6})/);
+      if (item) return { body: spikyItem(item[1]) };
+      if (c.url.pathname === '/api/stock/000660/basic') return { body: { stockName: 'SK하이닉스' } };
+    };
+    const one = setup({ route });
+    {
+      await run(['alert', 'watch', '--symbols', '000660'], one.t.io);
+      expect(one.sends()).toHaveLength(1);
+      const body = one.sends()[0].body as { title: string; message: string };
+      expect(body.title).toBe('장중 알림 · SK하이닉스 10분 새 +5.0% 급등');
+      expect(body.message).toContain('10:30~10:40');
+      expect(body.message).not.toMatch(/투자|매수|매도/);
+      expect(readLogs(one.t.dir)).toMatchObject([{ kind: 'stock', delivered: true, picks: [], barEnd: kstEpoch('2026-11-11', '10:40:00') }]);
+    }
+    const again = setup({ dir: one.t.dir, route });
+    await run(['alert', 'watch', '--symbols', '000660'], again.t.io);
+    expect(again.sends()).toHaveLength(0);
+    const two = setup({ route });
+    await run(['alert', 'watch', '--symbols', '000660,005930'], two.t.io);
+    expect(two.sends()).toHaveLength(1);
+    const body = two.sends()[0].body as { title: string; message: string };
+    expect(body.title).toBe('장중 알림 · 관심 종목 2개 급변');
+    expect(body.message).toMatch(/· SK하이닉스 \+5\.0% 급등[\s\S]*· 005930 −4\.0% 급락/);
+    expect(readState<{ sentByDate: Record<string, number> }>(two.t.dir, 'watch', { sentByDate: {} }).sentByDate['2026-11-11']).toBe(1);
   });
   it('휴장 조회 실패·종목 일부 실패·참고값 실패에도 남은 값으로 보낸다', async () => {
     const { t, sends } = setup({ route: (c) => {
