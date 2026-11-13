@@ -321,7 +321,7 @@
                 <button type="button" class="cancel" onclick={cancelCriteria}>기준 고치기</button>
                 {#if canShare()}<button type="button" class="share" onclick={shareValidation}>결과 공유</button>{/if}
               </div>
-              <ValidationResult bind:this={validationView} {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={app.settings.theme} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} fin={runSnap?.fin ?? finRunSnap(crit)} />
+              <ValidationResult bind:this={validationView} {app} result={vctl.result} {names} criteriaName={runSnap?.name ?? crit.name} capital={runSnap?.capital ?? crit.capital} theme={`${app.settings.theme}:${app.settings.palette}`} macro={runSnap?.macro} flow={runSnap?.flow ?? flowRunSnap(crit)} fin={runSnap?.fin ?? finRunSnap(crit)} />
             {:else}
               <ValidationRun running={vctl.state === 'running'} progress={vctl.progress} error={vctl.error} oncancel={cancelCriteria} onfix={cancelCriteria} />
             {/if}
@@ -361,7 +361,7 @@
                   bind:this={panel}
                   state={ctl.state}
                   colorConvention={app.settings.colorConvention}
-                  theme={app.settings.theme}
+                  theme={`${app.settings.theme}:${app.settings.palette}`}
                   {stale}
                   onShare={canShare() ? shareSim : undefined}
                   onEdit={fixRules}

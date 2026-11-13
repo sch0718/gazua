@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PALETTES } from '@sch0718/ui-svelte';
 import price005930 from '../providers/fixtures/kis/inquire-price-005930.json';
 import tokenFixture from '../providers/fixtures/kis/token.json';
 import { newStrategy } from '../sim/defaults';
@@ -9,7 +10,7 @@ import { kstEpoch } from '../time/kst';
 import { stepPeriod } from '../market/periods';
 import { createMemoryOrderCache } from '../perf/orderCache';
 import { KeyLockNotSavedError, KeyLockedElsewhereError, SecretsChangedError, StoredKeysNotRemovedError, createApp, sameProviderKeys, type App, type AppDeps } from './app.svelte';
-import { DEFAULT_SETTINGS, type Meta, type Settings, type Watchlists } from './schema';
+import { DEFAULT_SETTINGS, PALETTE_IDS, type Meta, type Settings, type Watchlists } from './schema';
 import { WrongPassphraseError, isLocked, lockSecrets, unlockSecrets, type Secrets } from './secrets';
 import { createSafeStorage } from './storage';
 import { memoryBacking, seed, totalQuotaBacking } from './testStorage';
@@ -97,6 +98,23 @@ describe('createApp — start', () => {
     expect(app.settings).toEqual({ ...DEFAULT_SETTINGS, metric: 'drawdown' });
   });
 
+  it('저장된 팔레트를 적용하고 변경한 팔레트를 저장·적용해도 등락색 클래스는 유지한다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { palette: 'teal', colorConvention: 'global' });
+    const app = make(backing);
+    expect(app.settings.palette).toBe('teal');
+    expect(document.documentElement.dataset.palette).toBe('teal');
+    expect(document.documentElement.classList.contains('global-colors')).toBe(true);
+
+    app.updateSettings({ palette: 'blue' });
+    expect(app.settings.palette).toBe('blue');
+    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).palette).toBe('blue');
+    expect(document.documentElement.dataset.palette).toBe('blue');
+    expect(document.documentElement.classList.contains('global-colors')).toBe(true);
+    expect(PALETTE_IDS).toEqual(PALETTES.map((p) => p.id));
+  });
+
   it('an onboarded profile starts on compare with the last or first group', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
@@ -160,10 +178,11 @@ describe('createApp — banners', () => {
   it('stored settings are validated on load: period W9 falls back (no [ ] crash) and the corrupt banner shows', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
-    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, metric: 'excess', period: { unit: 'W', n: 9 }, theme: 'neon' });
+    seed(backing, 'p:p1:settings', { ...DEFAULT_SETTINGS, onboarded: true, metric: 'excess', period: { unit: 'W', n: 9 }, theme: 'neon', palette: 'neon' });
     const app = make(backing);
     expect(app.settings.period).toEqual(DEFAULT_SETTINGS.period);
     expect(app.settings.theme).toBe(DEFAULT_SETTINGS.theme);
+    expect(app.settings.palette).toBe('violet');
     expect(app.settings.metric).toBe('excess'); // 맞는 값은 그대로
     expect(() => stepPeriod(app.settings.period, 1)).not.toThrow();
     expect(() => stepPeriod(app.settings.period, -1)).not.toThrow();

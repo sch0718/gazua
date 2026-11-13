@@ -2,7 +2,7 @@
 import { PERIOD_COUNTS } from '../market/periods';
 import { MAX_ITEMS } from './watchlist';
 import { normalizeProxyUrl } from '../ui/settings/connection';
-import { DEFAULT_SETTINGS, type Group, type PeriodUnit, type Settings, type WatchItem, type Watchlists } from './schema';
+import { DEFAULT_SETTINGS, PALETTE_IDS, type Group, type PeriodUnit, type Settings, type WatchItem, type Watchlists } from './schema';
 
 type Row = Record<string, unknown>;
 const isRecord = (v: unknown): v is Row => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -14,6 +14,7 @@ const ENUMS: Partial<Record<keyof Settings, readonly unknown[]>> = {
   metric: ['change', 'drawdown', 'excess', 'rvol', 'mcap', 'volatility', 'rsi'],
   benchmark: ['AUTO', 'KOSPI', 'KOSDAQ'],
   theme: ['system', 'light', 'dark'],
+  palette: PALETTE_IDS,
   colorConvention: ['kr', 'global'],
   boardOrder: ['value', 'mine'],
   recentWindow: [0, 5, 15, 30, 60],

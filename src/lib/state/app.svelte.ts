@@ -10,7 +10,7 @@ import {
 import { createProvider } from '../providers/factory';
 import { webTokenLock } from '../providers/tokenLock';
 import type { IssuedAtStore, MarketDataProvider, TokenInfo, TokenStore } from '../providers/types';
-import { applyColorConvention, applyTheme } from '../ui/theme';
+import { applyColorConvention, applyTheme, applyPalette } from '../ui/theme';
 import {
   RECENT_MAX,
   loadRecent,
@@ -430,6 +430,7 @@ export function createApp(deps: AppDeps): App {
   function applyDisplay() {
     if (typeof document === 'undefined') return;
     applyTheme(settings.theme);
+    applyPalette(settings.palette);
     applyColorConvention(settings.colorConvention);
   }
 

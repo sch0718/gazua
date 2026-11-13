@@ -1,5 +1,5 @@
 // 테마 적용은 @sch0718/ui-svelte가 한다. 색 관례(등락색)는 가즈아 전용이다.
-export { applyTheme, type ThemeChoice } from '@sch0718/ui-svelte';
+export { applyTheme, applyPalette, type ThemeChoice } from '@sch0718/ui-svelte';
 
 export type ColorConvention = 'kr' | 'global';
 

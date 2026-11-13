@@ -5,7 +5,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import type { App } from '../lib/state/app.svelte';
   import type { Settings } from '../lib/state/schema';
-  import { Segmented } from '@sch0718/ui-svelte';
+  import { Segmented, PalettePicker } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
   import About from '../lib/ui/settings/About.svelte';
@@ -103,6 +103,9 @@
                 value={app.settings.theme}
                 onchange={(v) => app.updateSettings({ theme: v as Settings['theme'] })}
               />
+            </div>
+            <div class="palette">
+              <PalettePicker value={app.settings.palette} onchange={(id) => app.updateSettings({ palette: id })} />
             </div>
             <div class="row">
               <span>상승·하락 색</span>
@@ -205,6 +208,10 @@
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
     font-size: var(--fs-body);
+  }
+  .palette {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
   }
   .row:last-child {
     border-bottom: 0;

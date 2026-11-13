@@ -157,7 +157,7 @@
       read={publicApi ? (cap) => publicApi.readShare(cap) : null}
       onexit={() => app.leaveShared()}
       colorConvention={app.settings.colorConvention}
-      theme={app.settings.theme}
+      theme={`${app.settings.theme}:${app.settings.palette}`}
     />
   {:else if route.name === 'profiles'}
     <ProfilePicker {app} />

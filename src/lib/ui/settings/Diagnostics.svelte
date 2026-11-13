@@ -159,6 +159,7 @@
   }
   .running .ck {
     background: var(--accent);
+    color: var(--on-accent);
   }
   .pending,
   .skipped {

@@ -1,3 +1,4 @@
+import type { PaletteId } from '@sch0718/ui-svelte';
 import type { VenueMode } from '../market/tradable';
 import type { SafeStorage } from './storage';
 
@@ -14,6 +15,10 @@ export type PerfBenchmark = 'AUTO' | 'KOSPI' | 'KOSDAQ' | '069500' | '229200';
 
 export type MetricId = 'change' | 'drawdown' | 'excess' | 'rvol' | 'mcap' | 'volatility' | 'rsi';
 
+export const PALETTE_IDS = [
+  'violet', 'blue', 'teal', 'pastel', 'paper', 'night', 'forest', 'rose', 'plum', 'mono',
+] as const satisfies readonly PaletteId[];
+
 export interface Settings {
   provider: 'kis' | 'toss' | 'demo';
   proxyUrl: string;
@@ -22,6 +27,7 @@ export interface Settings {
   metric: MetricId;
   benchmark: 'AUTO' | 'KOSPI' | 'KOSDAQ';
   theme: 'system' | 'light' | 'dark';
+  palette: PaletteId;
   colorConvention: 'kr' | 'global';
   boardOrder: BoardOrder;
   /** 1일 등락률·초과수익의 기준: 0이면 전일 대비, 그 밖은 최근 N분 */
@@ -71,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   metric: 'change',
   benchmark: 'AUTO',
   theme: 'system',
+  palette: PALETTE_IDS[0],
   colorConvention: 'kr',
   boardOrder: 'value',
   recentWindow: 0,
