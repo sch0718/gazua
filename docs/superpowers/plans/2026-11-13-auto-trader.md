@@ -20,7 +20,7 @@
 
 - `export function proxySettings(ctx)`: 환경변수 세 개 → `{ server, headers }`(없으면 `order-not-configured`, 토큰은 `ctx.redact`에 등록).
 - `export async function orderStatus(ctx, s)`: `limitsOf(await proxyCall(... '/order/status'))`.
-- `export async function tossCredentials(ctx)`: `buildProvider(ctx,'toss',readCreds(ctx.env)).provider.account.orderHeaders()` + 가리기 등록. 계정 객체도 돌려준다(보유 조회용).
+- `export async function tossAccount(ctx)`: `buildProvider(ctx,'toss',readCreds(ctx.env)).provider.account`를 얻고 기존처럼 `if (!account?.orderHeaders) throw new CliError('provider-unsupported')`로 좁힌 뒤, `orderHeaders()` 결과를 가리기에 등록하고 `{ account, credentials }`를 돌려준다(보유 조회는 `account.holdings()`).
 - `export async function sendOrder(ctx, s, credentials, input)`: POST `/order/toss` + 결과 검사(`unknownOrder`). 성공 시 `{ orderId, clientOrderId, amount }`.
 - `order` 명령은 이 함수들을 써서 지금과 같은 출력을 낸다. 기존 `order.test.ts`가 그대로 통과해야 한다(수정 금지).
 
@@ -33,7 +33,7 @@
 
 - `config.ts`: `readAutoConfig(env)` → `{ strategy, profile?, mode, buySlipPct, sellSlipPct }`. 설계 §2 검사. 오류는 `CliError('invalid-args', …)`.
 - `tick.ts`: `tickOf(price)`, `tickUp(price)`, `tickDown(price)`(설계 §5 표).
-- `ledger.ts`: `ledgerPath(dir, mode)`, `readLedger(path, today)`(없으면 빈 원장, 손상이면 `CliError('invalid-args', '자동 실행 원장을 읽을 수 없어요: <경로>')`, 날짜가 바뀐 `today` 비우기. 형식은 설계 §4의 `AutoLedger`), `writeLedger(path, ledger)`(`writeJsonFile`). 형식 검사는 필드 타입만 본다.
+- `ledger.ts`: `ledgerPath(dir, mode)`, `readLedger(path, today)`(없으면 빈 원장, 손상이면 `CliError('invalid-args', '자동 실행 원장을 읽을 수 없어요: <경로>')`, 날짜가 바뀐 `today` 비우기. 형식은 설계 §4의 `AutoLedger`), `writeLedger(path, ledger)`(`writeJsonFile`). 형식 검사: `version === 1`, 날짜는 달력에 있는 `YYYY-MM-DD`, 수량·가격은 양의 안전한 정수(`qty`는 0 이상), `sells` 합계 + `qty` = `boughtQty`, 같은 종목 포지션 중복 없음. 타입은 맞지만 값이 틀린 원장도 거절하는 시험 1건.
 - `judge.ts`(순수 함수):
   - `toCandles(bars: DayBar[]): Candle[]`(high·low가 없으면 그 봉은 open·close의 최대·최소, 거래량 없으면 0).
   - `restore(pos, strategy): Position`(`openPosition` → `sells` 재생 → `markClose(peak)`).
@@ -45,7 +45,9 @@
   - 주문 직전 원장 쓰기, 결과별 원장 갱신(설계 §7 표).
   - 알림(`sendNtfy`, `readAlertConfig`), 끝 줄 「투자 조언 아님」. 연습 제목 `[연습]`.
   - 실행 전체 오류: 같은 날 같은 코드는 한 번만 알리고 다시 던진다(`notified`).
-- `cli/src/commands/auto.ts`: `auto` 명령(인자 없음, 남는 위치 인자는 `invalid-args`). `execute.ts`의 `COMMANDS`에 `auto` 추가. MCP 도구에는 넣지 않는다.
+- `cli/src/commands/auto.ts`: `auto` 명령(인자 없음, 남는 위치 인자와 `ctx.args.yes`는 네트워크·원장 접근 전에 `invalid-args`). `execute.ts`의 `COMMANDS`에 `auto` 추가하고, 같은 단계에서 `cli/README.md` 명령 표에 `gazua auto` 한 줄을 넣는다(`readme.test.ts`가 검사). MCP 도구에는 넣지 않는다.
+- 결과는 설계 §11 구조(`mode`·`strategy`·`skipped`·`buys`·`sells`·`skippedSymbols`·`notes`). `notes`에 거래대금 부재(§3)·비율 배분이 처음 자금 기준(§5)을 해당할 때 넣고, 오늘 봉이 없는 종목은 `skippedSymbols`. 연습 매수 시험에서 대표 결과를 검사한다.
+- 각 단계 끝에 `corepack pnpm --filter gazua-cli test`(1단계는 `--filter proxy`)를 돌린다.
 
 시험(`cli/src/auto/*.test.ts`, `cli/src/commands/auto.test.ts`), 설계 §12만:
 - config 4건, tick 경계, judge(손절·추적·두 단계 동시 익절 합산·단계 익절 재매도 없음·기간 청산), run: 연습 모드 매수 알림·프록시 미호출, 하루 한 번, 15:15 이후 매수 없음, 장 상태 CLOSE면 아무것도 안 함, 실전 매수 성공 원장, 실전 rate-limited 되돌림·upstream 하루 막음·unknown 유지, 실전 매도 토스 보유 min·보유 0이면 안 팖(오늘 산 것은 유지)·`pendingSell` 중복 없음·부분 체결 기록·거절 뒤 그날 막힘, 전날 포지션 매도 뒤 재매수 없음, 실전에서 `totalMaxAmount` null이면 매수 안 함, 포지션이 있는데 전략이 바뀌면 멈춤, 원장 손상 시 멈춤, 주문 전 원장 기록(보내는 fetch 안에서 원장 파일을 읽어 확인).
