@@ -1,6 +1,8 @@
 # 외부 도구 적용 검토: impeccable · hyperframes · TradingAgents
 
 > 검토: 2026-11-02 · Claude와 Codex(`gpt-6.1-sol` high) 교차 검증 · impeccable은 2026-11-03에 가즈아에서 시범 적용했고 2026-11-12에 렌더 스캔을 스크립트로 묶었어요(1절). hyperframes는 2026-11-12에 확인하고 들이지 않았어요(2절 「2026-11-12 확인」)
+>
+> **결정(2026-11-14): impeccable과 hyperframes는 가즈아·repass·landmark 모두에서 쓰지 않아요.** impeccable은 시범에서 고칠 지적이 10건 중 1건뿐이고 정적 검사는 0건이라, 패키지·`lint:design` 명령·렌더 스캔 스크립트를 걷어냈어요. 아래 1·2절은 검토 기록으로만 남겨요.
 
 - 「프로젝트 도구 검토」 세션에서 정리한 향후 적용 방안을 옮겨 적었어요. 2026-11-03 기준으로 impeccable은 가즈아에 설치해 실측했고, 3절 (a)안(전략 비판 스킬)은 구현했고, (c)안은 점검했어요([백테스트 점검표](2026-11-03-backtest-checklist.md)). (b)안은 아직 기록만 있어요. hyperframes는 2026-11-12에 확인하고 들이지 않았어요(2절).
 - impeccable과 hyperframes는 repass·landmark와 같은 방식으로 쓰는 세 프로젝트 공통안이에요. TradingAgents는 가즈아에만 해당하고, 통합하지 않고 아이디어만 빌려요.

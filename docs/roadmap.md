@@ -123,7 +123,7 @@
 
 ## 검토만 한 외부 도구
 
-- impeccable(디자인 점검), hyperframes(데모 영상 자동 생성), TradingAgents(아이디어만 빌림)의 적용 방안을 기록해 뒀어요([외부 도구 적용 검토](proposals/2026-11-02-external-tools.md), 2026-11-02). 2026-11-12에 impeccable 렌더 스캔(`pnpm lint:design:render`)과 Playwright 데모 녹화(`pnpm demo:video`)를 스크립트로 두었고, hyperframes는 자동 전역 설치 등으로 들이지 않았어요.
+- impeccable(디자인 점검), hyperframes(데모 영상 자동 생성), TradingAgents(아이디어만 빌림)의 적용 방안을 기록해 뒀어요([외부 도구 적용 검토](proposals/2026-11-02-external-tools.md), 2026-11-02). Playwright 데모 녹화(`pnpm demo:video`)만 남겼어요. impeccable과 hyperframes는 2026-11-14에 쓰지 않기로 했어요(세 프로젝트 모두). impeccable은 시범에서 고칠 지적이 10건 중 1건이라 걷어냈어요.
 - TradingAgents (a)안(역할 토론형 전략 비판 스킬)은 구현됐어요(2026-11-03, `.claude/skills/strategy-critique/`). 나머지는 아직 기록만 있어요.
 
 ## 보류: 과설계로 판단한 것
