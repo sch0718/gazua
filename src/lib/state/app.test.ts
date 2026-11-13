@@ -98,20 +98,16 @@ describe('createApp — start', () => {
     expect(app.settings).toEqual({ ...DEFAULT_SETTINGS, metric: 'drawdown' });
   });
 
-  it('저장된 팔레트를 적용하고 변경한 팔레트를 저장·적용해도 등락색 클래스는 유지한다', () => {
+  it('저장된 팔레트를 시작할 때 적용한다', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
-    seed(backing, 'p:p1:settings', { palette: 'teal', colorConvention: 'global' });
+    seed(backing, 'p:p1:settings', { palette: 'teal' });
     const app = make(backing);
     expect(app.settings.palette).toBe('teal');
     expect(document.documentElement.dataset.palette).toBe('teal');
-    expect(document.documentElement.classList.contains('global-colors')).toBe(true);
+  });
 
-    app.updateSettings({ palette: 'blue' });
-    expect(app.settings.palette).toBe('blue');
-    expect(JSON.parse(backing.getItem('gazua:v1:p:p1:settings')!).palette).toBe('blue');
-    expect(document.documentElement.dataset.palette).toBe('blue');
-    expect(document.documentElement.classList.contains('global-colors')).toBe(true);
+  it('검증에 쓰는 팔레트 id 목록이 공용 패키지 목록과 같다', () => {
     expect(PALETTE_IDS).toEqual(PALETTES.map((p) => p.id));
   });
 
@@ -418,10 +414,13 @@ describe('createApp — settings, watchlists and routing', () => {
     expect(stored.metric).toBe('drawdown');
   });
 
-  it('applies theme and color convention when settings change', () => {
+  it('applies theme, palette and color convention when settings change', () => {
     const app = make(memoryBacking());
     app.updateSettings({ theme: 'dark', colorConvention: 'global' });
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.classList.contains('global-colors')).toBe(true);
+    app.updateSettings({ palette: 'blue' }); // 팔레트를 바꿔도 등락색 관례는 그대로
+    expect(document.documentElement.dataset.palette).toBe('blue');
     expect(document.documentElement.classList.contains('global-colors')).toBe(true);
     app.updateSettings({ theme: 'system', colorConvention: 'kr' });
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);

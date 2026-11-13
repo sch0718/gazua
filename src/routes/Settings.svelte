@@ -105,6 +105,8 @@
               />
             </div>
             <div class="palette">
+              <!-- 묶음 이름은 PalettePicker의 aria-label(색 테마)이 읽힌다. 보이는 글자는 두 번 읽히지 않게 숨긴다 -->
+              <span class="palette-label" aria-hidden="true">색 테마</span>
               <PalettePicker value={app.settings.palette} onchange={(id) => app.updateSettings({ palette: id })} />
             </div>
             <div class="row">
@@ -210,8 +212,13 @@
     font-size: var(--fs-body);
   }
   .palette {
+    display: grid;
+    gap: 8px;
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
+  }
+  .palette-label {
+    font-size: var(--fs-body);
   }
   .row:last-child {
     border-bottom: 0;

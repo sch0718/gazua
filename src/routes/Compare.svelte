@@ -564,7 +564,7 @@
             {unit}
             {openDays}
             progress={ctl.progress}
-            theme={app.settings.theme}
+            theme={`${app.settings.theme}:${app.settings.palette}`}
             {windowFrom}
             windowTo={windowFrom === null ? null : windowEnd}
             {oncrosshair}
