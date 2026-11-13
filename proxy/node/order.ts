@@ -200,7 +200,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     let token: string | undefined;
     if (deps.tossToken) {
       try { token = await deps.tossToken.get(); }
-      catch { return json(502, { error: { code: 'toss-token-failed' } }); }
+      catch { return reject(502, 'toss-token-failed', order); }
     }
     const clientOrderId = (deps.randomId ?? randomUUID)();
     try { await audit({ event: 'send', clientOrderId, ...order }); }

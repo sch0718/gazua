@@ -42,7 +42,7 @@ describe('createProvider', () => {
 
 
 describe('토스 프록시 인증 선택', () => {
-  it.each([null, {}, { proxyToken: 'test-proxy-token' }])('키가 없어도 프록시가 있으면 토스 조회를 한다: %j', async (secrets) => {
+  it.each([{}, { proxyToken: 'test-proxy-token' }])('키가 없어도 프록시가 있으면 토스 조회를 한다: %j', async (secrets) => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).endsWith('/health')
       ? Response.json({ ok: true, tossToken: true })
       : Response.json({ result: [{ symbol: '005930', lastPrice: '100' }] }));
@@ -54,6 +54,9 @@ describe('토스 프록시 인증 선택', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).has('x-proxy-token')).toBe(false);
     expect(new Headers(fetchImpl.mock.calls[1][1]?.headers).has('authorization')).toBe(false);
+  });
+  it('비밀값이 없으면(잠금 중) 프록시가 있어도 데모다', () => {
+    expect(createProvider(settings({ provider: 'toss', proxyUrl: 'https://proxy.example' }), null, deps()).id).toBe('demo');
   });
   it('프록시 주소가 없으면 토스 키가 있어도 데모다', () => {
     expect(createProvider(settings({ provider: 'toss', proxyUrl: '  ' }), TOSS, deps()).id).toBe('demo');

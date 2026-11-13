@@ -463,7 +463,9 @@ describe('프록시 토큰으로 주문', () => {
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ error: { code: 'toss-token-failed' } });
     expect(f.fetchImpl).not.toHaveBeenCalled();
-    expect(await readFile(f.cfg.auditLog, 'utf8')).not.toContain('send');
+    const audit = await readFile(f.cfg.auditLog, 'utf8');
+    expect(audit).not.toContain('"event":"send"');
+    expect(audit).toContain('"event":"reject","code":"toss-token-failed"');
     const status = await (await f.handler(new Request('https://proxy.example/order/status'))).json();
     expect(status).toMatchObject({ usedToday: { count: 0, amount: 0 }, invested: 0 });
     expect((await f.handler(request())).status).toBe(200);
