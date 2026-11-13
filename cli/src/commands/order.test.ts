@@ -28,7 +28,7 @@ describe('gazua order', () => {
     const f = fixture();
     const t = makeIo({ fetch: f, env: { GAZUA_PROXY_URL: ENV.GAZUA_PROXY_URL, GAZUA_PROXY_TOKEN: ENV.GAZUA_PROXY_TOKEN, GAZUA_PROXY_ORIGIN: ENV.GAZUA_PROXY_ORIGIN } });
     expect(await run(ARGS, t.io)).toBe(0);
-    expect(t.result().data).toEqual({ sent: false, order: { side: 'BUY', symbol: '005930', quantity: 2, price: 99, amount: 198 }, limits: LIMITS, hint: '보내려면 --yes를 붙여요' });
+    expect(t.result().data).toEqual({ sent: false, order: { side: 'BUY', symbol: '005930', quantity: 2, price: 99, amount: 198 }, limits: { ...LIMITS, totalMaxAmount: null, invested: 0 }, hint: '보내려면 --yes를 붙여요' });
     expect(f.calls).toHaveLength(1);
     expect(f.calls[0].redirect).toBe('manual');
   });

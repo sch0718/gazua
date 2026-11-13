@@ -198,6 +198,7 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | `order-stopped` | 주문 중지 파일이 있음 |
 | `order-over-limit` | 1회 최대 금액 이상(이번 금액과 한도 표시) |
 | `order-daily-limit` | 오늘 주문 금액 합계가 하루 한도를 넘음 |
+| `order-total-limit` | 매수 − 매도 잔액이 총 가용 금액을 넘음 |
 | `order-rate-limited` | 분당·하루 주문 건수 한도 도달 |
 | `order-busy` | 다른 주문 처리 중 |
 | `order-invalid` | 주문 내용이 올바르지 않음 |

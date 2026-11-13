@@ -8,6 +8,8 @@ export interface OrderConfig {
   enabled: boolean;
   maxAmount: number;
   dailyMaxAmount?: number;
+  /** 보낸 매수 − 매도 잔액의 상한(총 가용 금액). 없으면 검사하지 않는다. */
+  totalMaxAmount?: number;
   maxPerMinute: number;
   maxPerDay: number;
   stopFile: string;
@@ -30,7 +32,7 @@ interface Order {
   amount: number;
 }
 
-const ORDER_KEYS = ['ORDER_ENABLED', 'ORDER_MAX_AMOUNT', 'ORDER_DAILY_MAX_AMOUNT', 'ORDER_MAX_PER_MINUTE', 'ORDER_MAX_PER_DAY', 'ORDER_STOP_FILE', 'ORDER_AUDIT_LOG'];
+const ORDER_KEYS = ['ORDER_ENABLED', 'ORDER_MAX_AMOUNT', 'ORDER_DAILY_MAX_AMOUNT', 'ORDER_TOTAL_MAX_AMOUNT', 'ORDER_MAX_PER_MINUTE', 'ORDER_MAX_PER_DAY', 'ORDER_STOP_FILE', 'ORDER_AUDIT_LOG'];
 const positive = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
 const timestamp = (now: number) => new Date(now + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
 const dayOf = (now: number) => timestamp(now).slice(0, 10);
@@ -49,6 +51,7 @@ export function readOrderConfig(env: Record<string, string | undefined>, home = 
   };
   const maxAmount = integer('ORDER_MAX_AMOUNT');
   const dailyMaxAmount = env.ORDER_DAILY_MAX_AMOUNT === undefined || env.ORDER_DAILY_MAX_AMOUNT === '' ? undefined : integer('ORDER_DAILY_MAX_AMOUNT');
+  const totalMaxAmount = env.ORDER_TOTAL_MAX_AMOUNT === undefined || env.ORDER_TOTAL_MAX_AMOUNT === '' ? undefined : integer('ORDER_TOTAL_MAX_AMOUNT');
   const maxPerMinute = integer('ORDER_MAX_PER_MINUTE', 3);
   const maxPerDay = integer('ORDER_MAX_PER_DAY', 20);
   // 키 이름 오타는 그 설정이 조용히 빠지는 것이므로 주문을 끈다.
@@ -65,7 +68,7 @@ export function readOrderConfig(env: Record<string, string | undefined>, home = 
   const stopFile = expand('ORDER_STOP_FILE', '~/gazua-order.stop');
   const auditLog = expand('ORDER_AUDIT_LOG', '~/Library/Logs/gazua-orders.jsonl');
   return {
-    enabled: reason === undefined, maxAmount, dailyMaxAmount, maxPerMinute, maxPerDay,
+    enabled: reason === undefined, maxAmount, dailyMaxAmount, totalMaxAmount, maxPerMinute, maxPerDay,
     stopFile, auditLog,
     ...(reason !== undefined && { disabledReason: reason }),
   };
@@ -103,6 +106,9 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
   let day = dayOf(deps.now());
   let count = 0;
   let amount = 0;
+  // 보낸 매수 − 매도 잔액. 원래 갖고 있던 주식을 팔아 한도가 늘지 않게 0 아래로 내려가지 않는다.
+  let invested = 0;
+  const spend = (order: Pick<Order, 'side' | 'amount'>) => { invested = Math.max(0, invested + (order.side === 'BUY' ? order.amount : -order.amount)); };
   let recent: number[] = [];
   const refresh = (now: number) => {
     if (day !== dayOf(now)) { day = dayOf(now); count = 0; amount = 0; }
@@ -135,8 +141,8 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
           const entry: unknown = JSON.parse(line);
           if (!object(entry)) throw new Error();
           if (entry.event !== 'send') continue;
-          const { quantity, price, amount: sentAmount, ts } = entry;
-          if (!positive(quantity) || !positive(price) || !positive(sentAmount) || quantity * price !== sentAmount) throw new Error();
+          const { side, quantity, price, amount: sentAmount, ts } = entry;
+          if ((side !== 'BUY' && side !== 'SELL') || !positive(quantity) || !positive(price) || !positive(sentAmount) || quantity * price !== sentAmount) throw new Error();
           const sent = typeof ts === 'string' ? Date.parse(ts) : NaN;
           if (!Number.isFinite(sent) || sent > now || (entry.day !== undefined && entry.day !== dayOf(sent))) throw new Error();
           if (dayOf(sent) === day) {
@@ -144,6 +150,8 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
             count++;
             amount += sentAmount;
           }
+          if (!Number.isSafeInteger(invested + sentAmount)) throw new Error();
+          spend({ side, amount: sentAmount });
           if (now - sent < 60_000) recent.push(sent);
         } catch { throw new Error(`감사 로그 ${index + 1}번째 줄을 확인해 주세요`); }
       }
@@ -167,12 +175,16 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     if (!Number.isSafeInteger(amount + order.amount) || (cfg.dailyMaxAmount !== undefined && amount + order.amount > cfg.dailyMaxAmount)) {
       return reject(403, 'order-daily-limit', order, { amount: order.amount, usedToday: amount, dailyMaxAmount: cfg.dailyMaxAmount ?? null });
     }
+    if (order.side === 'BUY' && (!Number.isSafeInteger(invested + order.amount) || (cfg.totalMaxAmount !== undefined && invested + order.amount > cfg.totalMaxAmount))) {
+      return reject(403, 'order-total-limit', order, { amount: order.amount, invested, totalMaxAmount: cfg.totalMaxAmount ?? null });
+    }
     if (recent.length >= cfg.maxPerMinute || count >= cfg.maxPerDay) return reject(429, 'order-rate-limited', order);
     const clientOrderId = (deps.randomId ?? randomUUID)();
     try { await audit({ event: 'send', clientOrderId, ...order }); }
     catch { return json(503, { error: { code: 'order-audit-failed' } }); }
     count++;
     amount += order.amount;
+    spend(order);
     recent.push(now);
     const signal = AbortSignal.timeout(deps.upstreamTimeoutMs);
     let upstream: Response;
@@ -216,7 +228,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       if (req.method !== 'GET') return json(405, { error: { code: 'method-not-allowed' } });
       refresh(deps.now());
       return json(200, { enabled: prepared && cfg.enabled, stopped: await stopped(cfg.stopFile), maxAmount: cfg.maxAmount,
-        dailyMaxAmount: cfg.dailyMaxAmount ?? null, maxPerMinute: cfg.maxPerMinute, maxPerDay: cfg.maxPerDay, usedToday: { count, amount } });
+        dailyMaxAmount: cfg.dailyMaxAmount ?? null, totalMaxAmount: cfg.totalMaxAmount ?? null, invested, maxPerMinute: cfg.maxPerMinute, maxPerDay: cfg.maxPerDay, usedToday: { count, amount } });
     }
     if (path !== '/order/toss') return json(404, { error: { code: 'order-not-found' } });
     if (req.method !== 'POST') return json(405, { error: { code: 'method-not-allowed' } });
