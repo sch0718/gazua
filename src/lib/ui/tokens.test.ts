@@ -28,7 +28,8 @@ describe('tokens.css', () => {
 
   it('defines the same token names in light and both dark blocks', () => {
     const names = (b: string) => [...b.matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]);
-    const themed = names(light).filter((n) => !/^--(font|fs-|r-|gutter|touch|ease|dur-)/.test(n));
+    // 테마 무관 토큰(@sch0718/ui-svelte 0.2.0의 간격 --sp-*·--bar-h·--focus-ring 포함)은 라이트 블록에만 있다
+    const themed = names(light).filter((n) => !/^--(font|fs-|r-|gutter|touch|ease|dur-|sp-|bar-h|focus-ring)/.test(n));
     expect(names(darkAuto).sort()).toEqual(themed.sort());
     expect(names(darkSet).sort()).toEqual(themed.sort());
   });
