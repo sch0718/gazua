@@ -190,3 +190,92 @@ test('collect: 토스로 받으면 source가 toss이고 매매동향·재무를 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('관리 수집은 키·발급 없이 프록시 헤더만 사용하고 전달된 인증 헤더도 버린다', async () => {
+  const calls = [];
+  const c = clock();
+  const client = createTossClient({ baseUrl: 'https://proxy.example/toss/', proxyManaged: true,
+    headers: { origin: 'https://app.example', 'x-proxy-token': 'test-proxy-token', Authorization: 'Bearer test-client-token' },
+    now: c.now, sleep: c.sleep, fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return json({ result: { candles: [{ timestamp: `${day(0)}T00:00:00+09:00`, openPrice: '10', highPrice: '11', lowPrice: '9', closePrice: '10', volume: '100' }] } });
+    } });
+  assert.deepEqual((await client.dailyCandles('005930', day(0), day(0))).c, [10]);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.startsWith('https://proxy.example/toss/api/v1/candles?'));
+  const headers = new Headers(calls[0].init.headers);
+  assert.equal(headers.get('origin'), 'https://app.example');
+  assert.equal(headers.get('x-proxy-token'), 'test-proxy-token');
+  assert.equal(headers.has('authorization'), false);
+  assert.equal(calls[0].init.redirect, 'manual');
+  assert.equal(client.scrub('test-proxy-token'), '***');
+});
+
+test('관리 수집 401은 한 번만 요청하고 발급 없이 치명 실패다', async () => {
+  let count = 0;
+  const client = createTossClient({ proxyManaged: true, sleep: async () => {}, fetchImpl: async () => {
+    count++;
+    return json({ error: 'test-proxy-token' }, 401);
+  } });
+  await assert.rejects(client.dailyCandles('005930', day(0), day(0)), (error) => error.fatal === true);
+  assert.equal(count, 1);
+});
+
+for (const kind of [301, 302, 307, 308, 'opaque']) {
+  test(`프록시 수집 리다이렉트 ${kind}는 다른 출처로 보내거나 재시도하지 않는다`, async () => {
+    const calls = [];
+    const client = createTossClient({ proxyManaged: true, baseUrl: 'https://proxy.example/toss', sleep: async () => {},
+      headers: { 'x-proxy-token': 'test-proxy-token' }, fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        const response = new Response(null, kind === 'opaque' ? {} : { status: kind, headers: { location: 'https://other.example/candles' } });
+        if (kind === 'opaque') Object.defineProperty(response, 'type', { value: 'opaqueredirect' });
+        return response;
+      } });
+    await assert.rejects(client.dailyCandles('005930', day(0), day(0)), (error) => error.fatal === true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.redirect, 'manual');
+    assert.equal(new URL(calls[0].url).origin, 'https://proxy.example');
+  });
+}
+
+test('직접 발급도 수동 리다이렉트를 사용하고 전달 헤더를 유지한다', async () => {
+  const calls = [];
+  const client = createTossClient({ clientId: ID, clientSecret: SECRET, headers: { origin: 'https://app.example' }, sleep: async () => {},
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return String(url).endsWith('/oauth2/token') ? json({ access_token: TOKEN }) : json({ result: { candles: [] } });
+    } });
+  await client.dailyCandles('005930', day(0), day(0));
+  assert.equal(calls.length, 2);
+  for (const call of calls) { assert.equal(call.init.redirect, 'manual'); assert.equal(new Headers(call.init.headers).get('origin'), 'https://app.example'); }
+});
+
+test('수집 오류와 로그에서 프록시 토큰을 가린다', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'toss-proxy-scrub-'));
+  try {
+    const c = clock();
+    const logs = [];
+    const client = createTossClient({ proxyManaged: true, headers: { 'X-Proxy-Token': 'test-proxy-token' }, now: c.now, sleep: c.sleep,
+      fetchImpl: async () => { const error = new Error('test-proxy-token'); error.name = 'test-proxy-token'; throw error; } });
+    await assert.rejects(collect({ out: dir, client, master, source: 'toss', now: c.now, sleep: c.sleep, fredFetch: fred, log: (line) => logs.push(line) }), (error) => !error.message.includes('test-proxy-token'));
+    assert.ok(!logs.join('\n').includes('test-proxy-token'));
+    assert.equal(client.scrub('test-proxy-token'), '***');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('관리 401은 본문 전송이 끊겨도 읽거나 다시 요청하지 않고 치명 실패한다', async () => {
+  let count = 0;
+  let reads = 0;
+  const client = createTossClient({ proxyManaged: true, sleep: async () => {}, fetchImpl: async () => {
+    count++;
+    const response = json({}, 401);
+    response.text = async () => { reads++; throw new Error('가짜 본문 전송 실패'); };
+    return response;
+  } });
+  await assert.rejects(client.dailyCandles('005930', day(0), day(0)), (error) => {
+    assert.equal(count, 1);
+    assert.equal(error.fatal, true);
+    assert.equal(reads, 0);
+    return true;
+  });
+});

@@ -4,6 +4,7 @@ export type ErrorCode =
   | 'cors-blocked'
   | 'origin-not-allowed'
   | 'proxy-token-invalid'
+  | 'proxy-token-managed'
   | 'path-blocked'
   | 'ip-not-allowed'
   | 'invalid-credentials'
@@ -32,6 +33,8 @@ export class ApiError extends Error {
 
 const PROXY_CODES: Record<string, ErrorCode> = {
   'proxy-path-blocked': 'path-blocked',
+  'toss-token-managed': 'proxy-token-managed',
+  'toss-token-failed': 'upstream',
   'proxy-token-invalid': 'proxy-token-invalid',
   'origin-not-allowed': 'origin-not-allowed',
   'upstream-unreachable': 'upstream',
@@ -75,6 +78,7 @@ export interface ErrorDescription {
 }
 
 const DESCRIPTIONS: Record<ErrorCode, ErrorDescription> = {
+  'proxy-token-managed': { title: '맥 프록시가 토스 토큰을 맡고 있어요. 다시 불러와 주세요' },
   'proxy-unreachable': {
     title: '프록시에 연결할 수 없어요',
     action: { label: '진단 열기', target: 'diagnostics' },

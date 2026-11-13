@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRequestQueue, type Priority, type RequestQueue } from '../data/requestQueue';
 import { addDays, kstEpoch } from '../time/kst';
 import { runProviderContract } from './contract';
+import * as auth from './auth';
 import { ApiError } from './errors';
 import { createProxyClient, type ProxyClient, type ProxyResponse } from './http';
 import { createTossProvider } from './toss';
@@ -933,5 +934,100 @@ describe('toss provider: index candles', () => {
     const { provider, client } = setup();
     await provider.getIndexCandles!('KOSPI', '1d', '2026-10-06', '2026-10-08');
     expect('adjusted' in client.dataCalls[0].query).toBe(false);
+  });
+});
+
+describe('프록시가 맡는 토스 인증', () => {
+  function managed(check = vi.fn<() => Promise<boolean>>().mockResolvedValue(true), handler?: Handler, creds?: { clientId: string; clientSecret: string }) {
+    const client = fakeClient(handler);
+    const store = { load: vi.fn().mockReturnValue(null), save: vi.fn() };
+    const provider = createTossProvider({ client, queue: fastQueue(), creds, tokenStore: store, now: () => SUN, proxyManagesToken: check,
+      issuedAt: { load: () => SUN, save: vi.fn() } });
+    return { provider, client, store, check };
+  }
+  it('키 없이 조회하며 로컬 발급 간격과 토큰 저장소를 쓰지 않는다', async () => {
+    const f = managed();
+    expect(await f.provider.getQuotes(['005930'], 'UNIFIED')).toHaveLength(1);
+    await f.provider.getQuotes(['069500'], 'UNIFIED');
+    expect(f.check).toHaveBeenCalledTimes(1);
+    expect(f.client.calls.every((call) => call.method === 'GET' && !('authorization' in call.headers))).toBe(true);
+    expect(f.store.load).not.toHaveBeenCalled();
+    expect(f.store.save).not.toHaveBeenCalled();
+  });
+  it('맡지 않으면서 키도 없으면 키 설정 오류로 안내한다', async () => {
+    const f = managed(vi.fn().mockResolvedValue(false));
+    await expect(f.provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'invalid-credentials', message: '토스 키를 넣거나 맥 프록시에 키를 넣어 주세요' });
+    expect(f.client.calls).toHaveLength(0);
+  });
+  it('조회 실패를 기억하지 않고 발급 없이 다음 호출에서 다시 확인한다', async () => {
+    const f = managed(vi.fn().mockRejectedValueOnce(new ApiError('proxy-unreachable')).mockResolvedValueOnce(true));
+    await expect(f.provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'proxy-unreachable' });
+    expect(f.client.calls).toHaveLength(0);
+    await f.provider.getQuotes(['005930'], 'UNIFIED');
+    expect(f.check).toHaveBeenCalledTimes(2);
+    expect(f.client.calls).toHaveLength(1);
+  });
+  it('관리 모드에서 401이면 직접 토큰을 무효화하지 않고 한 번만 다시 확인한다', async () => {
+    const original = auth.createTokenManager;
+    const invalidate = vi.fn();
+    const spy = vi.spyOn(auth, 'createTokenManager').mockImplementation((...args) => ({ ...original(...args), invalidate }));
+    try {
+      const f = managed(undefined, () => { throw new ApiError('token-expired'); });
+      await expect(f.provider.getQuotes(['005930'], 'UNIFIED')).rejects.toMatchObject({ code: 'token-expired' });
+      expect(f.check).toHaveBeenCalledTimes(2);
+      expect(f.client.calls).toHaveLength(2);
+      expect(invalidate).not.toHaveBeenCalled();
+    } finally { spy.mockRestore(); }
+  });
+  it('같은 관리 요청 둘이 큐에서 합쳐져 401을 받아도 로컬 토큰을 무효화하지 않는다', async () => {
+    const original = auth.createTokenManager;
+    const invalidate = vi.fn();
+    const spy = vi.spyOn(auth, 'createTokenManager').mockImplementation((...args) => ({ ...original(...args), invalidate }));
+    try {
+      let failed = false;
+      const f = managed(undefined, () => {
+        if (!failed) { failed = true; throw new ApiError('token-expired'); }
+      });
+      const results = await Promise.all([
+        f.provider.getQuotes(['005930'], 'UNIFIED'),
+        f.provider.getQuotes(['005930'], 'UNIFIED'),
+      ]);
+      expect(results.map((rows) => rows[0].price)).toEqual([72000, 72000]);
+      expect(f.client.calls).toHaveLength(2);
+      expect(f.check).toHaveBeenCalledTimes(2);
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(f.store.load).not.toHaveBeenCalled();
+      expect(f.client.calls.every((call) => call.method === 'GET' && !('authorization' in call.headers))).toBe(true);
+    } finally { spy.mockRestore(); }
+  });
+  it('관리에서 직접 발급으로 바뀌면 새 판정으로 키를 사용한다', async () => {
+    let failed = false;
+    const client = fakeClient((call) => {
+      if (call.method === 'GET' && !failed) { failed = true; throw new ApiError('token-expired'); }
+    });
+    const check = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+    const provider = createTossProvider({ client, queue: fastQueue(), creds: { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }, tokenStore: memoryStore(), now: () => SUN, proxyManagesToken: check });
+    expect(await provider.getQuotes(['005930'], 'UNIFIED')).toHaveLength(1);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(client.calls.map((call) => call.method)).toEqual(['GET', 'POST', 'GET']);
+    expect(client.calls[0].headers).not.toHaveProperty('authorization');
+    expect(client.calls[2].headers.authorization).toBe('Bearer test-access-token');
+  });
+  it('발급 차단으로 직접에서 관리로 바뀌면 인증 없이 다시 조회한다', async () => {
+    const client = fakeClient((call) => {
+      if (call.method === 'POST') throw new ApiError('proxy-token-managed');
+    });
+    const check = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const provider = createTossProvider({ client, queue: fastQueue(), creds: { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET }, tokenStore: memoryStore(), now: () => SUN, proxyManagesToken: check });
+    expect(await provider.getQuotes(['005930'], 'UNIFIED')).toHaveLength(1);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(client.calls.map((call) => call.method)).toEqual(['POST', 'GET']);
+    expect(client.calls[1].headers).not.toHaveProperty('authorization');
+  });
+  it('관리 주문 헤더에는 종합매매 계좌 키만 준다', async () => {
+    const f = managed(undefined, (call) => call.path === '/api/v1/accounts' ? ok([{ accountType: 'BROKERAGE', accountSeq: 'test-account' }]) : undefined);
+    expect(await f.provider.account!.orderHeaders!()).toEqual({ 'x-tossinvest-account': 'test-account' });
+    expect(f.store.load).not.toHaveBeenCalled();
+    expect(f.client.calls).toHaveLength(1);
   });
 });

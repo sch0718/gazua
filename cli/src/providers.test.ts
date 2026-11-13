@@ -1,7 +1,7 @@
 import { chmodSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildProvider } from './providers';
+import { buildProvider, proxyOf } from './providers';
 import { createRedactor } from './output';
 import { parseArgv } from './args';
 import { cleanupDirs, tempDir } from './testing';
@@ -109,5 +109,33 @@ describe('buildProvider', () => {
     await buildProvider(ctxFor(dir, f, warnings), 'toss', CREDS).provider.getQuotes(['005930'], 'UNIFIED');
     expect(warnings.some((m) => m.includes('tokens-toss.json') && m.includes('chmod 600'))).toBe(true);
     expect(warnings.some((m) => m.includes('chmod 700'))).toBe(true);
+  });
+});
+
+
+describe('프록시 토스 공급자', () => {
+  const env = { GAZUA_PROXY_URL: ' https://proxy.example/path/ ', GAZUA_PROXY_TOKEN: ' test-proxy-token ', GAZUA_PROXY_ORIGIN: ' https://app.example ' };
+  it('프록시 설정을 정규화하고 토큰을 가린다', () => {
+    const ctx = ctxFor(tempDir(), tossFetch().f);
+    ctx.env = env;
+    expect(proxyOf(ctx)).toEqual({ server: 'https://proxy.example', token: 'test-proxy-token', headers: { origin: 'https://app.example', 'x-proxy-token': 'test-proxy-token' } });
+    expect(ctx.redact.apply('test-proxy-token')).toBe('[숨김]');
+    for (const name of Object.keys(env)) { ctx.env = { ...env, [name]: '' }; expect(proxyOf(ctx)).toBeUndefined(); }
+  });
+  it('키 없는 관리 모드는 프록시로만 조회하고 안정된 해시를 쓴다', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const f: typeof fetch = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return json(String(url).endsWith('/health') ? { ok: true, tossToken: true } : { result: [{ symbol: '005930', lastPrice: '100' }] });
+    };
+    const ctx = ctxFor(tempDir(), f); ctx.env = env;
+    const a = buildProvider(ctx, 'toss', {});
+    expect(await a.provider.getQuotes(['005930'], 'UNIFIED')).toHaveLength(1);
+    expect(a.keyHash).toBe(buildProvider(ctx, 'toss', {}).keyHash);
+    expect(calls.map((call) => call.url)).toEqual(['https://proxy.example/health', 'https://proxy.example/toss/api/v1/prices?symbols=005930']);
+    expect(new Headers(calls[0].init?.headers).has('x-proxy-token')).toBe(false);
+    expect(new Headers(calls[1].init?.headers).get('origin')).toBe('https://app.example');
+    expect(new Headers(calls[1].init?.headers).get('x-proxy-token')).toBe('test-proxy-token');
+    expect(new Headers(calls[1].init?.headers).has('authorization')).toBe(false);
   });
 });

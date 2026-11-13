@@ -15,9 +15,10 @@ function fixture(over: (c: FakeCall) => FakeReply | undefined = () => undefined)
   return fakeFetch((c) => {
     const r = over(c);
     if (r) return r;
+    if (c.url.pathname === '/health') return { body: { ok: true, tossToken: false } };
     if (c.url.pathname === '/order/status') return { body: LIMITS };
-    if (c.url.pathname === '/oauth2/token') return { body: { access_token: TOKEN, expires_in: 86400 } };
-    if (c.url.pathname === '/api/v1/accounts') return { body: { result: [{ accountType: 'PENSION_SAVINGS', accountSeq: 'fake-pension-account' }, { accountType: 'BROKERAGE', accountSeq: SEQ }] } };
+    if (c.url.pathname === '/toss/oauth2/token') return { body: { access_token: TOKEN, expires_in: 86400 } };
+    if (c.url.pathname === '/toss/api/v1/accounts') return { body: { result: [{ accountType: 'PENSION_SAVINGS', accountSeq: 'fake-pension-account' }, { accountType: 'BROKERAGE', accountSeq: SEQ }] } };
     if (c.url.pathname === '/order/toss') return { body: { ok: true, orderId: 'fake-order-id', clientOrderId: 'fake-client-order-id', amount: 198 } };
   });
 }
@@ -90,7 +91,7 @@ describe('gazua order', () => {
     expect(post.url.origin).toBe(ENV.GAZUA_PROXY_URL);
     expect(post.headers.get('authorization')).toBe(`Bearer ${TOKEN}`);
     expect(post.headers.get('x-tossinvest-account')).toBe(SEQ);
-    for (const c of f.calls.filter((c) => c.url.origin === ENV.GAZUA_PROXY_URL)) {
+    for (const c of f.calls.filter((c) => c.url.origin === ENV.GAZUA_PROXY_URL && c.url.pathname !== '/health')) {
       expect(c.redirect).toBe('manual');
       expect(c.headers.get('x-proxy-token')).toBe(ENV.GAZUA_PROXY_TOKEN);
       expect(c.headers.get('origin')).toBe(ENV.GAZUA_PROXY_ORIGIN);
@@ -122,7 +123,7 @@ describe('gazua order', () => {
   });
 
   it.each([[], [{ accountType: 'PENSION_SAVINGS', accountSeq: 'fake-pension-account' }]].map((accounts) => ({ accounts })))('종합매매 계좌가 없으면 주문 POST가 없다: $accounts', async ({ accounts }) => {
-    const f = fixture((c) => c.url.pathname === '/api/v1/accounts' ? { body: { result: accounts } } : undefined);
+    const f = fixture((c) => c.url.pathname === '/toss/api/v1/accounts' ? { body: { result: accounts } } : undefined);
     const t = makeIo({ fetch: f, env: ENV });
     await run([...ARGS, '--yes'], t.io);
     expect(t.result().error.code).toBe('upstream');
@@ -203,5 +204,29 @@ describe('gazua order', () => {
     await run([...ARGS, '--yes', '--verbose'], t.io);
     for (const secret of [TOKEN, SEQ, ENV.GAZUA_PROXY_TOKEN]) expect(t.out.join('') + t.err.join('')).not.toContain(secret);
     expect(t.result().error.message).toContain('[숨김]');
+  });
+});
+
+
+describe('프록시 관리 주문 진입점', () => {
+  it('키 없이 계좌를 찾고 인증 헤더 없이 주문한다', async () => {
+    const f = fixture((call) => {
+      if (call.url.pathname === '/health') return { body: { ok: true, tossToken: true } };
+      if (call.url.pathname === '/toss/api/v1/accounts') return { body: { result: [{ accountType: 'BROKERAGE', accountSeq: SEQ }] } };
+    });
+    const { TOSS_CLIENT_ID: _id, TOSS_CLIENT_SECRET: _secret, ...env } = ENV;
+    const t = makeIo({ fetch: f, env });
+    expect(await run([...ARGS, '--yes'], t.io)).toBe(0);
+    expect(posts(f)).toHaveLength(1);
+    expect(posts(f)[0].headers.has('authorization')).toBe(false);
+    expect(posts(f)[0].headers.get('x-tossinvest-account')).toBe(SEQ);
+    expect(f.calls.some((call) => call.url.pathname.includes('/oauth2/'))).toBe(false);
+  });
+  it.each([502, 504])('HTTP %s 토큰 발급 실패는 확실한 미전송이다', async (status) => {
+    const f = fixture((call) => call.url.pathname === '/order/toss' ? { status, body: { error: { code: 'toss-token-failed' } } } : undefined);
+    const t = makeIo({ fetch: f, env: ENV });
+    expect(await run([...ARGS, '--yes'], t.io)).toBe(1);
+    expect(t.result().error.code).toBe('order-token-failed');
+    expect(t.result().error.message).not.toContain('send');
   });
 });

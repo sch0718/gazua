@@ -59,3 +59,23 @@ describe('Diagnostics', () => {
     expect(posts()).toBe(1);
   });
 });
+
+describe('토스 조회 방식 표시', () => {
+  it.each([true, false])('카드를 열 때 맡음 %s를 한 번 확인한다', async (managed) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, tossToken: managed }));
+    const app = makeTestApp({ groups: [], now: NOW, settings: { provider: 'toss', proxyUrl: 'https://proxy.test' }, fetchImpl });
+    apps.push(app);
+    render(Diagnostics, { app, fetchImpl });
+    expect(await screen.findByText(managed ? '토스 조회: 맥 프록시가 맡음' : '토스 조회: 이 기기가 직접 받음')).toBeTruthy();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).has('x-proxy-token')).toBe(false);
+  });
+  it('관리 여부 조회가 실패하면 표시 줄을 숨긴다', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error('가짜 연결 실패'));
+    const app = makeTestApp({ groups: [], now: NOW, settings: { provider: 'toss', proxyUrl: 'https://proxy.test' }, fetchImpl });
+    apps.push(app);
+    render(Diagnostics, { app, fetchImpl });
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/^토스 조회:/)).toBeNull();
+  });
+});

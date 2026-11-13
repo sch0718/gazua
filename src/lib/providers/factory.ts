@@ -4,6 +4,7 @@ import type { Secrets } from '../state/secrets';
 import { sharedUniverse } from '../../sheets/universeSource';
 import { createDemoProvider } from './demo';
 import { createProxyClient } from './http';
+import { proxyManagesTossToken } from './proxyHealth';
 import { createKisProvider } from './kis';
 import { TOSS_QUEUE_RATES, createTossProvider } from './toss';
 import type { IssuedAtStore, MarketDataProvider, TokenLock, TokenStore } from './types';
@@ -24,7 +25,7 @@ const KIS_QUEUE_RATES = { kis: 15 };
 
 const filled = (...values: Array<string | undefined>): boolean => values.every((v) => !!v && v.trim() !== '');
 
-/** 공급자가 demo이거나, 프록시 주소나 그 공급자의 키가 없으면 데모 공급자를 돌려준다. */
+/** 데모 설정이거나 프록시 주소·비밀값(잠금 중)이 없으면 데모 공급자를 돌려준다. KIS는 키도 있어야 한다. */
 export function createProvider(
   s: Settings,
   secrets: Secrets | null,
@@ -50,11 +51,11 @@ export function createProvider(
   }
 
   const toss = secrets.toss;
-  if (!toss || !filled(toss.clientId, toss.clientSecret)) return demo();
   return createTossProvider({
     client: client(),
     queue: createRequestQueue({ ratesPerSec: { ...TOSS_QUEUE_RATES } }),
-    creds: toss,
+    creds: toss && filled(toss.clientId, toss.clientSecret) ? toss : undefined,
+    proxyManagesToken: () => proxyManagesTossToken(s.proxyUrl.trim(), fetchImpl),
     tokenStore: deps.tokenStore('toss'),
     ...(deps.tokenLock?.('toss') ? { tokenLock: deps.tokenLock('toss') } : {}),
     now,

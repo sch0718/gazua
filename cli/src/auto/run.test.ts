@@ -35,7 +35,7 @@ function fixture(o: { live?: boolean; price?: number; held?: number; error?: str
     if (c.url.pathname === '/order/status') return { body: { enabled: true, stopped: false, maxAmount: null, dailyMaxAmount: null, totalMaxAmount: o.total === undefined ? 1_000_000 : o.total, invested: 0, maxPerMinute: 3, maxPerDay: 20, usedToday: { count: o.used ?? 0, amount: 0 } } };
     if (c.url.pathname === '/order/toss') {
       atSend?.();
-      return error ? { status: error === 'order-rate-limited' ? 429 : 400, body: { error: { code: error } } }
+      return error ? { status: error === 'toss-token-failed' ? 502 : error === 'order-rate-limited' ? 429 : 400, body: { error: { code: error } } }
         : { body: { ok: true, orderId: '시험주문', clientOrderId: '시험요청', amount: 1000 } };
     }
     if (c.url.hostname === 'ntfy.example') return { body: {} };
@@ -90,10 +90,10 @@ it('실전 매수 전에 불명 원장을 저장하고 접수 뒤 확정한다',
   expect(t.ledger().positions[0]).toMatchObject({ orderId: '시험주문', qty: 99 });
   expect(t.ledger().positions[0].unconfirmed).toBeUndefined();
 });
-it.each(['order-rate-limited', 'order-busy', 'order-upstream', 'order-unknown'])('실전 매수 오류 %s의 재시도 규칙을 지킨다', async (error) => {
+it.each(['order-rate-limited', 'order-busy', 'toss-token-failed', 'order-upstream', 'order-unknown'])('실전 매수 오류 %s의 재시도 규칙을 지킨다', async (error) => {
   const t = fixture({ live: true, error });
   await t.run();
-  const retry = ['order-rate-limited', 'order-busy'].includes(error);
+  const retry = ['order-rate-limited', 'order-busy', 'toss-token-failed'].includes(error);
   expect(t.ledger().today.bought.includes('005930')).toBe(!retry);
   expect(t.ledger().positions.length).toBe(error === 'order-unknown' ? 1 : 0);
   if (error === 'order-unknown') expect(t.ledger().positions[0].unconfirmed).toBe(true);
@@ -180,7 +180,7 @@ it('설정 오류도 읽을 수 있는 원장에 하루 한 번만 기록한다'
   await expect(t.run()).rejects.toMatchObject({ code: 'invalid-args' });
   expect(alerts(t)).toHaveLength(1);
 });
-it.each(['order-rate-limited', 'order-busy', 'order-unknown'])('실전 매도 오류 %s의 재시도 규칙을 지킨다', async (error) => {
+it.each(['order-rate-limited', 'order-busy', 'toss-token-failed', 'order-unknown'])('실전 매도 오류 %s의 재시도 규칙을 지킨다', async (error) => {
   const t = fixture({ live: true, held: 100, price: 800, error });
   t.seed(); await t.run();
   const retry = error !== 'order-unknown';

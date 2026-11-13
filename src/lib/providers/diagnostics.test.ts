@@ -338,3 +338,22 @@ describe('runDiagnostics', () => {
     expect(saved).toEqual([7_000]);
   });
 });
+
+describe('토스 프록시 관리 진단', () => {
+  it.each([{}, TOSS])('키와 무관하게 발급과 tokenSource를 생략한다: %j', async (secrets) => {
+    const tokenSource = vi.fn().mockRejectedValue(new Error('발급하면 안 돼요'));
+    const f = fakeFetch({ health: () => json({ ok: true, tossToken: true }), price: () => json(tossPrices) });
+    const steps = await runDiagnostics({ proxyUrl: PROXY, provider: 'toss', secrets, fetchImpl: f, origin: ORIGIN, tokenSource, onStep: () => {} });
+    expect(steps.map((step) => step.status)).toEqual(['ok', 'ok', 'ok', 'ok']);
+    expect(steps[2].hint).toBe('맥 프록시가 토큰을 맡아요');
+    expect(tokenSource).not.toHaveBeenCalled();
+    expect(f.mock.calls).toHaveLength(3);
+    expect(f.mock.calls.some(([url]) => String(url).includes('/oauth2/'))).toBe(false);
+    expect(new Headers(f.mock.calls[2][1]?.headers).has('authorization')).toBe(false);
+  });
+  it('KIS는 토스 관리 표시가 있어도 기존 발급을 사용한다', async () => {
+    const f = fakeFetch({ health: () => json({ ok: true, tossToken: true }), token: () => json(kisToken), price: () => json(kisPrice) });
+    expect((await run('kis', KIS, f).done).every((step) => step.status === 'ok')).toBe(true);
+    expect(f.mock.calls.some(([url]) => String(url).includes('/oauth2/tokenP'))).toBe(true);
+  });
+});

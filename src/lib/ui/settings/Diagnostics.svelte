@@ -1,7 +1,8 @@
 <script lang="ts">
   // 연결 진단(스펙 7.4, 목업 ⑤): 4단계가 차례로 진행되고, 실패한 단계에 원인과 해결책을 보인다.
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { runDiagnostics, type DiagStep } from '../../providers/diagnostics';
+  import { proxyManagesTossToken } from '../../providers/proxyHealth';
   import { describeError } from '../../providers/errors';
   import type { App } from '../../state/app.svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
@@ -16,12 +17,22 @@
 
   let steps = $state<DiagStep[] | null>(null);
   let running = $state(false);
+  let tossManaged = $state<boolean | null>(null);
   let runId = 0;
   onDestroy(() => {
     runId++;
   });
 
   const provider = $derived(app.settings.provider);
+  onMount(() => {
+    let active = true;
+    if (provider === 'toss' && app.settings.proxyUrl.trim()) {
+      void proxyManagesTossToken(app.settings.proxyUrl.trim(), fetchImpl).then((value) => {
+        if (active) tossManaged = value;
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  });
 
   async function start() {
     const p = provider;
@@ -63,6 +74,9 @@
 </script>
 
 <div class="card">
+  {#if provider === 'toss' && app.settings.proxyUrl.trim() && tossManaged !== null}
+    <p class="note">토스 조회: {tossManaged ? '맥 프록시가 맡음' : '이 기기가 직접 받음'}</p>
+  {/if}
   {#if provider === 'demo'}
     <p class="note">데모 데이터는 진단할 연결이 없어요. 공급자를 고르고 프록시와 키를 넣어 주세요.</p>
   {:else}
@@ -79,6 +93,9 @@
                 {#if s.status === 'ok'}{s.ms}ms{:else if s.status === 'running'}확인 중{:else if s.status === 'fail'}실패{:else if s.status === 'skipped'}건너뜀{/if}
               </span>
             </li>
+            {#if s.status === 'ok' && s.hint}
+              <li class="fix"><span>{s.hint}</span></li>
+            {/if}
             {#if s.status === 'fail' && s.error}
               <li class="fix">
                 <b>{describeError(s.error).title}</b>

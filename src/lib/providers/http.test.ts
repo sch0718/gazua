@@ -5,6 +5,8 @@ import { createProxyClient } from './http';
 describe('classify', () => {
   const proxyErr = (code: string) => ({ error: { code } });
   const cases: Array<[string, number, unknown, 'kis' | 'toss', ErrorCode]> = [
+    ['토스 프록시가 토큰을 맡음', 403, proxyErr('toss-token-managed'), 'toss', 'proxy-token-managed'],
+    ['토스 프록시 발급 실패', 502, proxyErr('toss-token-failed'), 'toss', 'upstream'],
     ['proxy-path-blocked', 403, proxyErr('proxy-path-blocked'), 'kis', 'path-blocked'],
     ['proxy-token-invalid', 401, proxyErr('proxy-token-invalid'), 'toss', 'proxy-token-invalid'],
     ['origin-not-allowed', 403, proxyErr('origin-not-allowed'), 'kis', 'origin-not-allowed'],
@@ -32,6 +34,7 @@ describe('classify', () => {
 
 describe('describeError', () => {
   const rows: Array<[ErrorCode, string, { label: string; target: string } | undefined]> = [
+    ['proxy-token-managed', '맥 프록시가 토스 토큰을 맡고 있어요. 다시 불러와 주세요', undefined],
     ['proxy-unreachable', '프록시에 연결할 수 없어요', { label: '진단 열기', target: 'diagnostics' }],
     ['cors-blocked', '프록시가 이 주소를 허용하지 않아요', { label: '허용할 주소 복사', target: 'copy-origin' }],
     ['origin-not-allowed', '프록시가 이 주소를 허용하지 않아요', { label: '허용할 주소 복사', target: 'copy-origin' }],

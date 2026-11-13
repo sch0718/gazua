@@ -27,3 +27,11 @@ describe('chooseProvider', () => {
     expect(() => chooseProvider({})).toThrow(expect.objectContaining({ code: 'no-credentials' }));
   });
 });
+
+describe('프록시로 공급자 선택', () => {
+  it('토스 키 없이 프록시로 토스를 선택하고 KIS 키 검사는 유지한다', () => {
+    expect(chooseProvider({}, undefined, {})).toBe('toss');
+    expect(chooseProvider({}, 'toss', {})).toBe('toss');
+    expect(() => chooseProvider({}, 'kis', {})).toThrow(expect.objectContaining({ code: 'no-credentials' }));
+  });
+});

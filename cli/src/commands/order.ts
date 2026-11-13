@@ -1,8 +1,7 @@
 import type { Command, Ctx } from '../context';
 import { readCreds } from '../env';
 import { CliError, MESSAGES, type CliErrorCode } from '../errors';
-import { buildProvider } from '../providers';
-import { normalizeServer } from '../session';
+import { buildProvider, proxyOf } from '../providers';
 
 type Row = Record<string, unknown>;
 const record = (v: unknown): v is Row => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -11,6 +10,7 @@ const nonnegative = (v: unknown): v is number => typeof v === 'number' && Number
 
 /** 주문 오류만 명시적으로 통과시킨다. 모르는 실패를 안전한 재전송으로 오해하지 않게 한다. */
 const PROXY_ERRORS: Record<string, CliErrorCode> = {
+  'toss-token-failed': 'order-token-failed',
   'order-not-configured': 'order-not-configured', 'order-disabled': 'order-disabled', 'order-stopped': 'order-stopped',
   'order-over-limit': 'order-over-limit', 'order-daily-limit': 'order-daily-limit', 'order-total-limit': 'order-total-limit', 'order-rate-limited': 'order-rate-limited',
   'order-busy': 'order-busy', 'order-invalid': 'order-invalid', 'order-unavailable': 'order-unavailable',
@@ -44,6 +44,9 @@ async function proxyCall(ctx: Ctx, url: string, init: RequestInit, sent = false)
   let payload: unknown;
   try { payload = await res.json(); }
   catch { throw sent ? unknownOrder() : new CliError('upstream'); }
+  if ([502, 504].includes(res.status) && record(payload) && record(payload.error) && payload.error.code === 'toss-token-failed') {
+    throw proxyError(payload, sent);
+  }
   if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400) || (sent && [502, 504].includes(res.status))) {
     const error = record(payload) && record(payload.error) ? payload.error : {};
     throw sent ? unknownOrder(error.data) : new CliError('upstream');
@@ -74,14 +77,9 @@ function limitsOf(value: unknown) {
 }
 
 export function proxySettings(ctx: Ctx) {
-  const url = ctx.env.GAZUA_PROXY_URL?.trim();
-  const token = ctx.env.GAZUA_PROXY_TOKEN?.trim();
-  const origin = ctx.env.GAZUA_PROXY_ORIGIN?.trim();
-  if (!url || !token || !origin) throw new CliError('order-not-configured');
-  const server = normalizeServer(url);
-  ctx.redact.add(token);
-  const headers = { origin, 'x-proxy-token': token };
-  return { server, headers };
+  const proxy = proxyOf(ctx);
+  if (!proxy) throw new CliError('order-not-configured');
+  return { server: proxy.server, headers: proxy.headers };
 }
 
 export type ProxySettings = ReturnType<typeof proxySettings>;
@@ -94,8 +92,10 @@ export async function tossAccount(ctx: Ctx) {
   const account = buildProvider(ctx, 'toss', readCreds(ctx.env)).provider.account;
   if (!account?.orderHeaders) throw new CliError('provider-unsupported');
   const credentials = await account.orderHeaders();
-  ctx.redact.add(credentials.authorization);
-  ctx.redact.add(credentials.authorization.replace(/^Bearer\s+/i, ''));
+  if (credentials.authorization) {
+    ctx.redact.add(credentials.authorization);
+    ctx.redact.add(credentials.authorization.replace(/^Bearer\s+/i, ''));
+  }
   ctx.redact.add(credentials['x-tossinvest-account']);
   return { account, credentials };
 }

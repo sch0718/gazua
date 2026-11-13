@@ -4,7 +4,7 @@ import { chooseProvider, readCreds } from '../env';
 import { CliError } from '../errors';
 import { syncOrders } from '../orderCache';
 import { findStrategy, pickProfile } from '../profileData';
-import { buildProvider } from '../providers';
+import { buildProvider, proxyOf } from '../providers';
 import { authedClient } from '../session';
 import { runSignals } from '../signals';
 
@@ -16,7 +16,7 @@ export function makeSignals(build: typeof buildProvider = buildProvider): Comman
     const profile = await pickProfile(authedClient(ctx), ctx.args.profile, ctx.now());
     const strategy = findStrategy(profile.strategies, ref);
     const creds = readCreds(ctx.env);
-    const built = build(ctx, chooseProvider(creds, ctx.args.provider), creds);
+    const built = build(ctx, chooseProvider(creds, ctx.args.provider, proxyOf(ctx)), creds);
     const account = built.provider.account;
     return runSignals({
       provider: built.provider,

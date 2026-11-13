@@ -2,6 +2,7 @@
   // 첫 실행 온보딩(스펙 7.5, 목업 ⑥): ① 환영 → ② 공급자 → ③ 프록시 → ④ 키 → ⑤ 진단.
   // 어느 단계에서든 `데모로 둘러보기`로 빠져나가면 데모 모드로 들어가고 상단에 데모 배너가 뜬다.
   import { tick, untrack } from 'svelte';
+  import { proxyManagesTossToken } from '../lib/providers/proxyHealth';
   import type { App } from '../lib/state/app.svelte';
   import { createGroup, addItem } from '../lib/state/watchlist';
   import type { Group } from '../lib/state/schema';
@@ -27,8 +28,22 @@
   );
   let lockPrompt = $state(false);
   let diagnosed = $state(false);
+  let tossManaged = $state(false);
 
   const provider = $derived(app.settings.provider);
+  $effect(() => {
+    const currentStep = step;
+    const currentProvider = provider;
+    const proxyUrl = app.settings.proxyUrl.trim();
+    tossManaged = false;
+    let active = true;
+    if (currentStep === 4 && currentProvider === 'toss' && proxyUrl) {
+      void proxyManagesTossToken(proxyUrl, fetchImpl).then((value) => {
+        if (active) tossManaged = value;
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  });
 
   // 단계가 바뀌면 새 단계의 제목으로 포커스를 옮긴다(스크린리더가 새 내용을 읽도록). 처음 열 때는 옮기지 않는다.
   let heading = $state<HTMLElement>();
@@ -164,6 +179,12 @@
             KIS Developers에서 발급한 App Key와 App Secret을 넣어 주세요.
           {/if}
         </p>
+        {#if provider === 'toss' && tossManaged}
+          <p class="sub">맥 프록시가 토스 토큰을 맡고 있어서 키 없이 써도 돼요</p>
+          <div class="actions">
+            <button type="button" class="primary" onclick={() => go(5)}>다음 — 연결 진단</button>
+          </div>
+        {/if}
         <ConnectionForm {app} section="keys" submitLabel="다음 — 연결 진단" onsaved={keysSaved} />
       {/if}
     {:else}

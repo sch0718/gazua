@@ -11,6 +11,7 @@ import { NODE_LIMITS, createProxyServer } from './server.js';
 let server: Server;
 let port: number;
 
+describe('연결 기반 서버', () => {
 beforeAll(async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   server = createProxyServer({ ALLOWED_ORIGINS: 'https://a.example' });
@@ -55,7 +56,7 @@ describe('node server', () => {
   it('ignores a malformed Host header and keeps serving', async () => {
     const bad = await get('/health', { host: 'a b' });
     expect(bad.status).toBe(200);
-    expect(JSON.parse(bad.body)).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false });
+    expect(JSON.parse(bad.body)).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false, tossToken: false });
   });
 
   it('answers 400 bad-request when the request cannot be converted, and stays alive', async () => {
@@ -170,6 +171,50 @@ describe('서버 주문 처리기', () => {
     } finally {
       if (orders.listening) await new Promise<void>((resolve) => orders.close(() => resolve()));
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+});
+
+
+describe('포트 없이 서버 토큰 확인', () => {
+  async function call(server: Server, path: string, headers: Record<string, string> = {}) {
+    return new Promise<{ status: number; body: string }>((resolve) => {
+      let status = 0;
+      server.emit('request', { method: 'GET', url: path, headers }, {
+        writeHead(value: number) { status = value; },
+        end(body: Buffer | string) { resolve({ status, body: body?.toString() ?? '' }); },
+      });
+    });
+  }
+  it.each([
+    { proxy: true, keys: true, managed: true },
+    { proxy: true, keys: false, managed: false },
+    { proxy: false, keys: true, managed: false },
+  ])('서버 인증과 두 키가 있어야 맡는다: %j', async ({ proxy, keys, managed }) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => String(url).endsWith('/oauth2/token')
+      ? Response.json({ access_token: 'test-managed-token', expires_in: 3600 }) : Response.json({ ok: true }));
+    const instance = createProxyServer({ ALLOWED_ORIGINS: 'https://a.example', ...(proxy ? { PROXY_TOKEN: 'test-proxy-token' } : {}) }, {
+      fetchImpl, now: () => 100_000, upstreamTimeoutMs: 100,
+      orderEnv: keys ? { TOSS_CLIENT_ID: 'test-client-id', TOSS_CLIENT_SECRET: 'test-client-secret' } : {},
+    });
+    try {
+      const health = await call(instance, '/health');
+      expect(JSON.parse(health.body)).toMatchObject({ tossToken: managed });
+      expect(log).toHaveBeenCalledWith(managed ? 'toss-token: proxy' : 'toss-token: off');
+      if (managed) {
+        expect((await call(instance, '/toss/api/v1/accounts', { origin: 'https://a.example', 'x-proxy-token': 'test-proxy-token' })).status).toBe(200);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+        expect(new Headers(fetchImpl.mock.calls[1][1]?.headers).get('authorization')).toBe('Bearer test-managed-token');
+      }
+      for (const value of ['test-client-id', 'test-client-secret', 'test-managed-token', 'test-proxy-token']) {
+        expect(JSON.stringify(log.mock.calls)).not.toContain(value);
+      }
+    } finally {
+      instance.close();
+      log.mockRestore();
     }
   });
 });
