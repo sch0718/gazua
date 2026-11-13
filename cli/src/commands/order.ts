@@ -64,7 +64,7 @@ function parseOrder(args: string[]) {
 }
 
 function limitsOf(value: unknown) {
-  if (!record(value) || typeof value.enabled !== 'boolean' || typeof value.stopped !== 'boolean' || !nonnegative(value.maxAmount) ||
+  if (!record(value) || typeof value.enabled !== 'boolean' || typeof value.stopped !== 'boolean' || !(value.maxAmount === null || nonnegative(value.maxAmount)) ||
     !(value.dailyMaxAmount === null || positive(value.dailyMaxAmount) || (value.enabled === false && value.dailyMaxAmount === 0)) || !positive(value.maxPerMinute) || !positive(value.maxPerDay) ||
     !(value.totalMaxAmount === undefined || value.totalMaxAmount === null || positive(value.totalMaxAmount)) || !(value.invested === undefined || nonnegative(value.invested)) ||
     !record(value.usedToday) || !nonnegative(value.usedToday.count) || !nonnegative(value.usedToday.amount)) throw new CliError('upstream');
@@ -86,7 +86,7 @@ export const order: Command = async (ctx) => {
   const amount = input.quantity * input.price;
   if (!ctx.args.yes) return { sent: false, order: { ...input, amount }, limits,
     hint: '보내려면 --yes를 붙여요' + (!limits.enabled ? '. 맥 프록시에서 주문이 꺼져 있어 거절돼요'
-      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요'
+      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : limits.maxAmount !== null && amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요'
       : input.side === 'BUY' && limits.totalMaxAmount !== null && limits.invested + amount > limits.totalMaxAmount ? '. 총 가용 금액을 넘어 프록시가 거절해요' : '') };
   if (ctx.args.provider !== undefined && ctx.args.provider !== 'toss') throw new CliError('provider-unsupported');
   const account = buildProvider(ctx, 'toss', readCreds(ctx.env)).provider.account;

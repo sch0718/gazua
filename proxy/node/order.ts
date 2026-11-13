@@ -6,7 +6,8 @@ import { UPSTREAM } from '../src/allowlist.js';
 
 export interface OrderConfig {
   enabled: boolean;
-  maxAmount: number;
+  /** 1회 금액 상한(이 금액 이상 거절). 없으면 총 가용 금액만 본다. */
+  maxAmount?: number;
   dailyMaxAmount?: number;
   /** 보낸 매수 − 매도 잔액의 상한(총 가용 금액). 없으면 검사하지 않는다. */
   totalMaxAmount?: number;
@@ -49,9 +50,11 @@ export function readOrderConfig(env: Record<string, string | undefined>, home = 
     reason = `${name}는 양의 안전한 정수여야 해요`;
     return fallback ?? 0;
   };
-  const maxAmount = integer('ORDER_MAX_AMOUNT');
+  const maxAmount = env.ORDER_MAX_AMOUNT === undefined ? undefined : integer('ORDER_MAX_AMOUNT');
   const dailyMaxAmount = env.ORDER_DAILY_MAX_AMOUNT === undefined || env.ORDER_DAILY_MAX_AMOUNT === '' ? undefined : integer('ORDER_DAILY_MAX_AMOUNT');
   const totalMaxAmount = env.ORDER_TOTAL_MAX_AMOUNT === undefined || env.ORDER_TOTAL_MAX_AMOUNT === '' ? undefined : integer('ORDER_TOTAL_MAX_AMOUNT');
+  // 금액 상한이 하나도 없으면 켜지 않는다. 1회 한도가 없으면 총 가용 금액이 한 번에 쓸 수 있는 최대다.
+  if (maxAmount === undefined && totalMaxAmount === undefined) reason ??= 'ORDER_MAX_AMOUNT나 ORDER_TOTAL_MAX_AMOUNT 중 하나는 있어야 해요';
   const maxPerMinute = integer('ORDER_MAX_PER_MINUTE', 3);
   const maxPerDay = integer('ORDER_MAX_PER_DAY', 20);
   // 키 이름 오타는 그 설정이 조용히 빠지는 것이므로 주문을 끈다.
@@ -171,7 +174,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     if (!order) return reject(400, 'order-invalid');
     const now = deps.now();
     refresh(now);
-    if (order.amount >= cfg.maxAmount) return reject(403, 'order-over-limit', order, { amount: order.amount, maxAmount: cfg.maxAmount });
+    if (cfg.maxAmount !== undefined && order.amount >= cfg.maxAmount) return reject(403, 'order-over-limit', order, { amount: order.amount, maxAmount: cfg.maxAmount });
     if (!Number.isSafeInteger(amount + order.amount) || (cfg.dailyMaxAmount !== undefined && amount + order.amount > cfg.dailyMaxAmount)) {
       return reject(403, 'order-daily-limit', order, { amount: order.amount, usedToday: amount, dailyMaxAmount: cfg.dailyMaxAmount ?? null });
     }
@@ -227,7 +230,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     if (path === '/order/status') {
       if (req.method !== 'GET') return json(405, { error: { code: 'method-not-allowed' } });
       refresh(deps.now());
-      return json(200, { enabled: prepared && cfg.enabled, stopped: await stopped(cfg.stopFile), maxAmount: cfg.maxAmount,
+      return json(200, { enabled: prepared && cfg.enabled, stopped: await stopped(cfg.stopFile), maxAmount: cfg.maxAmount ?? null,
         dailyMaxAmount: cfg.dailyMaxAmount ?? null, totalMaxAmount: cfg.totalMaxAmount ?? null, invested, maxPerMinute: cfg.maxPerMinute, maxPerDay: cfg.maxPerDay, usedToday: { count, amount } });
     }
     if (path !== '/order/toss') return json(404, { error: { code: 'order-not-found' } });

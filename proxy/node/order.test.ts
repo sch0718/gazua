@@ -38,6 +38,8 @@ describe('주문 설정', () => {
   it('기본은 꺼지고 경로와 반복 상한 기본값을 채운다', () => {
     expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_TOTAL_MAX_AMOUNT: '500' }, '/fake-home')).toMatchObject({ enabled: true, totalMaxAmount: 500 });
     expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_TOTAL_MAX_AMOUNT: '5만' }, '/fake-home').enabled).toBe(false);
+    expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_TOTAL_MAX_AMOUNT: '500' }, '/fake-home')).toMatchObject({ enabled: true, maxAmount: undefined, totalMaxAmount: 500 });
+    expect(readOrderConfig({ ORDER_ENABLED: 'true' }, '/fake-home').enabled).toBe(false);
     expect(readOrderConfig({}, '/fake-home')).toMatchObject({ enabled: false, maxPerMinute: 3, maxPerDay: 20,
       stopFile: '/fake-home/gazua-order.stop', auditLog: '/fake-home/Library/Logs/gazua-orders.jsonl' });
     expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_STOP_FILE: '~/stop' }, '/fake-home'))
@@ -156,6 +158,13 @@ describe('주문 처리기', () => {
     const restored = createOrderHandler(f.cfg, f.deps);
     await restored.ready;
     expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(198);
+  });
+
+  it('1회 한도가 없으면 총 가용 금액까지 한 번에 보낼 수 있다', async () => {
+    const f = await fixture({ maxAmount: undefined, totalMaxAmount: 198 });
+    expect((await f.handler(request({ ...body, quantity: 2 }))).status).toBe(200);
+    expect(await code(await f.handler(request()))).toBe('order-total-limit');
+    expect((await (await f.handler(new Request('https://proxy.example/order/status'))).json()).maxAmount).toBeNull();
   });
 
   it('원래 갖고 있던 주식을 팔아도 총 가용 금액이 늘지 않는다', async () => {
