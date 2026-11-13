@@ -18,7 +18,7 @@
 7. 연습 모드는 주문 대신 ntfy로 「이렇게 보냈을 것」을 알리고 연습 원장만 바꾼다. 실전 모드는 `gazua order`와 같은 프록시 경로로 보낸다.
 8. 결과를 JSON 한 줄로 낸다(launchd 로그에 남는다).
 
-매도를 매수보다 먼저 판정한다. 같은 실행 안에서 판 종목을 다시 사지는 않는다(하루 한 번 규칙과 원장으로 막힌다).
+매도를 매수보다 먼저 판정한다. 오늘 매도를 보낸 종목은 그날 다시 사지 않는다(원장 `today.sold`).
 
 ## 2. 설정 `~/.config/gazua/auto.env`
 
@@ -64,8 +64,10 @@
 ```ts
 interface AutoLedger {
   version: 1;
-  /** 오늘(KST) 매수를 보낸(또는 시도한) 종목. 날짜가 바뀌면 비운다 */
-  buys: { date: string; symbols: string[] };
+  /** 원장을 만든 전략 ID. 포지션이 남아 있는데 AUTO_STRATEGY가 다른 전략을 가리키면 멈춘다 */
+  strategyId: string | null;
+  /** 오늘(KST) 매수를 보낸(또는 시도한) 종목과 매도를 보낸 종목. 날짜가 바뀌면 비운다 */
+  today: { date: string; bought: string[]; sold: string[] };
   positions: AutoPosition[];
   /** 같은 날 같은 오류 알림을 한 번만 보내기 위한 기록: 'YYYY-MM-DD:<code>' */
   notified: string[];
@@ -73,18 +75,21 @@ interface AutoLedger {
 interface AutoPosition {
   symbol: string;
   boughtAt: string;      // 매수를 보낸 KST 날짜
-  buyPrice: number;      // 보낸 지정가(실제 체결가 이하일 수 있음)
+  buyPrice: number;      // 보낸 지정가(실제 체결가는 이 값 이하일 수 있음)
+  orderId?: string;      // 매수 주문 ID(참고용)
   boughtQty: number;     // 처음 산 수량
   qty: number;           // 지금 원장 수량
   peak: number;          // 산 뒤 본 현재가 최고값(처음은 buyPrice)
-  sells: { qty: number; stage?: number }[]; // 확정된 매도(익절 단계 포함)
+  sells: { qty: number; stage?: number }[]; // 체결이 확인된 매도(부분 체결도 확인되는 대로 넣는다, 익절 단계 포함)
   pendingSell?: { date: string; sentAt: number; qty: number; qtyBefore: number; price: number; reason: string; stage?: number; warned?: boolean };
   unconfirmed?: true;    // 매수 결과 불명(order-unknown 등)
+  sellBlocked?: string;  // 자동 매도가 막힌 날짜(그날은 더 보내지 않는다)
 }
 ```
 
 - 파일이 없으면 빈 원장. **있는데 읽을 수 없거나 형식이 틀리면 멈춘다**(빈 원장으로 보면 하루 한 번 규칙과 보유 기억이 사라져 중복 매수가 날 수 있다). 알림을 보내고 오류로 끝난다.
-- **주문을 보내기 전에 먼저 원장을 쓴다.** 매수는 `buys.symbols`에 추가하고 포지션을 `unconfirmed`로 넣은 뒤 보낸다. 결과가 성공이면 `unconfirmed`를 지운다. 매도는 `pendingSell`을 먼저 쓴다. 보내는 중에 꺼지면 다음 실행은 그것을 「보냈을 수 있음」으로 보고 다시 보내지 않는다.
+- **주문을 보내기 전에 먼저 원장을 쓴다.** 매수는 `today.bought`에 추가하고 포지션을 `unconfirmed`로 넣은 뒤 보낸다. 결과가 성공이면 `unconfirmed`를 지운다. 매도는 `today.sold`에 추가하고 `pendingSell`을 먼저 쓴다. 보내는 중에 꺼지면 다음 실행은 그것을 「보냈을 수 있음」으로 보고 다시 보내지 않는다.
+- 원장에 포지션이 있는데 지금 `AUTO_STRATEGY`가 가리키는 전략 ID가 `strategyId`와 다르면 멈추고 알린다(전략 교체는 포지션을 다 정리한 뒤에). 같은 전략의 규칙을 앱에서 고치면 기존 포지션에도 새 규칙이 적용된다(문서에 적는다). 포지션이 없으면 `strategyId`를 지금 전략으로 바꾼다.
 - 동시 실행은 예약 스크립트의 `lockf` 잠금으로 막는다. 사람이 손으로 돌릴 때도 `run.sh`를 쓰도록 안내한다.
 
 ## 5. 매수
@@ -92,13 +97,13 @@ interface AutoPosition {
 조건(모두 만족):
 - KST 15:15 전.
 - 전략 매수 조건이 오늘 임시 봉에서 맞음.
-- 오늘 `buys.symbols`에 없음(같은 종목 하루 한 번).
+- 오늘 `today.bought`·`today.sold`에 없음(같은 종목 하루 한 번, 오늘 판 종목 재매수 없음).
 - 원장에 그 종목 포지션이 없음(추가 매수 없음).
 - 실전: 토스 보유에 그 종목이 없음(`proposeOrders`의 「이미 보유 중」과 같다. 원래 가진 종목을 섞지 않는다). 매수 후보가 있을 때만 토스 보유를 한 번 조회한다.
 
 가격·수량:
 - 지정가 = `tickUp(현재가 × (1 + 매수 여유/100))`.
-- 수량 = `floor(buyBudget(strategy, 전략 종목 수) / 지정가)`(`proposals.ts`의 `buyBudget`). 0주면 건너뛴다.
+- 수량 = `floor(buyBudget(strategy, 전략 종목 수) / 지정가)`(`proposals.ts`의 `buyBudget`). 0주면 건너뛴다. 비율 배분(`cashPct`·`equityPct`)은 잔고를 몰라 처음 자금 기준이라 시뮬레이션보다 많이 살 수 있다(결과 `notes`에 적는다). 실전 모드에서는 프록시의 총 가용 금액 `ORDER_TOTAL_MAX_AMOUNT`가 꼭 있어야 매수한다(`/order/status`의 `totalMaxAmount`가 null이면 매수하지 않고 하루 한 번 알림).
 - 호가 단위(KRX 2023-01-25 이후 주식): 2천 원 미만 1, 5천 미만 5, 2만 미만 10, 5만 미만 50, 20만 미만 100, 50만 미만 500, 그 이상 1,000원. ETF·ETN 구분은 하지 않는다(틀리면 토스가 거절하고 알림이 간다).
 - 상한가 초과 등은 따로 막지 않는다. 토스가 거절하면 알림.
 
@@ -112,7 +117,7 @@ interface AutoPosition {
 - 아래 순서로 처음 맞는 하나만 낸다(한 실행에서 포지션당 매도 한 건).
   1. 손절: `stopPrice()`(본전 손절 포함)가 있고 현재가 ≤ 그 값 → 전량.
   2. 추적 손절: `trailPrice()`가 있고 현재가 ≤ 그 값 → 전량.
-  3. 익절: `takeLevels()` 중 현재가 ≥ 가격인 가장 높은 단계 → 그 단계 수량(마지막 단계는 전량). 수량 0이면 건너뜀.
+  3. 익절: `takeLevels()` 중 현재가 ≥ 가격인 단계를 모두 모아 그 수량의 합(마지막 단계가 들면 전량, 원장 qty 이하)을 한 주문으로, 단계 번호는 가장 높은 단계로 낸다(시뮬레이션이 같은 날 여러 단계를 차례로 파는 것과 같은 수량). 수량 0이면 건너뜀.
   4. 기간 청산: `timeExit.on`이고 `boughtAt`부터 오늘까지 네이버 일봉 수 ≥ `days` → 전량.
   5. 매도 신호: 맞으면 전량.
 - 기준 가격은 원장 `buyPrice`(보낸 매수 지정가)다. 실제 평단은 토스 확인 때 알림에 함께 적는다.
@@ -120,17 +125,18 @@ interface AutoPosition {
 ### 보내기
 
 - 15:20 이후 새 매도 없음.
-- `pendingSell`이 있는 포지션은 새 매도를 내지 않는다(같은 포지션에 두 번 보내지 않는다).
+- `pendingSell`이 있거나 `sellBlocked`가 오늘인 포지션은 새 매도를 내지 않는다(같은 포지션에 두 번 보내지 않는다).
 - 실전: 보내기 직전 토스 보유를 조회한다. 팔 수량 = `min(판정 수량, 원장 qty, 토스 보유 수량)`.
-  - 토스 보유가 0이면 매도하지 않고 포지션을 원장에서 지우며 「보유가 없어 팔지 않았어요(매수가 체결되지 않았을 수 있어요)」 알림.
+  - 토스 보유가 0이면 매도하지 않는다. 오늘 산 포지션이면 매수가 아직 체결 중일 수 있어 그대로 두고, 전날 이전에 산 포지션이면(당일 매수 주문은 만료됨) 원장에서 지우고 「보유가 없어 팔지 않았어요」 알림.
+- 실전에서 토스 보유를 조회했을 때 전날 이전에 산 포지션은 `qty = min(qty, 토스 수량)`으로 맞추고, 줄었으면 `boughtQty = qty + 확정 매도 합계`로 함께 맞춘다(매수 부분 체결 확정. 익절 단계 수량이 실제로 산 수량 기준이 된다. 0이면 지운다). 익절 주문이 일부만 체결되고 만료되면 그 단계는 끝난 것으로 본다(덜 파는 쪽, 시뮬레이션과 다를 수 있다). 매수 후보가 있을 때는 이미 토스에 그 종목이 있으면 사지 않으므로, 원래 가진 종목과 섞이는 경우는 사람이 같은 종목을 뒤에 손으로 산 때뿐이다(그때는 사람이 확인).
 - 지정가 = `tickDown(현재가 × (1 − 매도 여유/100))`. 한국거래소는 더 낮은 매도 지정가를 매수 호가에 바로 체결하므로 미끄러짐 상한 역할을 한다.
 - 연습: 바로 체결된 것으로 본다(`sells`에 넣고 `qty`를 줄이고, 0이면 지운다).
 
 ### 실전 매도 뒤 확인(다음 실행부터)
 
 `pendingSell`이 있으면 토스 보유를 조회해 `held = min(원장 qty, 토스 수량)`:
-- `qtyBefore − held ≥ pending.qty`: 다 팔렸다 → `sells`에 넣고 `qty = held`, `pendingSell` 삭제, 0이면 포지션 삭제.
-- 일부만 줄었으면 `qty = held`로만 맞추고 `pendingSell`은 둔다.
+- 줄어든 만큼(`qty − held`, 양수일 때)을 그때마다 `sells`에 `{ qty, stage }`로 넣고 `qty = held`로 맞춘다(부분 체결도 바로 기록해 만료돼도 판 수량과 단계가 남는다).
+- `qtyBefore − held ≥ pending.qty`이면 다 팔렸다 → `pendingSell` 삭제, `qty`가 0이면 포지션 삭제. 일부만이면 `pendingSell`은 둔다.
 - `pending.date`가 오늘이 아니면(당일 주문이 만료) `pendingSell`을 지우고 다시 판정한다.
 - 보낸 지 10분이 지났는데 다 팔리지 않았고 `warned`가 아니면 「안 팔렸어요. 토스 앱에서 확인해 주세요」 알림을 한 번 보내고 `warned: true`.
 
@@ -141,9 +147,9 @@ interface AutoPosition {
 - `cli/src/commands/order.ts`에서 프록시 설정 읽기, `/order/status`, `/order/toss` 보내기를 함수로 꺼내 `gazua order`와 `gazua auto`가 같이 쓴다(`proxyCall`·`PROXY_ERRORS`·`orderHeaders` 그대로). `gazua order`의 동작·출력은 바꾸지 않는다.
 - 실행마다 주문이 필요할 때 `/order/status`를 한 번 본다. 꺼져 있거나 중지 파일이 있으면 이번 실행은 주문하지 않고, 하루 한 번 알림.
 - 결과 처리:
-  - 성공: 매수는 `unconfirmed` 삭제, 매도는 `pendingSell` 유지(확인은 다음 실행).
-  - `order-rate-limited`·`order-busy`: 보내지 않은 것이 확실하다. 매수는 `buys.symbols`와 포지션을 되돌려 다음 실행에서 다시 판정하게 한다. 매도는 `pendingSell`을 지운다.
-  - 그 밖의 보내기 전 거절(`order-over-limit`·`order-daily-limit`·`order-total-limit`·`order-stopped`·`order-disabled`·`order-invalid`)과 토스 거절(`order-upstream`): 보내지 않았다. 매수는 포지션을 지우되 `buys.symbols`는 남겨 그날 다시 시도하지 않는다. 매도는 `pendingSell`을 지운다. 알림(같은 날 같은 종목·코드는 한 번).
+  - 성공(토스 접수, 체결은 아님): 매수는 `unconfirmed`를 지우고 `orderId`를 적는다. 매도는 `pendingSell` 유지(체결 확인은 다음 실행).
+  - `order-rate-limited`·`order-busy`: 보내지 않은 것이 확실하다. 매수는 `today.bought`와 포지션을 되돌려 다음 실행에서 다시 판정하게 한다. 매도는 `pendingSell`과 `today.sold`를 되돌린다.
+  - 그 밖의 보내기 전 거절(`order-over-limit`·`order-daily-limit`·`order-total-limit`·`order-stopped`·`order-disabled`·`order-invalid`)과 토스 거절(`order-upstream`): 보내지 않았다. 매수는 포지션을 지우되 `today.bought`는 남겨 그날 다시 시도하지 않는다. 매도는 `pendingSell`을 지우고 `sellBlocked = 오늘`로 둬 그날은 자동 매도를 더 보내지 않으며 「자동 매도가 막혔어요(<코드>). 토스 앱에서 직접 확인해 주세요」 알림(같은 날 같은 종목·코드는 한 번). 1회 한도·하루 한도에 걸린 청산을 쪼개 보내는 일은 하지 않는다(사람에게 넘긴다).
   - `order-unknown`과 그 밖의 오류: 들어갔을 수 있다. 매수는 포지션을 `unconfirmed`로 남기고, 매도는 `pendingSell`을 남긴다. 「토스 앱에서 확인해 주세요」 알림. 다시 보내지 않는다.
 - 실행 전체가 실패하면(설정 오류, 로그인 만료, 원장 손상 등) 같은 날 같은 오류 코드는 한 번만 알리고 오류로 끝난다. 원장을 못 읽는 경우는 알림 기록도 못 쓰므로 매번 알림이 갈 수 있다(드문 경우라 그대로 둔다).
 
@@ -157,9 +163,10 @@ interface AutoPosition {
 
 - `ORDER_MAX_PER_MINUTE`은 **매수에만** 적용한다. 매도는 분당 제한에서 빠져 동시 급락 때 밀리지 않는다.
 - `ORDER_MAX_PER_DAY`는 매수·매도 합쳐 그대로.
+- **총 가용 금액 복원 고침**: 지금은 매도를 보낼 때 `invested`를 줄여, 토스가 거절한 매도로도 매수 한도가 다시 생긴다(검토에서 재현). 매도는 토스가 200으로 접수했을 때만 `invested`를 줄인다. 재시작 복원도 매도 `send`는 같은 `clientOrderId`의 `result`가 `status: 200`일 때만 줄인다(결과 줄이 없으면 줄이지 않는다, 보수적). 접수 뒤 체결되지 않고 만료된 매도까지 따지지는 않는다(사람이 확인).
 - 재시작 복원도 같다: 감사 로그 `send` 중 최근 60초의 **매수**만 분당 기록에 넣는다.
 - `/order/status`의 응답 형식은 그대로(`maxPerMinute`의 뜻만 「분당 매수」로 문서에 적는다).
-- 시험: 매수 3건 뒤 4번째 매수는 `order-rate-limited`, 같은 분의 매도는 통과. 재시작 복원도 매수만 센다.
+- 시험: 매수 3건 뒤 4번째 매수는 `order-rate-limited`, 같은 분의 매도는 통과. 재시작 복원도 매수만 센다. 토스가 거절한 매도 뒤 총 가용 금액이 그대로이고, 재시작 뒤에도 같다.
 
 ## 10. 예약 작업 `scripts/macos/auto-agent/`
 
@@ -188,7 +195,8 @@ MCP 도구로는 내보내지 않는다.
 - 설정 읽기: 기본값, `AUTO_MODE` 오타 거절, 모르는 `AUTO_` 키 거절, 여유 범위.
 - 호가 단위 올림·내림 경계.
 - 매수: 시간(15:15), 하루 한 번, 보유 중 건너뜀, 수량 계산, 연습 모드에서 fetch로 프록시를 부르지 않음(가짜 fetch로 확인).
-- 매도: 손절·추적 손절·단계 익절(두 번째 실행에서 같은 단계 재매도 없음)·`pendingSell` 중복 방지·토스 보유 0일 때 안 팖·토스 보유가 원장보다 적을 때 적은 쪽.
+- 매도: 손절·추적 손절·단계 익절(두 단계를 한꺼번에 넘으면 합친 수량, 두 번째 실행에서 같은 단계 재매도 없음)·`pendingSell` 중복 방지·부분 체결 기록·거절 뒤 그날 막힘·토스 보유 0일 때 안 팖(오늘 산 것은 원장 유지)·토스 보유가 원장보다 적을 때 적은 쪽(100주 주문 중 60주 체결이면 첫 50% 익절은 30주)·전날 산 포지션 전량 매도 뒤 같은 날 재매수 없음.
+- 전략 교체: 포지션이 있는데 다른 전략이면 멈춤.
 - 실전 오류 분류: rate-limited 되돌림, upstream 하루 막음, unknown 유지.
 - 원장 손상 시 멈춤, 보내기 전 원장 기록.
 - 프록시: §9.
