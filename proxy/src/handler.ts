@@ -54,6 +54,7 @@ export type OrderHandler = (req: Request) => Promise<Response>;
 export interface HandleOptions {
   /** Node에서만 시장 처리기를 주입한다. */
   market?: MarketHandler;
+  tossToken?: { get(): Promise<string>; invalidate(token: string): boolean };
   /** 주문은 Node 처리기가 준비된 서버에서만 받는다. */
   order?: OrderHandler;
   /** 상류 응답을 기다리는 최대 시간. 넘으면 504 upstream-timeout. 없으면 기다린다(Worker는 플랫폼 제한을 따른다). */
@@ -75,7 +76,7 @@ export async function handle(
     // "이 출처를 허용하지 않음"을 구분한다. 다른 경로는 그대로 허용한 출처만 받는다.
     const headers = originAllowed ? corsHeaders(origin) : new Headers({ 'access-control-allow-origin': '*' });
     headers.set('content-type', 'application/json');
-    return new Response(JSON.stringify({ ok: true, providers: ['kis', 'toss'], originAllowed }), { status: 200, headers });
+    return new Response(JSON.stringify({ ok: true, providers: ['kis', 'toss'], originAllowed, tossToken: !!opts.tossToken }), { status: 200, headers });
   }
 
   if (!originAllowed) return errorResponse(403, 'origin-not-allowed', null);
@@ -116,10 +117,19 @@ export async function handle(
     return errorResponse(403, 'proxy-path-blocked', origin);
   }
 
+  const tossToken = provider === 'toss' ? opts.tossToken : undefined;
+  if (tossToken && upstreamPath === '/oauth2/token') return errorResponse(403, 'toss-token-managed', origin);
+
   const headers = new Headers();
   for (const name of FORWARD_REQUEST_HEADERS) {
     const value = req.headers.get(name);
     if (value !== null) headers.set(name, value);
+  }
+  let token: string | undefined;
+  if (tossToken) {
+    try { token = await tossToken.get(); }
+    catch { return errorResponse(502, 'toss-token-failed', origin); }
+    headers.set('authorization', `Bearer ${token}`);
   }
   const init: RequestInit = { method: req.method, headers, redirect: 'manual' };
   if (req.method === 'POST') init.body = await req.arrayBuffer();
@@ -128,6 +138,14 @@ export async function handle(
   let upstream: Response;
   try {
     upstream = await fetchImpl(`${UPSTREAM[provider]}${upstreamPath}${url.search}`, init);
+    if (upstream.status === 401 && req.method === 'GET' && tossToken && token && tossToken.invalidate(token)) {
+      await upstream.body?.cancel();
+      try { token = await tossToken.get(); }
+      catch { return errorResponse(502, 'toss-token-failed', origin); }
+      headers.set('authorization', `Bearer ${token}`);
+      if (opts.upstreamTimeoutMs !== undefined) init.signal = AbortSignal.timeout(opts.upstreamTimeoutMs);
+      upstream = await fetchImpl(`${UPSTREAM[provider]}${upstreamPath}${url.search}`, init);
+    }
   } catch {
     if (init.signal?.aborted) return errorResponse(504, 'upstream-timeout', origin);
     return errorResponse(502, 'upstream-unreachable', origin);

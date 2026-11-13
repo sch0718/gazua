@@ -37,17 +37,27 @@ gazua logout     # 서버에서 이 토큰을 끊고 ~/.config/gazua/auth.json�
 | 환경변수 | 쓰임 |
 |---|---|
 | `KIS_APP_KEY`, `KIS_APP_SECRET` | 한국투자증권 |
-| `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` | 토스증권 |
+| `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` | 토스증권(관리 프록시를 쓰면 생략 가능) |
 
 Drive 전달용 환경변수는 아래 「Drive 전달」 절에 있어요.
 
-`--provider kis|toss`를 주지 않으면 키가 있는 쪽을 쓰고, 둘 다 있으면 `toss`예요.
+`--provider kis|toss`를 주지 않으면 토스 키나 프록시 설정이 있는 경우 `toss`, 그 밖에는 KIS 키가 있으면 `kis`예요. `--provider kis`에는 항상 KIS 키가 필요해요.
 
-**CLI용 토스 앱을 따로 만드세요. 앱과 같은 토스 키를 쓰면 토큰이 서로 무효가 돼요.** 토스는 같은 앱(client ID)으로 새 토큰을 받으면 앞 토큰이 무효가 될 수 있어서, 가즈아 앱과 CLI가 같은 키를 쓰면 서로의 토큰을 계속 무효로 만들어요. 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 쓰세요(콘솔에서 앱을 여러 개 만들 수 있는지는 확인이 필요해요).
+프록시가 토큰을 맡지 않는 환경에서 여러 기기가 직접 발급한다면 **CLI용 토스 앱을 따로 만드세요. 앱과 같은 토스 키를 쓰면 토큰이 서로 무효가 돼요.** 토스는 같은 앱(client ID)으로 새 토큰을 받으면 앞 토큰이 무효가 될 수 있어서, 가즈아 앱과 CLI가 같은 키를 쓰면 서로의 토큰을 계속 무효로 만들어요. 토스 개발자 콘솔에서 CLI용 앱을 하나 더 만들어 다른 client ID·secret을 쓰세요(콘솔에서 앱을 여러 개 만들 수 있는지는 확인이 필요해요).
 
-토스는 **허용 IP**에서만 받아요. CLI를 쓰는 기기의 공인 IP를 토스 개발자 콘솔에 등록하세요. 막히면 `ip-not-allowed`가 나와요.
+토스는 **허용 IP**에서만 받아요. 프록시 설정이 있으면 맥 프록시의 공인 IP를, 직접 호출하면 CLI를 쓰는 기기의 공인 IP를 토스 개발자 콘솔에 등록하세요. 막히면 `ip-not-allowed`가 나와요.
 
-같은 기기에서 CLI를 여러 개 동시에 돌려도 토큰 발급은 `~/.config/gazua/<공급자>.lock.db`의 SQLite 쓰기 잠금으로 한 번에 하나씩만 해요. `BEGIN IMMEDIATE`로 잠그고 끝나면 `COMMIT`(실패하면 `ROLLBACK`) 후 DB를 닫아요. 30초 안에 잠금을 얻지 못하면 `token-busy`예요. 프로세스가 종료되면 운영체제가 잠금을 풀기 때문에 오래된 잠금을 회수할 필요가 없어요. DB 파일은 그대로 두어요.
+직접 토큰을 받는 모드에서는 같은 기기에서 CLI를 여러 개 동시에 돌려도 토큰 발급은 `~/.config/gazua/<공급자>.lock.db`의 SQLite 쓰기 잠금으로 한 번에 하나씩만 해요. `BEGIN IMMEDIATE`로 잠그고 끝나면 `COMMIT`(실패하면 `ROLLBACK`) 후 DB를 닫아요. 30초 안에 잠금을 얻지 못하면 `token-busy`예요. 프로세스가 종료되면 운영체제가 잠금을 풀기 때문에 오래된 잠금을 회수할 필요가 없어요. DB 파일은 그대로 두어요.
+
+### 토스 관리 프록시로 키 없이 쓰기
+
+`GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`을 모두 설정하면 토스 조회를 맥 프록시로 보내요. 값의 뜻은 아래 「주문」 절과 같아요. 프록시 `/health`가 `tossToken: true`이면 이 기기의 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET` 없이 `quote`·`holdings`·`signals`·`simulate`와 주문·자동 실행을 쓸 수 있어요. `signals`·`simulate`의 동기화 로그인은 그대로 필요해요. 토큰은 맥 프록시 한 곳에서 받고 CLI는 인증 헤더를 붙이지 않아요.
+
+정상 응답에서 `tossToken: false`이거나 필드가 없으면 토스 키로 토큰을 받되 조회는 프록시를 거쳐요. 키가 없으면 `invalid-credentials`로 끝나요. health 조회 실패·리다이렉트는 오류로 멈추며 직접 발급으로 넘어가지 않아요. 프록시 환경변수 셋이 갖춰지지 않으면 기존처럼 증권사 키로 직접 호출해요.
+
+수집 스크립트 `scripts/collect-market-data.mjs --provider toss`도 같은 환경변수 셋을 사용해요. 관리 프록시이면 키 없이 `<프록시>/toss`에서 받고, 정상 비관리 응답이면 기존처럼 토스 키를 사용해 토스에 직접 요청해요. 이 비관리 수집에는 수집 기기의 허용 IP가 필요해요. 관리 여부 확인 실패는 수집 오류이며, 다른 출처로의 리다이렉트는 따라가지 않아요. 프록시 환경변수가 없으면 기존 직접 수집이에요.
+
+활성화와 되돌리기 순서는 [프록시 안내](../proxy/README.md#토스-토큰을-맥-프록시가-맡기)를 따라요. 새 웹·CLI·수집기를 먼저 배포하고 열린 웹 탭을 새로고침한 뒤 프록시 관리를 켜요. 끄기 전에는 클라이언트 키를 먼저 복원해요.
 
 ## 명령
 
@@ -98,9 +108,9 @@ gazua order sell 005930 1 70000 --yes    # 사람이 확인한 주문 한 건
 | `GAZUA_PROXY_TOKEN` | 프록시의 PROXY_TOKEN과 같은 값. 출력에서 가림 |
 | `GAZUA_PROXY_ORIGIN` | 프록시 ALLOWED_ORIGINS에 등록한 출처 |
 
-`--yes` 실행에는 기존 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`도 필요해요. 토큰·종합매매 계좌 조회는 실행 기기에서 토스에 직접 보내므로 그 기기의 공인 IP도 토스 **허용 IP**로 등록해야 해요. 프록시 접속 설정만으로는 조회할 수 없어요. 종합매매 계좌가 없으면 주문을 보내지 않아요.
+`--yes` 실행은 관리 프록시이면 토스 키 없이 토큰·종합매매 계좌 조회와 주문을 프록시로 보내요. 비관리 프록시이면 기존 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`도 필요하며, 토큰 발급·계좌 조회는 같은 프록시를 거쳐요. 토스 **허용 IP**에는 맥 프록시의 공인 IP를 등록해요. 종합매매 계좌가 없으면 주문을 보내지 않아요.
 
-상태 GET·주문 POST는 리디렉션을 따라가지 않아요. POST는 한 번만 보내며 자동 재시도하지 않아요. `order-unknown`이면 주문이 들어갔을 수 있어요. **토스 앱에서 확인하기 전에는 다시 보내지 마세요.** 응답에 `clientOrderId`가 있으면 함께 표시하고, 없으면 맥 감사 로그의 `send` 줄에서 시각·종목으로 찾아요. `signals --propose`는 계속 주문안 출력만 해요.
+상태 GET·주문 POST는 리디렉션을 따라가지 않아요. POST는 한 번만 보내며 자동 재시도하지 않아요. `order-unknown`이면 주문이 들어갔을 수 있어요. **토스 앱에서 확인하기 전에는 다시 보내지 마세요.** 응답에 `clientOrderId`가 있으면 함께 표시하고, 없으면 맥 감사 로그의 `send` 줄에서 시각·종목으로 찾아요. `order-token-failed`는 프록시가 토큰을 받지 못해 주문을 보내지 않은 경우예요. 감사 로그의 `send` 줄도 없으며 잠시 뒤 다시 시도할 수 있어요. `signals --propose`는 계속 주문안 출력만 해요.
 
 Claude는 실제 주문을 실행하지 않는다. 개발·검토는 가짜 fetch와 임시 디렉터리로만 시험하고, 첫 소액 주문은 사용자가 직접 해요. 맥의 설정·중지 파일·감사 로그는 [프록시 안내](../proxy/README.md)의 「주문 경로」를 보세요.
 
@@ -140,7 +150,7 @@ claude mcp add gazua -- node /절대/경로/gazua/cli/dist/gazua.mjs mcp --env-f
 - `claude mcp add gazua -e TOSS_CLIENT_ID=… -e TOSS_CLIENT_SECRET=… -- …`로도 넘길 수 있지만, 그러면 키가 Claude Code 설정 파일에 들어가요. `--env-file`을 권해요.
 - `gazua`를 전역 링크했다면 `claude mcp add gazua -- gazua mcp --env-file /절대/경로/broker.env`.
 - 등록을 확인하려면 `claude mcp list`. 지우려면 `claude mcp remove gazua`.
-- CLI용 토스 키 분리 경고는 MCP에도 그대로예요. MCP 서버와 CLI는 같은 토큰 파일·잠금을 써서 서로의 토큰을 무효로 만들지 않아요.
+- 직접 발급 모드의 CLI용 토스 키 분리 경고는 MCP에도 그대로예요. 관리 프록시의 환경변수 셋을 쓰면 MCP도 프록시 토큰 관리를 따라요. MCP 서버와 CLI는 같은 토큰 파일·잠금을 써서 서로의 토큰을 무효로 만들지 않아요.
 
 ## 전략 비판 스킬
 
@@ -202,6 +212,7 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | `order-total-limit` | 매수 − 매도 잔액이 총 가용 금액을 넘음 |
 | `order-rate-limited` | 분당·하루 주문 건수 한도 도달 |
 | `order-busy` | 다른 주문 처리 중 |
+| `order-token-failed` | 프록시 토큰 발급 실패로 주문 미전송. 잠시 뒤 재시도 가능 |
 | `order-invalid` | 주문 내용이 올바르지 않음 |
 | `order-unavailable` | Worker 판이거나 맥 프록시 토큰 설정이 없음 |
 | `order-upstream` | 토스 주문 거절(토스 메시지 포함) |
@@ -311,7 +322,7 @@ gazua alert stats --pretty
 | `AUTO_SELL_SLIPPAGE_PCT` | `2` | 현재가에서 뺄 매도 지정가 여유(%), 0~10 |
 | `AUTO_INTERVAL_MIN` | `1` | 예약 간격(분), 설치 스크립트가 1~5만 받아요 |
 
-먼저 `gazua login`으로 프로필을 연결하고 기존 `alert.env`에 `GAZUA_ALERT_NTFY_TOPIC`과 선택 설정 `GAZUA_ALERT_NTFY_SERVER`를 준비해요. 실전은 CLI용 토스 앱의 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`과 `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`이 필요해요. 연습은 토스 키 없이 실행해요. 키·토큰·알림 토픽은 저장소·로그·원장에 복사하지 마세요. 두 환경 파일은 권한 600으로 유지해요.
+먼저 `gazua login`으로 프로필을 연결하고 기존 `alert.env`에 `GAZUA_ALERT_NTFY_TOPIC`과 선택 설정 `GAZUA_ALERT_NTFY_SERVER`를 준비해요. 실전은 `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`이 필요해요. 관리 프록시이면 토스 키를 생략할 수 있고, 비관리 프록시이면 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`도 필요해요. 연습은 토스 키 없이 실행해요. 키·토큰·알림 토픽은 저장소·로그·원장에 복사하지 마세요. 두 환경 파일은 권한 600으로 유지해요.
 
 예약 작업은 사람이 아래 명령으로 설치해요. 처음에는 빈 `AUTO_STRATEGY=`와 `AUTO_MODE=dry`만 담은 `auto.env`를 만들고 멈추므로 전략을 채운 뒤 다시 설치해요. 설정 파일을 셸 코드로 실행하지 않아요. 상세한 설치·검사·제거 방법은 [예약 작업 안내](../scripts/macos/auto-agent/README.md)에 있어요.
 

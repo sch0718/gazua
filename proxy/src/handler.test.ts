@@ -64,7 +64,7 @@ describe('/health', () => {
   it('returns 200 with CORS headers for an allowed origin', async () => {
     const res = await handle(req('/health'), env, fakeFetch());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: true });
+    expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: true, tossToken: false });
     expect(res.headers.get('access-control-allow-origin')).toBe(ORIGIN);
   });
 
@@ -73,7 +73,7 @@ describe('/health', () => {
     for (const origin of ['https://evil.example', null]) {
       const res = await handle(req('/health', { origin }), env, fakeFetch());
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false });
+      expect(await res.json()).toEqual({ ok: true, providers: ['kis', 'toss'], originAllowed: false, tossToken: false });
       expect(res.headers.get('access-control-allow-origin')).toBe('*');
     }
   });
@@ -425,5 +425,60 @@ describe('주문 처리기 주입', () => {
     expect(await code(res)).toBe('proxy-path-blocked');
     expect(order).not.toHaveBeenCalled();
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('프록시 토스 토큰', () => {
+  const manager = () => ({ get: vi.fn().mockResolvedValue('test-managed-token'), invalidate: vi.fn().mockReturnValue(true) });
+  it('상태에 맡음 여부를 표시하고 발급 경로를 막는다', async () => {
+    const tossToken = manager();
+    const f = fakeFetch();
+    expect(await (await handle(req('/health'), env, f, { tossToken })).json()).toMatchObject({ tossToken: true });
+    const res = await handle(req('/toss/oauth2/token', { method: 'POST' }), env, f, { tossToken });
+    expect(res.status).toBe(403);
+    expect(await code(res)).toBe('toss-token-managed');
+    expect(f).not.toHaveBeenCalled();
+    expect(tossToken.get).not.toHaveBeenCalled();
+  });
+  it('클라이언트 인증을 교체하고 계좌 헤더는 유지한다', async () => {
+    const f = fakeFetch();
+    const res = await handle(req('/toss/api/v1/accounts', { headers: { authorization: 'Bearer test-client-token', 'x-tossinvest-account': 'test-account' } }), env, f, { tossToken: manager() });
+    expect(res.status).toBe(200);
+    const headers = new Headers(f.mock.calls[0][1]?.headers);
+    expect(headers.get('authorization')).toBe('Bearer test-managed-token');
+    expect(headers.get('x-tossinvest-account')).toBe('test-account');
+  });
+  it.each([true, false])('401 무효화 결과 %s일 때만 한 번 다시 보낸다', async (invalidated) => {
+    const tossToken = manager();
+    tossToken.invalidate.mockReturnValue(invalidated);
+    tossToken.get.mockResolvedValueOnce('test-first-token').mockResolvedValueOnce('test-second-token');
+    const auth: Array<string | null> = [];
+    const f = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+      auth.push(new Headers(init?.headers).get('authorization'));
+      return Response.json({ error: { code: 'unauthorized' } }, { status: 401 });
+    });
+    expect((await handle(req('/toss/api/v1/accounts'), env, f, { tossToken })).status).toBe(401);
+    expect(tossToken.invalidate).toHaveBeenCalledExactlyOnceWith('test-first-token');
+    expect(auth).toEqual(invalidated ? ['Bearer test-first-token', 'Bearer test-second-token'] : ['Bearer test-first-token']);
+  });
+  it.each([false, true])('처음 또는 재발급 실패를 값 없는 502로 돌린다: %s', async (retry) => {
+    const tossToken = manager();
+    tossToken.get.mockReset();
+    if (retry) tossToken.get.mockResolvedValueOnce('test-first-token');
+    tossToken.get.mockRejectedValue(new Error('test-private-token'));
+    const f = fakeFetch(() => new Response(null, { status: 401 }));
+    const res = await handle(req('/toss/api/v1/accounts'), env, f, { tossToken });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: { code: 'toss-token-failed' } });
+    expect(f).toHaveBeenCalledTimes(retry ? 1 : 0);
+  });
+  it('KIS와 출처·프록시 인증 검사는 그대로 둔다', async () => {
+    const tossToken = manager();
+    const f = fakeFetch();
+    await handle(req('/kis/oauth2/tokenP', { method: 'POST', headers: { authorization: 'Bearer test-client-token' } }), env, f, { tossToken });
+    expect(new Headers(f.mock.calls[0][1]?.headers).get('authorization')).toBe('Bearer test-client-token');
+    expect((await handle(req('/toss/api/v1/accounts'), { ...env, PROXY_TOKEN: 'test-proxy-token' }, f, { tossToken })).status).toBe(401);
+    expect((await handle(req('/toss/api/v1/accounts', { origin: 'https://other.example' }), env, f, { tossToken })).status).toBe(403);
+    expect(tossToken.get).not.toHaveBeenCalled();
   });
 });

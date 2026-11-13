@@ -25,7 +25,8 @@ import type {
 export interface TossDeps {
   client: ProxyClient;
   queue: RequestQueue;
-  creds: { clientId: string; clientSecret: string };
+  creds?: { clientId: string; clientSecret: string };
+  proxyManagesToken?: () => Promise<boolean>;
   tokenStore: TokenStore;
   /** 같은 저장소를 쓰는 탭끼리 발급을 하나로 묶는다. 없으면 이 탭 안에서만 묶는다. */
   tokenLock?: TokenLock;
@@ -220,6 +221,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
   const { client, queue, creds, now } = deps;
 
   async function issueToken(): Promise<TokenInfo> {
+    if (!creds) throw new ApiError('invalid-credentials', '토스 키를 넣거나 맥 프록시에 키를 넣어 주세요');
     const last = tokens.lastIssuedAt();
     const wait = last === null ? 0 : last + TOSS_REISSUE_INTERVAL_MS - now();
     // 마지막 발급이 간격보다 먼 미래면 시계가 뒤로 간 것이다. 그 기록으로 막지 않는다(막으면 간격보다 오래 막힌다).
@@ -240,18 +242,34 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
 
   const tokens = createTokenManager(issueToken, deps.tokenStore, now, deps.issuedAt, deps.tokenLock);
   let lastInvalidated: string | undefined;
+  let managed: boolean | undefined;
+  let checking: Promise<boolean> | undefined;
 
-  /** 큐를 거치는 데이터 호출. `{ result }`를 벗겨 돌려준다. token-expired면 토큰을 버리고 한 번만 다시 시도한다. */
+  async function managesToken(): Promise<boolean> {
+    if (managed !== undefined) return managed;
+    checking ??= deps.proxyManagesToken?.() ?? Promise.resolve(false);
+    try { managed = await checking; }
+    finally { checking = undefined; }
+    return managed;
+  }
+
+  async function auth(): Promise<Record<string, string>> {
+    if (await managesToken()) return {};
+    if (!creds) throw new ApiError('invalid-credentials', '토스 키를 넣거나 맥 프록시에 키를 넣어 주세요');
+    return { authorization: `Bearer ${await tokens.get()}` };
+  }
+
+  /** 큐를 거치는 데이터 호출. `{ result }`를 벗겨 돌려준다. 인증 방식이 바뀌거나 토큰이 만료되면 한 번만 다시 시도한다. */
   async function api(call: Call): Promise<unknown> {
     const key = `${call.path}|${JSON.stringify(call.query)}`;
     let usedToken: string | undefined;
     const attempt = (suffix: string): Promise<unknown> =>
       queue.run(call.group, key + suffix, call.priority, async () => {
-        const accessToken = await tokens.get();
-        usedToken = accessToken;
+        const credentials = await auth();
+        usedToken = credentials.authorization?.slice('Bearer '.length);
         const res = await client.request('toss', 'GET', call.path, {
           query: call.query,
-          headers: { ...call.headers, authorization: `Bearer ${accessToken}` },
+          headers: { ...call.headers, ...credentials },
         });
         if (!isRecord(res.json) || !('result' in res.json)) throw upstream('Toss response has no result');
         return res.json.result;
@@ -259,10 +277,11 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
     try {
       return await attempt('');
     } catch (e) {
-      if (!(e instanceof ApiError) || e.code !== 'token-expired') throw e;
+      if (!(e instanceof ApiError) || (e.code !== 'token-expired' && e.code !== 'proxy-token-managed')) throw e;
+      managed = undefined;
       // 같은 토큰으로 동시에 실패한 호출들이 서로의 재발급을 지우지 않게, 토큰당 한 번만 무효화한다.
       // 같은 저장소를 쓰는 다른 탭이 새 토큰을 받아 두었으면 발급하지 않고 그 토큰으로 다시 시도한다.
-      if (usedToken === undefined || usedToken !== lastInvalidated) {
+      if (usedToken !== undefined && usedToken !== lastInvalidated) {
         lastInvalidated = usedToken;
         tokens.invalidate(usedToken);
       }
@@ -432,7 +451,7 @@ export function createTossProvider(deps: TossDeps): MarketDataProvider {
       const account = rows.find((row) => row.accountType === 'BROKERAGE');
       const seq = account ? text(account.accountSeq) : '';
       if (!seq) throw upstream('주문할 종합매매 계좌가 없어요');
-      return { authorization: `Bearer ${await tokens.get()}`, 'x-tossinvest-account': seq };
+      return { ...await auth(), 'x-tossinvest-account': seq };
     },
 
     async closedOrders(opts = {}) {

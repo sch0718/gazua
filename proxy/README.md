@@ -4,7 +4,7 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
 
 ## HTTP 계약
 
-- `GET /health` → `200 {"ok":true,"providers":["kis","toss"],"originAllowed":true|false}`. 비밀값이 없어서 **어느 출처에서나 읽혀요**(허용하지 않은 출처에는 `access-control-allow-origin: *`). 앱 연결 진단이 "터널이 끊겨 프록시까지 닿지 않음"과 "이 출처를 허용하지 않음"을 구분하는 데 써요. 다른 경로는 허용한 출처만 받아요.
+- `GET /health` → `200 {"ok":true,"providers":["kis","toss"],"originAllowed":true|false,"tossToken":true|false}`. 비밀값이 없어서 **어느 출처에서나 읽혀요**(허용하지 않은 출처에는 `access-control-allow-origin: *`). 앱 연결 진단이 "터널이 끊겨 프록시까지 닿지 않음"과 "이 출처를 허용하지 않음"을 구분하는 데 써요. 다른 경로는 허용한 출처만 받아요.
 - `{GET|POST} /{kis|toss}/{상위 경로}?{쿼리}` → 허용 목록에 있는 경로만 상위로 전달하고, 응답(상태·본문·`content-type`·`retry-after`·`x-ratelimit-remaining`·`tr_cont`)을 그대로 돌려줘요.
 - 확인 순서: 출처(`Origin`이 `ALLOWED_ORIGINS`에 있어야 함, 아니면 `403 origin-not-allowed`) → `X-Proxy-Token`(`PROXY_TOKEN`을 설정한 경우, 아니면 `401 proxy-token-invalid`) → 경로·메서드 허용 목록(아니면 `403 proxy-path-blocked`, 상위 호출 없음) → 전달.
 - 상위 네트워크 오류는 `502 upstream-unreachable`.
@@ -13,7 +13,7 @@ KIS·토스증권 Open API는 브라우저 CORS를 허용하지 않아서, 정�
   - 주문 목록(`/api/v1/orders`): 내 성과의 체결 내역을 받는 데 써요. 사용자가 허락한 예외예요. 같은 경로의 `POST`(주문 생성)는 막아요. 주문 상세·정정·취소(`/api/v1/orders/{id}`, `…/modify`, `…/cancel`), 조건주문(`/api/v1/conditional-orders`), 매수가능금액(`/api/v1/buying-power`), 매도가능수량, 수수료 경로도 계속 막아요.
   - 보유 주식과 주문 목록에 필요한 `X-Tossinvest-Account` 헤더를 함께 전달해요.
 - 이 프록시를 고칠 때 허용 목록을 더 넓히지 마세요. 주문은 아래의 별도 경로와 한도 검사를 거쳐요.
-- 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
+- 요청 로그는 `method path status ms`만 남겨요. 헤더·본문·쿼리는 기록하지 않아요.
 
 ## 주문 경로
 
@@ -158,3 +158,24 @@ Docker 대신 맥에 `cloudflared`를 서비스로 설치하고 프록시를 Nod
 
 
 `ORDER_MAX_PER_MINUTE`은 매수에만 적용하고, 재시작 복원에서도 최근 매수만 세요. `ORDER_MAX_PER_DAY`와 하루 금액은 매수·매도를 합쳐 세요. 총 가용 금액의 `invested`는 매수 전송 때 늘고, 매도는 토스 접수 성공이 확인됐을 때만 줄어요. 재시작 때도 같은 `clientOrderId`의 성공 결과를 확인하며, 거절·결과 불명 매도로 매수 한도를 되살리지 않아요. 접수된 매도의 미체결·만료까지 추적하지는 않으므로 토스 앱에서 확인해 주세요.
+
+
+## 토스 토큰을 맥 프록시가 맡기
+
+맥 Node 프록시에 `PROXY_TOKEN`과 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 모두 있으면 프록시 한 곳에서 토큰을 발급하고 메모리에만 보관해요. 웹·CLI·수집기는 `/health`의 `tossToken: true`를 확인해 토큰 발급과 인증 헤더 없이 요청해요. 키가 없거나 `PROXY_TOKEN`이 없으면 맡지 않고 기존 인증 방식으로 동작해요. Cloudflare Worker 판은 맡지 않아요.
+
+관리 모드에서도 `ALLOWED_ORIGINS`와 프록시 토큰 검사를 먼저 통과해야 해요. 클라이언트가 보내는 `/toss/oauth2/token`은 `403 toss-token-managed`로 막고, 토스로 나가는 조회·주문에는 프록시 토큰 관리자의 인증을 붙여요. 조회 401은 마지막 발급 뒤 60초가 지난 경우에만 한 번 새 토큰으로 다시 보내요. 주문은 401이어도 다시 보내지 않아요.
+
+배포는 다음 순서로 해요.
+
+1. 새 웹과 CLI·수집 스크립트를 먼저 배포해요. 각 기기의 열린 웹 탭은 페이지를 새로고침해 새 버전을 불러와요. 아직 프록시가 맡기 전이므로 기존 클라이언트의 토스 키는 유지해요.
+2. CLI·수집 예약 작업에 `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`을 설정해요. URL은 맥 프록시 주소, 토큰은 프록시의 `PROXY_TOKEN`과 같은 값, 출처는 `ALLOWED_ORIGINS`에 등록한 값이에요.
+3. `proxy/.env`에 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`을 넣고 `PROXY_TOKEN`도 설정돼 있는지 확인해요. 그런 다음 `proxy/macos/install.sh`를 직접 다시 실행해 빌드·재시작해요. 키·토큰 값은 저장소나 로그에 옮기지 않아요.
+4. `~/Library/Logs/gazua-proxy.log`에서 시작 로그 `toss-token: proxy`, `/health`에서 `tossToken: true`를 확인해요. `toss-token: off`면 키 두 개와 `PROXY_TOKEN` 설정을 확인해요. 발급 실패 로그는 `toss-token: issue failed <상태 코드>`이고 값은 기록하지 않아요.
+5. 각 기기의 웹 페이지를 다시 새로고침하고 진단 카드의 「토스 조회: 맥 프록시가 맡음」과 시세·차트를 확인해요. CLI·수집 예약 작업도 새 버전과 프록시 설정으로 실행해요. 관리 모드에서는 클라이언트에 토스 키가 없어도 돼요. 기존 키는 지우지 않아도 되며, 앱의 키 삭제는 프록시 토큰도 지우므로 새 기기에서만 키 없이 시작해요.
+
+토큰 발급에 실패하면 조회·주문은 `502 toss-token-failed`예요. 주문은 상류 전송·감사 로그 `send`·하루 건수 증가 전에 끝나며, CLI는 `order-token-failed`로 「주문을 보내지 않았어요」라고 안내해요. 다른 주문 502·504는 기존처럼 결과 불명이므로 토스 앱에서 먼저 확인해요.
+
+비관리 모드로 되돌릴 때는 먼저 키 없이 쓰던 웹 기기에 토스 키를 저장하고, CLI·수집 예약 작업에도 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`을 복원해요. 그다음 `proxy/.env`에서 토스 키 두 항목을 제거하고 `proxy/macos/install.sh`를 다시 실행해요. `PROXY_TOKEN`과 허용 출처는 유지해요. 열린 웹 탭은 새로고침해 기억한 관리 여부를 비워요.
+
+관리 수집과 프록시 설정이 있는 CLI는 맥 프록시의 공인 IP로 토스에 나가요. 비관리 수집은 토스에 직접 요청하므로 수집 기기의 공인 IP를 토스 허용 IP에 등록해야 해요. CLI도 프록시 설정이 없으면 실행 기기의 허용 IP가 필요해요. 비관리로 돌아가면 기기별 토큰 발급 경쟁도 다시 생길 수 있어요.

@@ -7,7 +7,7 @@ import { Writable } from 'node:stream';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { REPO_ROOT, assertOutAllowed, collect as collectReal, fetchOwner, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, runDriveUpload, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
+import { REPO_ROOT, chooseTossSource, assertOutAllowed, collect as collectReal, fetchOwner, loadMaster, mergeFin, mergeUpdate, parseArgs, resolveSectors, runDriveUpload, validateCreds, writeGzipJson } from '../scripts/collect-market-data.mjs';
 import { zipSync } from 'fflate';
 import { createKisClient } from '../scripts/kis-collect.mjs';
 import { FLOW_API } from '../scripts/fetch-investor-flow.mjs';
@@ -2100,4 +2100,49 @@ test('collect: owner가 있으면 파일에 넣고, 없으면 필드가 없으�
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+const PROXY_ENV = { GAZUA_PROXY_URL: ' https://proxy.example/ ', GAZUA_PROXY_TOKEN: ' test-proxy-token ', GAZUA_PROXY_ORIGIN: ' https://app.example ' };
+for (const body of [{ ok: true, tossToken: true }, { ok: true, tossToken: false }, { ok: true }]) {
+  test(`토스 수집 경로는 정상 health로만 고른다: ${JSON.stringify(body)}`, async () => {
+    const calls = [];
+    const source = await chooseTossSource(PROXY_ENV, async (url, init) => { calls.push({ url, init }); return json(body); });
+    assert.deepEqual(source, body.tossToken === true ? { proxy: { baseUrl: 'https://proxy.example/toss', headers: { origin: 'https://app.example', 'x-proxy-token': 'test-proxy-token' } } } : { direct: true });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'https://proxy.example/health');
+    assert.equal(calls[0].init.redirect, 'manual');
+    assert.equal(new Headers(calls[0].init.headers).has('x-proxy-token'), false);
+  });
+}
+for (const body of [{ ok: false }, { tossToken: true }, { ok: true, tossToken: 'true' }, { ok: true, tossToken: null }, [], null]) {
+  test(`잘못된 health는 직접 발급으로 넘어가지 않는다: ${JSON.stringify(body)}`, async () => {
+    await assert.rejects(chooseTossSource(PROXY_ENV, async () => json(body)));
+  });
+}
+test('health의 HTTP·JSON·네트워크·제한 시간 오류는 직접 수집으로 바꾸지 않는다', async () => {
+  for (const fetchImpl of [async () => json({ ok: true }, 500), async () => new Response('test-private-value'), async () => { throw new Error('test-proxy-token'); }, async () => { throw new DOMException('test-proxy-token', 'TimeoutError'); }]) {
+    await assert.rejects(chooseTossSource(PROXY_ENV, fetchImpl), (error) => !error.message.includes('test-proxy-token'));
+  }
+});
+for (const kind of [302, 'opaque']) {
+  test(`health 리다이렉트 ${kind}는 한 번만 요청하고 실패한다`, async () => {
+    let count = 0;
+    await assert.rejects(chooseTossSource(PROXY_ENV, async () => {
+      count++;
+      const response = new Response(null, kind === 'opaque' ? {} : { status: kind, headers: { location: 'https://other.example/health' } });
+      if (kind === 'opaque') Object.defineProperty(response, 'type', { value: 'opaqueredirect' });
+      return response;
+    }));
+    assert.equal(count, 1);
+  });
+}
+test('프록시 환경변수 중 하나라도 없으면 health 없이 직접 수집한다', async () => {
+  for (const name of Object.keys(PROXY_ENV)) assert.deepEqual(await chooseTossSource({ ...PROXY_ENV, [name]: '' }, async () => { throw new Error('호출하면 안 돼요'); }), { direct: true });
+});
+test('Drive 업로드 자식 환경에서 프록시 토큰도 제거한다', () => {
+  let child;
+  runDriveUpload('/tmp/test-market.json.gz', { failed: [] }, { exists: () => true, env: { ...PROXY_ENV, KEEP: 'test-keep' }, spawn: (_cmd, _args, opts) => { child = opts.env; return { status: 0 }; } });
+  assert.equal(child.GAZUA_PROXY_TOKEN, undefined);
+  assert.equal(child.KEEP, 'test-keep');
 });

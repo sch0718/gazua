@@ -7,7 +7,7 @@ import { addDays, kstDate } from '../../../src/lib/time/kst';
 import { writeAuth } from '../config';
 import { COMMANDS, run } from '../main';
 import type { Built } from '../providers';
-import { cleanupDirs, makeIo, profileDoc, syncServer } from '../testing';
+import { cleanupDirs, fakeFetch, makeIo, profileDoc, syncServer } from '../testing';
 import { makeSignals } from './signals';
 
 afterEach(() => {
@@ -108,5 +108,47 @@ describe('gazua signals', () => {
 
   it('signals는 등록돼 있다', async () => {
     expect(COMMANDS.signals).toBeTypeOf('function');
+  });
+});
+
+
+describe('signals 실제 프록시 공급자 진입점', () => {
+  it.each(['managed', 'unmanaged', 'missing', 'kis'])('키 없이 %s 설정의 결과를 확인한다', { timeout: 15000 }, async (mode) => {
+    const profile = simpleDoc();
+    const sync = syncServer({ p1: { doc: profile } });
+    const env = mode === 'missing' ? {} : { GAZUA_PROXY_URL: 'https://proxy.example', GAZUA_PROXY_TOKEN: 'test-proxy-token', GAZUA_PROXY_ORIGIN: 'https://app.example' };
+    const f = fakeFetch(async (call) => {
+      if (call.url.origin === AUTH.server) {
+        const response = await sync(call.url, { headers: call.headers });
+        return { status: response.status, body: await response.json() };
+      }
+      if (call.url.pathname === '/health') return { body: { ok: true, tossToken: mode === 'managed' } };
+      if (call.url.pathname === '/toss/api/v1/accounts') return { body: { result: [{ accountType: 'BROKERAGE', accountSeq: 'test-account' }] } };
+      if (call.url.pathname === '/toss/api/v1/holdings') return { body: { result: { items: [] } } };
+      if (call.url.pathname === '/toss/api/v1/stocks') return { body: { result: ['005930', '000660'].map((symbol) => ({ symbol, name: symbol, market: 'KOSPI', securityType: 'STOCK' })) } };
+      if (call.url.pathname.includes('/candles')) {
+        const bars = barsFromCloses([10, 10, 10, 12], '2026-10-27');
+        return { body: { result: { candles: bars.map((bar) => ({ timestamp: `${kstDate(bar.t)}T00:00:00+09:00`, openPrice: String(bar.o), highPrice: String(bar.h), lowPrice: String(bar.l), closePrice: String(bar.c), volume: '1000' })), nextBefore: null } } };
+      }
+    });
+    const t = makeIo({ fetch: f, env });
+    writeAuth(t.dir, AUTH);
+    COMMANDS.signals = makeSignals();
+    expect(await run(['signals', '--strategy', '골든크로스 추세', ...(mode === 'kis' ? ['--provider', 'kis'] : [])], t.io)).toBe(mode === 'managed' ? 0 : 1);
+    if (mode !== 'managed') {
+      expect(t.result().error.code).toBe(mode === 'unmanaged' ? 'invalid-credentials' : 'no-credentials');
+      return;
+    }
+    expect(t.result().data.signals.length).toBeGreaterThan(0);
+    const calls = f.calls.filter((call) => call.url.origin !== AUTH.server && call.url.pathname !== '/health');
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.url.origin).toBe('https://proxy.example');
+      expect(call.url.pathname).toMatch(/^\/toss\/api\//);
+      expect(call.headers.get('origin')).toBe('https://app.example');
+      expect(call.headers.get('x-proxy-token')).toBe('test-proxy-token');
+      expect(call.headers.has('authorization')).toBe(false);
+    }
+    expect(f.calls.some((call) => call.url.pathname.includes('/oauth2/'))).toBe(false);
   });
 });

@@ -43,6 +43,7 @@ export const MESSAGES = {
   'order-daily-limit': '오늘 주문 금액 한도를 넘어서 보낼 수 없어요',
   'order-total-limit': '총 가용 금액(매수 − 매도 잔액)을 넘어서 보낼 수 없어요',
   'order-rate-limited': '분당 또는 하루 주문 건수 한도에 도달했어요',
+  'order-token-failed': '맥 프록시가 토스 토큰을 받지 못해 주문을 보내지 않았어요. 잠시 뒤 다시 해 주세요',
   'order-busy': '다른 주문을 처리하는 중이에요. 잠시 뒤 다시 해 주세요',
   'order-invalid': '주문 내용이 올바르지 않아요',
   'order-unavailable': '이 프록시에서는 주문을 받을 수 없어요. 맥 프록시와 PROXY_TOKEN 설정을 확인해 주세요',

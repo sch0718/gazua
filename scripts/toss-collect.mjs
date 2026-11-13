@@ -20,19 +20,22 @@ const kstDate = (ms) => new Date(ms + KST_MS).toISOString().slice(0, 10).replace
 const num = (v) => (v === undefined || v === null || v === '' ? undefined : Number.isFinite(Number(v)) ? Number(v) : undefined);
 
 /**
- * @param {{ clientId: string; clientSecret: string; fetchImpl?: typeof fetch; now?: () => number;
+ * @param {{ clientId?: string; clientSecret?: string; baseUrl?: string; headers?: Record<string, string>; proxyManaged?: boolean; fetchImpl?: typeof fetch; now?: () => number;
  *   sleep?: (ms: number) => Promise<void>; perSecond?: number }} o
  */
-export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, now = Date.now, sleep, perSecond = RATE_PER_SEC }) {
+export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, now = Date.now, sleep, perSecond = RATE_PER_SEC, baseUrl = BASE_URL, headers = {}, proxyManaged = false }) {
   const wait = sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const gap = 1000 / perSecond;
+  const base = baseUrl.replace(/\/+$/, '');
+  const forwarded = Object.fromEntries(new Headers(headers));
+  if (proxyManaged) delete forwarded.authorization;
   let lastAt = -Infinity;
   let tokenPromise = null;
   let tokenValue = '';
 
   const scrub = (msg) => {
     let out = String(msg);
-    for (const secret of [clientId, clientSecret, tokenValue]) if (secret) out = out.split(secret).join('***');
+    for (const secret of [clientId, clientSecret, tokenValue, forwarded['x-proxy-token']]) if (secret) out = out.split(secret).join('***');
     return out.replace(/Bearer\s+\S+/gi, 'Bearer ***');
   };
   // fetch가 던진 오류는 메시지에 헤더 값이 들어 있을 수 있어 이름만 남긴다
@@ -43,6 +46,12 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
     const t = now();
     if (t < lastAt + gap) await wait(lastAt + gap - t);
     lastAt = now();
+  }
+
+  function checkRedirect(res) {
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+      throw new CollectError('프록시가 다른 주소로 보내려 해서 수집을 멈췄어요', { fatal: true });
+    }
   }
 
   async function readJson(res) {
@@ -59,16 +68,19 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
     await pace();
     let res;
     try {
-      res = await fetchImpl(`${BASE_URL}/oauth2/token`, {
+      res = await fetchImpl(`${base}/oauth2/token`, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        headers: { ...forwarded, 'content-type': 'application/x-www-form-urlencoded' },
+        redirect: 'manual',
         body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (e) {
       throw netFail(e, true);
     }
-    const json = await readJson(res);
+    checkRedirect(res);
+    let json;
+    try { json = await readJson(res); } catch (e) { throw netFail(e, true); }
     const token = json && typeof json.access_token === 'string' ? json.access_token : '';
     if (!res.ok || !token) throw new CollectError(`토스 토큰 발급 실패 (응답 ${res.status}). 허용 IP에서 실행했는지, 키가 맞는지 확인해 주세요`, { fatal: true });
     tokenValue = token;
@@ -77,17 +89,20 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
   const getToken = () => (tokenPromise ??= issueToken());
 
   async function get(path, query) {
-    let token = await getToken();
+    let token = proxyManaged ? undefined : await getToken();
     let reissued = false;
-    const url = `${BASE_URL}${path}?${new URLSearchParams(query)}`;
+    const url = `${base}${path}?${new URLSearchParams(query)}`;
     for (let attempt = 1; ; attempt++) {
       await pace();
       let res;
       let json;
       try {
-        res = await fetchImpl(url, { method: 'GET', headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+        res = await fetchImpl(url, { method: 'GET', headers: { ...forwarded, ...(proxyManaged ? {} : { authorization: `Bearer ${token}` }) }, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+        checkRedirect(res);
+        if (proxyManaged && res.status === 401) throw new CollectError('토스 응답 401', { fatal: true });
         json = await readJson(res);
       } catch (e) {
+        if (e instanceof CollectError && e.fatal) throw e;
         if (attempt >= MAX_ATTEMPTS) throw netFail(e, false);
         await wait(BACKOFF_MS[0]);
         continue;
@@ -100,7 +115,7 @@ export function createTossClient({ clientId, clientSecret, fetchImpl = fetch, no
         continue;
       }
       // 긴 수집 중 토큰이 만료됐을 수 있어 401이면 한 번만 새로 받아 다시 한다
-      if (res.status === 401 && !reissued) {
+      if (res.status === 401 && !proxyManaged && !reissued) {
         reissued = true;
         if (tokenPromise && (await tokenPromise) === token) tokenPromise = null;
         token = await getToken();

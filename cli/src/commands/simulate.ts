@@ -5,7 +5,7 @@ import type { Command } from '../context';
 import { chooseProvider, readCreds } from '../env';
 import { CliError, toCliError } from '../errors';
 import { findStrategy, pickProfile } from '../profileData';
-import { buildProvider } from '../providers';
+import { buildProvider, proxyOf } from '../providers';
 import { authedClient } from '../session';
 
 const r2 = (n: number | null): number | null => (n === null || !Number.isFinite(n) ? null : Math.round(n * 100) / 100);
@@ -23,7 +23,7 @@ export function makeSimulate(build: typeof buildProvider = buildProvider): Comma
     const strategy = { ...base, period };
     const symbols = resolveSymbols(strategy, profile.watchlists);
     const creds = readCreds(ctx.env);
-    const { provider } = build(ctx, chooseProvider(creds, ctx.args.provider), creds);
+    const { provider } = build(ctx, chooseProvider(creds, ctx.args.provider, proxyOf(ctx)), creds);
 
     const empty = (failed: { symbol: string; name?: string; reason: string }[]) => ({
       strategy: strategy.name,

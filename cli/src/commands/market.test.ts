@@ -148,3 +148,37 @@ describe('gazua holdings', () => {
     expect(b.result().error.code).toBe('no-credentials');
   });
 });
+
+
+describe('키 없는 프록시 조회 진입점', () => {
+  const env = { GAZUA_PROXY_URL: 'https://proxy.example', GAZUA_PROXY_TOKEN: 'test-proxy-token', GAZUA_PROXY_ORIGIN: 'https://app.example' };
+  it.each([['quote', '005930'], ['holdings']])('%j는 관리 프록시로 인증 없이 조회한다', async (...argv) => {
+    const base = toss();
+    const f = fakeFetch(async (call) => {
+      if (call.url.pathname === '/health') return { body: { ok: true, tossToken: true } };
+      const url = new URL(call.url); url.pathname = url.pathname.replace(/^\/toss/, '');
+      const response = await base(url, { method: call.method, headers: call.headers });
+      return { status: response.status, body: await response.json() };
+    });
+    const t = makeIo({ fetch: f, env });
+    expect(await run(argv, t.io)).toBe(0);
+    expect(t.result().data.provider).toBe('toss');
+    const calls = f.calls.filter((call) => call.url.pathname !== '/health');
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      expect(call.url.origin).toBe(env.GAZUA_PROXY_URL);
+      expect(call.url.pathname).toMatch(/^\/toss\/api\//);
+      expect(call.headers.get('origin')).toBe(env.GAZUA_PROXY_ORIGIN);
+      expect(call.headers.get('x-proxy-token')).toBe(env.GAZUA_PROXY_TOKEN);
+      expect(call.headers.has('authorization')).toBe(false);
+    }
+    expect(f.calls.some((call) => call.url.pathname.includes('/oauth2/'))).toBe(false);
+  });
+  it.each([['quote', '005930'], ['holdings']])('%j는 비관리 프록시에 키가 없으면 안내한다', async (...argv) => {
+    const f = fakeFetch(() => ({ body: { ok: true, tossToken: false } }));
+    const t = makeIo({ fetch: f, env });
+    expect(await run(argv, t.io)).toBe(1);
+    expect(t.result().error.code).toBe('invalid-credentials');
+    expect(f.calls).toHaveLength(1);
+  });
+});

@@ -427,3 +427,45 @@ describe('주문 처리기', () => {
     expect((await f.handler(new Request('https://proxy.example/order/status', { method: 'POST' }))).status).toBe(405);
   });
 });
+
+describe('프록시 토큰으로 주문', () => {
+  async function managed() {
+    const f = await fixture({ maxPerDay: 1 });
+    const tossToken = { get: vi.fn().mockResolvedValue('test-managed-token'), invalidate: vi.fn().mockReturnValue(true) };
+    const created = createOrderHandler(f.cfg, { ...f.deps, tossToken });
+    await created.ready;
+    return { ...f, ...created, tossToken };
+  }
+  it.each([false, true])('인증 없이도 받고 기존 인증은 교체한다: %s', async (clientAuth) => {
+    const f = await managed();
+    const res = await f.handler(request(body, { 'x-tossinvest-account': 'test-account', ...(clientAuth ? { authorization: 'Bearer test-client-token' } : {}) }));
+    expect(res.status).toBe(200);
+    expect(new Headers(f.fetchImpl.mock.calls[0][1]?.headers).get('authorization')).toBe('Bearer test-managed-token');
+    expect(new Headers(f.fetchImpl.mock.calls[0][1]?.headers).get('x-tossinvest-account')).toBe('test-account');
+  });
+  it('계좌 헤더는 여전히 요구한다', async () => {
+    const f = await managed();
+    expect(await code(await f.handler(request(body, {})))).toBe('order-invalid');
+    expect(f.tossToken.get).not.toHaveBeenCalled();
+  });
+  it('401이면 무효화만 하고 주문을 다시 보내지 않는다', async () => {
+    const f = await managed();
+    f.fetchImpl.mockResolvedValueOnce(Response.json({ error: { code: 'unauthorized' } }, { status: 401 }));
+    expect((await f.handler(request())).status).toBe(401);
+    expect(f.tossToken.invalidate).toHaveBeenCalledExactlyOnceWith('test-managed-token');
+    expect(f.fetchImpl).toHaveBeenCalledTimes(1);
+    expect(f.tossToken.get).toHaveBeenCalledTimes(1);
+  });
+  it('발급 실패면 전송 기록과 건수를 남기지 않는다', async () => {
+    const f = await managed();
+    f.tossToken.get.mockRejectedValueOnce(new Error('test-private-token'));
+    const res = await f.handler(request());
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: { code: 'toss-token-failed' } });
+    expect(f.fetchImpl).not.toHaveBeenCalled();
+    expect(await readFile(f.cfg.auditLog, 'utf8')).not.toContain('send');
+    const status = await (await f.handler(new Request('https://proxy.example/order/status'))).json();
+    expect(status).toMatchObject({ usedToday: { count: 0, amount: 0 }, invested: 0 });
+    expect((await f.handler(request())).status).toBe(200);
+  });
+});

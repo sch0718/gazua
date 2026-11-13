@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, open, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import type { TossTokenKeeper } from './tossToken.js';
 import { UPSTREAM } from '../src/allowlist.js';
 
 export interface OrderConfig {
@@ -24,6 +25,7 @@ interface Dependencies {
   now: () => number;
   upstreamTimeoutMs: number;
   randomId?: () => string;
+  tossToken?: TossTokenKeeper;
 }
 interface Order {
   symbol: string;
@@ -91,8 +93,8 @@ async function stopped(path: string): Promise<boolean> {
   }
 }
 
-async function parseOrder(req: Request): Promise<Order | undefined> {
-  if (!req.headers.get('authorization') || !req.headers.get('x-tossinvest-account')) return;
+async function parseOrder(req: Request, managed: boolean): Promise<Order | undefined> {
+  if ((!managed && !req.headers.get('authorization')) || !req.headers.get('x-tossinvest-account')) return;
   let value: unknown;
   try { value = await req.json(); } catch { return; }
   if (!object(value) || Object.keys(value).some((key) => !['symbol', 'side', 'quantity', 'price'].includes(key))) return;
@@ -183,7 +185,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
   const send = async (req: Request): Promise<Response> => {
     if (!prepared || !cfg.enabled) return json(403, { error: { code: 'order-disabled' } });
     if (await stopped(cfg.stopFile)) return reject(403, 'order-stopped');
-    const order = await parseOrder(req);
+    const order = await parseOrder(req, !!deps.tossToken);
     if (!order) return reject(400, 'order-invalid');
     const now = deps.now();
     refresh(now);
@@ -195,6 +197,11 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       return reject(403, 'order-total-limit', order, { amount: order.amount, invested, totalMaxAmount: cfg.totalMaxAmount ?? null });
     }
     if ((order.side === 'BUY' && recent.length >= cfg.maxPerMinute) || count >= cfg.maxPerDay) return reject(429, 'order-rate-limited', order);
+    let token: string | undefined;
+    if (deps.tossToken) {
+      try { token = await deps.tossToken.get(); }
+      catch { return json(502, { error: { code: 'toss-token-failed' } }); }
+    }
     const clientOrderId = (deps.randomId ?? randomUUID)();
     try { await audit({ event: 'send', clientOrderId, ...order }); }
     catch { return json(503, { error: { code: 'order-audit-failed' } }); }
@@ -209,9 +216,10 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     try {
       upstream = await deps.fetchImpl(`${UPSTREAM.toss}/api/v1/orders`, {
         method: 'POST', redirect: 'manual', signal,
-        headers: { authorization: req.headers.get('authorization')!, 'x-tossinvest-account': req.headers.get('x-tossinvest-account')!, 'content-type': 'application/json' },
+        headers: { authorization: token !== undefined ? `Bearer ${token}` : req.headers.get('authorization')!, 'x-tossinvest-account': req.headers.get('x-tossinvest-account')!, 'content-type': 'application/json' },
         body: JSON.stringify({ clientOrderId, symbol: order.symbol, side: order.side, orderType: 'LIMIT', timeInForce: 'DAY', quantity: String(order.quantity), price: String(order.price) }),
       });
+      if (upstream.status === 401 && token !== undefined) deps.tossToken?.invalidate(token);
       let payload: unknown;
       try { payload = await upstream.json(); }
       catch (e) {

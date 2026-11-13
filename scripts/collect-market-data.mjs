@@ -39,7 +39,7 @@ const FRED_IDS = { usdkrw: 'DEXKOUS', wti: 'DCOILWTICO' };
 const pick = (rec, keys) => Object.fromEntries(keys.map((k) => [k, rec[k]]));
 const SECTOR_PREFIX = { KOSPI: '0', KOSDAQ: '1' };
 // 자식 프로세스(gazua CLI)에 넘기지 않고, 오류 문구에서 가리는 키 환경변수
-const KEY_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'];
+const KEY_ENV = ['KIS_APP_KEY', 'KIS_APP_SECRET', 'TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET', 'GAZUA_PROXY_TOKEN'];
 
 const KST_MS = 9 * 3_600_000;
 const kstCompact = (ms) => new Date(ms + KST_MS).toISOString().slice(0, 10).replaceAll('-', '');
@@ -798,6 +798,36 @@ export function fetchOwner(deps = {}) {
   throw new Error(`수집 계정 표시를 받지 못했어요: ${why}. ${hint}`);
 }
 
+export async function chooseTossSource(env, fetchImpl = fetch) {
+  const base = env.GAZUA_PROXY_URL?.trim().replace(/\/+$/, '');
+  const token = env.GAZUA_PROXY_TOKEN?.trim();
+  const origin = env.GAZUA_PROXY_ORIGIN?.trim();
+  if (!base || !token || !origin) return { direct: true };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    let response;
+    let body;
+    try {
+      response = await fetchImpl(`${base}/health`, { method: 'GET', redirect: 'manual', signal: controller.signal });
+      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error('프록시가 다른 주소로 보내려 해서 수집을 멈췄어요');
+      }
+      if (!response.ok) throw new Error();
+      body = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError' || error?.name === 'TimeoutError') throw new Error('프록시 응답이 늦어서 수집을 멈췄어요');
+      throw new Error('프록시 상태를 확인하지 못해 수집을 멈췄어요');
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || body.ok !== true || ('tossToken' in body && typeof body.tossToken !== 'boolean')) {
+      throw new Error('프록시 상태 응답이 올바르지 않아요');
+    }
+    return body.tossToken === true ? { proxy: { baseUrl: `${base}/toss`, headers: { origin, 'x-proxy-token': token } } } : { direct: true };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const log = (line) => console.log(line);
@@ -810,12 +840,13 @@ async function main() {
     }
   }
   const toss = opts.provider === 'toss';
+  const source = toss ? await chooseTossSource(process.env) : { direct: true };
   const names = toss ? ['TOSS_CLIENT_ID', 'TOSS_CLIENT_SECRET'] : ['KIS_APP_KEY', 'KIS_APP_SECRET'];
   const [appKey, appSecret] = names.map((k) => process.env[k]);
-  if (!appKey || !appSecret) {
+  if (!source.proxy && (!appKey || !appSecret)) {
     throw new Error(toss ? '환경변수 TOSS_CLIENT_ID, TOSS_CLIENT_SECRET이 필요해요 (node --env-file=.env.toss ...)' : '환경변수 KIS_APP_KEY, KIS_APP_SECRET이 필요해요');
   }
-  validateCreds(appKey, appSecret, names);
+  if (!source.proxy) validateCreds(appKey, appSecret, names);
   assertOutAllowed(opts.out);
   // 계정 표시는 긴 수집 전에 먼저 확인한다
   const owner = opts.owner ? fetchOwner() : undefined;
@@ -823,7 +854,7 @@ async function main() {
   log('종목 마스터를 받아요');
   const master = await loadMaster();
   const client = toss
-    ? createTossClient({ clientId: appKey, clientSecret: appSecret, ...(opts.rate ? { perSecond: opts.rate } : {}) })
+    ? createTossClient({ ...(source.proxy ? { ...source.proxy, proxyManaged: true } : { clientId: appKey, clientSecret: appSecret }), ...(opts.rate ? { perSecond: opts.rate } : {}) })
     : createKisClient({ appKey, appSecret, paper: opts.paper });
   if (toss) log(`토스로 종목·지수 일봉만 받아요 (초당 ${opts.rate ?? TOSS_RATE}건)`);
   const result = await collect({ extendBack: opts.extendBack ?? undefined, maxYears: opts.maxYears, years: opts.years, flows: opts.flows, fins: opts.fins, flowsYears: opts.flowsYears, out: opts.out, update: opts.update ?? undefined, client, master, log, owner, source: opts.provider });

@@ -31,7 +31,7 @@ export interface AutoResult {
   buys: AutoOrder[]; sells: AutoOrder[]; skippedSymbols: { symbol: string; reason: string }[]; notes: string[];
 }
 
-const RETRY = new Set(['order-rate-limited', 'order-busy']);
+const RETRY = new Set(['order-rate-limited', 'order-busy', 'order-token-failed']);
 const REJECTED = new Set(['order-over-limit', 'order-daily-limit', 'order-total-limit', 'order-stopped', 'order-disabled', 'order-invalid', 'order-upstream']);
 const inHours = (now: number) => {
   const day = kstWeekday(kstDate(now)), minute = kstMinuteOfDay(now);

@@ -54,6 +54,7 @@
 
 ### 지금
 
+- 토스 토큰을 맥 프록시가 맡음(2026-11-13). 웹·CLI·수집기가 관리 여부를 확인해 키 없이 쓰고, 주문 발급 실패는 미전송으로 처리해요. [운영 안내](../proxy/README.md#토스-토큰을-맥-프록시가-맡기).
 - `cli/` 워크스페이스에 읽기 전용 `gazua` 진입점이 있어요(`cli/src/main.ts`). PR #63(`729e072`)으로 병합됐어요.
 - 동기화 API(`sync-worker`)는 브라우저의 Origin 검사·`X-Gazua-Session` 세션과 별도로 CLI 기기 코드 로그인·읽기 전용 토큰 인증을 지원해요(`sync-worker/src/cli.ts`). 로그인은 사람이 앱에서 기기 코드를 승인해야 끝나요.
 - 공급자 코드(`src/lib/providers/toss.ts`·`kis.ts`)를 Node에서도 재사용해요. CLI는 프록시와 같은 허용 목록을 적용해 증권사를 직접 호출해요(`cli/src/direct.ts`).

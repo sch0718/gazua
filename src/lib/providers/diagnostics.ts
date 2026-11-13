@@ -60,6 +60,7 @@ export const IP_HINT = '토스증권 WTS › 설정 › Open API › 허용 IP �
 
 /** 실패 단계에 붙일 해결책. 출처가 필요한 문구는 corsHint로 만든다. */
 const HINTS: Record<ErrorCode, string> = {
+  'proxy-token-managed': '맥 프록시가 토스 토큰을 맡고 있어요. 다시 불러와 주세요',
   'proxy-unreachable': '프록시 주소가 맞는지, 프록시가 켜져 있는지 확인해 주세요',
   'proxy-redirect': '프록시가 다른 주소로 보내려 해요. 프록시 URL이 맞는지(끝 경로·http/https) 확인해 주세요',
   timeout: '프록시가 응답하지 않아요. 프록시가 켜져 있는지 확인해 주세요',
@@ -130,6 +131,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
   // ①·②를 지난 뒤의 TypeError는 사전 요청(사용자 지정 헤더) 거부일 가능성이 커서 CORS로 본다.
   const client: ProxyClient = createProxyClient({ baseUrl: base, proxyToken, fetchImpl, typeErrorCode: 'cors-blocked' });
   let token: TokenInfo | null = null;
+  let tossManaged = false;
 
   /**
    * /health를 부른다. ②(no-cors가 아닌 요청)는 본문까지 같은 제한 시간 안에서 읽는다:
@@ -190,8 +192,13 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       if (isRedirect(res)) throw new StepFailure('proxy-redirect');
       if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, json, provider));
       if (isRecord(json) && json.originAllowed === false) throw new StepFailure('cors-blocked');
+      tossManaged = provider === 'toss' && isRecord(json) && json.tossToken === true;
     },
     3: async () => {
+      if (tossManaged) {
+        update(3, { hint: '맥 프록시가 토큰을 맡아요' });
+        return;
+      }
       if (args.tokenSource) {
         token = await args.tokenSource();
         if (!token?.accessToken) throw new StepFailure('upstream');
@@ -226,13 +233,13 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       if (!token) throw new StepFailure('upstream');
     },
     4: async () => {
-      const authorization = `Bearer ${token!.accessToken}`;
+      const authorization = tossManaged ? undefined : `Bearer ${token!.accessToken}`;
       if (provider === 'kis') {
         const kis = secrets.kis!;
         const res = await client.request('kis', 'GET', KIS_PRICE_PATH, {
           query: { FID_COND_MRKT_DIV_CODE: 'J', FID_INPUT_ISCD: SYMBOL },
           headers: {
-            authorization,
+            authorization: authorization!,
             appkey: kis.appKey,
             appsecret: kis.appSecret,
             tr_id: KIS_PRICE_TR,
@@ -249,7 +256,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       } else {
         const res = await client.request('toss', 'GET', '/api/v1/prices', {
           query: { symbols: SYMBOL },
-          headers: { authorization },
+          headers: authorization ? { authorization } : {},
         });
         const result = isRecord(res.json) ? res.json.result : undefined;
         const row = Array.isArray(result) ? result.find((r) => isRecord(r) && text(r.symbol) === SYMBOL) : undefined;

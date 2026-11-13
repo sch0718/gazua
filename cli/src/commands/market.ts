@@ -2,7 +2,7 @@ import { ApiError } from '../../../src/lib/providers/errors';
 import type { Command } from '../context';
 import { chooseProvider, readCreds } from '../env';
 import { CliError } from '../errors';
-import { buildProvider } from '../providers';
+import { buildProvider, proxyOf } from '../providers';
 
 const SYMBOL = /^Q?[0-9A-Z]{6}$/;
 /** 토스는 ETN을 Q 없는 6자리로 돌려준다 */
@@ -17,7 +17,7 @@ export const quote: Command = async (ctx) => {
   if (symbols.length === 0) throw new CliError('invalid-args', '종목 코드가 필요해요. 예: gazua quote 005930 000660');
   for (const s of symbols) if (!SYMBOL.test(s)) throw new CliError('invalid-args', `종목 코드 모양이 맞지 않아요: ${s}`);
   const creds = readCreds(ctx.env);
-  const id = chooseProvider(creds, ctx.args.provider);
+  const id = chooseProvider(creds, ctx.args.provider, proxyOf(ctx));
   const { provider } = buildProvider(ctx, id, creds);
   const venues = provider.capabilities.venues;
   const venue = venues.length === 0 || venues.includes('KRX') ? 'KRX' : venues[0];
@@ -48,7 +48,7 @@ export const quote: Command = async (ctx) => {
 export const holdings: Command = async (ctx) => {
   if ((ctx.args.provider ?? 'toss') !== 'toss') throw new CliError('provider-unsupported', '보유 조회는 토스만 돼요');
   const creds = readCreds(ctx.env);
-  if (!creds.toss) throw new CliError('no-credentials');
+  if (!creds.toss && !proxyOf(ctx)) throw new CliError('no-credentials');
   const { provider } = buildProvider(ctx, 'toss', creds);
   const account = provider.account;
   if (!account) throw new CliError('provider-unsupported');

@@ -20,13 +20,13 @@ export function readCreds(env: Record<string, string | undefined>): Creds {
   };
 }
 
-/** --provider가 있으면 그 키가 있어야 한다. 없으면 키가 있는 쪽, 둘 다면 toss */
-export function chooseProvider(creds: Creds, flag?: ProviderId): ProviderId {
+/** 토스는 키나 프록시 설정이 있으면 고를 수 있다. KIS는 키가 있어야 한다. */
+export function chooseProvider(creds: Creds, flag?: ProviderId, proxy?: unknown): ProviderId {
   if (flag !== undefined) {
-    if (!creds[flag]) throw new CliError('no-credentials');
+    if (!creds[flag] && !(flag === 'toss' && proxy)) throw new CliError('no-credentials');
     return flag;
   }
-  if (creds.toss) return 'toss';
+  if (creds.toss || proxy) return 'toss';
   if (creds.kis) return 'kis';
   throw new CliError('no-credentials');
 }
