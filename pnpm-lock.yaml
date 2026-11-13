@@ -43,8 +43,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0
       '@sch0718/ui-svelte':
-        specifier: 0.2.0
-        version: 0.2.0(svelte@5.57.2)
+        specifier: 0.3.0
+        version: 0.3.0(svelte@5.57.2)
       '@sch0718/vite-app':
         specifier: 0.1.1
         version: 0.1.1(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
@@ -1785,8 +1785,8 @@ packages:
   '@sch0718/seen-store@0.1.0':
     resolution: {integrity: sha512-RHPUy1yySNSbRsmAa4jlemTl2I43mRhCOK5tMQvuNMCq+9Y0RnwpJHaaPvTIqsfdsRrAqwVfDvMDobAmWHPEAg==, tarball: https://npm.pkg.github.com/download/@sch0718/seen-store/0.1.0/445958d792aba693e9f6ab294a1e1dd96d189d7d}
 
-  '@sch0718/ui-svelte@0.2.0':
-    resolution: {integrity: sha512-N7aiQlfaaREcvZm8CA+s61j4fqmg9yMcRrXEpFiZW3p55nrgueHjukJVgY5J8n8qhnkzuXT3JdWkBNBvvedugw==, tarball: https://npm.pkg.github.com/download/@sch0718/ui-svelte/0.2.0/1d89603d3abde861db7caaaf8327b7013b2dfd1b}
+  '@sch0718/ui-svelte@0.3.0':
+    resolution: {integrity: sha512-YKJjV8bRCKmi+mNFXI1e1RZKxEV8aElWaH3CcHCx66CVrCMW2emrOCOH/uawEFT4ZaCGC+rlcnR9tQj++n2dTQ==, tarball: https://npm.pkg.github.com/download/@sch0718/ui-svelte/0.3.0/6c57d756cd5ebe061a31eb8a55a4922927381b08}
     peerDependencies:
       svelte: ^5.57.0
 
@@ -4950,7 +4950,7 @@ snapshots:
 
   '@sch0718/seen-store@0.1.0': {}
 
-  '@sch0718/ui-svelte@0.2.0(svelte@5.57.2)':
+  '@sch0718/ui-svelte@0.3.0(svelte@5.57.2)':
     dependencies:
       svelte: 5.57.2
 
