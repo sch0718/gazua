@@ -37,7 +37,7 @@ export const MESSAGES = {
   'market-file-invalid': '올릴 수 없는 시장 파일이에요',
   'market-limit': 'Drive 보관본이 서버 한도(10개)에 찼어요. 앱 설정 › 데이터의 「Drive 보관본 지우기」로 비운 뒤 다시 올려 주세요',
   'order-not-configured': '주문 프록시 설정이 없어요. GAZUA_PROXY_URL·GAZUA_PROXY_TOKEN·GAZUA_PROXY_ORIGIN을 알려 주세요',
-  'order-disabled': '맥 프록시에서 주문이 꺼져 있어요(proxy/.env의 ORDER_ENABLED·ORDER_MAX_AMOUNT)',
+  'order-disabled': '맥 프록시에서 주문이 꺼져 있어요(proxy/.env의 ORDER_ENABLED와 ORDER_MAX_AMOUNT·ORDER_TOTAL_MAX_AMOUNT)',
   'order-stopped': '주문 중지 파일이 있어 멈췄어요',
   'order-over-limit': '1회 최대 금액 이상이라 보낼 수 없어요',
   'order-daily-limit': '오늘 주문 금액 한도를 넘어서 보낼 수 없어요',

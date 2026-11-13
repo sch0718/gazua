@@ -194,7 +194,7 @@ CLI 명령의 출력이에요. MCP 서버는 같은 JSON을 도구 결과의 텍
 | `market-file-invalid` | 올릴 수 없는 시장 파일 |
 | `market-limit` | Drive 보관본이 서버 한도(10개)에 참 → 앱에서 보관본 지우기 |
 | `order-not-configured` | 주문 프록시 환경변수 세 개가 없음 |
-| `order-disabled` | 맥 프록시에서 주문이 꺼짐(ORDER_ENABLED·ORDER_MAX_AMOUNT 확인) |
+| `order-disabled` | 맥 프록시에서 주문이 꺼짐(ORDER_ENABLED와 ORDER_MAX_AMOUNT·ORDER_TOTAL_MAX_AMOUNT 확인) |
 | `order-stopped` | 주문 중지 파일이 있음 |
 | `order-over-limit` | 1회 최대 금액 이상(이번 금액과 한도 표시) |
 | `order-daily-limit` | 오늘 주문 금액 합계가 하루 한도를 넘음 |
