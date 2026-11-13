@@ -64,6 +64,52 @@ describe('주문 설정', () => {
 });
 
 describe('주문 처리기', () => {
+  it('분당 매수 한도 뒤에도 매도는 보내고 일일 횟수에는 더한다', async () => {
+    const f = await fixture({ maxPerMinute: 1, maxPerDay: 2 });
+    expect((await f.handler(request())).status).toBe(200);
+    expect(await code(await f.handler(request()))).toBe('order-rate-limited');
+    expect((await f.handler(request({ ...body, side: 'SELL' }))).status).toBe(200);
+    expect(await code(await f.handler(request({ ...body, side: 'SELL' })))).toBe('order-rate-limited');
+    expect((await (await f.handler(new Request('https://proxy.example/order/status'))).json()).usedToday.count).toBe(2);
+  });
+
+  it.each([422, 200])('매도 접수 여부로 총 가용 금액을 복원한다: 상류 %s', async (status) => {
+    const f = await fixture({ totalMaxAmount: 99, maxPerMinute: 10 });
+    expect((await f.handler(request())).status).toBe(200);
+    f.fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify(status === 200
+      ? { result: { orderId: 'sell-id' } } : { error: { code: 'rejected' } }), { status }));
+    expect((await f.handler(request({ ...body, side: 'SELL' }))).status).toBe(status);
+    const invested = status === 200 ? 0 : 99;
+    expect((await (await f.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(invested);
+    const restored = createOrderHandler(f.cfg, f.deps);
+    await restored.ready;
+    expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(invested);
+    if (status !== 200) expect(await code(await restored.handler(request()))).toBe('order-total-limit');
+  });
+
+  it('결과가 없는 매도 기록은 총 가용 금액과 분당 매수 한도를 풀지 않는다', async () => {
+    const f = await fixture({ totalMaxAmount: 297, maxPerMinute: 1 });
+    await appendFile(f.cfg.auditLog, [
+      { event: 'send', clientOrderId: 'buy', ...body, amount: 99, ts: '2026-11-11T10:00:00+09:00' },
+      { event: 'send', clientOrderId: 'sell', ...body, side: 'SELL', amount: 99, ts: '2026-11-12T10:00:00+09:00' },
+    ].map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+    const restored = createOrderHandler(f.cfg, f.deps);
+    await restored.ready;
+    expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(99);
+    expect((await restored.handler(request())).status).toBe(200);
+    expect(await code(await restored.handler(request()))).toBe('order-rate-limited');
+  });
+
+  it('매도 응답이 200이어도 주문 ID가 없으면 재시작 뒤 총 가용 금액을 풀지 않는다', async () => {
+    const f = await fixture({ totalMaxAmount: 99 });
+    expect((await f.handler(request())).status).toBe(200);
+    f.fetchImpl.mockResolvedValueOnce(new Response('{"result":{}}'));
+    expect((await f.handler(request({ ...body, side: 'SELL' }))).status).toBe(502);
+    const restored = createOrderHandler(f.cfg, f.deps);
+    await restored.ready;
+    expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(99);
+  });
+
   it('최초 로그를 600으로 만들고 비밀값 없는 상태를 돌려준다', async () => {
     const f = await fixture();
     expect((await stat(f.cfg.auditLog)).mode & 0o777).toBe(0o600);

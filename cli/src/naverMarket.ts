@@ -2,7 +2,7 @@ import type { Ctx } from './context';
 
 export const NAVER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
 export interface Bar10 { end: number; close: number }
-export interface DayBar { date: string; open: number; close: number }
+export interface DayBar { date: string; open: number; close: number; high?: number; low?: number; volume?: number }
 export interface IndexQuote { changePct: number | null; changeAbs: number | null; tradedAt: number | null }
 
 type Row = Record<string, unknown>;
@@ -68,7 +68,12 @@ export function parseDayBars(json: unknown): DayBar[] {
     const ms = Date.parse(`${date}T00:00:00Z`);
     const open = number(b.openPrice), close = number(b.closePrice);
     if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date || open === null || close === null || open <= 0 || close <= 0) continue;
-    bars.push({ date, open, close });
+    const high = number(b.highPrice), low = number(b.lowPrice), volume = number(b.accumulatedTradingVolume);
+    bars.push({ date, open, close,
+      ...(high !== null && high > 0 ? { high } : {}),
+      ...(low !== null && low > 0 ? { low } : {}),
+      ...(volume !== null && volume >= 0 ? { volume } : {}),
+    });
   }
   return bars.sort((a, b) => a.date.localeCompare(b.date));
 }
