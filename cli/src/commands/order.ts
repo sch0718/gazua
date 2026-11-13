@@ -73,8 +73,7 @@ function limitsOf(value: unknown) {
     maxPerMinute: value.maxPerMinute, maxPerDay: value.maxPerDay, usedToday: { count: value.usedToday.count, amount: value.usedToday.amount } };
 }
 
-export const order: Command = async (ctx) => {
-  const input = parseOrder(ctx.args.positionals);
+export function proxySettings(ctx: Ctx) {
   const url = ctx.env.GAZUA_PROXY_URL?.trim();
   const token = ctx.env.GAZUA_PROXY_TOKEN?.trim();
   const origin = ctx.env.GAZUA_PROXY_ORIGIN?.trim();
@@ -82,22 +81,44 @@ export const order: Command = async (ctx) => {
   const server = normalizeServer(url);
   ctx.redact.add(token);
   const headers = { origin, 'x-proxy-token': token };
-  const limits = limitsOf(await proxyCall(ctx, `${server}/order/status`, { headers }));
-  const amount = input.quantity * input.price;
-  if (!ctx.args.yes) return { sent: false, order: { ...input, amount }, limits,
-    hint: '보내려면 --yes를 붙여요' + (!limits.enabled ? '. 맥 프록시에서 주문이 꺼져 있어 거절돼요'
-      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : limits.maxAmount !== null && amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요'
-      : input.side === 'BUY' && limits.totalMaxAmount !== null && limits.invested + amount > limits.totalMaxAmount ? '. 총 가용 금액을 넘어 프록시가 거절해요' : '') };
-  if (ctx.args.provider !== undefined && ctx.args.provider !== 'toss') throw new CliError('provider-unsupported');
+  return { server, headers };
+}
+
+export type ProxySettings = ReturnType<typeof proxySettings>;
+
+export async function orderStatus(ctx: Ctx, s: ProxySettings) {
+  return limitsOf(await proxyCall(ctx, `${s.server}/order/status`, { headers: s.headers }));
+}
+
+export async function tossAccount(ctx: Ctx) {
   const account = buildProvider(ctx, 'toss', readCreds(ctx.env)).provider.account;
   if (!account?.orderHeaders) throw new CliError('provider-unsupported');
   const credentials = await account.orderHeaders();
   ctx.redact.add(credentials.authorization);
   ctx.redact.add(credentials.authorization.replace(/^Bearer\s+/i, ''));
   ctx.redact.add(credentials['x-tossinvest-account']);
-  const result = await proxyCall(ctx, `${server}/order/toss`, { method: 'POST', headers: { ...headers, ...credentials, 'content-type': 'application/json' }, body: JSON.stringify(input) }, true);
+  return { account, credentials };
+}
+
+export async function sendOrder(ctx: Ctx, s: ProxySettings, credentials: Awaited<ReturnType<typeof tossAccount>>['credentials'],
+  input: { side: string; symbol: string; quantity: number; price: number }) {
+  const result = await proxyCall(ctx, `${s.server}/order/toss`, { method: 'POST', headers: { ...s.headers, ...credentials, 'content-type': 'application/json' }, body: JSON.stringify(input) }, true);
   if (!record(result) || result.ok !== true || typeof result.orderId !== 'string' || !result.orderId || typeof result.clientOrderId !== 'string' || !result.clientOrderId || !positive(result.amount)) {
     throw unknownOrder(record(result) && typeof result.clientOrderId === 'string' ? { clientOrderId: result.clientOrderId } : undefined);
   }
-  return { sent: true, orderId: result.orderId, clientOrderId: result.clientOrderId, amount: result.amount };
+  return { orderId: result.orderId, clientOrderId: result.clientOrderId, amount: result.amount };
+}
+
+export const order: Command = async (ctx) => {
+  const input = parseOrder(ctx.args.positionals);
+  const s = proxySettings(ctx);
+  const limits = await orderStatus(ctx, s);
+  const amount = input.quantity * input.price;
+  if (!ctx.args.yes) return { sent: false, order: { ...input, amount }, limits,
+    hint: '보내려면 --yes를 붙여요' + (!limits.enabled ? '. 맥 프록시에서 주문이 꺼져 있어 거절돼요'
+      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : limits.maxAmount !== null && amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요'
+      : input.side === 'BUY' && limits.totalMaxAmount !== null && limits.invested + amount > limits.totalMaxAmount ? '. 총 가용 금액을 넘어 프록시가 거절해요' : '') };
+  if (ctx.args.provider !== undefined && ctx.args.provider !== 'toss') throw new CliError('provider-unsupported');
+  const { credentials } = await tossAccount(ctx);
+  return { sent: true, ...await sendOrder(ctx, s, credentials, input) };
 };

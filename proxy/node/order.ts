@@ -138,11 +138,19 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       const now = deps.now();
       day = dayOf(now);
       const lines = raw.split('\n');
+      const pendingSells = new Map<string, number>();
       for (const [index, line] of lines.entries()) {
         if (index === lines.length - 1 && line === '') continue;
         try {
           const entry: unknown = JSON.parse(line);
           if (!object(entry)) throw new Error();
+          if (entry.event === 'result' && typeof entry.clientOrderId === 'string') {
+            const soldAmount = pendingSells.get(entry.clientOrderId);
+            if (soldAmount !== undefined && entry.status === 200 && typeof entry.orderId === 'string' && entry.orderId) {
+              spend({ side: 'SELL', amount: soldAmount });
+            }
+            pendingSells.delete(entry.clientOrderId);
+          }
           if (entry.event !== 'send') continue;
           const { side, quantity, price, amount: sentAmount, ts } = entry;
           if ((side !== 'BUY' && side !== 'SELL') || !positive(quantity) || !positive(price) || !positive(sentAmount) || quantity * price !== sentAmount) throw new Error();
@@ -153,9 +161,14 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
             count++;
             amount += sentAmount;
           }
-          if (!Number.isSafeInteger(invested + sentAmount)) throw new Error();
-          spend({ side, amount: sentAmount });
-          if (now - sent < 60_000) recent.push(sent);
+          if (side === 'BUY') {
+            if (!Number.isSafeInteger(invested + sentAmount)) throw new Error();
+            spend({ side, amount: sentAmount });
+            if (now - sent < 60_000) recent.push(sent);
+          } else if (typeof entry.clientOrderId === 'string') {
+            // 결과가 없거나 거절된 매도는 총 가용 금액을 늘리지 않는다.
+            pendingSells.set(entry.clientOrderId, sentAmount);
+          }
         } catch { throw new Error(`감사 로그 ${index + 1}번째 줄을 확인해 주세요`); }
       }
       // 마지막 JSON에 개행이 없어도 다음 기록과 이어 붙지 않게 한다.
@@ -181,14 +194,16 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
     if (order.side === 'BUY' && (!Number.isSafeInteger(invested + order.amount) || (cfg.totalMaxAmount !== undefined && invested + order.amount > cfg.totalMaxAmount))) {
       return reject(403, 'order-total-limit', order, { amount: order.amount, invested, totalMaxAmount: cfg.totalMaxAmount ?? null });
     }
-    if (recent.length >= cfg.maxPerMinute || count >= cfg.maxPerDay) return reject(429, 'order-rate-limited', order);
+    if ((order.side === 'BUY' && recent.length >= cfg.maxPerMinute) || count >= cfg.maxPerDay) return reject(429, 'order-rate-limited', order);
     const clientOrderId = (deps.randomId ?? randomUUID)();
     try { await audit({ event: 'send', clientOrderId, ...order }); }
     catch { return json(503, { error: { code: 'order-audit-failed' } }); }
     count++;
     amount += order.amount;
-    spend(order);
-    recent.push(now);
+    if (order.side === 'BUY') {
+      spend(order);
+      recent.push(now);
+    }
     const signal = AbortSignal.timeout(deps.upstreamTimeoutMs);
     let upstream: Response;
     try {
@@ -205,6 +220,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       }
       const result = object(payload) && object(payload.result) ? payload.result : undefined;
       if (upstream.status === 200 && typeof result?.orderId === 'string' && result.orderId) {
+        if (order.side === 'SELL') spend(order);
         await bestEffort({ event: 'result', clientOrderId, status: 200, orderId: result.orderId });
         return json(200, { ok: true, orderId: result.orderId, clientOrderId, amount: order.amount });
       }
