@@ -11,7 +11,7 @@
 
 1. 프록시: `proxy/.env`에 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`가 있으면 토스 토큰을 혼자 발급·캐시하고, 토스로 가는 요청에 자기 토큰을 붙인다. 없으면 지금 동작 그대로.
 2. 웹: 프록시가 맡으면 토큰을 받지 않고 인증 없이 프록시로 보낸다. 그 기기에 토스 키가 없어도 된다. 진단 카드에 방식을 한 줄 보인다.
-3. CLI(`quote`·`holdings`·`signals`·`simulate`·`order`·`auto`)와 수집 스크립트(`scripts/collect-market-data.mjs --provider toss`): `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`이 있고 프록시가 맡으면 프록시로 보낸다. 없으면 지금 그대로.
+3. CLI(`quote`·`holdings`·`signals`·`simulate`·`order`·`auto`)와 수집 스크립트(`scripts/collect-market-data.mjs --provider toss`): CLI는 `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`이 있으면 프록시로 보내고(맡음이면 토큰 없이, 아니면 지금처럼 키로 받은 토큰과 함께), 수집 스크립트는 프록시가 맡을 때만 프록시로 보낸다. 프록시 설정이 없으면 둘 다 지금 그대로.
 4. 문서: `proxy/README.md`, `cli/README.md`, `docs/roadmap.md`.
 
 범위 밖: KIS, 수집 DB 원격 조회, 새 계정·로그인, 토큰 암호화 저장, 프록시 다중 인스턴스, Cloudflare Worker 판(맡지 않음, 지금 그대로), 수동 점검 스크립트(`scripts/toss-live-check.mjs`·`toss-depth-check.mjs`는 원 API를 직접 확인하는 도구라 그대로 둔다).
@@ -147,10 +147,10 @@ export function createTossTokenKeeper(keys, deps: { fetchImpl; now; timeoutMs })
 1. 프록시 관리를 활성화하기 전에 5절의 새 웹과 6절의 CLI·수집 스크립트를 먼저 배포한다. 각 기기의 열린 웹 탭은 브라우저에서 페이지를 새로고침해 새 버전을 불러온다. 이 단계에서는 클라이언트의 기존 토스 키를 유지한다(맡음이 아니면 키가 필요하다).
 2. CLI·수집 예약 작업의 env 파일에 `GAZUA_PROXY_URL`·`GAZUA_PROXY_TOKEN`·`GAZUA_PROXY_ORIGIN`을 넣는다(주문을 쓰면 이미 있다).
 3. `proxy/.env`에 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`을 넣고 `proxy/macos/install.sh`를 다시 실행해 새 프록시를 빌드·재시작한다. 4.4의 `PROXY_TOKEN`도 설정되어 있어야 한다.
-4. 각 기기의 웹 페이지를 새로고침해 맡음 여부를 새로 확인하고, 휴대폰 진단 카드의 「토스 조회: 맥 프록시가 맡음」 줄과 시세·차트가 경고 없이 뜨는지 확인한다. CLI·수집 작업도 새 버전과 프록시 설정으로 실행하는지 확인한 뒤 클라이언트의 토스 키를 제거할 수 있다.
+4. 각 기기의 웹 페이지를 새로고침해 맡음 여부를 새로 확인하고, 휴대폰 진단 카드의 「토스 조회: 맥 프록시가 맡음」 줄과 시세·차트가 경고 없이 뜨는지 확인한다. CLI·수집 작업도 새 버전과 프록시 설정으로 실행하는지 확인한다. 클라이언트의 토스 키는 지우지 않아도 된다(맡음이면 쓰이지 않는다). 지금 웹에는 토스 키만 지우는 기능이 없고 키 삭제는 프록시 토큰까지 지우므로, 새 기기에서만 키 없이 시작한다.
 
 비관리 모드로 되돌리는 순서:
 
-1. 키를 제거했던 웹 기기에는 설정 화면에서 토스 Client ID·Client Secret을 다시 입력·저장하고, CLI·수집 작업에는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`을 복원한다. 비관리 모드의 CLI·수집은 토스에 직접 요청하므로 실행 기기의 공인 IP도 토스 허용 IP로 등록되어 있어야 한다(`cli/README.md`).
+1. 키 없이 시작한 웹 기기에는 설정 화면에서 토스 Client ID·Client Secret을 입력·저장하고, 키 없는 CLI·수집 작업에는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`을 넣는다. 비관리 모드의 수집은 토스에 직접 요청하므로 실행 기기의 공인 IP가 토스 허용 IP로 등록되어 있어야 한다(`cli/README.md`). CLI는 프록시 설정이 있으면 비관리 모드에서도 프록시를 거친다.
 2. `proxy/.env`에서 토스 키 두 항목을 제거하고 `proxy/macos/install.sh`를 다시 실행한다. 프록시 접속 인증인 `PROXY_TOKEN`과 허용 출처 설정은 유지한다.
 3. 열린 웹 탭을 브라우저에서 페이지 새로고침해 기억한 맡음 여부를 버리고 키를 사용하는 제공자를 다시 만든다. 키 없는 상태에서는 5.2에 따라 `invalid-credentials`로 실패하므로 자동 복구에 기대지 않는다. CLI·수집은 복원한 키가 들어 있는 환경으로 다음 실행을 시작한다. 비관리 모드는 기존의 기기 간 토큰 발급 경쟁이 다시 생길 수 있다(1절).
