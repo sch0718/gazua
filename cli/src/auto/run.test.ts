@@ -11,7 +11,7 @@ import { runAuto } from './run';
 
 afterEach(cleanupDirs);
 const today = '2026-11-13';
-function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; total?: number | null } = {}) {
+function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; total?: number | null; used?: number } = {}) {
   const strategy = fullStrategyV2();
   strategy.rules.buy = [{ conds: [{ kind: 'maPrice', period: 2, side: 'above' }] }];
   strategy.rules.sell.signal.on = false;
@@ -32,7 +32,7 @@ function fixture(o: { live?: boolean; price?: number; held?: number; error?: str
     ] };
     if (c.url.pathname.endsWith('/basic')) return { body: { stockName: '시험 종목' } };
     if (c.url.pathname === '/holdings') return { body: held ? [{ symbol: '005930', quantity: held, avgPrice: 990, name: '시험 종목' }] : [] };
-    if (c.url.pathname === '/order/status') return { body: { enabled: true, stopped: false, maxAmount: null, dailyMaxAmount: null, totalMaxAmount: o.total === undefined ? 1_000_000 : o.total, invested: 0, maxPerMinute: 3, maxPerDay: 20, usedToday: { count: 0, amount: 0 } } };
+    if (c.url.pathname === '/order/status') return { body: { enabled: true, stopped: false, maxAmount: null, dailyMaxAmount: null, totalMaxAmount: o.total === undefined ? 1_000_000 : o.total, invested: 0, maxPerMinute: 3, maxPerDay: 20, usedToday: { count: o.used ?? 0, amount: 0 } } };
     if (c.url.pathname === '/order/toss') {
       atSend?.();
       return error ? { status: error === 'order-rate-limited' ? 429 : 400, body: { error: { code: error } } }
@@ -101,6 +101,12 @@ it.each(['order-rate-limited', 'order-busy', 'order-upstream', 'order-unknown'])
   await t.run();
   expect(posts(t)).toHaveLength(retry ? 2 : 1);
 });
+it('하루 주문 건수 한도를 다 쓰면 주문하지 않고 하루 한 번 알린다', async () => {
+  const t = fixture({ live: true, used: 20 });
+  await t.run(); await t.run();
+  expect(posts(t)).toHaveLength(0);
+  expect(alerts(t)).toHaveLength(1);
+});
 it('총 가용 금액 설정이 없으면 매수하지 않고 하루 한 번 알린다', async () => {
   const t = fixture({ live: true, total: null });
   await t.run(); await t.run();
@@ -135,6 +141,14 @@ it('매도 거절은 그날 막고 오류 알림을 반복하지 않는다', asy
   t.seed(); await t.run(); await t.run();
   expect(posts(t)).toHaveLength(1);
   expect(t.ledger().positions[0]).toMatchObject({ sellBlocked: today });
+  expect(t.ledger().positions[0].pendingSell).toBeUndefined();
+  expect(alerts(t)).toHaveLength(1);
+});
+it('토스 보유가 원장보다 많으면(직접 산 주식) 자동 매도하지 않고 하루 한 번 알린다', async () => {
+  const t = fixture({ live: true, price: 900, held: 110 });
+  t.seed(); await t.run(); await t.run();
+  expect(posts(t)).toHaveLength(0);
+  expect(t.ledger().positions[0]).toMatchObject({ qty: 100 });
   expect(t.ledger().positions[0].pendingSell).toBeUndefined();
   expect(alerts(t)).toHaveLength(1);
 });

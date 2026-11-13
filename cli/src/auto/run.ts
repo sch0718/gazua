@@ -135,10 +135,12 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       if (mode === 'dry') return true;
       settings ??= proxySettings(ctx);
       limits ??= await orderStatus(ctx, settings);
-      const code = !limits.enabled ? 'order-disabled' : limits.stopped ? 'order-stopped' : buy && limits.totalMaxAmount === null ? 'order-total-limit' : undefined;
+      const code = !limits.enabled ? 'order-disabled' : limits.stopped ? 'order-stopped' : buy && limits.totalMaxAmount === null ? 'order-total-limit'
+        : limits.usedToday.count >= limits.maxPerDay ? 'order-daily-count' : undefined;
       if (code) {
-        await once(code, '자동 실행을 건너뛰었어요', buy && limits.totalMaxAmount === null
-          ? '총 가용 금액 ORDER_TOTAL_MAX_AMOUNT가 없어 매수하지 않았어요' : `프록시가 주문을 막고 있어요(${code})`);
+        await once(code, '자동 실행을 건너뛰었어요', code === 'order-daily-count' ? `하루 주문 건수 한도(${limits.maxPerDay}건)를 다 써서 주문하지 않았어요`
+          : buy && limits.totalMaxAmount === null
+            ? '총 가용 금액 ORDER_TOTAL_MAX_AMOUNT가 없어 매수하지 않았어요' : `프록시가 주문을 막고 있어요(${code})`);
         return false;
       }
       return true;
@@ -194,6 +196,13 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       if (mode === 'live') {
         await loadHoldings();
         if (!ledger.positions.includes(p)) continue;
+        // 토스 보유가 원장보다 많으면 사람이 같은 종목을 따로 산 것이다. 체결을 구분할 수 없어 자동 매도를 하지 않는다.
+        if (heldOf(p.symbol) > p.qty) {
+          out.skippedSymbols.push({ symbol: p.symbol, reason: '직접 산 주식과 섞여 자동 매도하지 않아요' });
+          await once(`mixed:${p.symbol}`, `자동 매도 멈춤 ${p.symbol} ${await nameOf(p.symbol)}`,
+            `토스 보유(${heldOf(p.symbol)}주)가 자동 실행기 원장(${p.qty}주)보다 많아 자동 매도하지 않았어요(${decision.reason}). 토스 앱에서 직접 확인해 주세요`);
+          continue;
+        }
         decision = decideSell(p, strategy, current, heldDays, sellSignal);
         if (!decision) continue;
       }
