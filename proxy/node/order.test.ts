@@ -36,6 +36,8 @@ afterEach(async () => {
 
 describe('주문 설정', () => {
   it('기본은 꺼지고 경로와 반복 상한 기본값을 채운다', () => {
+    expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_TOTAL_MAX_AMOUNT: '500' }, '/fake-home')).toMatchObject({ enabled: true, totalMaxAmount: 500 });
+    expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_TOTAL_MAX_AMOUNT: '5만' }, '/fake-home').enabled).toBe(false);
     expect(readOrderConfig({}, '/fake-home')).toMatchObject({ enabled: false, maxPerMinute: 3, maxPerDay: 20,
       stopFile: '/fake-home/gazua-order.stop', auditLog: '/fake-home/Library/Logs/gazua-orders.jsonl' });
     expect(readOrderConfig({ ORDER_ENABLED: 'true', ORDER_MAX_AMOUNT: '100', ORDER_STOP_FILE: '~/stop' }, '/fake-home'))
@@ -64,7 +66,7 @@ describe('주문 처리기', () => {
     const f = await fixture();
     expect((await stat(f.cfg.auditLog)).mode & 0o777).toBe(0o600);
     expect(await (await f.handler(new Request('https://proxy.example/order/status'))).json()).toEqual({
-      enabled: true, stopped: false, maxAmount: 100, dailyMaxAmount: null, maxPerMinute: 3, maxPerDay: 20, usedToday: { count: 0, amount: 0 },
+      enabled: true, stopped: false, maxAmount: 100, dailyMaxAmount: null, totalMaxAmount: null, invested: 0, maxPerMinute: 3, maxPerDay: 20, usedToday: { count: 0, amount: 0 },
     });
     expect(f.fetchImpl).not.toHaveBeenCalled();
   });
@@ -141,6 +143,26 @@ describe('주문 처리기', () => {
     expect((await f.handler(request())).status).toBe(200);
     expect(await code(await f.handler(request()))).toBe('order-daily-limit');
     expect(f.fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('총 가용 금액은 매수 − 매도 잔액으로 세고 매도는 막지 않는다', async () => {
+    const f = await fixture({ totalMaxAmount: 200, maxPerMinute: 10 });
+    expect((await f.handler(request())).status).toBe(200);
+    expect((await f.handler(request())).status).toBe(200);
+    expect(await code(await f.handler(request()))).toBe('order-total-limit');
+    expect((await f.handler(request({ ...body, side: 'SELL' }))).status).toBe(200);
+    expect((await f.handler(request())).status).toBe(200);
+    expect(f.fetchImpl).toHaveBeenCalledTimes(4);
+    const restored = createOrderHandler(f.cfg, f.deps);
+    await restored.ready;
+    expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(198);
+  });
+
+  it('원래 갖고 있던 주식을 팔아도 총 가용 금액이 늘지 않는다', async () => {
+    const f = await fixture({ totalMaxAmount: 100 });
+    expect((await f.handler(request({ ...body, side: 'SELL' }))).status).toBe(200);
+    expect((await f.handler(request())).status).toBe(200);
+    expect(await code(await f.handler(request()))).toBe('order-total-limit');
   });
 
   it.each([{ maxPerMinute: 1 }, { maxPerDay: 1 }])('반복 상한 %j에 도달하면 거절한다', async (limits) => {
@@ -315,7 +337,7 @@ describe('주문 처리기', () => {
 
   it('오늘 금액을 더하면 안전한 정수 범위를 넘는 경우 일일 한도로 거절한다', async () => {
     const f = await fixture({ maxAmount: Number.MAX_SAFE_INTEGER });
-    await appendFile(f.cfg.auditLog, JSON.stringify({ event: 'send', quantity: 1, price: Number.MAX_SAFE_INTEGER, amount: Number.MAX_SAFE_INTEGER, ts: '2026-11-12T00:00:00+09:00' }) + '\n');
+    await appendFile(f.cfg.auditLog, JSON.stringify({ event: 'send', side: 'BUY', quantity: 1, price: Number.MAX_SAFE_INTEGER, amount: Number.MAX_SAFE_INTEGER, ts: '2026-11-12T00:00:00+09:00' }) + '\n');
     const restored = createOrderHandler(f.cfg, f.deps);
     await restored.ready;
     expect(await code(await restored.handler(request()))).toBe('order-daily-limit');
@@ -324,7 +346,7 @@ describe('주문 처리기', () => {
 
   it('복원 합계가 안전한 정수 범위를 넘으면 꺼진다', async () => {
     const f = await fixture();
-    const line = JSON.stringify({ event: 'send', quantity: 1, price: Number.MAX_SAFE_INTEGER, amount: Number.MAX_SAFE_INTEGER, ts: '2026-11-12T00:00:00+09:00' });
+    const line = JSON.stringify({ event: 'send', side: 'BUY', quantity: 1, price: Number.MAX_SAFE_INTEGER, amount: Number.MAX_SAFE_INTEGER, ts: '2026-11-12T00:00:00+09:00' });
     await appendFile(f.cfg.auditLog, `${line}\n${line}\n`);
     const restored = createOrderHandler(f.cfg, f.deps);
     await restored.ready;

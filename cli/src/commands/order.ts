@@ -12,7 +12,7 @@ const nonnegative = (v: unknown): v is number => typeof v === 'number' && Number
 /** 주문 오류만 명시적으로 통과시킨다. 모르는 실패를 안전한 재전송으로 오해하지 않게 한다. */
 const PROXY_ERRORS: Record<string, CliErrorCode> = {
   'order-not-configured': 'order-not-configured', 'order-disabled': 'order-disabled', 'order-stopped': 'order-stopped',
-  'order-over-limit': 'order-over-limit', 'order-daily-limit': 'order-daily-limit', 'order-rate-limited': 'order-rate-limited',
+  'order-over-limit': 'order-over-limit', 'order-daily-limit': 'order-daily-limit', 'order-total-limit': 'order-total-limit', 'order-rate-limited': 'order-rate-limited',
   'order-busy': 'order-busy', 'order-invalid': 'order-invalid', 'order-unavailable': 'order-unavailable',
   'order-upstream': 'order-upstream', 'order-unknown': 'order-unknown', 'order-audit-failed': 'order-audit-failed',
   'proxy-token-invalid': 'proxy-rejected', 'origin-not-allowed': 'proxy-rejected',
@@ -66,8 +66,10 @@ function parseOrder(args: string[]) {
 function limitsOf(value: unknown) {
   if (!record(value) || typeof value.enabled !== 'boolean' || typeof value.stopped !== 'boolean' || !nonnegative(value.maxAmount) ||
     !(value.dailyMaxAmount === null || positive(value.dailyMaxAmount) || (value.enabled === false && value.dailyMaxAmount === 0)) || !positive(value.maxPerMinute) || !positive(value.maxPerDay) ||
+    !(value.totalMaxAmount === undefined || value.totalMaxAmount === null || positive(value.totalMaxAmount)) || !(value.invested === undefined || nonnegative(value.invested)) ||
     !record(value.usedToday) || !nonnegative(value.usedToday.count) || !nonnegative(value.usedToday.amount)) throw new CliError('upstream');
   return { enabled: value.enabled, stopped: value.stopped, maxAmount: value.maxAmount, dailyMaxAmount: value.dailyMaxAmount,
+    totalMaxAmount: value.totalMaxAmount ?? null, invested: value.invested ?? 0,
     maxPerMinute: value.maxPerMinute, maxPerDay: value.maxPerDay, usedToday: { count: value.usedToday.count, amount: value.usedToday.amount } };
 }
 
@@ -84,7 +86,8 @@ export const order: Command = async (ctx) => {
   const amount = input.quantity * input.price;
   if (!ctx.args.yes) return { sent: false, order: { ...input, amount }, limits,
     hint: '보내려면 --yes를 붙여요' + (!limits.enabled ? '. 맥 프록시에서 주문이 꺼져 있어 거절돼요'
-      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요' : '') };
+      : limits.stopped ? '. 중지 파일이 있어 거절돼요' : amount >= limits.maxAmount ? '. 한도 이상이라 프록시가 거절해요'
+      : input.side === 'BUY' && limits.totalMaxAmount !== null && limits.invested + amount > limits.totalMaxAmount ? '. 총 가용 금액을 넘어 프록시가 거절해요' : '') };
   if (ctx.args.provider !== undefined && ctx.args.provider !== 'toss') throw new CliError('provider-unsupported');
   const account = buildProvider(ctx, 'toss', readCreds(ctx.env)).provider.account;
   if (!account?.orderHeaders) throw new CliError('provider-unsupported');

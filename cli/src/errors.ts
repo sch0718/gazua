@@ -41,6 +41,7 @@ export const MESSAGES = {
   'order-stopped': '주문 중지 파일이 있어 멈췄어요',
   'order-over-limit': '1회 최대 금액 이상이라 보낼 수 없어요',
   'order-daily-limit': '오늘 주문 금액 한도를 넘어서 보낼 수 없어요',
+  'order-total-limit': '총 가용 금액(매수 − 매도 잔액)을 넘어서 보낼 수 없어요',
   'order-rate-limited': '분당 또는 하루 주문 건수 한도에 도달했어요',
   'order-busy': '다른 주문을 처리하는 중이에요. 잠시 뒤 다시 해 주세요',
   'order-invalid': '주문 내용이 올바르지 않아요',
