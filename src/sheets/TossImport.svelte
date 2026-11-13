@@ -201,7 +201,7 @@
   }
   .chip[aria-pressed='true'] {
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
   }
   .search {
     width: 100%;

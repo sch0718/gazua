@@ -5,7 +5,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import type { App } from '../lib/state/app.svelte';
   import type { Settings } from '../lib/state/schema';
-  import { Segmented } from '@sch0718/ui-svelte';
+  import { Segmented, PalettePicker } from '@sch0718/ui-svelte';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
   import About from '../lib/ui/settings/About.svelte';
@@ -103,6 +103,11 @@
                 value={app.settings.theme}
                 onchange={(v) => app.updateSettings({ theme: v as Settings['theme'] })}
               />
+            </div>
+            <div class="palette">
+              <!-- 묶음 이름은 PalettePicker의 aria-label(색 테마)이 읽힌다. 보이는 글자는 두 번 읽히지 않게 숨긴다 -->
+              <span class="palette-label" aria-hidden="true">색 테마</span>
+              <PalettePicker value={app.settings.palette} onchange={(id) => app.updateSettings({ palette: id })} />
             </div>
             <div class="row">
               <span>상승·하락 색</span>
@@ -204,6 +209,15 @@
     gap: 8px 12px;
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
+    font-size: var(--fs-body);
+  }
+  .palette {
+    display: grid;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .palette-label {
     font-size: var(--fs-body);
   }
   .row:last-child {

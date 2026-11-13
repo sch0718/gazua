@@ -175,7 +175,7 @@
           <div class="split">
             <section class="pane" aria-labelledby="perf-chart-h">
               <h2 id="perf-chart-h">평가금액 + 회수액</h2>
-              <PerfChart curve={view.curve} {benchName} theme={app.settings.theme} />
+              <PerfChart curve={view.curve} {benchName} theme={`${app.settings.theme}:${app.settings.palette}`} />
             </section>
             <section class="pane" aria-labelledby="perf-rows-h">
               <h2 id="perf-rows-h">종목별 기여도</h2>
