@@ -20,6 +20,7 @@ export const SCENES = [
     lines: [
       { t: '가즈아는 관심 있는 종목을 한 화면에서 비교하고, 내 매매 규칙을 과거 데이터로 시험해 보는 앱이에요.' },
       { t: '휴대폰 브라우저로 열고 홈 화면에 추가하면 앱처럼 쓸 수 있어요.' },
+      { t: '비교 차트부터 시뮬레이션, 선정 기준 검증, 내 성과까지 차례로 둘러볼게요.' },
     ],
   },
   {
@@ -41,6 +42,7 @@ export const SCENES = [
         await h.expect(board(h).getByRole('listitem')).toHaveCount(4);
       } },
       { t: '그룹에 담은 종목들이 한 차트에 겹쳐 그려져요.', do: async (h) => { await h.wait(800); } },
+      { t: '선은 모두 같은 기준일 종가를 0으로 맞춰서, 어느 종목이 더 올랐는지 한눈에 보여요.' },
       { t: '기간은 일, 주, 월, 년으로 바꿀 수 있어요.', do: async (h) => {
         for (const name of ['주', '월', '년']) {
           const radio = h.page.getByRole('radio', { name, exact: true });
@@ -64,6 +66,7 @@ export const SCENES = [
         await h.tap(sort);
         await h.expect(sort).toHaveAttribute('aria-pressed', 'true');
       } },
+      { t: '이렇게 보면 고점에서 가장 덜 빠진 종목이 어디인지 바로 알 수 있어요.' },
     ],
   },
   {
@@ -87,6 +90,7 @@ export const SCENES = [
         await h.tap(sheet.getByRole('button', { name: '완료', exact: true }));
         await h.expect(sheet).toBeHidden();
       } },
+      { t: '한 그룹에는 열 종목까지 담을 수 있어요.' },
       { t: '그룹은 여러 개 만들 수 있어요.', do: async (h) => {
         const add = h.page.getByRole('button', { name: '새 그룹', exact: true });
         await h.scrollTo(add);
@@ -131,6 +135,7 @@ export const SCENES = [
         await h.tap(h.page.getByRole('button', { name: /하락 후 반등/ }));
         await h.expect(h.page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
       } },
+      { t: '이 틀은 고점에서 떨어졌다가 다시 오를 때 사고, 15% 오르면 팔고 5% 내리면 손절해요.' },
       { t: '언제 살지 매수 조건을 칸마다 정해요.', do: async (h) => { await expand(h, '매수 조건'); } },
       { t: '팔 때의 조건도 같은 방식으로 정해요.', do: async (h) => { await expand(h, '매도'); } },
       { t: '시뮬레이션 실행을 누르면 과거 일봉에 규칙을 그대로 적용해요.', do: async (h) => {
@@ -140,13 +145,19 @@ export const SCENES = [
         await h.expect(result(h).getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
       } },
       { t: '총수익률과 최대 낙폭, 승률을 그냥 보유했을 때와 나란히 보여 줘요.', do: async (h) => { await h.scrollTo(result(h)); } },
+      { t: '같은 종목을 사서 들고만 있었을 때, 그리고 코스피와 KODEX 200도 함께 비교해요.' },
       { t: '재생을 누르면 그날그날 사고판 기록을 다시 보여 줘요.', do: async (h) => {
         const bar = result(h).getByRole('group', { name: '재생' });
         await h.scrollTo(bar);
         await h.tap(bar.getByRole('button', { name: '재생', exact: true }));
         await h.expect(bar.getByRole('button', { name: '일시정지' })).toBeVisible();
       } },
-      { t: '아래에는 그날의 상황이 함께 나와요.', do: async (h) => {
+      { t: '배속을 높이면 몇 년 치 매매도 금방 훑어볼 수 있어요.', do: async (h) => {
+        const fast = result(h).getByRole('radiogroup', { name: '배속' }).getByRole('radio', { name: '16×', exact: true });
+        await h.tap(fast);
+        await h.expect(fast).toBeChecked();
+      } },
+      { t: '아래에는 그날의 자산과 현금, 들고 있는 종목이 함께 나와요.', do: async (h) => {
         await h.scrollTo(result(h).getByRole('region', { name: '그날 상황' }));
         await h.wait(1500);
         await h.tap(result(h).getByRole('button', { name: '일시정지' }));
@@ -176,6 +187,7 @@ export const SCENES = [
         await h.tap(marketCap);
         await h.expect(marketCap).toBeChecked();
       } },
+      { t: '시세뿐 아니라 환율, 유가, 수급, 재무 조건도 섞어 쓸 수 있어요.' },
       { t: '몇 개를 고를지, 얼마나 자주 다시 고를지도 정해요.', do: async (h) => {
         await expand(h, '고를 개수·정렬');
         const count = h.page.getByRole('textbox', { name: '고를 개수', exact: true });
@@ -202,6 +214,7 @@ export const SCENES = [
         await h.wait(800);
         await h.scrollTo(h.page.getByRole('region', { name: '시장별 보기', exact: true }));
       } },
+      { t: '결과가 마음에 들지 않으면 조건을 고쳐서 다시 돌려 보면 돼요.' },
     ],
   },
   {
@@ -216,6 +229,7 @@ export const SCENES = [
         await h.select(h.page.getByLabel('벤치마크'), '069500');
         await h.expect(h.page.getByRole('region', { name: '요약' }).getByText('KODEX 200 연수익률')).toBeVisible();
       } },
+      { t: '내 연수익률은 돈이 들어가고 나온 날짜까지 따지는 IRR로 계산해요.' },
       { t: '기간을 올해로 좁히고, 표로도 볼 수 있어요.', do: async (h) => {
         await h.select(h.page.getByLabel('기간'), '2026');
         const table = h.page.getByRole('button', { name: '표 보기', exact: true });
@@ -223,6 +237,7 @@ export const SCENES = [
         await h.tap(table);
         await h.scrollTo(h.page.getByRole('table', { name: '날짜별 평가금액과 회수액' }));
       } },
+      { t: '평가금액에 이미 팔아서 돌려받은 돈을 더해, 실제로 얼마나 벌었는지 보여 줘요.' },
       { t: '종목을 누르면 체결 내역이 펼쳐져요.', do: async (h) => {
         const row = h.page.getByRole('button', { name: /삼성전자/ });
         await h.scrollTo(row);
@@ -245,6 +260,9 @@ export const SCENES = [
         await h.scrollTo(key);
         await h.expect(key).toHaveValue('');
       } },
+      { t: '연결이 안 되면 진단 시작으로 어디에서 막혔는지 확인할 수 있어요.', do: async (h) => {
+        await h.scrollTo(h.page.getByRole('button', { name: '진단 시작', exact: true }));
+      } },
       { t: '키는 암호로 잠가 둘 수도 있어요.', do: async (h) => { await h.scrollTo(h.page.getByRole('switch', { name: '키를 암호로 잠그기', exact: true })); } },
       { t: '표시에서는 밝기와 색 테마를 고를 수 있어요.', do: async (h) => {
         await h.scrollTo(h.page.getByRole('heading', { name: '표시', exact: true }));
@@ -262,6 +280,7 @@ export const SCENES = [
     id: 'outro', title: '마무리', note: 'gazua.sch0718.dev',
     lines: [
       { t: '가즈아는 무료로 열어 두었어요.', do: async (h) => { await h.tap(h.page.getByRole('button', { name: '비교로 돌아가기' })); } },
+      { t: '관심 종목을 비교하고, 내 규칙을 미리 시험해 보는 데 써 보세요.' },
       { t: '주소는 gazua.sch0718.dev예요.', say: '주소는 가즈아 점 에스씨에이치 공칠일팔 점 데브예요.' },
       { t: '설명란에도 주소를 적어 둘게요.' },
       { t: '화면의 시세는 모두 가상 데이터이고, 투자 조언이 아니에요.' },
