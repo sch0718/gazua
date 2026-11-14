@@ -26,7 +26,7 @@ PR #112의 메뉴별 녹화(`pnpm demo:video`)는 소리 없는 10~20초 조각 
 
 ### 화면 구성: 폰 화면을 가운데
 
-앱은 휴대폰 우선 PWA라 넓은 화면(1920 폭)으로 열면 빈 공간이 많고 실제 쓰는 모습과 다르다. 그래서 폰 화면(뷰포트 390×844, deviceScaleFactor 2로 캡처해 선명하게)을 1920×1080 가운데에 세로 약 920px로 놓는다.
+앱은 휴대폰 우선 PWA라 넓은 화면(1920 폭)으로 열면 빈 공간이 많고 실제 쓰는 모습과 다르다. 그래서 폰 화면(뷰포트 390×844, deviceScaleFactor 2에 브라우저 실행 인자 `--force-device-scale-factor=2`를 더해 780×1688로 캡처해 선명하게. CDP screencast는 인자 없이는 CSS 픽셀 크기(390×844)로 보낸다)을 1920×1080 가운데에 세로 약 920px로 놓는다.
 - 왼쪽 빈 곳: 지금 장(章) 이름과 한 줄 설명, 9개 장 진행 표시(지금 장 강조, 첫 화면·마무리도 한 칸).
 - 아래: 자막 띠(폰 아래쪽 바깥, 한 줄 38px 안팎).
 - 배경: 어두운 단색 그라데이션. 폰 테두리(둥근 모서리 베젤)는 겹침 PNG에 그린다.
@@ -108,7 +108,7 @@ export const SCENES = [
 
 `package.json`: `"demo:narrated": "pnpm build && node scripts/demo-narrated/make.mjs"`. 포트는 `DEMO_NARRATED_PORT`(기본 4194, 4182와 겹치지 않게).
 
-단계별 출력(`work/` 아래): `voice/*.wav`+`voice.json`(문장별 파일·길이), `frames/*.jpg`+`frames.json`(녹화 시작 기준 프레임 시각과 녹화 종료 시각), `marks.json`(문장별 실제 시작 시각, 녹화 시작 기준 초), `ov/NNN.png`, `screen.mp4`, `audio.wav`, `timeline.json`. 마지막에 `finish.sh`로 `final.mp4`·`final-phone.mp4`, 그리고 `subtitles.srt`·`title.txt`·`desc.txt`.
+단계별 출력(`work/` 아래): `voice/*.wav`+`voice.json`(문장별 파일·길이), `frames/*.jpg`+`frames.json`(녹화 시작 기준 프레임 시각과 녹화 종료 시각), `marks.json`(문장별 실제 시작 시각, 녹화 시작 기준 초), `ov/NNN.png`, `video.mp4`, `audio.wav`, `timeline.json`. 마지막에 `finish.sh`로 `final.mp4`·`final-phone.mp4`, 그리고 `subtitles.srt`·`title.txt`·`desc.txt`.
 
 시작할 때 `tts.mjs`·`finish.sh`(기본 `~/.claude/skills/narrated-video/scripts/`, `NARRATED_VIDEO_SCRIPTS`로 바꿈)와 `uvx`·`ffmpeg`·`ffprobe`가 있는지 보고, 없으면 무엇이 없는지 말하고 끝낸다. 대본을 고치면 전부(`voice`부터) 다시 돌린다.
 

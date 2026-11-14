@@ -81,7 +81,8 @@ async function record() {
   let preview, browser, capture;
   try {
     preview = await startPreview({ port: envPort('DEMO_NARRATED_PORT', 4194) });
-    browser = await chromium.launch({ headless: true });
+    // CDP screencast는 CSS 픽셀 크기로 프레임을 보내요. 2배 프레임(780×1688)을 받으려면 브라우저 배율도 2로 고정해요.
+    browser = await chromium.launch({ headless: true, args: ['--force-device-scale-factor=2'] });
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
       locale: 'ko-KR', timezoneId: 'Asia/Seoul', serviceWorkers: 'block',
@@ -98,6 +99,8 @@ async function record() {
 
     const dir = join(WORK, 'frames');
     rmSync(dir, { recursive: true, force: true });
+    // 녹화가 중간에 실패하면 옛 시간표가 새 프레임을 가리키지 않게 함께 지워요.
+    for (const file of ['frames.json', 'marks.json']) rmSync(join(WORK, file), { force: true });
     mkdirSync(dir, { recursive: true });
     capture = await startScreencast(page, dir);
     const t0 = Date.now() / 1000;
@@ -180,6 +183,9 @@ async function render() {
   const { end } = recording;
   const marks = readJSON('marks.json');
   const voices = readJSON('voice.json');
+  if (marks.length !== voices.length || marks.some((m, i) => m.t !== voices[i].t || m.dur !== voices[i].dur)) {
+    throw new Error('녹화와 음성이 맞지 않아요. record 단계부터 다시 실행해 주세요.');
+  }
   if (!Number.isFinite(end) || end <= 0 || !marks.length) throw new Error('녹화 시간표가 비어 있어요. record 단계를 다시 실행해 주세요.');
   const dir = join(WORK, 'ov');
   mkdirSync(dir, { recursive: true });
@@ -195,7 +201,7 @@ async function render() {
         chapters: SCENES.map((s) => s.title), sub: m.t,
       });
       const height = await page.locator('#sub').evaluate((el) => el.getBoundingClientRect().height);
-      if (height > 110) console.warn(`자막 상자가 ${height.toFixed(0)}px예요. 두 줄 안에 들어가는지 확인해 주세요: ${m.t}`);
+      if (height > 140) console.warn(`자막 상자가 ${height.toFixed(0)}px예요. 두 줄 안에 들어가는지 확인해 주세요: ${m.t}`);
       await page.screenshot({ path: join(dir, `${pad(i)}.png`), omitBackground: true });
     }
   } finally { await browser.close(); }
@@ -232,7 +238,7 @@ function finish() {
     '앱 주소: https://gazua.sch0718.dev/',
     '화면의 시세와 계좌는 모두 데모용 가상 데이터예요.',
     '투자 조언이 아니에요. 투자 판단과 책임은 본인에게 있어요.',
-    '내레이션: Microsoft Edge TTS (ko-KR-SunHiNeural)',
+    `내레이션: Microsoft Edge TTS (${VOICE.id})`,
     '소스: https://github.com/sch0718/gazua', '',
   ].join('\n'));
   const final = join(OUT, 'final.mp4');

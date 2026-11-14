@@ -129,12 +129,17 @@ export function makeHuman(page, { expect, fixture }) {
       await h.tap(locator);
       await (await chooser).setFiles(path);
     },
+    // 누르지 않고 손가락만 가져가요(설명하는 동안 화면이 멈춰 보이지 않게).
+    async point(locator) {
+      await point(locator, { press: false });
+      await sleep(250);
+    },
     async nav(name) {
       await h.tap(page.getByRole('navigation').getByRole('button', { name, exact: true }));
     },
   };
 
-  async function point(locator) {
+  async function point(locator, { press = true } = {}) {
     await locator.waitFor({ state: 'visible' });
     let box = await locator.boundingBox();
     if (!box) throw new Error('누를 요소의 위치를 찾지 못했어요.');
@@ -149,6 +154,7 @@ export function makeHuman(page, { expect, fixture }) {
     const ms = Math.min(900, Math.max(350, Math.hypot(toX - x, toY - y) * 1.2));
     await page.evaluate(({ toX, toY, ms }) => window.__finger.move(toX, toY, ms), { toX, toY, ms });
     x = toX; y = toY;
+    if (!press) return;
     await sleep(120);
     await page.evaluate(() => window.__finger.press());
   }

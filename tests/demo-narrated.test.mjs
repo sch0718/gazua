@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SCENES, VOICE } from '../scripts/demo-narrated/scenes.mjs';
+import { SCENES } from '../scripts/demo-narrated/scenes.mjs';
 
 const IDS = ['intro', 'demo', 'compare', 'groups', 'simulate', 'criteria', 'performance', 'settings', 'outro'];
 const lines = SCENES.flatMap((s) => s.lines);
@@ -25,5 +25,4 @@ test('분량은 1,200~1,900자이고 마무리에 주소와 안내가 있어요'
   const outro = SCENES.at(-1).lines.map((l) => l.t).join(' ');
   assert.match(outro, /투자 조언이 아니에요/);
   assert.match(outro, /gazua\.sch0718\.dev/);
-  assert.equal(VOICE.provider, 'edge');
 });

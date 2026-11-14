@@ -19,14 +19,18 @@ export const SCENES = [
     id: 'intro', title: '가즈아', note: '관심종목 비교 · 매매 규칙 시뮬레이션',
     lines: [
       { t: '가즈아는 관심 있는 종목을 한 화면에서 비교하고, 내 매매 규칙을 과거 데이터로 시험해 보는 앱이에요.' },
-      { t: '휴대폰 브라우저로 열고 홈 화면에 추가하면 앱처럼 쓸 수 있어요.' },
-      { t: '비교 차트부터 시뮬레이션, 선정 기준 검증, 내 성과까지 차례로 둘러볼게요.' },
+      { t: '휴대폰 브라우저로 열고 홈 화면에 추가하면 앱처럼 쓸 수 있어요.', do: async (h) => {
+        await h.point(h.page.getByRole('heading', { level: 1, name: '가즈아' }));
+      } },
+      { t: '비교 차트부터 시뮬레이션, 선정 기준 검증, 내 성과까지 차례로 둘러볼게요.', do: async (h) => {
+        await h.point(h.page.getByRole('button', { name: '내 API로 시작' }));
+      } },
     ],
   },
   {
     id: 'demo', title: '데모로 둘러보기', note: '가상 시세로 모든 화면을 써 봐요',
     lines: [
-      { t: '증권사 키가 없어도 괜찮아요.' },
+      { t: '증권사 키가 없어도 괜찮아요.', do: async (h) => { await h.point(h.page.getByRole('button', { name: '데모로 둘러보기' })); } },
       { t: '첫 화면에서 데모로 둘러보기를 누르면, 가상 시세로 모든 화면을 써 볼 수 있어요.', do: async (h) => {
         await h.tap(h.page.getByRole('button', { name: '데모로 둘러보기' }));
         await h.expect(h.page.getByText('비교할 종목을 추가해 보세요')).toBeVisible();
@@ -62,9 +66,13 @@ export const SCENES = [
       } },
       { t: '아래 순위표도 그 기준으로 다시 줄을 서요.', do: async (h) => {
         await h.scrollTo(board(h));
-        const sort = board(h).getByRole('button', { name: '값 순', exact: true });
-        await h.tap(sort);
-        await h.expect(sort).toHaveAttribute('aria-pressed', 'true');
+        // 값 순이 기본이라, 내 순서로 바꿨다가 값 순으로 되돌려 줄이 다시 서는 모습을 보여요.
+        for (const name of ['내 순서', '값 순']) {
+          const sort = board(h).getByRole('button', { name, exact: true });
+          await h.tap(sort);
+          await h.expect(sort).toHaveAttribute('aria-pressed', 'true');
+          await h.wait(500);
+        }
       } },
       { t: '이렇게 보면 고점에서 가장 덜 빠진 종목이 어디인지 바로 알 수 있어요.' },
     ],
@@ -106,6 +114,7 @@ export const SCENES = [
         await h.type(name, '내 반도체');
         await name.press('Enter');
         await h.expect(sheet.getByRole('button', { name: '내 반도체 이름 바꾸기', exact: true })).toBeVisible();
+        await h.tap(sheet.getByRole('button', { name: '내 반도체 위로', exact: true }));
       } },
       { t: '조건으로 종목을 골라 새 그룹을 만드는 것도 여기서 해요.', do: async (h) => {
         const sheet = h.page.getByRole('dialog', { name: '그룹 관리' });
@@ -114,7 +123,8 @@ export const SCENES = [
         // GroupSheet가 쓰는 공용 Sheet의 기본 닫기 이름이에요.
         await h.tap(sheet.getByRole('button', { name: '닫기', exact: true }));
         await h.expect(sheet).toBeHidden();
-        const group = h.page.getByRole('tablist', { name: '관심 그룹' }).getByRole('tab').first();
+        // 순서를 바꿔 빈 「내 반도체」가 앞에 오므로, 종목이 든 예시 그룹을 이름으로 골라요.
+        const group = h.page.getByRole('tablist', { name: '관심 그룹' }).getByRole('tab', { name: '내 관심', exact: true });
         await h.tap(group);
         await h.expect(group).toHaveAttribute('aria-selected', 'true');
       } },
@@ -144,7 +154,7 @@ export const SCENES = [
         await h.tap(run);
         await h.expect(result(h).getByText('총수익률', { exact: true })).toBeVisible({ timeout: 30_000 });
       } },
-      { t: '총수익률과 최대 낙폭, 승률을 그냥 보유했을 때와 나란히 보여 줘요.', do: async (h) => { await h.scrollTo(result(h)); } },
+      { t: '총수익률과 최대 낙폭, 승률을 보여 주고, 총수익률은 그냥 보유했을 때와 견줘 줘요.', do: async (h) => { await h.scrollTo(result(h)); } },
       { t: '같은 종목을 사서 들고만 있었을 때, 그리고 코스피와 KODEX 200도 함께 비교해요.' },
       { t: '재생을 누르면 그날그날 사고판 기록을 다시 보여 줘요.', do: async (h) => {
         const bar = result(h).getByRole('group', { name: '재생' });
