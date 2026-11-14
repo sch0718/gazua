@@ -9,6 +9,8 @@ export const FIXED_NOW = '2026-10-08T17:42:00+09:00';
 export const PHONE = { width: 375, height: 812, isMobile: true, hasTouch: true };
 const HELP_SEEN = ['compare', 'add', 'groups', 'simulate', 'criteria', 'performance', 'settings'];
 
+export const pause = (ms = 1000) => sleep(ms);
+
 export function envPort(name, fallback) {
   const port = Number(process.env[name] ?? fallback);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${name}: 포트는 1~65535 정수여야 해요.`);
@@ -104,6 +106,11 @@ export async function loadExampleGroup(page) {
 export async function openSimulation(page) {
   await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
   await expect(page.getByText('내 매매 규칙을 과거 데이터로 시험해 보세요')).toBeVisible();
+}
+
+export async function openSettings(page) {
+  await page.getByRole('navigation').getByRole('button', { name: '설정', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '데이터 공급자' })).toBeVisible();
 }
 
 export async function openTemplates(page) {
