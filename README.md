@@ -43,16 +43,17 @@
 
 움직이는 그림으로 실제 화면 흐름을 단계별로 보여 줘요. 모아 보기는 [도움말 모음](docs/help/README.md)에 있어요.
 앱에서는 앱 바의 물음표 단추나 설정 › `도움말 보기`로 볼 수 있고, 메뉴에 처음 들어가면 안내가 한 번 떠요.
+사용 영상은 데모 모드(가상 시세)에서 실제로 누르는 모습을 녹화한 거예요(유튜브 일부 공개, 소리 없음).
 
-| 메뉴                                            | 무엇을 하나요                                                   |
-| ----------------------------------------------- | --------------------------------------------------------------- |
-| [비교 차트](docs/help/compare.md)               | 그룹 고르기, 기간·지표 바꾸기, 거래소 전환, 순위 보기           |
-| [종목 추가](docs/help/add.md)                   | 이름·코드·초성 검색, ＋로 담기, ✓로 빼기                        |
-| [그룹 관리](docs/help/groups.md)                | 새 그룹, 이름·순서, 토스에서 가져오기, 조건으로 골라 새 그룹    |
-| [매매 규칙 시뮬레이션](docs/help/simulate.md)   | 매수·매도 규칙, 실행 결과, 자산 곡선, 거래 내역                 |
-| [선정 기준 검증](docs/help/criteria.md)         | 시장 데이터 가져오기, 조건 켜기, 재선정, 지수·ETF와 결과 비교   |
-| [내 성과](docs/help/performance.md)             | 벤치마크, IRR·초과수익, 평가금액 곡선, 종목별 기여도·수량 대조  |
-| [설정과 연결](docs/help/settings.md)            | 공급자 고르기, 프록시·키, 연결 진단, 키 잠그기, 표시·색 테마·데이터 |
+| 메뉴 | 무엇을 하나요 | 사용 영상 |
+| --- | --- | --- |
+| [비교 차트](docs/help/compare.md) | 그룹 고르기, 기간·지표 바꾸기, 거래소 전환, 순위 보기 | [![비교 차트 사용 영상](https://img.youtube.com/vi/efv4tbBj93E/hqdefault.jpg)](https://youtu.be/efv4tbBj93E) |
+| [종목 추가](docs/help/add.md) | 이름·코드·초성 검색, ＋로 담기, ✓로 빼기 | [![종목 추가 사용 영상](https://img.youtube.com/vi/FrIiHOc1vKM/hqdefault.jpg)](https://youtu.be/FrIiHOc1vKM) |
+| [그룹 관리](docs/help/groups.md) | 새 그룹, 이름·순서, 토스에서 가져오기, 조건으로 골라 새 그룹 | [![그룹 관리 사용 영상](https://img.youtube.com/vi/zhXdO6kLLYo/hqdefault.jpg)](https://youtu.be/zhXdO6kLLYo) |
+| [매매 규칙 시뮬레이션](docs/help/simulate.md) | 매수·매도 규칙, 실행 결과, 자산 곡선, 거래 내역 | [![매매 규칙 시뮬레이션 사용 영상](https://img.youtube.com/vi/dPbI9BEvGnI/hqdefault.jpg)](https://youtu.be/dPbI9BEvGnI) |
+| [선정 기준 검증](docs/help/criteria.md) | 시장 데이터 가져오기, 조건 켜기, 재선정, 지수·ETF와 결과 비교 | 준비 중 |
+| [내 성과](docs/help/performance.md) | 벤치마크, IRR·초과수익, 평가금액 곡선, 종목별 기여도·수량 대조 | 준비 중 |
+| [설정과 연결](docs/help/settings.md) | 공급자 고르기, 프록시·키, 연결 진단, 키 잠그기, 표시·색 테마·데이터 | 준비 중 |
 
 ## 내 데이터는 어디에 있나요?
 

@@ -107,6 +107,7 @@ corepack pnpm test:demo    # 초기 PoC(poc/) 회귀 테스트
 corepack pnpm build        # dist/ 생성 (prebuild가 종목 유니버스를 내려받아요)
 corepack pnpm universe     # 종목 유니버스(public/universe.json)만 다시 받기
 corepack pnpm build:motion # 소개 그림·도움말 그림·글·앱 도움말 문구 다시 만들기
+DEMO_VIDEO_PORT=4193 corepack pnpm demo:video [compare add …] # 메뉴별 사용 영상 녹화(test-results/demo-video/<id>.mp4, id 없으면 7편 모두)
 corepack pnpm --filter proxy test
 ```
 
