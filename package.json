@@ -20,6 +20,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && svelte-check --tsconfig ./tsconfig.json",
     "check:e2e": "tsc -p tsconfig.e2e.json",
     "demo:video": "pnpm build && node scripts/demo-video.mjs",
+    "demo:narrated": "pnpm build && node scripts/demo-narrated/make.mjs",
     "test": "TZ=America/New_York vitest run",
     "test:watch": "TZ=America/New_York vitest",
     "test:demo": "node --test tests/demo.test.mjs",

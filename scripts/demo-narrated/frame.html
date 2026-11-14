@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="../../node_modules/pretendard/dist/web/variable/pretendardvariable.css">
+  <title>가즈아 데모 영상 겹침이에요</title>
+  <style>
+    html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden; }
+    body { color: white; font-family: 'Pretendard Variable', sans-serif; }
+    svg { position: absolute; inset: 0; }
+    .left { position: absolute; left: 96px; top: 90px; width: 564px; }
+    #index { font-size: 26px; opacity: .6; }
+    #title { margin: 24px 0 18px; font-size: 64px; font-weight: 800; line-height: 1.18; word-break: keep-all; }
+    #note { margin: 0; font-size: 30px; line-height: 1.4; color: #c8d0e0; white-space: nowrap; }
+    #chapters { margin: 48px 0 0; padding: 0; list-style: none; }
+    #chapters li { position: relative; padding: 8px 0 8px 22px; font-size: 26px; line-height: 1.25; opacity: .45; }
+    #chapters .current { font-weight: 800; opacity: 1; }
+    #chapters .current::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 5px; border-radius: 3px; background: #8fb0ff; }
+    .brand { position: absolute; left: 1260px; top: 72px; width: 580px; }
+    .brand b { display: block; margin-bottom: 10px; font-size: 34px; font-weight: 800; }
+    .brand span { font-size: 24px; opacity: .7; }
+    #sub { position: absolute; left: 50%; transform: translateX(-50%); top: 948px; width: max-content; max-width: 1760px; box-sizing: border-box; padding: 12px 28px; background: rgba(8,12,18,.78); border-radius: 12px; font-size: 38px; font-weight: 600; line-height: 1.35; text-align: center; word-break: keep-all; text-wrap: balance; }
+    #sub:empty { display: none; }
+  </style>
+</head>
+<body>
+  <svg width="1920" height="1080" viewBox="0 0 1920 1080" aria-hidden="true">
+    <defs>
+      <linearGradient id="background" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#10141c"/>
+        <stop offset="1" stop-color="#1b2230"/>
+      </linearGradient>
+    </defs>
+    <path fill="url(#background)" fill-rule="evenodd" d="M0 0H1920V1080H0Z M792 30H1128A40 40 0 0 1 1168 70V890A40 40 0 0 1 1128 930H792A40 40 0 0 1 752 890V70A40 40 0 0 1 792 30Z"/>
+    <rect x="746" y="24" width="428" height="912" rx="46" fill="none" stroke="#05070a" stroke-width="12"/>
+    <rect x="739.5" y="17.5" width="441" height="925" rx="52.5" fill="none" stroke="#3a4252" stroke-width="1"/>
+  </svg>
+  <div class="left">
+    <div id="index"></div>
+    <h1 id="title"></h1>
+    <p id="note"></p>
+    <ol id="chapters"></ol>
+  </div>
+  <div class="brand"><b>가즈아</b><span>gazua.sch0718.dev</span></div>
+  <div id="sub"></div>
+  <script>
+    window.draw = async ({ index, total, title, note, chapters, sub }) => {
+      document.getElementById('index').textContent = `${index} / ${total}`;
+      document.getElementById('title').textContent = title;
+      document.getElementById('note').textContent = note;
+      document.getElementById('sub').textContent = sub ?? '';
+      document.getElementById('chapters').replaceChildren(...chapters.map((title, i) => {
+        const item = document.createElement('li');
+        item.textContent = title;
+        if (i + 1 === index) item.className = 'current';
+        return item;
+      }));
+      await document.fonts.ready;
+    };
+  </script>
+</body>
+</html>
