@@ -31,6 +31,8 @@ export interface AutoResult {
   buys: AutoOrder[]; sells: AutoOrder[]; skippedSymbols: { symbol: string; reason: string }[]; notes: string[];
 }
 
+/** 오류 알림 뒤 회복 알림을 기다리는 표시(원장 notified에 날짜와 함께 둔다) */
+const RECOVER = 'recover';
 const RETRY = new Set(['order-rate-limited', 'order-busy', 'order-token-failed']);
 const REJECTED = new Set(['order-over-limit', 'order-daily-limit', 'order-total-limit', 'order-stopped', 'order-disabled', 'order-invalid', 'order-upstream']);
 const inHours = (now: number) => {
@@ -52,12 +54,13 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
   };
   const once = async (key: string, title: string, body: string) => {
     const stamp = `${today}:${key}`;
-    if (ledger?.notified.includes(stamp)) return;
+    if (ledger?.notified.includes(stamp)) return false;
     if (ledger) {
       ledger.notified.push(stamp);
       try { save(); } catch { /* 기록을 못 써도 오류 알림은 시도한다. */ }
     }
     await notify(title, body);
+    return true;
   };
   try {
     const cfg = readAutoConfig(ctx.env);
@@ -239,6 +242,13 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       out.buys.push(await send('BUY', p, decision.qty, decision.price, decision.reason, current));
     }
     save();
+    // 오류를 알린 뒤 처음 끝까지 돈 실행이면 정상으로 돌아왔다고 한 번 알린다.
+    const recover = `${today}:${RECOVER}`;
+    if (ledger.notified.includes(recover)) {
+      ledger.notified = ledger.notified.filter((key) => key !== recover);
+      save();
+      try { await notify('자동 실행 정상', '다시 문제없이 돌고 있어요'); } catch { /* 회복 알림 실패는 판정 결과를 바꾸지 않는다. */ }
+    }
     return out;
   } catch (e) {
     const err = toCliError(e);
@@ -246,7 +256,12 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       path = ledgerPath(ctx.dir, mode);
       try { ledger = readLedger(path, today); } catch { /* 손상 원장은 덮어쓰지 않는다. */ }
     }
-    try { await once(err.code, '자동 실행 오류', `자동 실행을 멈췄어요(${err.code}). 설정과 토스 앱을 확인해 주세요`); } catch { /* 알림 실패가 원래 오류를 가리지 않게 한다. */ }
+    try {
+      if (await once(err.code, '자동 실행 오류', `자동 실행을 멈췄어요(${err.code}). 설정과 토스 앱을 확인해 주세요`) && ledger && !ledger.notified.includes(`${today}:${RECOVER}`)) {
+        ledger.notified.push(`${today}:${RECOVER}`);
+        save();
+      }
+    } catch { /* 알림 실패가 원래 오류를 가리지 않게 한다. */ }
     throw e;
   }
 }
