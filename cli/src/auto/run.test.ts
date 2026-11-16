@@ -1,18 +1,20 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { afterEach, expect, it } from 'vitest';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { afterEach, expect, it, vi } from 'vitest';
 import { fullStrategyV2 } from '../../../src/lib/sim/testStrategyV2';
-import { kstEpoch } from '../../../src/lib/time/kst';
+import { TEMPLATES } from '../../../src/lib/sim/templates';
+import { addDays, kstDate, kstEpoch } from '../../../src/lib/time/kst';
 import { parseArgv } from '../args';
 import type { Ctx } from '../context';
 import { CliError } from '../errors';
 import { createRedactor } from '../output';
 import { cleanupDirs, fakeFetch, makeIo } from '../testing';
+import * as signals from '../signals';
 import { ledgerPath, readLedger, writeLedger, type AutoPosition } from './ledger';
 import { runAuto } from './run';
 
-afterEach(cleanupDirs);
+afterEach(() => { vi.restoreAllMocks(); cleanupDirs(); });
 const today = '2026-11-13';
-function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; total?: number | null; used?: number } = {}) {
+function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; failSymbol?: string; statusError?: boolean; total?: number | null; used?: number } = {}) {
   const strategy = fullStrategyV2();
   strategy.rules.buy = [{ conds: [{ kind: 'maPrice', period: 2, side: 'above' }] }];
   strategy.rules.sell.signal.on = false;
@@ -25,6 +27,8 @@ function fixture(o: { live?: boolean; price?: number; held?: number; error?: str
   let onProfile: (() => void) | undefined;
   let atSend: (() => void) | undefined;
   const f = fakeFetch((c) => {
+    if (c.url.pathname.includes('/index/KOSPI') && o.statusError) return { status: 500 };
+    if (o.failSymbol && c.url.pathname.includes(`/item/${o.failSymbol}/`)) return { status: 500 };
     if (c.url.pathname.includes('/index/KOSPI')) return { body: { datas: [{ marketStatus: o.closed ? 'CLOSE' : 'OPEN' }] } };
     if (c.url.pathname.includes('/chart/domestic/item/')) return { body: [
       { localDate: '20261111', openPrice: 800, closePrice: 800 },
@@ -249,4 +253,128 @@ it('오류를 알린 뒤 처음 정상으로 끝난 실행에서 한 번만 정�
   expect(titles.filter((x) => x === '[연습] 자동 실행 정상')).toHaveLength(1);
   expect(titles.at(-1)).not.toBe('[연습] 자동 실행 오류');
   expect(t.ledger().notified).not.toContain(`${today}:recover`);
+});
+
+
+it('프리셋 원장 5개는 독립적이고 주 전략 원장·알림은 꺼짐과 같다', async () => {
+  const off = fixture(), on = fixture();
+  on.ctx.env.AUTO_DRY_PRESETS = 'all';
+  await off.run();
+  const result = await on.run();
+  expect(result.presets).toHaveLength(5);
+  expect(on.ledger()).toEqual(off.ledger());
+  expect(alerts(on)).toHaveLength(alerts(off).length);
+  for (const t of TEMPLATES) {
+    const path = ledgerPath(on.dir, 'dry', t.id);
+    expect(readLedger(path, today)).toMatchObject({ strategyId: `preset-${t.id}`, today: { judgedDate: today } });
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  }
+  expect(on.f.calls.filter((c) => c.url.pathname.includes('/item/') && c.url.pathname.endsWith('/day'))).toHaveLength(1);
+});
+it('프리셋 거래는 원장에만 기록하고 알리지 않는다', async () => {
+  const t = fixture();
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  const path = ledgerPath(t.dir, 'dry', 'rebound');
+  t.seed();
+  const ledger = t.ledger();
+  ledger.strategyId = 'preset-rebound';
+  ledger.positions[0].buyPrice = 500;
+  writeLedger(path, ledger);
+  const result = await t.run();
+  expect(result.presets.find((p) => p.id === 'preset-rebound')?.sells).toHaveLength(1);
+  expect(readLedger(path, today).today.trades).toMatchObject([{ side: 'SELL', symbol: '005930', name: '시험 종목' }]);
+  expect(alerts(t)).toHaveLength(0);
+});
+it('손상된 프리셋만 건너뛰고 실전에서는 프리셋 원장을 만들지 않는다', async () => {
+  const t = fixture();
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  const path = ledgerPath(t.dir, 'dry', 'rebound');
+  writeFileSync(path, '{');
+  const result = await t.run();
+  expect(result.buys).toHaveLength(1);
+  expect(result.presets[0]).toMatchObject({ error: 'invalid-args' });
+  expect(result.presets.slice(1).every((p) => !p.error)).toBe(true);
+  expect(readFileSync(path, 'utf8')).toBe('{');
+  const live = fixture({ live: true });
+  live.ctx.env.AUTO_DRY_PRESETS = 'all';
+  expect((await live.run()).presets).toEqual([]);
+  expect(live.ledger().today.judgedDate).toBeUndefined();
+  expect(live.ledger().today.trades).toBeUndefined();
+  for (const t of TEMPLATES) expect(existsSync(ledgerPath(live.dir, 'dry', t.id))).toBe(false);
+});
+it.each([false, true])('프리셋 전용 조회 실패는 격리하고 기존 회복 알림을 유지한다: %s', async (recover) => {
+  const t = fixture({ failSymbol: '000660' });
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  t.seed();
+  const main = t.ledger();
+  if (recover) main.notified.push(`${today}:recover`, `${today}:network`);
+  writeLedger(t.path, main);
+  const paths = ['rebound', 'ma200'].map((id) => ledgerPath(t.dir, 'dry', id));
+  const originals = paths.map((path, i) => {
+    const ledger = structuredClone(main);
+    ledger.strategyId = `preset-${['rebound', 'ma200'][i]}`;
+    ledger.positions[0].symbol = '000660';
+    writeLedger(path, ledger);
+    return readFileSync(path, 'utf8');
+  });
+  const result = await t.run();
+  expect(result.presets.slice(0, 2).every((p) => p.error === 'internal')).toBe(true);
+  expect(result.presets.slice(2).every((p) => !p.error)).toBe(true);
+  expect(paths.map((path) => readFileSync(path, 'utf8'))).toEqual(originals);
+  expect(t.f.calls.filter((c) => c.url.pathname.includes('/item/000660/'))).toHaveLength(1);
+  expect(alerts(t)).toHaveLength(recover ? 1 : 0);
+  if (recover) expect(alerts(t)[0].body).toMatchObject({ title: '[연습] 자동 실행 정상' });
+  expect(t.ledger().notified).toEqual(recover ? [`${today}:network`] : []);
+});
+it('주 전략에도 필요한 일봉 조회 실패는 전체 오류이며 판정 표식을 새로 만들지 않는다', async () => {
+  const t = fixture({ failSymbol: '005930' });
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  await expect(t.run()).rejects.toThrow();
+  expect(t.ledger().today.judgedDate).toBeUndefined();
+  expect(alerts(t)).toHaveLength(1);
+});
+it('거래 없는 판정도 표시하되 준비 오류는 표시하지 않고 기존 당일 표식은 보존한다', async () => {
+  const t = fixture({ time: '15:15:00' });
+  await t.run();
+  expect(t.ledger().today).toMatchObject({ judgedDate: today, bought: [], sold: [] });
+  t.afterProfile(() => { throw new CliError('network'); });
+  await expect(t.run()).rejects.toThrow();
+  expect(t.ledger().today.judgedDate).toBe(today);
+  for (const broken of [fixture({ statusError: true }), fixture()]) {
+    broken.afterProfile(() => { throw new CliError('network'); });
+    await expect(broken.run()).rejects.toThrow();
+    expect(broken.ledger().today.judgedDate).toBeUndefined();
+  }
+  const config = fixture();
+  config.ctx.env.AUTO_MODE = '오타';
+  await expect(config.run()).rejects.toThrow();
+  expect(config.ledger().today.judgedDate).toBeUndefined();
+});
+
+it('공유 조회의 긴 이력은 전략·종목별로 잘라 판정하고 프리셋 매수는 알리지 않는다', async () => {
+  const t = fixture();
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  t.seed();
+  const old = t.ledger();
+  old.strategyId = 'preset-rebound';
+  old.positions[0].symbol = '000660';
+  old.positions[0].boughtAt = '2020-01-01';
+  writeLedger(ledgerPath(t.dir, 'dry', 'rebound'), old);
+  const days = [{ localDate: '20200101', openPrice: 700, closePrice: 700 },
+    ...Array.from({ length: 220 }, (_, i) => ({ localDate: addDays(today, i - 219).replaceAll('-', ''), openPrice: 800 + i, closePrice: 800 + i }))];
+  const originalFetch = t.ctx.fetch;
+  const quotes = fakeFetch((c) => ({ body: days.filter((b) => b.localDate >= c.url.searchParams.get('startDateTime')!.slice(0, 8)) }));
+  t.ctx.fetch = (input, init) => String(input).includes('/chart/domestic/item/') ? quotes(input, init) : originalFetch(input, init);
+  const evaluate = vi.spyOn(signals, 'evaluateAt');
+  const result = await t.run();
+  const mainInput = evaluate.mock.calls.find(([, groups]) => groups === t.strategy.rules.buy)![0];
+  expect(kstDate(mainInput[0].t)).toBe(addDays(today, -219));
+  expect(mainInput).toHaveLength(220);
+  // 주 전략 매수 다음은 반등 프리셋의 관심 종목 판정이다. 다른 종목의 오래된 보유를 섞지 않는다.
+  expect(evaluate.mock.calls[1][0]).toHaveLength(220);
+  expect(quotes.calls).toHaveLength(2);
+  expect(quotes.calls.every((c) => c.url.searchParams.get('startDateTime') === '202001010000')).toBe(true);
+  expect(result.presets.find((p) => p.id === 'preset-ma200')?.buys).toHaveLength(1);
+  expect(readLedger(ledgerPath(t.dir, 'dry', 'ma200'), today).today.trades).toMatchObject([{ side: 'BUY', symbol: '005930', name: '시험 종목' }]);
+  expect(alerts(t)).toHaveLength(0);
 });

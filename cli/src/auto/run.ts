@@ -1,4 +1,5 @@
 import type { AccountHolding } from '../../../src/lib/providers/types';
+import { fromTemplate, TEMPLATES } from '../../../src/lib/sim/templates';
 import { resolveSymbols } from '../../../src/lib/sim/validate';
 import { kstDate, kstMinuteOfDay, kstWeekday } from '../../../src/lib/time/kst';
 import { readAlertConfig } from '../alert/config';
@@ -14,6 +15,7 @@ import { evaluateAt, warmFrom } from '../signals';
 import { readAutoConfig, type AutoConfig } from './config';
 import { decideBuy, decideSell, toCandles } from './judge';
 import { ledgerPath, readLedger, writeLedger, type AutoLedger, type AutoPosition } from './ledger';
+import { judgeDry, type PresetResult } from './preset';
 import { tickDown } from './tick';
 
 interface AutoDeps {
@@ -22,13 +24,13 @@ interface AutoDeps {
   sendOrder?: typeof sendOrder;
   notify?: typeof sendNtfy;
 }
-interface AutoOrder {
+export interface AutoOrder {
   symbol: string; quantity: number; price: number; reason: string;
   result: 'dry' | 'sent' | 'rejected' | 'unknown'; code?: string;
 }
 export interface AutoResult {
   mode: 'dry' | 'live'; strategy: string; skipped: 'hours' | 'closed' | null;
-  buys: AutoOrder[]; sells: AutoOrder[]; skippedSymbols: { symbol: string; reason: string }[]; notes: string[];
+  buys: AutoOrder[]; sells: AutoOrder[]; skippedSymbols: { symbol: string; reason: string }[]; notes: string[]; presets: PresetResult[];
 }
 
 /** 오류 알림 뒤 회복 알림을 기다리는 표시(원장 notified에 날짜와 함께 둔다) */
@@ -65,7 +67,7 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
   try {
     const cfg = readAutoConfig(ctx.env);
     mode = cfg.mode;
-    const out: AutoResult = { mode, strategy: cfg.strategy, skipped: null, buys: [], sells: [], skippedSymbols: [], notes: [] };
+    const out: AutoResult = { mode, strategy: cfg.strategy, skipped: null, buys: [], sells: [], skippedSymbols: [], notes: [], presets: [] };
     if (!inHours(ctx.now())) return { ...out, skipped: 'hours' };
     if (parseMarketStatus(await naverGet(ctx, NAVER.kospiStatus)) !== 'OPEN') return { ...out, skipped: 'closed' };
     // 알림 설정이 틀리면 주문을 시작하기 전에 멈춘다.
@@ -78,15 +80,45 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
     if (ledger.positions.length && ledger.strategyId !== strategy.id) throw new CliError('invalid-args', '포지션이 남아 있어 전략을 바꿀 수 없어요');
     ledger.strategyId = strategy.id;
     const symbols = [...new Set(resolveSymbols(strategy, profile.watchlists))];
+    const presets = mode === 'dry' && cfg.dryPresets === 'all' ? TEMPLATES.map((t) => {
+      const preset = fromTemplate(t, ctx.now(), null, t.name);
+      preset.id = `preset-${t.id}`;
+      preset.universe = strategy.universe;
+      const path = ledgerPath(ctx.dir, 'dry', t.id);
+      const result: PresetResult = { id: preset.id, name: preset.name, buys: [], sells: [] };
+      out.presets.push(result);
+      try {
+        const ledger = readLedger(path, today);
+        if (ledger.positions.length && ledger.strategyId !== preset.id) throw new CliError('invalid-args', '포지션이 남아 있어 전략을 바꿀 수 없어요');
+        return { strategy: preset, path, ledger, result };
+      } catch (e) {
+        result.error = toCliError(e).code;
+        return { strategy: preset, path, ledger: undefined, result };
+      }
+    }) : [];
+    const primarySymbols = new Set([...symbols, ...ledger.positions.map((p) => p.symbol)]);
+    const allSymbols = new Set([...primarySymbols, ...presets.flatMap((p) => p.ledger?.positions.map((pos) => pos.symbol) ?? [])]);
+    const fromFor = (s: typeof strategy, l: AutoLedger, symbol: string) => [warmFrom(today, s), ...l.positions.filter((p) => p.symbol === symbol).map((p) => p.boughtAt)].sort()[0];
+    const sharedFrom = [warmFrom(today, strategy), ...ledger.positions.map((p) => p.boughtAt),
+      ...presets.flatMap((p) => p.ledger ? [warmFrom(today, p.strategy), ...p.ledger.positions.map((pos) => pos.boughtAt)] : [])].sort()[0];
+    const sharedBars = new Map<string, DayBar[]>(), failedBars = new Map<string, unknown>();
     const bars = new Map<string, DayBar[]>();
     out.notes.push('네이버 일봉에는 거래대금이 없어 거래대금 규칙이 시뮬레이션과 다를 수 있어요');
     if (['cashPct', 'equityPct'].includes(strategy.sizing.mode)) out.notes.push(PROPOSAL_NOTES.sizingFromInitial);
-    for (const symbol of new Set([...symbols, ...ledger.positions.map((p) => p.symbol)])) {
-      if (!/^\d{6}$/.test(symbol)) { out.skippedSymbols.push({ symbol, reason: '6자리 숫자 종목만 처리해요' }); continue; }
-      const from = [warmFrom(today, strategy), ...ledger.positions.filter((p) => p.symbol === symbol).map((p) => p.boughtAt)].sort()[0];
-      const days = parseDayBars(await naverGet(ctx, NAVER.itemDay(symbol, from.replaceAll('-', '') + '0000', today.replaceAll('-', '') + '2359'))).filter((b) => b.date <= today);
-      if (days.at(-1)?.date !== today) { out.skippedSymbols.push({ symbol, reason: '오늘 봉이 없어요' }); continue; }
-      bars.set(symbol, days);
+    for (const symbol of allSymbols) {
+      if (!/^\d{6}$/.test(symbol)) { if (primarySymbols.has(symbol)) out.skippedSymbols.push({ symbol, reason: '6자리 숫자 종목만 처리해요' }); continue; }
+      const from = presets.length ? sharedFrom : fromFor(strategy, ledger, symbol);
+      let days: DayBar[];
+      try {
+        days = parseDayBars(await naverGet(ctx, NAVER.itemDay(symbol, from.replaceAll('-', '') + '0000', today.replaceAll('-', '') + '2359'))).filter((b) => b.date <= today);
+      } catch (e) {
+        if (primarySymbols.has(symbol)) throw e;
+        failedBars.set(symbol, e);
+        continue;
+      }
+      if (days.at(-1)?.date !== today) { if (primarySymbols.has(symbol)) out.skippedSymbols.push({ symbol, reason: '오늘 봉이 없어요' }); continue; }
+      sharedBars.set(symbol, days);
+      if (primarySymbols.has(symbol)) bars.set(symbol, presets.length ? days.filter((b) => b.date >= fromFor(strategy, ledger!, symbol)) : days);
     }
     const names = new Map<string, string>();
     const nameOf = async (symbol: string) => {
@@ -176,6 +208,7 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
         delete p.pendingSell;
         if (!p.qty) remove(p);
       }
+      if (mode === 'dry') (ledger!.today.trades ??= []).push({ side, symbol: p.symbol, name: await nameOf(p.symbol), qty: q, price, reason });
       save();
       const status = { dry: '연습', sent: '접수', rejected: '거절', unknown: '결과 불명' }[result];
       const avg = mode === 'live' ? holdings?.find((h) => h.symbol === p.symbol)?.avgPrice : undefined;
@@ -184,6 +217,7 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       await notify(`${side === 'BUY' ? '매수' : '매도'} ${p.symbol} ${await nameOf(p.symbol)}`, body);
       return { symbol: p.symbol, quantity: q, price, reason, result, ...(code ? { code } : {}) };
     };
+    if (mode === 'dry') { ledger.today.judgedDate = today; save(); }
     if (mode === 'live' && ledger.positions.some((p) => p.pendingSell)) await loadHoldings();
     for (const p of [...ledger.positions]) {
       const days = bars.get(p.symbol);
@@ -248,6 +282,17 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       ledger.notified = ledger.notified.filter((key) => key !== recover);
       save();
       try { await notify('자동 실행 정상', '다시 문제없이 돌고 있어요'); } catch { /* 회복 알림 실패는 판정 결과를 바꾸지 않는다. */ }
+    }
+    for (const p of presets) {
+      if (!p.ledger) continue;
+      try {
+        for (const symbol of new Set([...symbols, ...p.ledger.positions.map((pos) => pos.symbol)])) {
+          if (failedBars.has(symbol)) throw failedBars.get(symbol);
+        }
+        const bars = new Map([...sharedBars].map(([symbol, days]) => [symbol, days.filter((b) => b.date >= fromFor(p.strategy, p.ledger!, symbol))]));
+        Object.assign(p.result, await judgeDry(p.strategy, p.ledger, bars, { symbols, cfg, path: p.path, now: ctx.now,
+          canJudge: () => inHours(ctx.now()) && kstDate(ctx.now()) === today, nameOf }));
+      } catch (e) { p.result.error = toCliError(e).code; }
     }
     return out;
   } catch (e) {

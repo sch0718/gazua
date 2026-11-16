@@ -41,7 +41,7 @@ test('예약 자동 실행: 범위 밖 간격과 빈 전략은 설치하지 않�
   }
 }));
 
-function runner(dir) {
+function runner(dir, script = 'run.sh') {
   const cfg = join(dir, '설정', 'gazua');
   mkdirSync(cfg, { recursive: true });
   const auto = join(cfg, 'auto.env'), alert = join(cfg, 'alert.env');
@@ -50,7 +50,7 @@ function runner(dir) {
   const called = join(dir, '호출');
   const node = join(dir, '가짜 node');
   writeFileSync(node, '#!/bin/bash\nprintf "%s\\n" "$PWD" "$@" > "$GAZUA_TEST_CALLED"\n', { mode: 0o755 });
-  const run = (at, extra = {}) => spawnSync('/bin/bash', [join(agent, 'run.sh')], { cwd: dir, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: dirname(cfg), GAZUA_AUTO_ENV: auto, GAZUA_AUTO_ALERT_ENV: alert, GAZUA_AUTO_NODE: node, GAZUA_TEST_CALLED: called, GAZUA_AUTO_NOW: String(Date.parse(at) / 1000), ...extra } });
+  const run = (at, extra = {}) => spawnSync('/bin/bash', [join(agent, script)], { cwd: dir, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: dirname(cfg), GAZUA_AUTO_ENV: auto, GAZUA_AUTO_ALERT_ENV: alert, GAZUA_AUTO_NODE: node, GAZUA_TEST_CALLED: called, GAZUA_AUTO_NOW: String(Date.parse(at) / 1000), ...extra } });
   return { cfg, auto, alert, called, run };
 }
 
@@ -84,7 +84,6 @@ test('예약 자동 실행: 다른 실행이 잠금을 잡고 있으면 node를 
   } finally { holder.kill(); }
 }));
 
-
 test('예약 자동 실행: 다른 환경 파일도 같은 원장 잠금을 공유해요', macOnly, () => temporary((dir) => {
   const { cfg, called, run } = runner(dir);
   const other = join(dir, '다른 설정');
@@ -101,4 +100,48 @@ test('예약 자동 실행: 다른 환경 파일도 같은 원장 잠금을 공�
     assert.match(result.stdout, /다른 실행이 돌고 있어요/);
     assert.ok(!existsSync(called));
   } finally { holder.kill(); }
+}));
+
+test('저녁 요약: DRY 설치는 평일 20시 요약 plist만 만들어요', macOnly, () => temporary((dir) => {
+  const result = spawnSync('/bin/bash', [join(agent, 'install-digest.sh')], {
+    encoding: 'utf8', env: { ...process.env, HOME: join(dir, '집 & 테스트'), XDG_CONFIG_HOME: join(dir, '설정'), GAZUA_AUTO_DRY: '1', GAZUA_AUTO_DRY_DIR: join(dir, 'plist'), AUTO_STRATEGY: '시험 전략' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const path = join(dir, 'plist', 'com.gazua.auto-digest.plist');
+  assert.equal(spawnSync('plutil', ['-lint', path]).status, 0);
+  const xml = readFileSync(path, 'utf8');
+  assert.match(xml, /<key>Label<\/key>\s*<string>com\.gazua\.auto-digest<\/string>/);
+  const intervals = [...xml.matchAll(/<dict>\s*<key>Weekday<\/key>\s*<integer>([1-5])<\/integer>\s*<key>Hour<\/key>\s*<integer>20<\/integer>\s*<key>Minute<\/key>\s*<integer>0<\/integer>\s*<\/dict>/g)];
+  assert.match(xml, /<key>StartCalendarInterval<\/key>\s*<array>/);
+  assert.deepEqual(intervals.map((match) => Number(match[1])), [1, 2, 3, 4, 5]);
+  assert.ok(xml.includes(join(agent, 'digest.sh')));
+  assert.ok(xml.includes(join(dir, '설정')));
+  assert.match(xml, /집 &amp; 테스트\/Library\/Logs\/gazua\/auto-digest\.log/);
+  assert.ok(!existsSync(join(dir, 'plist', 'com.gazua.auto.plist')));
+  assert.ok(!existsSync(join(dir, '집 & 테스트')));
+  assert.ok(!existsSync(join(dir, '설정')));
+}));
+
+test('저녁 요약: 두 환경 파일과 auto digest 명령을 절대 경로로 넘겨요', macOnly, () => temporary((dir) => {
+  const { auto, alert, called, run } = runner(dir, 'digest.sh');
+  const result = run('2026-11-13T20:00:00+09:00');
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readFileSync(called, 'utf8').trim().split('\n'), [repo, `--env-file=${alert}`, `--env-file=${auto}`, join(repo, 'cli/dist/gazua.mjs'), 'auto', 'digest']);
+}));
+
+test('저녁 요약: 요약 잠금이 있으면 건너뛰고 판정 잠금과는 따로 실행해요', macOnly, () => temporary((dir) => {
+  const { cfg, called, run } = runner(dir, 'digest.sh');
+  for (const lock of ['.auto-digest.lock', '.auto.lock']) {
+    const ready = join(dir, `준비${lock}`);
+    const holder = spawn('/usr/bin/lockf', [join(cfg, lock), '/bin/bash', '-c', 'touch "$0"; sleep 3', ready]);
+    try {
+      const until = Date.now() + 5000;
+      while (!existsSync(ready) && Date.now() < until) spawnSync('/bin/sleep', ['0.05']);
+      assert.ok(existsSync(ready));
+      const result = run('2026-11-13T20:00:00+09:00');
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(existsSync(called), lock === '.auto.lock');
+      if (lock === '.auto-digest.lock') assert.match(result.stdout, /다른 실행이 돌고 있어요/);
+    } finally { holder.kill(); }
+  }
 }));

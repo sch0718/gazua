@@ -16,14 +16,17 @@ export interface AutoPosition {
   unconfirmed?: true;
   sellBlocked?: string;
 }
+export interface AutoTrade {
+  side: 'BUY' | 'SELL'; symbol: string; name: string; qty: number; price: number; reason: string;
+}
 export interface AutoLedger {
   version: 1;
   strategyId: string | null;
-  today: { date: string; bought: string[]; sold: string[] };
+  today: { date: string; bought: string[]; sold: string[]; trades?: AutoTrade[]; judgedDate?: string };
   positions: AutoPosition[];
   notified: string[];
 }
-export const ledgerPath = (dir: string, mode: 'dry' | 'live'): string => join(dir, mode === 'dry' ? 'auto-positions.dry.json' : 'auto-positions.json');
+export const ledgerPath = (dir: string, mode: 'dry' | 'live', preset?: string): string => join(dir, mode === 'dry' ? `auto-positions.dry${preset ? `.preset-${preset}` : ''}.json` : 'auto-positions.json');
 type Row = Record<string, unknown>;
 const row = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -53,20 +56,28 @@ function position(value: unknown): value is AutoPosition {
 
 function valid(value: unknown): value is AutoLedger {
   return row(value) && value.version === 1 && (value.strategyId === null || text(value.strategyId)) && row(value.today) && date(value.today.date) &&
+    (value.today.judgedDate === undefined || (date(value.today.judgedDate) && value.today.judgedDate === value.today.date)) &&
+    (value.today.trades === undefined || (Array.isArray(value.today.trades) && value.today.trades.every((t) => row(t) && (t.side === 'BUY' || t.side === 'SELL') && text(t.symbol) && text(t.name) && positive(t.qty) && positive(t.price) && text(t.reason)))) &&
     strings(value.today.bought) && strings(value.today.sold) && strings(value.notified) && value.notified.every((key) => date(key.slice(0, 10)) && key[10] === ':' && key.length > 11) &&
     Array.isArray(value.positions) && value.positions.every(position) && new Set(value.positions.map((p) => p.symbol)).size === value.positions.length &&
     (value.positions.length === 0 || text(value.strategyId));
 }
 
-export function readLedger(path: string, today: string): AutoLedger {
+/** 요약에서는 판정한 날짜를 확인해야 하므로 당일 기록을 초기화하지 않는다. */
+export function readLedgerRaw(path: string): AutoLedger | null {
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, strategyId: null, today: { date: today, bought: [], sold: [] }, positions: [], notified: [] };
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new CliError('invalid-args', `자동 실행 원장을 읽을 수 없어요: ${path}`);
   }
   if (!valid(value)) throw new CliError('invalid-args', `자동 실행 원장을 읽을 수 없어요: ${path}`);
+  return value;
+}
+
+export function readLedger(path: string, today: string): AutoLedger {
+  const value = readLedgerRaw(path) ?? { version: 1, strategyId: null, today: { date: today, bought: [], sold: [] }, positions: [], notified: [] };
   if (value.today.date !== today) value.today = { date: today, bought: [], sold: [] };
   value.notified = value.notified.filter((key) => key.startsWith(`${today}:`));
   return value;
