@@ -4,6 +4,7 @@ import { fullStrategyV2 } from '../../../src/lib/sim/testStrategyV2';
 import { kstEpoch } from '../../../src/lib/time/kst';
 import { parseArgv } from '../args';
 import type { Ctx } from '../context';
+import { CliError } from '../errors';
 import { createRedactor } from '../output';
 import { cleanupDirs, fakeFetch, makeIo } from '../testing';
 import { ledgerPath, readLedger, writeLedger, type AutoPosition } from './ledger';
@@ -233,4 +234,19 @@ it('다음 매도가 혼잡으로 거절돼도 같은 날 앞서 보낸 매도 �
   t.error();
   await t.run();
   expect(posts(t)).toHaveLength(2);
+});
+
+it('오류를 알린 뒤 처음 정상으로 끝난 실행에서 한 번만 정상 알림을 보낸다', async () => {
+  const t = fixture({ time: '09:30:00' });
+  t.afterProfile(() => { throw new CliError('network'); });
+  await expect(t.run()).rejects.toMatchObject({ code: 'network' });
+  await expect(t.run()).rejects.toMatchObject({ code: 'network' });
+  expect(alerts(t).map((c) => (c.body as { title: string }).title)).toEqual(['[연습] 자동 실행 오류']);
+  t.afterProfile(() => {});
+  await t.run();
+  await t.run();
+  const titles = alerts(t).map((c) => (c.body as { title: string }).title);
+  expect(titles.filter((x) => x === '[연습] 자동 실행 정상')).toHaveLength(1);
+  expect(titles.at(-1)).not.toBe('[연습] 자동 실행 오류');
+  expect(t.ledger().notified).not.toContain(`${today}:recover`);
 });
