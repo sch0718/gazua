@@ -198,10 +198,13 @@ async function premarket(ctx: Ctx): Promise<unknown> {
   const raw = readState<PremarketState | null>(ctx.dir, 'premarket', null);
   const st: PremarketState = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   if (st.sentDate === today) return { skipped: 'sent' };
-  const status = parseMarketStatus(await get(ctx, NAVER.kospiStatus));
+  const rawStatus = parseMarketStatus(await get(ctx, NAVER.kospiStatus));
+  // 08:30 동시호가 전에는 영업일도 전날 상태(CLOSE)가 남아 있어 휴장과 가릴 수 없다. 이때는 판단 불가로 보내고 그렇다고 적는다.
+  const beforePreopen = kstMinuteOfDay(ctx.now()) < 510;
+  const status = beforePreopen && rawStatus !== null && !['PREOPEN', 'OPEN'].includes(rawStatus) ? null : rawStatus;
   if (status !== null && !['PREOPEN', 'OPEN'].includes(status)) return { skipped: 'closed' };
   const cfg = readAlertConfig(ctx.env);
-  const inHours = () => kstDate(ctx.now()) === today && kstMinuteOfDay(ctx.now()) >= 480 && kstMinuteOfDay(ctx.now()) < 540;
+  const inHours = () => kstDate(ctx.now()) === today && kstMinuteOfDay(ctx.now()) >= 450 && kstMinuteOfDay(ctx.now()) < 540;
   const from = historyFrom(today);
   const futures: Record<'ES' | 'NQ', DayBar[]> = { ES: [], NQ: [] };
   const missing: string[] = [];
