@@ -164,11 +164,19 @@ describe('GroupSheet', () => {
       const app = setup(THREE);
       await confirmDeleteOf('해외');
       const dialog = screen.getByRole('dialog');
-      const inside = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled])')];
-      inside.at(-1)!.focus();
-      await fireEvent.keyDown(dialog, { key: 'Tab' });
       const undo = screen.getByRole('button', { name: '되돌리기' });
-      expect(document.activeElement).toBe(undo);
+      // 스낵바는 맨 위 시트 안 마지막 요소로 그려진다. 그 바로 앞이 시트의 마지막 컨트롤이다.
+      const buttons = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      expect(buttons.at(-1)).toBe(undo);
+      const last = buttons.at(-2)!;
+      last.focus();
+      // 시트는 마지막 컨트롤의 Tab을 막지 않으므로 브라우저가 다음 요소인 「되돌리기」로 옮긴다.
+      expect(await fireEvent.keyDown(last, { key: 'Tab' })).toBe(true);
+      // jsdom은 Tab으로 포커스를 옮기지 않으니 브라우저가 할 이동을 대신한다.
+      undo.focus();
+      // 「되돌리기」에서 Tab을 누르면 시트 처음으로 돌아간다(시트 밖으로 빠지지 않게).
+      await fireEvent.keyDown(undo, { key: 'Tab' });
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: '그룹 관리 도움말' }));
       await fireEvent.click(undo);
       expect(names(app)).toEqual(['반도체', '배당', '해외']);
       // 되돌린 그룹의 삭제 버튼으로(대화상자 밖 body로 빠지지 않게)
