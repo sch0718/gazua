@@ -8,6 +8,7 @@
   import { Banner } from '@sch0718/ui-svelte';
   import { SnackbarHost } from '@sch0718/ui-svelte';
   import { dismissSnackbar } from '@sch0718/ui-svelte';
+  import { startAppUpdate } from './lib/update';
   import StatusChip from './lib/ui/StatusChip.svelte';
   import { helpIdForRoute } from './lib/help/routing';
   import HelpButton from './lib/ui/help/HelpButton.svelte';
@@ -64,6 +65,13 @@
   const clock = createClock();
   onMount(() => {
     void sync.attach(app);
+    if (!import.meta.env.PROD) return;
+    // 「바뀐 점」은 도움말 목록 아래에 있다. 도움말이 맨 위로 스크롤한 뒤에 그 자리로 옮긴다.
+    const openReleaseNotes = () => {
+      app.navigate({ name: 'help' });
+      setTimeout(() => document.getElementById('release-notes')?.scrollIntoView({ block: 'start' }));
+    };
+    return startAppUpdate(openReleaseNotes);
   });
   onDestroy(() => {
     clock.destroy();

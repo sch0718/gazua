@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@sch0718/app-update':
+        specifier: 0.1.0
+        version: 0.1.0
       '@sch0718/kakao-share':
         specifier: 0.1.1
         version: 0.1.1
@@ -43,8 +46,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0
       '@sch0718/ui-svelte':
-        specifier: 0.3.1
-        version: 0.3.1(svelte@5.57.2)
+        specifier: 0.4.0
+        version: 0.4.0(svelte@5.57.2)
       '@sch0718/vite-app':
         specifier: 0.1.1
         version: 0.1.1(vite-plugin-pwa@2.0.0(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1))(vite@6.4.4(@types/node@22.20.5)(terser@5.51.2))
@@ -1763,6 +1766,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@sch0718/app-update@0.1.0':
+    resolution: {integrity: sha512-0YHOpIUqRYkpCRHav/h2Xdv1yEUC24kOQllzgDxTHTorwU9OZF+yWyzpNYBL8JCmFn/UesX6nclULrWGIw2K6w==, tarball: https://npm.pkg.github.com/download/@sch0718/app-update/0.1.0/ebc87acda286a7f62768d0c968036293bf70b0e2}
+
   '@sch0718/firebase-session@0.5.0':
     resolution: {integrity: sha512-158gYMN/piLW/Blw/oEs3H/NHzXMwWeo+GjivjVFYuKZkFM2Bf5dJtYSTvsuIoD5ZecrFLVoHrHHWtk5wzKTbg==, tarball: https://npm.pkg.github.com/download/@sch0718/firebase-session/0.5.0/c2926d5703d91944a984feabbf764aad2b978d73}
     peerDependencies:
@@ -1785,8 +1791,8 @@ packages:
   '@sch0718/seen-store@0.1.0':
     resolution: {integrity: sha512-RHPUy1yySNSbRsmAa4jlemTl2I43mRhCOK5tMQvuNMCq+9Y0RnwpJHaaPvTIqsfdsRrAqwVfDvMDobAmWHPEAg==, tarball: https://npm.pkg.github.com/download/@sch0718/seen-store/0.1.0/445958d792aba693e9f6ab294a1e1dd96d189d7d}
 
-  '@sch0718/ui-svelte@0.3.1':
-    resolution: {integrity: sha512-IXuxmPGNmOeTyk+ROvBUgaTWi87YmvPRBcKJWNPFUh1wy1p1kVLa0oxCL4RLLrBWSzTSAx8EfZLMq75VhUZKew==, tarball: https://npm.pkg.github.com/download/@sch0718/ui-svelte/0.3.1/e0d04a144a187ae0ed4d7cbddd5d2be89e2cfc32}
+  '@sch0718/ui-svelte@0.4.0':
+    resolution: {integrity: sha512-1/OopcHRqyIy/ztjtLRLICwn+Q0fx7bYWZq9Ctc4hsdFrMQY1yX7xlM3ZEOmuFot641aXZ9Yu2TVNiV6esV+3g==, tarball: https://npm.pkg.github.com/download/@sch0718/ui-svelte/0.4.0/31cc1dd44fc33b385c928bca3d610cd9225b9f59}
     peerDependencies:
       svelte: ^5.57.0
 
@@ -4936,6 +4942,8 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
+  '@sch0718/app-update@0.1.0': {}
+
   '@sch0718/firebase-session@0.5.0(firebase@12.19.0)':
     dependencies:
       jose: 6.2.13
@@ -4950,7 +4958,7 @@ snapshots:
 
   '@sch0718/seen-store@0.1.0': {}
 
-  '@sch0718/ui-svelte@0.3.1(svelte@5.57.2)':
+  '@sch0718/ui-svelte@0.4.0(svelte@5.57.2)':
     dependencies:
       svelte: 5.57.2
 
