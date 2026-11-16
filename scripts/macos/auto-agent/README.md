@@ -36,3 +36,5 @@ bash scripts/macos/auto-agent/run.sh
 ```sh
 bash scripts/macos/auto-agent/uninstall.sh
 ```
+
+연습 결과를 저녁에 한 번 받으려면 `bash scripts/macos/auto-agent/install-digest.sh`로 별도 에이전트를 설치해요. 기존 두 환경 파일과 빌드를 확인하며, `GAZUA_AUTO_DRY=1 AUTO_STRATEGY='전략 이름' bash scripts/macos/auto-agent/install-digest.sh`로 plist만 검사할 수 있어요. 라벨은 `com.gazua.auto-digest`, 로그는 `~/Library/Logs/gazua/auto-digest.log`이며 기존 판정 에이전트와 별개로 월~금 20:00에 실행해요. 맥이 잠들어 지나쳤으면 깨운 뒤 한 번 실행하며, 날짜가 바뀌어 오늘 판정 기록이 없으면 보내지 않아요. 직접 보낼 때도 `bash scripts/macos/auto-agent/digest.sh`를 써서 `.auto-digest.lock` 잠금을 공유해 주세요. 같은 날 성공한 요약은 다시 보내지 않아요. 제거는 `bash scripts/macos/auto-agent/uninstall-digest.sh`이며 설정·로그·원장은 남겨요.

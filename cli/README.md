@@ -309,7 +309,7 @@ gazua alert stats --pretty
 
 ## 자동 실행기
 
-`gazua auto`는 동기화한 전략을 장중 한 번 판정하고 JSON 한 줄로 결과를 내요. 기본은 연습(`dry`)이며 실제 주문을 보내지 않아요. 연습 원장과 ntfy에 「이렇게 보냈을 것」을 기록해요. `AUTO_MODE=live`로 바꾸는 것이 사람의 실전 승인이고, `--yes`와 위치 인자는 받지 않아요. MCP 도구에는 내보내지 않아요.
+`gazua auto`는 동기화한 전략을 장중 한 번 판정하고 JSON 한 줄로 결과를 내요. 기본은 연습(`dry`)이며 실제 주문을 보내지 않아요. 연습 원장과 ntfy에 「이렇게 보냈을 것」을 기록해요. `AUTO_MODE=live`로 바꾸는 것이 사람의 실전 승인이고, `--yes`는 받지 않으며 위치 인자는 저녁 요약용 `digest`만 받아요. MCP 도구에는 내보내지 않아요.
 
 설정 디렉터리는 `~/.config/gazua`(`XDG_CONFIG_HOME`이 있으면 그 아래 `gazua`)예요. `auto.env`의 설정은 다음과 같아요. 모르는 `AUTO_` 키나 잘못된 값은 오류로 멈춰요.
 
@@ -318,6 +318,7 @@ gazua alert stats --pretty
 | `AUTO_STRATEGY` | 필수 | 동기화한 전략 이름 또는 ID |
 | `AUTO_PROFILE` | 없음 | 프로필이 여럿일 때 이름 또는 ID |
 | `AUTO_MODE` | `dry` | 연습 `dry`, 실전 `live` |
+| `AUTO_DRY_PRESETS` | `off` | `all`이면 프리셋 5개도 연습, `off`면 끔. 실전에서는 실행하지 않아요 |
 | `AUTO_BUY_SLIPPAGE_PCT` | `1` | 현재가에 더할 매수 지정가 여유(%), 0~5 |
 | `AUTO_SELL_SLIPPAGE_PCT` | `2` | 현재가에서 뺄 매도 지정가 여유(%), 0~10 |
 | `AUTO_INTERVAL_MIN` | `1` | 예약 간격(분), 설치 스크립트가 1~5만 받아요 |
@@ -334,6 +335,16 @@ bash scripts/macos/auto-agent/install.sh
 직접 한 번 실행할 때도 `bash scripts/macos/auto-agent/run.sh`를 써요. 예약 작업과 같은 `lockf` 잠금을 잡아 동시 실행을 막고, `alert.env` 다음에 `auto.env`를 Node 환경 파일로 읽어요. 평일 KST 09:05~15:20에만 실행하며 코스피 장 상태가 `OPEN`이 아니거나 상태를 모르면 건너뛰어요. 매도 판정을 먼저 하고 매수는 15:15 전까지예요. 오늘 네이버 봉이 없는 종목과 6자리 숫자가 아닌 종목은 결과 `skippedSymbols`에 남겨요.
 
 실전 원장은 `auto-positions.json`, 연습 원장은 `auto-positions.dry.json`이고 권한은 600이에요. 주문 전 원장을 먼저 저장해 중간에 꺼져도 같은 주문을 다시 보내지 않아요. 같은 종목은 하루 한 번만 매수를 시도하고, 오늘 매도한 종목과 이미 가진 종목은 다시 사지 않아요. 원장이 손상되면 빈 원장으로 덮어쓰지 않고 멈춰요. 원장을 임의로 지우면 중복 방지 기록도 사라져요.
+
+`AUTO_DRY_PRESETS=all`이면 주 전략과 같은 관심 그룹·종목으로 프리셋 5개를 함께 연습해요. 자금·배분은 각 프리셋의 기본값이며 동기화 프로필은 바꾸지 않아요. 원장은 `auto-positions.dry.preset-<템플릿 id>.json`에 따로 저장하고 프리셋 거래는 ntfy로 보내지 않아요. 손상 원장이나 프리셋 전용 시세 조회 오류는 해당 프리셋만 건너뛰고 결과 `presets[].error`에 코드만 남겨요.
+
+`gazua auto digest`는 평일 KST 15:30 이후 오늘 판정한 연습 원장의 거래·보유 손익률을 한 번 요약해요. 판정 기록이 없는 날은 보내지 않고, 일부 전략만 판정했으면 나머지는 「오늘 기록 없음」으로 표시해요. 오늘 종가가 없으면 「평가 불가」로 표시하며, 성공한 날짜는 권한 600의 `auto-digest.json`에 저장해요. 전송에 실패하면 같은 날 `digest.sh`를 다시 실행해 보내요(다음 날에는 그날 기록만 요약해요). 평일 저녁 20시 예약과 직접 실행은 별도 잠금을 공유하는 아래 스크립트를 써요.
+
+```bash
+bash scripts/macos/auto-agent/install-digest.sh
+bash scripts/macos/auto-agent/digest.sh
+bash scripts/macos/auto-agent/uninstall-digest.sh
+```
 
 포지션이 남아 있으면 다른 전략으로 바꿀 수 없어요. 같은 전략의 규칙을 앱에서 고치면 기존 포지션에도 새 규칙이 적용돼요. 손절 → 추적 손절 → 도달한 익절 단계 합계 → 기간 청산 → 조건 매도 순서이며 분할 매수는 하지 않아요. 매도 접수는 체결과 달라서 다음 실행의 토스 보유로 확인해요. 일부 체결도 기록하며, 당일 주문이 만료되면 미체결 상태를 풀고 이미 기록한 익절 단계는 반복하지 않아요. 10분 이상 미체결이면 한 번 알리고, 결과 불명일 때는 원장을 남겨 재전송을 막아요. 토스 앱에서 직접 확인해 주세요.
 
