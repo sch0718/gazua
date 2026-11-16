@@ -5,6 +5,19 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.11.0',
+    date: '2026-11-17',
+    items: [
+      '새 버전이 배포되면 접속 직후엔 저절로 새로고침하고, 쓰는 중이면 「새로고침」 안내를 띄워요.',
+      '도움말 아래 「최근 바뀐 점」에서 버전별로 바뀐 것을 봐요.',
+    ],
+  },
+  {
+    version: 'v0.10.1',
+    date: '2026-11-16',
+    items: ['한글을 입력하는 중 Esc로 시트가 닫히지 않고, 「되돌리기」에 Tab으로 닿아요.'],
+  },
+  {
     version: 'v0.9.0',
     date: '2026-11-14',
     items: [
