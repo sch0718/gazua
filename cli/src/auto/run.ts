@@ -208,8 +208,9 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
         delete p.pendingSell;
         if (!p.qty) remove(p);
       }
-      if (mode === 'dry') (ledger!.today.trades ??= []).push({ side, symbol: p.symbol, name: await nameOf(p.symbol), qty: q, price, reason });
       save();
+      // 이름 조회를 기다리는 동안 꺼져도 연습 매도 상태가 남지 않도록 저장한 뒤 거래를 기록한다.
+      if (mode === 'dry') { (ledger!.today.trades ??= []).push({ side, symbol: p.symbol, name: await nameOf(p.symbol), qty: q, price, reason }); save(); }
       const status = { dry: '연습', sent: '접수', rejected: '거절', unknown: '결과 불명' }[result];
       const avg = mode === 'live' ? holdings?.find((h) => h.symbol === p.symbol)?.avgPrice : undefined;
       const body = `${q}주, 지정가 ${price}원, 현재가 ${current}원\n이유: ${reason}\n${mode === 'dry' ? '이렇게 보냈을 거예요' : status}${code ? ` (${code})` : ''}${avg === undefined ? '' : `\n토스 평단 ${avg}원`}`
