@@ -88,7 +88,7 @@ for SUB in premarket watch; do
   SCHEDULE="$STAGE/$SUB.xml"
   : > "$SCHEDULE"
   for WEEKDAY in 1 2 3 4 5; do
-    if [[ "$SUB" == premarket ]]; then FIRST=520; LAST=520; else FIRST=550; LAST=920; fi
+    if [[ "$SUB" == premarket ]]; then FIRST=470; LAST=470; else FIRST=550; LAST=920; fi
     for (( MINUTE=FIRST; MINUTE<=LAST; MINUTE+=10 )); do
       cat >> "$SCHEDULE" <<CALENDAR
     <dict>

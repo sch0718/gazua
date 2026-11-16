@@ -228,7 +228,7 @@ describe('gazua alert premarket', () => {
     expect(again.t.result().data).toEqual({ skipped: 'sent' });
     expect(again.f.calls).toHaveLength(0);
   });
-  it.each(['07:59:00', '09:00:00', '09:05:00'])('%s에는 보내지 않고 late 기록을 남긴다', async (clock) => {
+  it.each(['07:29:00', '09:00:00', '09:05:00'])('%s에는 보내지 않고 late 기록을 남긴다', async (clock) => {
     const { t, sends } = setupPremarket({ now: kstEpoch('2026-11-11', clock) });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     expect(sends()).toHaveLength(0);
@@ -253,6 +253,12 @@ describe('gazua alert premarket', () => {
   });
   it('polling 실패 때 계속 보내고 휴장 판단 불가를 알린다', async () => {
     const { t, sends } = setupPremarket({ route: (c) => c.url.pathname.endsWith('/KOSPI') ? { status: 503 } : undefined });
+    await run(['alert', 'premarket', '--symbols', '000660'], t.io);
+    expect(sends()).toHaveLength(1);
+    expect((sends()[0].body as { message: string }).message).toContain('오늘 장이 열리는지 확인하지 못했어요');
+  });
+  it('07:50 동시호가 전 CLOSE는 휴장으로 보지 않고 판단 불가로 보낸다', async () => {
+    const { t, sends } = setupPremarket({ now: kstEpoch('2026-11-11', '07:50:00'), route: (c) => c.url.pathname.endsWith('/KOSPI') ? { body: { datas: [{ marketStatus: 'CLOSE' }] } } : undefined });
     await run(['alert', 'premarket', '--symbols', '000660'], t.io);
     expect(sends()).toHaveLength(1);
     expect((sends()[0].body as { message: string }).message).toContain('오늘 장이 열리는지 확인하지 못했어요');
