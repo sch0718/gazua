@@ -5,6 +5,7 @@ import { SnackbarHost } from '@sch0718/ui-svelte';
 import { dismissSnackbar } from '@sch0718/ui-svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HELP_PAGES } from '../lib/help/content';
+import { RELEASE_NOTES } from '../lib/help/release-notes';
 import type { App } from '../lib/state/app.svelte';
 import type { Route } from '../lib/state/routes';
 import { makeTestApp } from '../sheets/testApp';
@@ -35,6 +36,12 @@ describe('Help', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(HELP_PAGES.length);
     await fireEvent.click(within(list).getByRole('button', { name: /비교 차트/ }));
     expect(app.route).toEqual({ name: 'help', helpId: 'compare' });
+  });
+
+  it('shows recent release notes under the menu list', () => {
+    setup({ name: 'help' });
+    const notes = screen.getByRole('region', { name: '최근 바뀐 점' });
+    expect(notes.textContent).toContain(RELEASE_NOTES[0]!.version);
   });
 
   it('a page shows the moving picture, the steps and the tips, with links to the next menu', async () => {

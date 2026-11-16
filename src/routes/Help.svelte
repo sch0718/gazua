@@ -6,7 +6,8 @@
   import type { App } from '../lib/state/app.svelte';
   import HelpFigure from '../lib/ui/help/HelpFigure.svelte';
   import HelpText from '../lib/ui/help/HelpText.svelte';
-  import { showSnackbar } from '@sch0718/ui-svelte';
+  import { ReleaseNotes, showSnackbar } from '@sch0718/ui-svelte';
+  import { RELEASE_NOTES } from '../lib/help/release-notes';
   import Layout from '../lib/ui/Layout.svelte';
   import Rail from '../lib/ui/Rail.svelte';
 
@@ -94,6 +95,7 @@
             </li>
           {/each}
         </ul>
+        <ReleaseNotes notes={RELEASE_NOTES} />
       {/if}
     </div>
   {/snippet}
