@@ -3,6 +3,7 @@
   import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
+  import { isImeComposing } from '../ime';
 
   let {
     app,
@@ -35,6 +36,8 @@
 
   function onRenameKey(e: KeyboardEvent) {
     if (e.key === 'Enter') {
+      // 한글 조합을 확정하는 Enter는 저장하지 않는다.
+      if (isImeComposing(e)) return;
       e.preventDefault();
       commitRename();
     } else if (e.key === 'Escape') {

@@ -53,6 +53,10 @@ describe('GroupSheet', () => {
     await fireEvent.click(screen.getByRole('button', { name: '반도체 이름 바꾸기' }));
     const input = screen.getByRole('textbox', { name: '그룹 이름' });
     await fireEvent.input(input, { target: { value: '  칩  ' } });
+    // 한글 조합을 확정하는 Enter는 저장하지 않는다
+    await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    await fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    expect(names(app)).toEqual(['반도체', '배당']);
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(names(app)).toEqual(['칩', '배당']);
     await fireEvent.click(screen.getByRole('button', { name: '칩 이름 바꾸기' }));

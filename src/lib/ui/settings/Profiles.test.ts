@@ -52,6 +52,10 @@ describe('Profiles', () => {
     await fireEvent.click(screen.getByRole('button', { name: '회사 이름 바꾸기' }));
     const input = screen.getByLabelText('프로필 이름');
     await fireEvent.input(input, { target: { value: '  출장  ' } });
+    // 한글 조합을 확정하는 Enter는 저장하지 않는다
+    await fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    await fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    expect(names(app)).toEqual(['내 프로필', '회사']);
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(names(app)).toEqual(['내 프로필', '출장']);
 

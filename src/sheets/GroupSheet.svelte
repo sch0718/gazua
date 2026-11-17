@@ -9,6 +9,7 @@
   import TossImport from './TossImport.svelte';
   import { canShare, openShare } from '../lib/share/shareStore.svelte';
   import { built, groupSnapshot } from '../lib/share/snapshot';
+  import { isImeComposing } from '../lib/ui/ime';
 
   // 그룹 관리 시트(스펙 7.3): 이름 바꾸기·순서·삭제(확인 + 되돌리기). 그룹은 하나 이상 남긴다.
   let {
@@ -65,6 +66,8 @@
 
   function onRenameKey(e: KeyboardEvent) {
     if (e.key === 'Enter') {
+      // 한글 조합을 확정하는 Enter는 저장하지 않는다.
+      if (isImeComposing(e)) return;
       e.preventDefault();
       commitRename();
     } else if (e.key === 'Escape') {

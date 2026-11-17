@@ -117,6 +117,10 @@ describe('BasketSheet', () => {
     expect(screen.getByRole('alert').textContent).toBe('이름을 적어 주세요');
     expect(app.baskets[0].name).toBe('하나');
     await fireEvent.input(name, { target: { value: '새 이름' } });
+    // 한글 조합을 확정하는 Enter는 저장하지 않는다
+    await fireEvent.keyDown(name, { key: 'Enter', isComposing: true });
+    await fireEvent.keyDown(name, { key: 'Enter', keyCode: 229 });
+    expect(app.baskets[0].name).toBe('하나');
     await fireEvent.keyDown(name, { key: 'Enter' });
     expect(app.baskets[0].name).toBe('새 이름');
   });
