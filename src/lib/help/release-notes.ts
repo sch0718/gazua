@@ -5,6 +5,11 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.11.1',
+    date: '2026-11-17',
+    items: ['관심 그룹·종목 묶음·프로필 이름을 한글로 바꿀 때 글자를 조합하는 중에 Enter를 눌러도 끝 글자가 빠지거나 두 번 저장되지 않아요.'],
+  },
+  {
     version: 'v0.11.0',
     date: '2026-11-17',
     items: [
