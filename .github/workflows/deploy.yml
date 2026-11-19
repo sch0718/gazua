@@ -3,6 +3,12 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # 문서만 바뀐 push로는 배포하지 않는다. 코드·설정이 함께 바뀌면 그대로 배포한다.
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.claude/**'
+      - 'LICENSE'
   workflow_dispatch:
   schedule:
     # UTC 21:00 일~목 = KST 06:00 월~금. 평일 아침마다 종목 유니버스를 새로 받아 다시 배포한다.
