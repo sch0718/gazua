@@ -144,12 +144,14 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
         const held = Math.min(p.qty, heldOf(p.symbol));
         const pending = p.pendingSell;
         if (pending) {
+          // 매도를 보낸 뒤 당일 매수가 더 체결될 수 있어, 보유가 늘면 기준을 올려 체결 판정이 어긋나지 않게 한다.
+          if (pending.date === today) pending.qtyBefore = Math.max(pending.qtyBefore, held);
           if (held < p.qty) {
             p.sells.push({ qty: p.qty - held, ...(pending.stage === undefined ? {} : { stage: pending.stage }) });
             p.qty = held;
           }
           if (pending.qtyBefore - held >= pending.qty || pending.date !== today) delete p.pendingSell;
-          else if (!pending.warned && ctx.now() - pending.sentAt >= 600_000) {
+          else if (!pending.warned && kstMinuteOfDay(ctx.now()) - kstMinuteOfDay(pending.sentAt) >= 10) {
             pending.warned = true;
             save();
             await notify(`매도 확인 ${p.symbol} ${await nameOf(p.symbol)}`, '안 팔렸어요. 토스 앱에서 확인해 주세요');

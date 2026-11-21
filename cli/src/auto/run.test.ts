@@ -146,6 +146,20 @@ it('마감 청산은 토스에서 관측한 40주를 팔고 보유가 그대로�
   expect(t.ledger().positions[0].pendingSell).toMatchObject({ qty: 40, qtyBefore: 40 });
 });
 
+it('마감 청산 매도 뒤 당일 매수가 더 체결돼도 매도가 체결되면 남은 주식을 다시 판다', async () => {
+  const t = fixture({ live: true, held: 40, time: '15:10:00' });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.seed({ boughtAt: today });
+  await t.run();
+  t.held(70); t.ctx.now = () => kstEpoch(today, '15:11:00');
+  await t.run();
+  expect(posts(t)).toHaveLength(1);
+  t.held(30); t.ctx.now = () => kstEpoch(today, '15:12:00');
+  await t.run();
+  expect(posts(t)).toHaveLength(2);
+  expect(posts(t)[1].body).toMatchObject({ side: 'SELL', quantity: 30 });
+});
+
 it('장 상태가 닫혔으면 원장·시세·주문에 접근하지 않는다', async () => {
   const t = fixture({ closed: true });
   expect((await t.run()).skipped).toBe('closed');
@@ -272,6 +286,12 @@ it('매도 미체결 경고는 한 번이고 전날 만료한 부분 체결은 �
   await t.run(); await t.run();
   expect(alerts(t)).toHaveLength(1);
   expect(t.ledger().positions[0].pendingSell?.warned).toBe(true);
+});
+it('매도를 보낸 지 분 단위로 10분이 지나면 초가 모자라도 안 팔렸다고 알린다', async () => {
+  const t = fixture({ live: true, held: 100, price: 1150, time: '15:20:02' });
+  t.seed({ pendingSell: { date: today, sentAt: kstEpoch(today, '15:10:05'), qty: 10, qtyBefore: 100, price: 1100, reason: '장 마감 전 청산' } });
+  await t.run();
+  expect(alerts(t)).toHaveLength(1);
 });
 it('매도 체결을 기다리는 동안에도 추적 손절의 최고 현재가를 기억한다', async () => {
   const t = fixture({ live: true, held: 100, price: 1400 });
