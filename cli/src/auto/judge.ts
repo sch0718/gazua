@@ -7,6 +7,8 @@ import { buyBudget } from '../proposals';
 import type { AutoLedger, AutoPosition } from './ledger';
 import { tickUp } from './tick';
 
+export const BUY_CUTOFF_MIN = 915;
+
 export function toCandles(bars: DayBar[]): Candle[] {
   return bars.map((b) => ({ t: kstEpoch(b.date, '00:00:00'), o: b.open, h: b.high ?? Math.max(b.open, b.close), l: b.low ?? Math.min(b.open, b.close), c: b.close, v: b.volume ?? 0 }));
 }
@@ -18,8 +20,9 @@ export function restore(pos: AutoPosition, strategy: Strategy): Position {
   return position;
 }
 
-export function decideSell(pos: AutoPosition, strategy: Strategy, price: number, heldDays: number, sellSignal: boolean): { qty: number; reason: string; stage?: number } | null {
+export function decideSell(pos: AutoPosition, strategy: Strategy, price: number, heldDays: number, sellSignal: boolean, closeAll?: string): { qty: number; reason: string; stage?: number } | null {
   if (pos.qty <= 0) return null;
+  if (closeAll !== undefined) return { qty: pos.qty, reason: closeAll };
   const position = restore(pos, strategy);
   position.markClose(price);
   const stop = position.stopPrice();
@@ -39,8 +42,9 @@ export function decideSell(pos: AutoPosition, strategy: Strategy, price: number,
 
 export function decideBuy(i: {
   strategy: Strategy; symbolCount: number; symbol: string; price: number; minute: number; match: boolean; reason?: string; ledger: AutoLedger; held: boolean; buySlipPct: number;
+  buyCutoffMin?: number;
 }): { qty: number; price: number; reason: string } | { skip: string } | null {
-  if (!i.match || i.minute >= 915) return null;
+  if (!i.match || i.minute >= (i.buyCutoffMin ?? BUY_CUTOFF_MIN)) return null;
   if (i.ledger.today.bought.includes(i.symbol) || i.ledger.today.sold.includes(i.symbol)) return { skip: '오늘 이미 매수·매도를 시도했어요' };
   if (i.held || i.ledger.positions.some((p) => p.symbol === i.symbol)) return { skip: '이미 보유 중이에요' };
   const price = tickUp(i.price * (1 + i.buySlipPct / 100));

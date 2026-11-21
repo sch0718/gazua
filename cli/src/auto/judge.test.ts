@@ -40,6 +40,11 @@ it('거래일 수로 기간 청산하고 매도 신호를 마지막에 판정한
   expect(decideSell(pos(), s, 105, 3, true)).toEqual({ qty: 100, reason: '기간 청산' });
   expect(decideSell(pos(), s, 105, 2, true)).toEqual({ qty: 100, reason: '매도 조건' });
 });
+it.each([90, 121])('현재가 %i에서 손절·익절보다 당일 청산을 먼저 판정한다', (price) => {
+  const s = strategy();
+  s.rules.sell.takeProfit.stages = [{ pct: 10, sellPct: 50 }, { pct: 30, sellPct: 100 }];
+  expect(decideSell(pos(), s, price, 1, false, '장 마감 전 청산')).toEqual({ qty: 100, reason: '장 마감 전 청산' });
+});
 it('매수는 지정가 기준 수량과 하루·보유·마감 제한을 지킨다', () => {
   const s = strategy();
   s.capital.initial = 1000;
@@ -51,4 +56,14 @@ it('매수는 지정가 기준 수량과 하루·보유·마감 제한을 지킨
   expect(decideBuy({ ...input, held: true })).toEqual({ skip: '이미 보유 중이에요' });
   ledger.today.sold.push('005930');
   expect(decideBuy(input)).toEqual({ skip: '오늘 이미 매수·매도를 시도했어요' });
+});
+it('지정한 매수 마감 분부터 매수하지 않는다', () => {
+  const s = strategy();
+  s.capital.initial = 1000;
+  s.sizing.mode = 'equal';
+  const ledger: AutoLedger = { version: 1, strategyId: s.id, today: { date: '2026-11-13', bought: [], sold: [] }, positions: [], notified: [] };
+  const input = { strategy: s, symbolCount: 1, symbol: '005930', price: 100, minute: 909, match: true, ledger, held: false, buySlipPct: 0, buyCutoffMin: 910 };
+  expect(decideBuy(input)).toEqual({ qty: 10, price: 100, reason: '매수 조건' });
+  expect(decideBuy({ ...input, minute: 910 })).toBeNull();
+  expect(decideBuy({ ...input, minute: 911 })).toBeNull();
 });

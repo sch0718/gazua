@@ -13,7 +13,7 @@ import { PROPOSAL_NOTES } from '../proposals';
 import { authedClient } from '../session';
 import { evaluateAt, warmFrom } from '../signals';
 import { readAutoConfig, type AutoConfig } from './config';
-import { decideBuy, decideSell, toCandles } from './judge';
+import { BUY_CUTOFF_MIN, decideBuy, decideSell, toCandles } from './judge';
 import { ledgerPath, readLedger, writeLedger, type AutoLedger, type AutoPosition } from './ledger';
 import { judgeDry, type PresetResult } from './preset';
 import { tickDown } from './tick';
@@ -66,6 +66,8 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
   };
   try {
     const cfg = readAutoConfig(ctx.env);
+    const { dayCloseMin } = cfg;
+    const buyCutoffMin = Math.min(BUY_CUTOFF_MIN, dayCloseMin ?? BUY_CUTOFF_MIN);
     mode = cfg.mode;
     const out: AutoResult = { mode, strategy: cfg.strategy, skipped: null, buys: [], sells: [], skippedSymbols: [], notes: [], presets: [] };
     if (!inHours(ctx.now())) return { ...out, skipped: 'hours' };
@@ -229,7 +231,12 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       const candles = toCandles(days);
       const sellSignal = strategy.rules.sell.signal.on && evaluateAt(candles, strategy.rules.sell.signal.groups, candles.length - 1).match;
       const heldDays = days.filter((b) => b.date >= p.boughtAt).length;
-      let decision = decideSell(p, strategy, current, heldDays, sellSignal);
+      let closeAll: string | undefined;
+      if (dayCloseMin !== undefined) {
+        if (p.boughtAt < today) closeAll = '전날 남은 포지션 청산';
+        else if (kstMinuteOfDay(ctx.now()) >= dayCloseMin) closeAll = '장 마감 전 청산';
+      }
+      let decision = decideSell(p, strategy, current, heldDays, sellSignal, closeAll);
       if (!decision || !inHours(ctx.now()) || kstDate(ctx.now()) !== today) continue;
       if (mode === 'live') {
         await loadHoldings();
@@ -241,16 +248,17 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
             `토스 보유(${heldOf(p.symbol)}주)가 자동 실행기 원장(${p.qty}주)보다 많아 자동 매도하지 않았어요(${decision.reason}). 토스 앱에서 직접 확인해 주세요`);
           continue;
         }
-        decision = decideSell(p, strategy, current, heldDays, sellSignal);
+        decision = decideSell(p, strategy, current, heldDays, sellSignal, closeAll);
         if (!decision) continue;
       }
-      const qty = Math.min(decision.qty, p.qty, mode === 'live' ? heldOf(p.symbol) : p.qty);
+      const qtyBefore = mode === 'live' ? Math.min(p.qty, heldOf(p.symbol)) : p.qty;
+      const qty = Math.min(decision.qty, qtyBefore);
       if (qty <= 0 || !await allowed(false) || !inHours(ctx.now()) || kstDate(ctx.now()) !== today) continue;
       const price = tickDown(current * (1 - cfg.sellSlipPct / 100));
       if (price <= 0 || !Number.isSafeInteger(price * qty)) continue;
       const previouslySold = ledger.today.sold.includes(p.symbol);
       ledger.today.sold = [...new Set([...ledger.today.sold, p.symbol])];
-      p.pendingSell = { date: today, sentAt: ctx.now(), qty, qtyBefore: p.qty, price, reason: decision.reason, ...(decision.stage === undefined ? {} : { stage: decision.stage }) };
+      p.pendingSell = { date: today, sentAt: ctx.now(), qty, qtyBefore, price, reason: decision.reason, ...(decision.stage === undefined ? {} : { stage: decision.stage }) };
       save();
       out.sells.push(await send('SELL', p, qty, price, decision.reason, current, previouslySold));
     }
@@ -259,7 +267,7 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       if (!days || kstDate(ctx.now()) !== today || !inHours(ctx.now())) continue;
       const current = days.at(-1)!.close, candles = toCandles(days);
       const signal = evaluateAt(candles, strategy.rules.buy, candles.length - 1);
-      const decide = () => decideBuy({ strategy, symbolCount: symbols.length, symbol, price: current, minute: kstMinuteOfDay(ctx.now()), match: signal.match, reason: signal.reason, ledger: ledger!, held: mode === 'live' && heldOf(symbol) > 0, buySlipPct: cfg.buySlipPct });
+      const decide = () => decideBuy({ strategy, symbolCount: symbols.length, symbol, price: current, minute: kstMinuteOfDay(ctx.now()), buyCutoffMin, match: signal.match, reason: signal.reason, ledger: ledger!, held: mode === 'live' && heldOf(symbol) > 0, buySlipPct: cfg.buySlipPct });
       let decision = decide();
       if (!decision) continue;
       if ('skip' in decision) { out.skippedSymbols.push({ symbol, reason: decision.skip }); continue; }
@@ -269,7 +277,8 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
         if (decision && 'skip' in decision) out.skippedSymbols.push({ symbol, reason: decision.skip });
         continue;
       }
-      if (!inHours(ctx.now()) || kstDate(ctx.now()) !== today || kstMinuteOfDay(ctx.now()) >= 915) continue;
+      const now = ctx.now();
+      if (!inHours(now) || kstDate(now) !== today || kstMinuteOfDay(now) >= buyCutoffMin) continue;
       const p: AutoPosition = { symbol, boughtAt: today, buyPrice: decision.price, boughtQty: decision.qty, qty: decision.qty, peak: decision.price, sells: [], unconfirmed: true };
       ledger.today.bought.push(symbol);
       ledger.positions.push(p);
@@ -294,6 +303,11 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
         Object.assign(p.result, await judgeDry(p.strategy, p.ledger, bars, { symbols, cfg, path: p.path, now: ctx.now,
           canJudge: () => inHours(ctx.now()) && kstDate(ctx.now()) === today, nameOf }));
       } catch (e) { p.result.error = toCliError(e).code; }
+    }
+    if (dayCloseMin !== undefined) {
+      const hour = Math.floor(dayCloseMin / 60);
+      const minute = String(dayCloseMin % 60).padStart(2, '0');
+      out.notes.push(`당일 청산 모드: ${hour}:${minute}부터 모두 팔아요`);
     }
     return out;
   } catch (e) {
