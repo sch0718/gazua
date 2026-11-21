@@ -22,4 +22,14 @@ describe('자동 실행 설정', () => {
     for (const dryPresets of ['all', 'off']) expect(readAutoConfig({ AUTO_STRATEGY: '전략', AUTO_DRY_PRESETS: dryPresets })).toMatchObject({ dryPresets });
     expect(() => readAutoConfig({ AUTO_STRATEGY: '전략', AUTO_DRY_PRESETS: 'on' })).toThrow();
   });
+  it('당일 청산은 기본값과 off에서 시각을 두지 않는다', () => {
+    expect(readAutoConfig({ AUTO_STRATEGY: '전략' })).not.toHaveProperty('dayCloseMin');
+    expect(readAutoConfig({ AUTO_STRATEGY: '전략', AUTO_DAY_CLOSE_AT: 'off' })).not.toHaveProperty('dayCloseMin');
+  });
+  it.each([['15:00', 900], ['15:10', 910]])('당일 청산 시각 %s를 분으로 바꾼다', (value, minute) => {
+    expect(readAutoConfig({ AUTO_STRATEGY: '전략', AUTO_DAY_CLOSE_AT: value })).toMatchObject({ dayCloseMin: minute });
+  });
+  it.each(['14:59', '15:11', '1510', '15:1'])('당일 청산 시각으로 %s를 거절한다', (value) => {
+    expect(() => readAutoConfig({ AUTO_STRATEGY: '전략', AUTO_DAY_CLOSE_AT: value })).toThrow(expect.objectContaining({ code: 'invalid-args' }));
+  });
 });

@@ -49,7 +49,9 @@ function position(value: unknown): value is AutoPosition {
   if (value.pendingSell !== undefined) {
     const p = value.pendingSell;
     if (!row(p) || !date(p.date) || !integer(p.sentAt) || !positive(p.qty) || !positive(p.qtyBefore) || !positive(p.price) || !text(p.reason) || !stage(p.stage) ||
-        !(p.warned === undefined || typeof p.warned === 'boolean') || p.qty > p.qtyBefore || p.qtyBefore > value.boughtQty || value.qty > p.qtyBefore) return false;
+        !(p.warned === undefined || typeof p.warned === 'boolean') || p.qty > p.qtyBefore || p.qtyBefore > value.boughtQty) return false;
+    // 당일 매수가 부분 체결되면 원장 수량이 매도 직전 관측 보유보다 클 수 있다.
+    if (value.qty > p.qtyBefore && value.boughtAt !== p.date) return false;
   }
   return true;
 }

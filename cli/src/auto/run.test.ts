@@ -83,6 +83,83 @@ it.each(['15:15:00', '15:20:00'])('%s 이후 매수는 없다', async (time) => 
   const t = fixture({ time });
   expect((await t.run()).buys).toHaveLength(0);
 });
+it('당일 포지션을 15:09에는 유지하고 판정 직전 15:10이 되면 전량 청산한다', async () => {
+  const t = fixture({ time: '15:09:00' });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.seed({ boughtAt: today });
+
+  const beforeClose = await t.run();
+  expect(beforeClose.sells).toEqual([]);
+  expect(beforeClose.notes).toContain('당일 청산 모드: 15:10부터 모두 팔아요');
+  expect(t.ledger().positions[0].qty).toBe(100);
+
+  t.afterProfile(() => { t.ctx.now = () => kstEpoch(today, '15:10:00'); });
+  const atClose = await t.run();
+  expect(atClose.sells).toMatchObject([{ symbol: '005930', quantity: 100, reason: '장 마감 전 청산', result: 'dry' }]);
+  expect(atClose.notes).toContain('당일 청산 모드: 15:10부터 모두 팔아요');
+  expect(t.ledger().positions).toEqual([]);
+  expect(posts(t)).toEqual([]);
+});
+
+it.each(['15:10:00', '15:11:00'])('당일 청산을 켜면 %s에는 매수 조건을 충족해도 사지 않는다', async (time) => {
+  const t = fixture({ time });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  expect((await t.run()).buys).toEqual([]);
+  expect(t.ledger().positions).toEqual([]);
+});
+
+it.each(['09:30:00', '15:11:00'])('%s에도 전날 포지션은 전날 청산 사유로 전량 판다', async (time) => {
+  const t = fixture({ time });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.seed();
+  expect((await t.run()).sells).toMatchObject([{ symbol: '005930', quantity: 100, reason: '전날 남은 포지션 청산', result: 'dry' }]);
+  expect(t.ledger().positions).toEqual([]);
+});
+
+it('당일 청산을 켜도 프리셋 원장은 마감 시각에 청산하지 않는다', async () => {
+  const t = fixture({ time: '15:10:00' });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.ctx.env.AUTO_DRY_PRESETS = 'all';
+  t.seed({ boughtAt: today });
+  const path = ledgerPath(t.dir, 'dry', 'rebound');
+  const ledger = t.ledger();
+  ledger.strategyId = 'preset-rebound';
+  writeLedger(path, ledger);
+
+  const result = await t.run();
+  expect(result.sells).toMatchObject([{ reason: '장 마감 전 청산' }]);
+  expect(result.presets.find((p) => p.id === 'preset-rebound')).toMatchObject({ sells: [] });
+  expect(readLedger(path, today).positions[0].qty).toBe(100);
+});
+
+it('마감 청산은 토스에서 관측한 40주를 팔고 보유가 그대로면 다시 보내지 않는다', async () => {
+  const t = fixture({ live: true, held: 40, time: '15:10:00' });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.seed({ boughtAt: today });
+
+  expect((await t.run()).sells).toMatchObject([{ symbol: '005930', quantity: 40, reason: '장 마감 전 청산', result: 'sent' }]);
+  expect(posts(t)[0].body).toMatchObject({ side: 'SELL', quantity: 40 });
+
+  t.ctx.now = () => kstEpoch(today, '15:11:00');
+  expect((await t.run()).sells).toEqual([]);
+  expect(posts(t)).toHaveLength(1);
+  expect(t.ledger().positions[0].pendingSell).toMatchObject({ qty: 40, qtyBefore: 40 });
+});
+
+it('마감 청산 매도 뒤 당일 매수가 더 체결돼도 매도가 체결되면 남은 주식을 다시 판다', async () => {
+  const t = fixture({ live: true, held: 40, time: '15:10:00' });
+  t.ctx.env.AUTO_DAY_CLOSE_AT = '15:10';
+  t.seed({ boughtAt: today });
+  await t.run();
+  t.held(70); t.ctx.now = () => kstEpoch(today, '15:11:00');
+  await t.run();
+  expect(posts(t)).toHaveLength(1);
+  t.held(30); t.ctx.now = () => kstEpoch(today, '15:12:00');
+  await t.run();
+  expect(posts(t)).toHaveLength(2);
+  expect(posts(t)[1].body).toMatchObject({ side: 'SELL', quantity: 30 });
+});
+
 it('장 상태가 닫혔으면 원장·시세·주문에 접근하지 않는다', async () => {
   const t = fixture({ closed: true });
   expect((await t.run()).skipped).toBe('closed');
@@ -209,6 +286,12 @@ it('매도 미체결 경고는 한 번이고 전날 만료한 부분 체결은 �
   await t.run(); await t.run();
   expect(alerts(t)).toHaveLength(1);
   expect(t.ledger().positions[0].pendingSell?.warned).toBe(true);
+});
+it('매도를 보낸 지 분 단위로 10분이 지나면 초가 모자라도 안 팔렸다고 알린다', async () => {
+  const t = fixture({ live: true, held: 100, price: 1150, time: '15:20:02' });
+  t.seed({ pendingSell: { date: today, sentAt: kstEpoch(today, '15:10:05'), qty: 10, qtyBefore: 100, price: 1100, reason: '장 마감 전 청산' } });
+  await t.run();
+  expect(alerts(t)).toHaveLength(1);
 });
 it('매도 체결을 기다리는 동안에도 추적 손절의 최고 현재가를 기억한다', async () => {
   const t = fixture({ live: true, held: 100, price: 1400 });
