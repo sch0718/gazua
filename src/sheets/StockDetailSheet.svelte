@@ -27,6 +27,7 @@
     open = false,
     inline = false,
     actions = true,
+    colorSlot,
     returnFocus,
     restoredFocus,
     onclose,
@@ -43,6 +44,8 @@
     inline?: boolean;
     /** false면 그룹 이동·삭제 단추를 숨긴다(보유 화면의 읽기 전용 그룹) */
     actions?: boolean;
+    /** 점 색 번호. 없으면 groupId 관심 그룹에서 찾는다(보유 화면은 관심 그룹이 아니라 넘겨준다) */
+    colorSlot?: number;
     /** 지우거나 옮겨 이 종목의 행이 사라진 뒤 포커스할 곳. 시트는 Sheet가, inline은 여기서 옮긴다. */
     returnFocus?: () => HTMLElement | null | undefined;
     /** 되돌리기 뒤 포커스할 곳(되돌린 행). groupId는 지웠던 그룹이다. */
@@ -115,7 +118,7 @@
   );
   const name = $derived(meta?.name ?? symbol);
   const group = $derived(app.watchlists.groups.find((g) => g.id === groupId));
-  const slot = $derived(group?.items.find((i) => i.symbol === symbol)?.colorSlot ?? 1);
+  const slot = $derived(colorSlot ?? group?.items.find((i) => i.symbol === symbol)?.colorSlot ?? 1);
   const others = $derived(app.watchlists.groups.filter((g) => g.id !== groupId));
   const conv = $derived(app.settings.colorConvention);
 

@@ -69,6 +69,7 @@
       {sessions}
       {isOpenToday}
       actions={detailActions}
+      colorSlot={group.items.find((i) => i.symbol === detailSymbol)?.colorSlot}
       returnFocus={detailReturnFocus}
       restoredFocus={detailRestoredFocus}
       onclose={close}

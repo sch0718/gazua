@@ -13,6 +13,7 @@
   import { createHoldingsController } from '../lib/ui/holdings/holdingsController.svelte';
   import { signedWon } from '../lib/ui/perf/perfText';
   import { kstDate } from '../lib/time/kst';
+  import { monthDay } from '../lib/ui/compare/compareText';
   import AddStockSheet from '../sheets/AddStockSheet.svelte';
   import ManualHoldingSheet, { type Draft } from '../sheets/ManualHoldingSheet.svelte';
   import Compare from './Compare.svelte';
@@ -135,7 +136,7 @@
     {#if ctl.indexes.length > 0}
       <p class="market" aria-label="시장 상황">
         {#each ctl.indexes as i (i.name)}
-          <span>{i.name} <b class="num {cls(i.pct)}">{fmtPct(i.pct)}</b></span>
+          <span>{i.name} <b class="num {cls(i.pct)}">{fmtPct(i.pct)}</b>{#if i.date !== today}<em class="num"> ({monthDay(i.date)})</em>{/if}</span>
         {/each}
       </p>
     {/if}
@@ -332,8 +333,8 @@
     font-size: var(--fs-sub);
   }
   .accounts em,
-
-  .accounts i {
+  .accounts i,
+  .market em {
     font-style: normal;
   }
   .row {

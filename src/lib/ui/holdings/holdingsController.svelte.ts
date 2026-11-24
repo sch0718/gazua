@@ -6,6 +6,8 @@ import { kstDate } from '../../time/kst';
 export interface IndexMove {
   name: '코스피' | '코스닥';
   pct: number;
+  /** 등락률의 거래일(KST `YYYY-MM-DD`). 오늘이 아니면(장 전·쉬는 날) 화면에 날짜를 붙인다 */
+  date: string;
 }
 
 const DAY_MS = 86_400_000;
@@ -55,7 +57,7 @@ export function createHoldingsController(deps: { now: () => number }) {
       const candles = (await provider.getIndexCandles?.(idx, '1d', from, today, 2)) ?? [];
       if (candles.length < 2) return null;
       const [prev, last] = candles.slice(-2);
-      return prev.c > 0 ? { name, pct: (last.c / prev.c - 1) * 100 } : null;
+      return prev.c > 0 ? { name, pct: (last.c / prev.c - 1) * 100, date: kstDate(last.t) } : null;
     };
 
     const [prevs, moves] = await Promise.all([

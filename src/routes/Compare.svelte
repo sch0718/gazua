@@ -664,6 +664,7 @@
         {sessions}
         {isOpenToday}
         actions={!holdings}
+        colorSlot={items.find((i) => i.symbol === s)?.colorSlot}
         returnFocus={detailReturnFocus}
         restoredFocus={detailRestoredFocus}
         onclose={() => (selected = null)}

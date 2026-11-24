@@ -153,8 +153,10 @@ describe('토스 키 없는 온보딩', () => {
     expect(progress().getAttribute('aria-valuenow')).toBe('5');
     expect(app.secrets?.toss).toBeUndefined();
     await click('진단 시작');
-    expect(await screen.findByRole('button', { name: '빈 그룹으로 시작' })).toBeTruthy();
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/oauth2/token'))).toBe(false);
+    // 토스는 첫 화면 규칙대로 보유 종목부터 연다
+    await fireEvent.click(await screen.findByRole('button', { name: '보유 종목으로 시작' }));
+    expect(app.route.name).toBe('holdings');
   });
   it.each([false, 'error'])('관리하지 않거나 확인 실패면 기존 키 입력을 유지한다: %s', async (state) => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => {

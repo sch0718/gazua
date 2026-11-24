@@ -41,7 +41,9 @@ function appBar(t, page, title) {
   const left =
     page.tab === 'compare'
       ? `${text(SCREEN.x + 16, y, title, { size: 17, weight: 800, fill: t.t1 })}${text(SCREEN.x + 30 + textWidth(title, 17), y, '＋', { size: 15, weight: 600, fill: t.t2 })}`
-      : `${text(SCREEN.x + 16, y, '‹', { size: 20, weight: 600, fill: t.t2 })}${text(SCREEN.x + 34, y, title, { size: 17, weight: 800, fill: t.t1 })}`;
+      : page.tab === 'holdings'
+        ? text(SCREEN.x + 16, y, title, { size: 17, weight: 800, fill: t.t1 })
+        : `${text(SCREEN.x + 16, y, '‹', { size: 20, weight: 600, fill: t.t2 })}${text(SCREEN.x + 34, y, title, { size: 17, weight: 800, fill: t.t1 })}`;
   return `${left}${appIcons(t, page.tab)}`;
 }
 
