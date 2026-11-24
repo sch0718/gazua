@@ -53,7 +53,8 @@ describe('Help', () => {
     expect(img.closest('picture')!.querySelector('source')!.getAttribute('srcset')).toBe('/help/img/compare-dark.svg');
     expect(within(screen.getByRole('list', { name: '이렇게 써요' })).getAllByRole('listitem')).toHaveLength(4);
     expect(screen.getByRole('list', { name: '알아 두면 좋아요' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /이전:/ })).toBeNull();
+    // 메뉴 순서는 보유 종목 → 비교 차트 → …
+    expect(screen.getByRole('button', { name: /이전: 보유 종목/ })).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '다음: 종목 추가 →' }));
     expect(app.route).toEqual({ name: 'help', helpId: 'add' });
     expect(screen.getByRole('heading', { level: 1, name: '종목 추가' })).toBeTruthy();

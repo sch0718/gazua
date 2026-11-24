@@ -15,6 +15,7 @@
   import HelpIntro from './lib/ui/help/HelpIntro.svelte';
   import TabBar from './lib/ui/TabBar.svelte';
   import Compare from './routes/Compare.svelte';
+  import Holdings from './routes/Holdings.svelte';
   import Help from './routes/Help.svelte';
   import Onboarding from './routes/Onboarding.svelte';
   import Performance from './routes/Performance.svelte';
@@ -123,7 +124,7 @@
 
   const route = $derived(app.route);
   // 아래 탭 막대는 앱의 주요 화면에서만 보인다(공유 보기·프로필 고르기·잠금 풀기·처음 설정 제외).
-  const tabbed = $derived(!pendingSocial && ['compare', 'performance', 'simulate', 'settings', 'help'].includes(route.name));
+  const tabbed = $derived(!pendingSocial && ['holdings', 'compare', 'performance', 'simulate', 'settings', 'help'].includes(route.name));
 
   // 프로필을 바꾸면 이전 프로필의 스낵바(되돌리기 포함)를 닫는다.
   $effect(() => {
@@ -174,6 +175,11 @@
   {:else if route.name === 'onboarding'}
     {#key app.meta.activeProfileId}
       <Onboarding {app} />
+    {/key}
+  {:else if route.name === 'holdings'}
+    <!-- 프로필을 바꾸면 새로 만든다: 이전 프로필의 계좌 보유·숨김·순서가 남지 않게 -->
+    {#key app.meta.activeProfileId}
+      <Holdings {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />
     {/key}
   {:else if route.name === 'compare'}
     <Compare {app} now={clock.now} {sessions} isOpenToday={day.isOpen} {barEnd} />

@@ -4,6 +4,8 @@ import type { HelpPageId } from './content';
 /** 지금 화면의 도움말(앱 바의 물음표 단추가 여는 곳). 관문·온보딩·도움말 화면 자신은 없다. */
 export function helpIdForRoute(r: Route): HelpPageId | null {
   switch (r.name) {
+    case 'holdings':
+      return 'holdings';
     case 'compare':
       return 'compare';
     case 'simulate':
@@ -17,10 +19,11 @@ export function helpIdForRoute(r: Route): HelpPageId | null {
   }
 }
 
-/** 처음 안내는 네 메뉴(비교·매매 규칙 목록·선정 기준 목록·내 성과)에 들어올 때 한 번만 띄운다. */
+/** 처음 안내는 다섯 메뉴(보유·비교·매매 규칙 목록·선정 기준 목록·내 성과)에 들어올 때 한 번만 띄운다. */
 export function introIdFor(r: Route, seen: ReadonlySet<string>, blocked: boolean): HelpPageId | null {
   if (blocked) return null;
   const entry =
+    r.name === 'holdings' ||
     r.name === 'compare' ||
     r.name === 'performance' ||
     (r.name === 'simulate' && (r.tab === 'criteria' ? !r.criteriaId : !r.strategyId));

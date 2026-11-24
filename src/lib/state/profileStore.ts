@@ -22,6 +22,8 @@ export const profileKeys = {
   strategySetBase: (id: string) => `p:${id}:strategySetBase`,
   criteria: (id: string) => `p:${id}:criteria`,
   baskets: (id: string) => `p:${id}:baskets`,
+  /** 직접 넣은 보유 종목. 이 기기에만 저장한다(동기화·내보내기 대상 아님) */
+  manualHoldings: (id: string) => `p:${id}:manualHoldings`,
 };
 
 export const RECENT_MAX = 5;

@@ -5,8 +5,9 @@
   // PC(≥1024)는 레일에 같은 메뉴가 있어 숨긴다.
   let { app }: { app: App } = $props();
 
-  type Tab = { id: 'compare' | 'performance' | 'simulate' | 'settings'; label: string; icon: string };
+  type Tab = { id: 'holdings' | 'compare' | 'performance' | 'simulate' | 'settings'; label: string; icon: string };
   const TABS: Tab[] = [
+    { id: 'holdings', label: '보유', icon: 'M4 7h16v12H4zM9 7V5h6v2M4 12h16' },
     { id: 'compare', label: '관심 종목', icon: 'M4 19h16M6 16l4-5 3 3 5-7' },
     { id: 'performance', label: '내 성과', icon: 'M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M7 15l3-3 2 2 5-5' },
     { id: 'simulate', label: '시뮬레이션', icon: 'M5 4l14 8-14 8z' },
@@ -47,7 +48,7 @@
     bottom: 0;
     z-index: 70;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     height: var(--tabbar-h);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     box-sizing: border-box;

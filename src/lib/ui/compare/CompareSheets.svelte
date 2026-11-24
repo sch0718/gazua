@@ -27,6 +27,7 @@
     isOpenToday,
     detailReturnFocus,
     detailRestoredFocus,
+    detailActions = true,
   }: {
     sheet: CompareSheet;
     app: App;
@@ -42,6 +43,8 @@
     detailReturnFocus?: () => HTMLElement | null | undefined;
     /** 상세에서 지운 종목을 되돌린 뒤 포커스할 곳(groupId: 지웠던 그룹) */
     detailRestoredFocus?: (symbol: string, groupId: string) => HTMLElement | null | undefined;
+    /** false면 상세에서 그룹 이동·삭제를 숨긴다(보유 화면) */
+    detailActions?: boolean;
   } = $props();
 
   const close = () => (sheet = null);
@@ -65,6 +68,8 @@
       {now}
       {sessions}
       {isOpenToday}
+      actions={detailActions}
+      colorSlot={group.items.find((i) => i.symbol === detailSymbol)?.colorSlot}
       returnFocus={detailReturnFocus}
       restoredFocus={detailRestoredFocus}
       onclose={close}

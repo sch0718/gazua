@@ -3,6 +3,7 @@ import { helpIdForRoute, introIdFor } from './routing';
 
 describe('helpIdForRoute', () => {
   it('maps each screen to its help page', () => {
+    expect(helpIdForRoute({ name: 'holdings' })).toBe('holdings');
     expect(helpIdForRoute({ name: 'compare', groupId: 'g1' })).toBe('compare');
     expect(helpIdForRoute({ name: 'simulate' })).toBe('simulate');
     expect(helpIdForRoute({ name: 'simulate', strategyId: 's1' })).toBe('simulate');
@@ -16,7 +17,8 @@ describe('helpIdForRoute', () => {
 
 describe('introIdFor', () => {
   const none = new Set<string>();
-  it('shows the first intro on the four menu entries only', () => {
+  it('shows the first intro on the five menu entries only', () => {
+    expect(introIdFor({ name: 'holdings' }, none, false)).toBe('holdings');
     expect(introIdFor({ name: 'compare', groupId: 'g1' }, none, false)).toBe('compare');
     expect(introIdFor({ name: 'simulate' }, none, false)).toBe('simulate');
     expect(introIdFor({ name: 'simulate', tab: 'criteria' }, none, false)).toBe('criteria');

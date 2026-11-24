@@ -101,6 +101,8 @@
   function finish(example: boolean) {
     const groupId = example ? withExample() : app.watchlists.groups[0]?.id;
     app.updateSettings({ onboarded: true });
+    // 토스를 연결했으면 첫 화면 규칙대로 보유 종목부터(예시 종목을 고르면 그 그룹을 보여 준다).
+    if (!example && app.settings.provider === 'toss') return app.navigate({ name: 'holdings' });
     app.navigate(groupId ? { name: 'compare', groupId } : { name: 'compare' });
   }
 </script>
@@ -194,7 +196,7 @@
       {#if diagnosed}
         <div class="actions">
           <button type="button" class="primary" onclick={() => finish(true)}>예시 그룹으로 시작</button>
-          <button type="button" class="ghost" onclick={() => finish(false)}>빈 그룹으로 시작</button>
+          <button type="button" class="ghost" onclick={() => finish(false)}>{app.settings.provider === 'toss' ? '보유 종목으로 시작' : '빈 그룹으로 시작'}</button>
         </div>
       {/if}
     {/if}

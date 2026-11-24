@@ -29,7 +29,7 @@ describe('App bar', () => {
     render(App);
     await screen.findAllByRole('button', { name: '시뮬레이션' });
     const bar = screen.getByRole('navigation', { name: '주요 메뉴' });
-    expect(within(bar).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['관심 종목', '내 성과', '시뮬레이션', '설정']);
+    expect(within(bar).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['보유', '관심 종목', '내 성과', '시뮬레이션', '설정']);
     // 앱 바에는 화면 이동 아이콘을 두지 않는다
     expect(within(document.querySelector('header.bar') as HTMLElement).queryByRole('button', { name: '설정' })).toBeNull();
     const sim = within(bar).getByRole('button', { name: '시뮬레이션' });
