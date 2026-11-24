@@ -5,6 +5,14 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.12.1',
+    date: '2026-11-24',
+    items: [
+      '보유 종목 화면의 합계(평가금액·평가손익·오늘)를 차트 위로 올렸어요.',
+      '「＋ 직접 추가」 입력 시트를 다듬었어요. 수량·평단은 단위와 천 단위 쉼표로 보여 줘요.',
+    ],
+  },
+  {
     version: 'v0.12.0',
     date: '2026-11-24',
     items: [

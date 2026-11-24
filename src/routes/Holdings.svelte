@@ -4,7 +4,7 @@
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import { Badge } from '@sch0718/ui-svelte';
-  import { DEFAULT_ACCOUNT_LABEL, DEMO_LABEL, TOSS_LABEL, cleanLabel, newManualHolding } from '../lib/holdings/manual';
+  import { DEMO_LABEL, TOSS_LABEL, cleanLabel, newManualHolding } from '../lib/holdings/manual';
   import { accountLabels, buildRows, summarize, type HoldingRow } from '../lib/holdings/rows';
   import type { App } from '../lib/state/app.svelte';
   import type { Group, WatchItem } from '../lib/state/schema';
@@ -82,7 +82,6 @@
     order = [...moved, ...order.filter((s) => !moved.includes(s))];
   }
 
-  const pnlText = (pnl: number | null, pct: number | null) => (pnl === null ? '—' : `${signedWon(pnl)} (${fmtPct(pct)})`);
   const cls = (v: number | null) => trendClass(v, conv);
 
   // ── 직접 넣기 ───────────────────────────────────────────
@@ -131,7 +130,11 @@
   <span class="title" data-landing-title tabindex="-1">보유 종목</span>
 {/snippet}
 
-{#snippet top()}
+{#snippet top(prices: Record<string, number>)}
+  {@const shownRows = buildRows(ctl.account, accountLabel, manual, { prices, prevClose: ctl.prevClose }).filter(inFilter)}
+  {@const total = summarize(shownRows)}
+  <!-- 가격이 다 들어오기 전에는 일부 종목만 더한 합계를 보이지 않는다 -->
+  {@const pending = shownRows.some((r) => r.price === null)}
   <div class="htop">
     {#if ctl.indexes.length > 0}
       <p class="market" aria-label="시장 상황">
@@ -145,12 +148,41 @@
       {#each labels as l (l)}
         <button type="button" class="chip" class:on={filter === l} aria-pressed={filter === l} onclick={() => (filter = l)}>{l}</button>
       {/each}
-      <button type="button" class="chip add" onclick={() => (picking = true)}>＋ 직접 추가</button>
     </div>
     {#if ctl.accountFailed}
       <p class="warn" role="alert">
         {accountLabel} 보유를 받지 못해 직접 넣은 종목만 보여 줘요. <button type="button" class="link" onclick={() => app.navigate({ name: 'settings' })}>설정 열기</button>
       </p>
+    {/if}
+    {#if plainRows.length > 0}
+      <section class="summary" aria-label="합계" aria-busy={pending}>
+        <div class="stat">
+          <span class="k">평가금액</span>
+          <b class="num v">{pending ? '불러오는 중' : `${fmtWon(total.value)}원`}</b>
+          <span class="num s">{total.count}종목</span>
+        </div>
+        <div class="stat">
+          <span class="k">평가손익</span>
+          {#if pending}
+            <b class="num v">—</b>
+          {:else if total.cost > 0}
+            <b class="num v {cls(total.pnl)}">{fmtPct(total.pnlPct)}</b>
+            <span class="num s {cls(total.pnl)}">{signedWon(total.pnl)}</span>
+          {:else}
+            <b class="num v">—</b>
+            <span class="s">평단을 넣으면 보여요</span>
+          {/if}
+        </div>
+        <div class="stat">
+          <span class="k">오늘</span>
+          {#if !pending && total.dayPct !== null}
+            <b class="num v {cls(total.dayPnl)}">{fmtPct(total.dayPct)}</b>
+            <span class="num s {cls(total.dayPnl)}">{signedWon(total.dayPnl)}</span>
+          {:else}
+            <b class="num v">—</b>
+          {/if}
+        </div>
+      </section>
     {/if}
     {#if plainRows.length === 0 && !ctl.loading}
       <section class="empty">
@@ -165,22 +197,7 @@
 {#snippet below(prices: Record<string, number>)}
   {@const allRows = buildRows(ctl.account, accountLabel, manual, { prices, prevClose: ctl.prevClose })}
   {@const rows = allRows.filter(inFilter)}
-  {@const total = summarize(rows)}
   <div class="hbelow">
-    <section class="summary" aria-label="합계">
-      <div>
-        <span class="k">평가금액</span>
-        <b class="num big">{fmtWon(total.value)}원</b>
-      </div>
-      <div>
-        <span class="k">평가손익</span>
-        <b class="num {cls(total.pnl)}">{pnlText(total.cost > 0 ? total.pnl : null, total.pnlPct)}</b>
-      </div>
-      <div>
-        <span class="k">오늘</span>
-        <b class="num {cls(total.dayPnl)}">{total.dayPct === null ? '—' : `${signedWon(total.dayPnl)} (${fmtPct(total.dayPct)})`}</b>
-      </div>
-    </section>
 
     {#if filter === 'all' && labels.length > 1}
       <ul class="accounts" aria-label="계좌별">
@@ -199,19 +216,29 @@
     <ul class="rows" aria-label="보유 내역">
       {#each rows as r (r.key)}
         <li>
-          <button type="button" class="row" disabled={r.manualId === null} onclick={() => startEdit(r)} aria-label={r.manualId ? `${r.name} 수정` : r.name}>
+          <!-- 계좌에서 온 보유는 고칠 수 없어 단추가 아니다. 직접 넣은 보유만 눌러 고친다 -->
+          <svelte:element
+            this={r.manualId ? 'button' : 'div'}
+            type={r.manualId ? 'button' : undefined}
+            class="row"
+            class:editable={r.manualId !== null}
+            onclick={r.manualId ? () => startEdit(r) : undefined}
+            aria-label={r.manualId ? `${r.name} 수정` : undefined}
+            role={r.manualId ? undefined : 'group'}
+            aria-labelledby={r.manualId ? undefined : `hr-${r.key}`}
+          >
             <span class="name">
-              <b>{r.name}</b>
+              <b id="hr-{r.key}">{r.name}</b>
               <Badge>{r.account}</Badge>
             </span>
-            <span class="num qty">{fmtWon(r.qty)}주{r.avgPrice !== null ? ` · 평단 ${fmtWon(r.avgPrice)}` : ''}</span>
+            <span class="num qty"><span class="nw">{fmtWon(r.qty)}주</span>{#if r.avgPrice !== null} · <span class="nw">평단 {fmtWon(r.avgPrice)}원</span>{/if}</span>
             <span class="num price">{r.value === null ? '—' : `${fmtWon(r.value)}원`}</span>
-            <span class="num pnl {cls(r.pnl)}">{pnlText(r.pnl, r.pnlPct)}</span>
-          </button>
+            <span class="num pnl {cls(r.pnl)}">{#if r.pnl === null}평단 없음{:else}<span class="nw">{fmtPct(r.pnlPct)}</span> <span class="nw">{signedWon(r.pnl)}</span>{/if}</span>
+          </svelte:element>
         </li>
       {/each}
     </ul>
-    <p class="foot">직접 넣은 종목은 이 기기에만 저장돼요(동기화·공유 안 함) · 누르면 수정해요</p>
+    {#if manual.length > 0}<p class="foot">직접 넣은 종목은 이 기기에만 저장돼요(동기화·공유 안 함) · 누르면 고쳐요</p>{/if}
   </div>
 {/snippet}
 
@@ -226,7 +253,7 @@
   {now}
   onclose={() => (picking = false)}
   onpick={(item) => {
-    draft = { id: null, symbol: item.s, name: item.n, qty: null, avgPrice: null, account: filter !== 'all' && filter !== TOSS_LABEL && filter !== DEMO_LABEL ? filter : DEFAULT_ACCOUNT_LABEL };
+    draft = { id: null, symbol: item.s, name: item.n, qty: null, avgPrice: null, account: filter !== 'all' && filter !== TOSS_LABEL && filter !== DEMO_LABEL ? filter : '' };
   }}
 />
 <ManualHoldingSheet
@@ -258,7 +285,8 @@
     padding: 0 var(--gutter) 24px;
   }
   .htop {
-    padding: 4px var(--gutter) 0;
+    gap: 10px;
+    padding: 4px var(--gutter) 14px;
   }
   .market {
     display: flex;
@@ -285,30 +313,50 @@
     background: var(--accent);
     color: var(--on-accent);
   }
-  .chip.add {
-    background: transparent;
-    border: 1px dashed var(--line);
-  }
+  /* 평가금액을 위 한 줄에, 평가손익·오늘을 아래 두 칸에(폰·PC 가운데 열 모두 좁다) */
   .summary {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     background: var(--surface);
     border-radius: var(--r-card);
     padding: 14px;
   }
-  .summary > div {
+  .stat:first-child {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+  .stat:first-child .k {
+    flex-basis: 100%;
+  }
+  .stat:first-child .v {
+    font-size: 22px;
+  }
+  .stat {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
-    font-size: var(--fs-sub);
   }
   .k {
     color: var(--t3);
+    font-size: var(--fs-sub);
   }
-  .big {
-    font-size: var(--fs-title);
+  .v {
+    font-size: 17px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+  }
+  .s {
+    color: var(--t3);
+    font-size: var(--fs-sub);
+  }
+  .s.up,
+  .s.down {
+    opacity: 0.85;
   }
   .accounts,
   .rows {
@@ -349,9 +397,11 @@
     background: var(--surface);
     color: var(--t1);
   }
-  .row:disabled {
-    opacity: 1;
-    cursor: default;
+  .row.editable {
+    cursor: pointer;
+  }
+  .row.editable:hover {
+    background: var(--surface2);
   }
   .name {
     grid-area: name;
@@ -370,6 +420,12 @@
     grid-area: price;
     text-align: right;
     font-size: var(--fs-sub);
+  }
+  .nw {
+    white-space: nowrap;
+  }
+  .price {
+    white-space: nowrap;
   }
   .pnl {
     grid-area: pnl;
