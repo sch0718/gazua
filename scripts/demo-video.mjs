@@ -31,6 +31,28 @@ async function expandSection(page, title) {
 
 // HELP_PAGES의 id 순서예요. 각 장면은 새 컨텍스트에서 데모로 시작해요.
 export const MENU_SCENES = {
+  holdings: async (page, ctx) => {
+    await beginScene(page, ctx);
+    await page.getByRole('navigation').getByRole('button', { name: '보유', exact: true }).click();
+    const list = page.getByRole('list', { name: '보유 내역' });
+    await expect(list.getByRole('listitem').first()).toBeVisible();
+    await pause();
+    const chips = page.getByRole('group', { name: '계좌 구분' });
+    for (const name of ['데모', '전체']) {
+      const chip = chips.getByRole('button', { name, exact: true });
+      await chip.click();
+      await expect(chip).toHaveAttribute('aria-pressed', 'true');
+      await pause();
+    }
+    await show(page.getByRole('region', { name: '합계' }));
+    await show(list);
+    await chips.getByRole('button', { name: '＋ 직접 추가', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: '보유 종목 고르기' });
+    await show(picker);
+    await page.keyboard.press('Escape');
+    await expect(picker).toBeHidden();
+  },
+
   compare: async (page, ctx) => {
     await beginScene(page, ctx);
     await loadExampleGroup(page);

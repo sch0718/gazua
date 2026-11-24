@@ -38,5 +38,5 @@ test('settings lets the intros show again', async ({ page }) => {
   await expect(page.getByText('메뉴에 처음 들어갈 때 안내가 다시 떠요')).toBeVisible();
   await page.getByRole('button', { name: '도움말 보기' }).click();
   await expect(page.getByRole('heading', { level: 1, name: '도움말' })).toBeVisible();
-  await expect(page.getByRole('list', { name: '메뉴별 도움말' }).getByRole('listitem')).toHaveCount(7);
+  await expect(page.getByRole('list', { name: '메뉴별 도움말' }).getByRole('listitem')).toHaveCount(8);
 });
