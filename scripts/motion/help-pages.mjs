@@ -135,16 +135,14 @@ function addRow(c, y, name, code, state, { offset = 0.3, hit = 0 } = {}) {
   );
 }
 
-/** 칩 한 줄. `on`은 고른 칩 번호(-1이면 없음), `dashed`는 마지막 칩을 점선 단추(＋ 직접 추가)로. */
-function chipRow(c, y, labels, on, { dashed = false } = {}) {
+/** 칩 한 줄. `on`은 고른 칩 번호(-1이면 없음). */
+function chipRow(c, y, labels, on) {
   let x = X;
   return labels
     .map((l, i) => {
-      const last = dashed && i === labels.length - 1;
-      const ch = chip(x, y, l, c.t, { on: i === on, fill: last ? c.t.bg : undefined });
-      const svg = last ? `${ch.svg}<rect x="${x}" y="${y}" width="${ch.w}" height="26" rx="13" fill="none" stroke="${c.t.line}" stroke-dasharray="3 3"/>` : ch.svg;
+      const ch = chip(x, y, l, c.t, { on: i === on });
       x += ch.w + 6;
-      return svg;
+      return ch.svg;
     })
     .join('');
 }
@@ -156,11 +154,27 @@ function holdingRow(c, y, name, account, qty, value, up, pnl, pnlPct, offset) {
     offset,
     `${card(X, y, W, 46, c.t, { rx: 12 })}${text(X + 10, y + 19, name, { size: 12.5, weight: 800, fill: c.t.t1 })}${badge(c, X + 16 + textWidth(name, 12.5), y + 8, account)}
 ${text(X + 10, y + 36, qty, { size: 10.5, fill: c.t.t3 })}${text(R - 10, y + 19, value, { size: 11.5, fill: c.t.t1, anchor: 'end' })}
-${text(R - 10, y + 36, `${up ? '+' : '−'}${pnl} (${up ? '+' : '−'}${pnlPct}%)`, { size: 10.5, weight: 700, fill: up ? c.t.up : c.t.down, anchor: 'end' })}`,
+${text(R - 10, y + 36, `${up ? '▲ +' : '▼ −'}${pnlPct}%  ${up ? '+' : '−'}${pnl}`, { size: 10.5, weight: 700, fill: up ? c.t.up : c.t.down, anchor: 'end' })}`,
   );
 }
 
-const LABELS = ['전체', '토스', '연금저축', '＋ 직접 추가'];
+const LABELS = ['전체', '토스', '연금저축'];
+
+/** 보유 화면 맨 위: 코스피·코스닥 줄. */
+const marketLine = (c) =>
+  rise(c, 0.05, `${text(X, TOP + 4, '코스피', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 40, TOP + 4, 0.75, { size: 11.5, anchor: 'start' })}${text(X + 120, TOP + 4, '코스닥', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 160, TOP + 4, 1.14, { size: 11.5, anchor: 'start' })}`);
+
+/** 합계 카드: 평가금액 한 줄, 아래에 평가손익·오늘. */
+function summaryCard(c, y, value, count, pnl, pnlWon, day, dayWon, offset = 0.2) {
+  const half = X + W / 2;
+  return rise(
+    c,
+    offset,
+    `${card(X, y, W, 96, c.t)}${text(X + 12, y + 18, '평가금액', { size: 10.5, fill: c.t.t3 })}${text(X + 12, y + 40, value, { size: 18, weight: 800, fill: c.t.t1 })}${text(X + 20 + textWidth(value, 18), y + 40, count, { size: 10.5, fill: c.t.t3 })}
+${text(X + 12, y + 60, '평가손익', { size: 10.5, fill: c.t.t3 })}${pctText(c, X + 12, y + 78, pnl, { size: 13, anchor: 'start' })}${text(X + 12, y + 91, pnlWon, { size: 9.5, fill: c.t.t3 })}
+${text(half, y + 60, '오늘', { size: 10.5, fill: c.t.t3 })}${pctText(c, half, y + 78, day, { size: 13, anchor: 'start' })}${text(half, y + 91, dayWon, { size: 9.5, fill: c.t.t3 })}`,
+  );
+}
 
 export const PAGES = [
   {
@@ -174,60 +188,61 @@ export const PAGES = [
       '토스를 쓰거나 직접 넣은 보유가 있으면 앱을 열 때 이 화면이 먼저 열려요.',
       '맨 위 줄은 코스피·코스닥 등락률이에요. 장이 열리기 전이나 쉬는 날에는 마지막 거래일 값에 날짜를 붙여 보여 줘요.',
       '`오늘`은 직전 거래일 종가 대비 지금 평가손익이에요. 평균 매수가를 모르는 종목은 평가손익에서 빼요.',
-      '직접 넣은 보유는 이 기기에만 저장해요. 보유 수량·평단은 계좌 정보라 동기화·공유·내보내기에 넣지 않아요.',
+      '직접 넣은 보유는 이 기기에만 저장해요. 보유 수량·평단은 계좌 정보라 동기화·공유·내보내기에 넣지 않아요. 목록에서 직접 넣은 종목을 누르면 고치거나 지워요.',
       '당겨서 새로고침하면 시세와 함께 토스 보유도 다시 받아요.',
       '차트·순위·기간·지표·거래소 고르기는 `비교 차트`와 같아요. 이 화면에서 숨기거나 순서를 바꾼 것은 화면을 떠나면 처음대로 돌아가요.',
     ],
     steps: [
       {
-        title: '실시간 등락률',
-        sub: '관심 종목처럼 차트와 순위가 시세를 따라 바뀌어요',
-        screen: (c) => `${rise(c, 0.05, `${text(X, TOP + 4, '코스피', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 40, TOP + 4, 0.75, { size: 11.5, anchor: 'start' })}${text(X + 120, TOP + 4, '코스닥', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 160, TOP + 4, 1.14, { size: 11.5, anchor: 'start' })}`)}
-${rise(c, 0.1, chipRow(c, TOP + 16, LABELS, 0, { dashed: true }))}
-${compareChart(c, { x: X, y: TOP + 60, w: W - 58, h: 150 })}
-${leaderRow(c, TOP + 236, STOCKS.hanmi, { offset: 0.6 })}${leaderRow(c, TOP + 278, STOCKS.db, { offset: 0.7 })}${leaderRow(c, TOP + 320, STOCKS.hynix, { offset: 0.8 })}
-${tapAt(c, X + 118, TOP + 29)}`,
+        title: '합계와 실시간 등락률',
+        sub: '맨 위 합계와 차트·순위가 시세를 따라 바뀌어요',
+        screen: (c) => `${marketLine(c)}
+${rise(c, 0.1, chipRow(c, TOP + 16, LABELS, 0))}
+${summaryCard(c, TOP + 52, '980만원', '3종목', 8.4, '+76만원', 1.2, '+12만원')}
+${compareChart(c, { x: X, y: TOP + 162, w: W - 58, h: 110 })}
+${leaderRow(c, TOP + 292, STOCKS.hanmi, { offset: 0.6 })}${leaderRow(c, TOP + 334, STOCKS.hynix, { offset: 0.7 })}
+${tapAt(c, X + 104, TOP + 29)}`,
       },
       {
         title: '계좌로 나눠 보기',
-        sub: '라벨 칩을 누르면 그 계좌의 종목만 차트와 목록에 남아요',
+        sub: '라벨 칩을 누르면 그 계좌의 종목만 합계·차트·목록에 남아요',
         screen: (c) => {
-          const box = { x: X, y: TOP + 60, w: W - 58, h: 150 };
+          const box = { x: X, y: TOP + 162, w: W - 58, h: 110 };
           // 연금저축에는 삼성전자 하나(다음 단계의 목록과 같다)
           const samsung = { name: '삼성전자', code: '005930', slot: 4, pct: 1.47, price: '70,000원', seed: 5, drift: 0.2 };
           const ch = chart(box, [{ values: walk(samsung.seed, 60, { drift: samsung.drift, vol: 0.9 }), color: c.t.s[samsung.slot] }], { style: c.d(0.3), grid: c.t.line, zero: c.t.t3 });
-          return `${rise(c, 0.05, `${text(X, TOP + 4, '코스피', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 40, TOP + 4, 0.75, { size: 11.5, anchor: 'start' })}${text(X + 120, TOP + 4, '코스닥', { size: 11.5, fill: c.t.t2 })}${pctText(c, X + 160, TOP + 4, 1.14, { size: 11.5, anchor: 'start' })}`)}
-${rise(c, 0.1, chipRow(c, TOP + 16, LABELS, 2, { dashed: true }))}
+          return `${marketLine(c)}
+${rise(c, 0.1, chipRow(c, TOP + 16, LABELS, 2))}
+${summaryCard(c, TOP + 52, '350만원', '1종목', 14.8, '+45만원', 1.47, '+5만원')}
 ${ch.svg}
-${leaderRow(c, TOP + 236, samsung, { offset: 0.6 })}`;
+${leaderRow(c, TOP + 292, samsung, { offset: 0.6 })}`;
         },
       },
       {
-        title: '합계와 손익 보기',
-        sub: '차트 아래에 평가금액·평가손익·오늘 손익과 계좌별 합계',
-        screen: (c) => `${statCard(c, X, TOP + 4, 80, '평가금액', '980만', null, { h: 58, offset: 0.1 })}
-${statCard(c, X + 84, TOP + 4, 80, '평가손익', '+8.4%', '+76만', { color: c.t.up, h: 58, offset: 0.2 })}
-${statCard(c, X + 168, TOP + 4, 80, '오늘', '+1.2%', '+12만', { color: c.t.up, h: 58, offset: 0.3 })}
-${rise(c, 0.5, `${card(X, TOP + 74, W, 34, c.t, { rx: 12 })}${text(X + 10, TOP + 95, '토스 2종목', { size: 11.5, fill: c.t.t1 })}${text(R - 10, TOP + 95, '630만원 · +5.1%', { size: 11.5, fill: c.t.t2, anchor: 'end' })}`)}
-${rise(c, 0.6, `${card(X, TOP + 112, W, 34, c.t, { rx: 12 })}${text(X + 10, TOP + 133, '연금저축 1종목', { size: 11.5, fill: c.t.t1 })}${text(R - 10, TOP + 133, '350만원 · +14.8%', { size: 11.5, fill: c.t.t2, anchor: 'end' })}`)}
-${holdingRow(c, TOP + 160, '한미반도체', '토스', '30주 · 평단 118,200', '391만원', true, '37만', '10.5', 0.8)}
-${holdingRow(c, TOP + 212, 'SK하이닉스', '토스', '12주 · 평단 205,000', '239만원', false, '6.5만', '2.6', 0.9)}
-${holdingRow(c, TOP + 264, '삼성전자', '연금저축', '50주 · 평단 61,000', '350만원', true, '45만', '14.8', 1.0)}`,
+        title: '보유 내역 보기',
+        sub: '차트 아래에 계좌별 합계와 종목별 수량·평단·손익',
+        screen: (c) => `${rise(c, 0.2, `${card(X, TOP + 4, W, 34, c.t, { rx: 12 })}${text(X + 10, TOP + 25, '토스 2종목', { size: 11.5, fill: c.t.t1 })}${text(R - 10, TOP + 25, '630만원 · +5.1%', { size: 11.5, fill: c.t.t2, anchor: 'end' })}`)}
+${rise(c, 0.3, `${card(X, TOP + 42, W, 34, c.t, { rx: 12 })}${text(X + 10, TOP + 63, '연금저축 1종목', { size: 11.5, fill: c.t.t1 })}${text(R - 10, TOP + 63, '350만원 · +14.8%', { size: 11.5, fill: c.t.t2, anchor: 'end' })}`)}
+${holdingRow(c, TOP + 92, '한미반도체', '토스', '30주 · 평단 118,200원', '391만원', true, '37만원', '10.5', 0.5)}
+${holdingRow(c, TOP + 144, 'SK하이닉스', '토스', '12주 · 평단 205,000원', '239만원', false, '6.5만원', '2.6', 0.6)}
+${holdingRow(c, TOP + 196, '삼성전자', '연금저축', '50주 · 평단 61,000원', '350만원', true, '45만원', '14.8', 0.7)}
+${rise(c, 0.9, text(X, TOP + 264, '직접 넣은 종목은 이 기기에만 저장돼요 · 누르면 고쳐요', { size: 10, fill: c.t.t3 }))}
+${tapAt(c, X + 120, TOP + 219)}`,
       },
       {
         title: '직접 추가',
         sub: '`＋ 직접 추가`로 토스에 없는 종목의 수량·평단·계좌 라벨을 넣어요',
         screen: (c) => {
-          const top = TOP + 40;
-          const field = (y, name, value, { hint = false } = {}) =>
-            `${label(c, X, y, name)}<rect x="${X}" y="${y + 8}" width="${W}" height="34" rx="10" fill="${c.t.surface2}"/>${text(X + 12, y + 30, value, { size: 13, weight: hint ? 400 : 700, fill: hint ? c.t.t3 : c.t.t1 })}`;
+          const top = TOP + 30;
+          const field = (y, name, value, unit, { hint = false, focus = false } = {}) =>
+            `${label(c, X, y, name)}<rect x="${X}" y="${y + 8}" width="${W}" height="34" rx="10" fill="${c.t.surface2}"${focus ? ` stroke="${c.t.accent}"` : ''}/>${text(X + 12, y + 30, value, { size: 13, weight: hint ? 400 : 700, fill: hint ? c.t.t3 : c.t.t1 })}${unit ? text(R - 12, y + 30, unit, { size: 11.5, fill: c.t.t2, anchor: 'end' }) : ''}`;
           return `${sheet(c, top, '보유 종목 추가')}
-${rise(c, 0.3, `${text(X, top + 72, '삼성전자', { size: 14, weight: 800, fill: c.t.t1 })}${text(X + 64, top + 72, '005930', { size: 11.5, fill: c.t.t3 })}`)}
-${rise(c, 0.5, field(top + 92, '수량(주)', '50'))}
-${rise(c, 0.7, field(top + 144, '평균 매수가(원) · 모르면 비워 둬요', '61000'))}
-${rise(c, 0.9, `${field(top + 196, '계좌 라벨', '연금저축')}${chipRow(c, top + 246, ['연금저축', 'ISA'], 0)}`)}
-${rise(c, 1.1, button(R - 72, top + 290, 72, '저장', c.t, { h: 36 }))}
-${tapAt(c, R - 36, top + 308, 2.0)}`;
+${rise(c, 0.3, `${text(X, top + 70, '삼성전자', { size: 14, weight: 800, fill: c.t.t1 })}${text(X + 64, top + 70, '005930', { size: 11.5, fill: c.t.t3 })}`)}
+${rise(c, 0.5, field(top + 96, '수량', '50', '주', { focus: true }))}
+${rise(c, 0.7, field(top + 148, '평균 매수가  모르면 비워 둬요', '61,000', '원'))}
+${rise(c, 0.9, `${field(top + 200, '계좌 라벨', '연금저축', '')}${chipRow(c, top + 250, ['연금저축', 'ISA'], 0)}`)}
+${rise(c, 1.1, button(X, top + 288, W, '저장', c.t, { h: 36 }))}
+${tapAt(c, X + W / 2, top + 306, 2.0)}`;
         },
       },
     ],

@@ -380,12 +380,24 @@ export function createDemoProvider(opts: {
     },
     async holdings() {
       const qty = new Map<string, number>();
+      // 평균 매수가는 매수 체결의 수량 가중 평균(토스 averagePurchasePrice처럼 원 단위로 반올림)
+      const bought = new Map<string, { qty: number; amount: number }>();
       for (const r of accountOrders()) {
         if (r.currency !== 'KRW') continue;
         qty.set(r.symbol, (qty.get(r.symbol) ?? 0) + (r.side === 'BUY' ? r.quantity : -r.quantity));
+        if (r.side === 'BUY') {
+          const b = bought.get(r.symbol) ?? { qty: 0, amount: 0 };
+          bought.set(r.symbol, { qty: b.qty + r.quantity, amount: b.amount + r.price * r.quantity });
+        }
       }
       if (qty.has(ACCOUNT_EXTRA_HOLDING)) qty.set(ACCOUNT_EXTRA_HOLDING, qty.get(ACCOUNT_EXTRA_HOLDING)! + 1);
-      return [...qty].filter(([, q]) => q > 0).map(([symbol, quantity]) => ({ symbol, name: KNOWN[symbol]?.name ?? symbol, quantity }));
+      return [...qty]
+        .filter(([, q]) => q > 0)
+        .map(([symbol, quantity]) => {
+          const b = bought.get(symbol);
+          const avg = b && b.qty > 0 ? Math.round(b.amount / b.qty) : undefined;
+          return { symbol, name: KNOWN[symbol]?.name ?? symbol, quantity, ...(avg ? { avgPrice: avg } : {}) };
+        });
     },
   };
 

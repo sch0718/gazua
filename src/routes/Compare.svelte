@@ -53,8 +53,8 @@
     refresh: () => Promise<void>;
     /** 앱 바 왼쪽(제목) */
     bar: Snippet;
-    /** 본문 맨 위(시장 상황·계좌 칩·빈 상태) */
-    top: Snippet;
+    /** 본문 맨 위(시장 상황·계좌 칩·합계·빈 상태). 인자는 리더보드와 같은 실시간 가격 */
+    top: Snippet<[Record<string, number>]>;
     /** 차트 아래(합계·보유 목록). 인자는 리더보드와 같은 실시간 가격 */
     below: Snippet<[Record<string, number>]>;
   }
@@ -558,7 +558,7 @@
           {refreshing ? '새로 불러오는 중' : pull > PULL_THRESHOLD_PX ? '놓으면 새로고침해요' : '당겨서 새로고침'}
         </div>
       {/if}
-      {#if holdings}{@render holdings.top()}{/if}
+      {#if holdings}{@render holdings.top(livePrices)}{/if}
       {#if items.length === 0}
         {#if !holdings}<EmptyState onadd={() => (openSheet = 'add')} onexample={loadExample} />{/if}
       {:else}

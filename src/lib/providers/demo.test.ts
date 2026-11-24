@@ -314,12 +314,14 @@ describe('demo account', () => {
   it('holds what the orders add up to, except one symbol that is one share off', async () => {
     const p = make(NOW);
     const holdings = await p.account!.holdings();
-    expect(holdings).toEqual([
+    expect(holdings.map(({ symbol, name, quantity }) => ({ symbol, name, quantity }))).toEqual([
       { symbol: '005930', name: '삼성전자', quantity: 13 },
       { symbol: '000660', name: 'SK하이닉스', quantity: 2 },
       { symbol: '042700', name: '한미반도체', quantity: 8 },
       { symbol: '000990', name: 'DB하이텍', quantity: 18 },
     ]);
+    // 보유 화면의 평가손익용 평균 매수가(매수 체결의 가중 평균, 원 단위)
+    for (const h of holdings) expect(Number.isInteger(h.avgPrice) && h.avgPrice! > 0).toBe(true);
     expect(await p.account!.accountId()).toBe('demo');
   });
 });
