@@ -43,6 +43,19 @@
   import { cardAlt, compareCardLine, compareCardText, composeCard, readCardColors } from '../lib/share/cardImage';
 
   // 비교(홈) 화면, 스펙 7.2·7.6. 데이터 흐름은 compareController, 표시 규칙은 compare/*.ts에 있다.
+  // holdings가 있으면 보유 종목 화면이다: 관심 그룹 대신 보유로 만든 읽기 전용 그룹을 같은 차트·리더보드로 보여 준다.
+  // 그룹 편집(추가·삭제·이동·그룹 탭·공유)은 쓰지 않고, 숨김·순서는 holdings.onchange로 넘긴다.
+  interface HoldingsMode {
+    group: Group;
+    onchange: (g: Group) => void;
+    onadd: () => void;
+    /** 앱 바 왼쪽(제목) */
+    bar: Snippet;
+    /** 본문 맨 위(시장 상황·계좌 칩·빈 상태) */
+    top: Snippet;
+    /** 차트 아래(합계·보유 목록). 인자는 리더보드와 같은 실시간 가격 */
+    below: Snippet<[Record<string, number>]>;
+  }
   let {
     app,
     now,
@@ -50,6 +63,7 @@
     isOpenToday,
     barEnd,
     wide: wideOverride,
+    holdings,
   }: {
     app: App;
     /** 1초마다 바뀌는 현재 시각 */
@@ -61,6 +75,7 @@
     barEnd: Snippet;
     /** ≥1024 배치 여부. 없으면 미디어 쿼리로 정한다(테스트에서 고정할 때 쓴다). */
     wide?: boolean;
+    holdings?: HoldingsMode;
   } = $props();
 
   let openSheet = $state<CompareSheet>(null);
@@ -78,7 +93,7 @@
   });
   onDestroy(() => ctl.destroy());
 
-  const group = $derived(app.watchlists.groups.find((g) => g.id === app.route.groupId));
+  const group = $derived(holdings ? holdings.group : app.watchlists.groups.find((g) => g.id === app.route.groupId));
   const items = $derived(group?.items ?? []);
   const period = $derived(app.settings.period);
   const venueMode = $derived(app.settings.venueMode);
@@ -100,7 +115,7 @@
 
   // 마지막으로 본 그룹을 기억한다.
   $effect(() => {
-    const id = group?.id;
+    const id = holdings ? undefined : group?.id;
     if (id && untrack(() => app.settings.lastGroupId) !== id) untrack(() => app.updateSettings({ lastGroupId: id }));
   });
 
@@ -325,6 +340,14 @@
       return { ...r, extra: { ...e, moved: a !== undefined && b !== undefined ? b - a : null } };
     });
   });
+  // 보유 화면의 합계·목록이 리더보드와 같은 실시간 가격을 쓰도록 넘긴다.
+  // 스크럽 중에는 행 가격이 그 시점 값이라, 합계가 과거 가격으로 바뀌지 않게 스크럽 직전 값을 유지한다.
+  let lastLive: Record<string, number> = {};
+  const livePrices = $derived.by(() => {
+    if (scrubT !== null) return lastLive;
+    lastLive = Object.fromEntries(rows.flatMap((r) => (r.price === null ? [] : [[r.symbol, r.price]]))) as Record<string, number>;
+    return lastLive;
+  });
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
 
   /** 스크럽을 시작할 때 보이던 순서를 고정한다(값이 바뀌어도 행이 튀지 않게). */
@@ -340,6 +363,7 @@
 
   // ── 그룹 바꾸기 ────────────────────────────────────────
   function saveGroup(g: Group) {
+    if (holdings) return holdings.onchange(g);
     const w = app.watchlists;
     app.setWatchlists({ ...w, groups: w.groups.map((x) => (x.id === g.id ? g : x)) });
   }
@@ -415,7 +439,7 @@
   }
   onMount(() =>
     bindShortcuts(document, {
-      search: whenClosed(() => (openSheet = 'add')),
+      search: whenClosed(() => (holdings ? holdings.onadd() : (openSheet = 'add'))),
       prevPeriod: whenClosed(() => app.updateSettings({ period: stepPeriod(app.settings.period, -1) })),
       nextPeriod: whenClosed(() => app.updateSettings({ period: stepPeriod(app.settings.period, 1) })),
       metric: whenClosed(() => (openSheet = 'metric')),
@@ -448,7 +472,7 @@
   }
 
   let chartPanel = $state<ReturnType<typeof ChartPanel>>();
-  const canShareCompare = $derived(canShare() && group !== undefined && items.some((i) => !i.hidden));
+  const canShareCompare = $derived(!holdings && canShare() && group !== undefined && items.some((i) => !i.hidden));
 
   /** 시세가 보이는 화면 캡처(설계 4.3). 불러오는 중이면 반쯤 그린 차트를 보내지 않는다 */
   function captureCard(): CardCapture | null {
@@ -481,8 +505,10 @@
 <Layout side={items.length > 0 ? side : undefined} barWrap>
   {#snippet rail()}
     <Rail {app}>
-      <button type="button" class="ritem add" onclick={addGroup}>＋ 새 그룹</button>
-      <button type="button" class="ritem add" aria-haspopup="dialog" onclick={() => (openSheet = 'group')}>그룹 관리</button>
+      {#if !holdings}
+        <button type="button" class="ritem add" onclick={addGroup}>＋ 새 그룹</button>
+        <button type="button" class="ritem add" aria-haspopup="dialog" onclick={() => (openSheet = 'group')}>그룹 관리</button>
+      {/if}
       {#if group}
         <div class="rlabel">{group.name} 종목</div>
         {#each group.items as it (it.symbol)}
@@ -491,12 +517,16 @@
             {ctl.metas[it.symbol]?.name ?? it.symbol}
           </button>
         {/each}
-        <button type="button" class="ritem add" onclick={() => (openSheet = 'add')}>＋ 종목 추가</button>
+        <button type="button" class="ritem add" onclick={() => (holdings ? holdings.onadd() : (openSheet = 'add'))}>{holdings ? '＋ 직접 추가' : '＋ 종목 추가'}</button>
       {/if}
     </Rail>
   {/snippet}
 
   {#snippet bar()}
+    {#if holdings}
+      {@render holdings.bar()}
+      {@render barEnd()}
+    {:else}
     <GroupTabs
       groups={app.watchlists.groups}
       currentId={group?.id}
@@ -507,6 +537,7 @@
     {#if canShareCompare}<button type="button" class="share" onclick={shareCompare}>공유</button>{/if}
     <span class="title" data-landing-title tabindex="-1">{group?.name ?? '가즈아'}</span>
     {@render barEnd()}
+    {/if}
   {/snippet}
 
   {#snippet main()}
@@ -525,8 +556,9 @@
           {refreshing ? '새로 불러오는 중' : pull > PULL_THRESHOLD_PX ? '놓으면 새로고침해요' : '당겨서 새로고침'}
         </div>
       {/if}
+      {#if holdings}{@render holdings.top()}{/if}
       {#if items.length === 0}
-        <EmptyState onadd={() => (openSheet = 'add')} onexample={loadExample} />
+        {#if !holdings}<EmptyState onadd={() => (openSheet = 'add')} onexample={loadExample} />{/if}
       {:else}
         <Headline
           {period}
@@ -589,6 +621,7 @@
             onopenmetric={() => (openSheet = 'metric')}
           />
         </div>
+        {#if holdings}{@render holdings.below(livePrices)}{/if}
       {/if}
     </div>
   {/snippet}
@@ -609,7 +642,8 @@
     onselect={select}
     ontogglehidden={(s) => group && saveGroup(toggleHidden(group, s))}
     onreorder={reorder}
-    onopenadd={() => (openSheet = 'add')}
+    onopenadd={() => (holdings ? holdings.onadd() : (openSheet = 'add'))}
+    addLabel={holdings ? '＋ 직접 추가' : undefined}
     onfocuswithin={(order) => (focusOrder = order)}
     onorderchange={(o) => app.updateSettings({ boardOrder: o })}
   />
@@ -627,6 +661,7 @@
         {now}
         {sessions}
         {isOpenToday}
+        actions={!holdings}
         returnFocus={detailReturnFocus}
         restoredFocus={detailRestoredFocus}
         onclose={() => (selected = null)}
@@ -637,7 +672,7 @@
   {/if}
 {/snippet}
 
-<CompareSheets bind:sheet={openSheet} {app} {group} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} {detailRestoredFocus} />
+<CompareSheets bind:sheet={openSheet} {app} {group} detailActions={!holdings} {ctl} {selected} {wide} {metricCtx} {now} {sessions} {isOpenToday} {detailReturnFocus} {detailRestoredFocus} />
 
 <style>
   .share {

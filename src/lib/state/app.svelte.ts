@@ -28,6 +28,7 @@ import type { Strategy } from '../sim/types';
 import { assertCriteriaCap, loadCriteria } from '../screen/criteriaStore';
 import type { SelectionCriteria } from '../screen/types';
 import { assertBasketsWritable, loadBaskets, type Basket } from '../screen/baskets';
+import { assertManualWritable, loadManualHoldings, type ManualHolding } from '../holdings/manual';
 import { exportData, importData, type ImportResult } from './exportImport';
 import { HELP_PAGES } from '../help/content';
 import { hashFor, parseHash, type Route } from './routes';
@@ -66,6 +67,8 @@ export interface App {
   readonly criteria: SelectionCriteria[];
   /** 이 프로필의 내 묶음(최대 30개) */
   readonly baskets: Basket[];
+  /** 이 프로필에 직접 넣은 보유 종목(토스 계좌에 없는 것, 최대 100개). 이 기기에만 저장한다. */
+  readonly manualHoldings: ManualHolding[];
   /** 경로를 바로잡았을 때 화면이 한 번 보여 줄 안내(예: 없는 전략). 보여 준 뒤 clearRouteNotice. */
   readonly routeNotice: string | null;
   clearRouteNotice(): void;
@@ -90,6 +93,8 @@ export interface App {
   setCriteria(list: SelectionCriteria[]): void;
   /** 내 묶음 목록 전체를 바꿔 저장한다. 30개를 넘거나 묶음이 비었으면 Error. */
   setBaskets(list: Basket[]): void;
+  /** 직접 넣은 보유 종목 전체를 바꿔 저장한다. 100개를 넘으면 Error. */
+  setManualHoldings(list: ManualHolding[]): void;
   switchProfile(id: string): void;
   addProfile(name: string): Profile;
   /** 빈 이름은 무시한다. */
@@ -301,6 +306,7 @@ export function createApp(deps: AppDeps): App {
   let strategies = $state.raw<Strategy[]>(first.strategies);
   let criteria = $state.raw<SelectionCriteria[]>(first.criteria);
   let baskets = $state.raw<Basket[]>(first.baskets);
+  let manualHoldings = $state.raw<ManualHolding[]>(first.manualHoldings);
   let routeNotice = $state<string | null>(null);
   let locked: LockedSecrets | null = first.locked;
   /** 이 탭이 지우지 못하고 남긴 잠긴 키(프로필·JSON). 평문 저장을 거절할 때 다른 탭의 잠금과 구분한다. */
@@ -334,6 +340,7 @@ export function createApp(deps: AppDeps): App {
       strategies: loadStrategies(storage, id),
       criteria: loadCriteria(storage, id),
       baskets: loadBaskets(storage, id),
+      manualHoldings: loadManualHoldings(storage, id),
       secrets: stored.plain,
       locked: stored.locked,
     };
@@ -355,6 +362,7 @@ export function createApp(deps: AppDeps): App {
     strategies = loaded.strategies;
     criteria = loaded.criteria;
     baskets = loaded.baskets;
+    manualHoldings = loaded.manualHoldings;
     applyDisplay();
     if (!gate()) navigate(route);
   }
@@ -585,8 +593,13 @@ export function createApp(deps: AppDeps): App {
 
   function leaveShared() {
     // 관문이 있으면 navigate가 관문 화면으로 두고 공유 해시를 지운다(관문을 마친 뒤 enter()가 온보딩까지 본다)
-    if (gate()) return navigate({ name: 'compare' });
-    navigate(settings.onboarded ? { name: 'compare' } : { name: 'onboarding' });
+    if (gate()) return navigate(homeRoute());
+    navigate(settings.onboarded ? homeRoute() : { name: 'onboarding' });
+  }
+
+  /** 해시가 없을 때 처음 보여 줄 화면. 보유 종목을 볼 수 있으면(토스 계좌 연결 또는 직접 넣은 보유) 보유가 먼저다. */
+  function homeRoute(): Route {
+    return settings.provider === 'toss' || manualHoldings.length > 0 ? { name: 'holdings' } : { name: 'compare' };
   }
 
   /** 시작·프로필 전환·잠금 해제 뒤 들어갈 화면. */
@@ -605,7 +618,7 @@ export function createApp(deps: AppDeps): App {
     const g = gate();
     if (g) route = g;
     else if (!settings.onboarded) navigate({ name: 'onboarding' });
-    else navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
+    else navigate(parseHash(loc?.hash ?? '') ?? homeRoute());
   }
 
   function onHashChange() {
@@ -614,7 +627,7 @@ export function createApp(deps: AppDeps): App {
     if (r?.name === 'shared') return navigate(r);
     if (gate()) return;
     // 알 수 없는 해시·그룹은 정규화한 해시로 다시 쓴다.
-    navigate(parseHash(loc?.hash ?? '') ?? { name: 'compare' });
+    navigate(parseHash(loc?.hash ?? '') ?? homeRoute());
   }
 
   function switchProfile(id: string) {
@@ -629,6 +642,7 @@ export function createApp(deps: AppDeps): App {
     strategies = loaded.strategies;
     criteria = loaded.criteria;
     baskets = loaded.baskets;
+    manualHoldings = loaded.manualHoldings;
     secrets = loaded.secrets;
     locked = loaded.locked;
     unlockUnsaved = false;
@@ -654,6 +668,7 @@ export function createApp(deps: AppDeps): App {
     remove(profileKeys.strategySetBase(id));
     remove(profileKeys.criteria(id));
     remove(profileKeys.baskets(id));
+    remove(profileKeys.manualHoldings(id));
     remove(profileKeys.tokenIssuedAt(id, 'kis'));
   }
 
@@ -675,7 +690,7 @@ export function createApp(deps: AppDeps): App {
   function onStorage(e: StorageEvent) {
     const id = activeId();
     // 다른 탭(동기화 적용 포함)이 이 프로필의 동기화 대상을 바꿨으면 다시 읽는다. 오래된 화면 상태로 덮어쓰지 않게.
-    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.strategySet(id), profileKeys.strategySetBase(id), profileKeys.criteria(id), profileKeys.baskets(id)];
+    const synced = [profileKeys.settings(id), profileKeys.watchlists(id), profileKeys.strategies(id), profileKeys.strategySet(id), profileKeys.strategySetBase(id), profileKeys.criteria(id), profileKeys.baskets(id), profileKeys.manualHoldings(id)];
     if (e.key !== null && synced.some((k) => e.key === STORAGE_PREFIX + k)) {
       reloadSynced();
       return;
@@ -750,6 +765,9 @@ export function createApp(deps: AppDeps): App {
     },
     get baskets() {
       return baskets;
+    },
+    get manualHoldings() {
+      return manualHoldings;
     },
     get routeNotice() {
       return routeNotice;
@@ -867,6 +885,13 @@ export function createApp(deps: AppDeps): App {
       baskets = list;
       write(profileKeys.baskets(activeId()), { baskets: list });
       syncable('changed', activeId());
+    },
+
+    // 보유 수량·평단은 계좌 정보라 동기화하지 않는다(syncable을 부르지 않는다).
+    setManualHoldings(list) {
+      assertManualWritable(list);
+      manualHoldings = list;
+      write(profileKeys.manualHoldings(activeId()), { holdings: list });
     },
 
     switchProfile,

@@ -33,6 +33,7 @@
     ontogglehidden,
     onreorder,
     onopenadd,
+    addLabel = '＋ 종목 추가',
     onfocuswithin,
     onorderchange,
   }: {
@@ -53,6 +54,8 @@
     /** `symbol`을 그룹에서 `target` 자리로 옮긴다. */
     onreorder: (symbol: string, target: string) => void;
     onopenadd: () => void;
+    /** 추가 단추 문구(보유 화면은 `＋ 직접 추가`) */
+    addLabel?: string;
     /** 포커스가 목록 안으로 들어오면 그때 보이는 순서를, 목록 밖으로 나가면 null을 알린다. */
     onfocuswithin?: (order: string[] | null) => void;
     /** 머리줄의 `값 순`·`내 순서`로 정렬을 바꾼다. */
@@ -358,7 +361,7 @@
         >
       {/each}
     </div>
-    <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>＋ 종목 추가</button>
+    <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>{addLabel}</button>
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown} onpointerdown={onlistpointerdown}>

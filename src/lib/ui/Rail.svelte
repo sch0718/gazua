@@ -19,6 +19,15 @@
   {:else}
     <div class="ritem static">{profile?.name}</div>
   {/if}
+  <button
+    type="button"
+    class="ritem"
+    class:on={route.name === 'holdings'}
+    aria-current={route.name === 'holdings' ? 'page' : undefined}
+    onclick={() => app.navigate({ name: 'holdings' })}
+  >
+    보유 종목
+  </button>
   <div class="rlabel">관심 그룹</div>
   {#each app.watchlists.groups as g (g.id)}
     <button

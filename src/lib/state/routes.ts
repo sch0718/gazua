@@ -1,6 +1,6 @@
 import { INVITE_RE } from '../sync/invite';
 
-export type RouteName = 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles' | 'shared';
+export type RouteName = 'holdings' | 'compare' | 'simulate' | 'performance' | 'settings' | 'help' | 'onboarding' | 'unlock' | 'profiles' | 'shared';
 
 export type SettingsSection = 'connection' | 'diagnostics' | 'data' | 'sync';
 
@@ -58,6 +58,7 @@ export function parseHash(hash: string): Route | null {
     }
   }
   if (/^#\/performance\/?$/.test(hash)) return { name: 'performance' };
+  if (/^#\/holdings\/?$/.test(hash)) return { name: 'holdings' };
   const shared = /^#\/s\/([^/?#]+)$/.exec(hash);
   if (shared) return CAPABILITY_RE.test(shared[1]) ? { name: 'shared', capability: shared[1] } : { name: 'shared' };
   const help = /^#\/help(?:\/([^/?#]+))?\/?$/.exec(hash);
@@ -93,6 +94,8 @@ export function hashFor(r: Route): string | null {
       return r.strategyId ? `#/simulate/${encodeURIComponent(r.strategyId)}` : '#/simulate';
     case 'performance':
       return '#/performance';
+    case 'holdings':
+      return '#/holdings';
     case 'settings':
       return '#/settings';
     case 'help':

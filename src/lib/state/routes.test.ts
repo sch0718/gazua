@@ -109,3 +109,10 @@ describe('settings routes', () => {
     expect(hashFor({ name: 'settings' })).toBe('#/settings');
   });
 });
+
+describe('보유 화면 경로', () => {
+  it('#/holdings를 읽고 쓴다', () => {
+    expect(parseHash('#/holdings')).toEqual({ name: 'holdings' });
+    expect(hashFor({ name: 'holdings' })).toBe('#/holdings');
+  });
+});

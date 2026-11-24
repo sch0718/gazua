@@ -476,6 +476,28 @@ describe('createApp — settings, watchlists and routing', () => {
     expect(app.route).toEqual({ name: 'compare', groupId: 'g1' });
   });
 
+  it('직접 넣은 보유가 있거나 토스를 쓰면 해시 없는 첫 화면은 보유 종목이다(데모·KIS는 비교)', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    seed(backing, 'p:p1:settings', { onboarded: true });
+    seed(backing, 'p:p1:watchlists', lists('g1'));
+    const app = make(backing);
+    fireHash('#/whatever');
+    expect(app.route).toEqual({ name: 'compare', groupId: 'g1' });
+    app.setManualHoldings([{ id: 'h1', symbol: '005930', name: '삼성전자', qty: 1, avgPrice: null, account: 'ISA' }]);
+    fireHash('#/whatever');
+    expect(app.route).toEqual({ name: 'holdings' });
+  });
+
+  it('다른 탭이 직접 넣은 보유를 바꾸면 다시 읽는다(옛 목록으로 덮어쓰지 않게)', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_ONE);
+    const app = make(backing);
+    seed(backing, 'p:p1:manualHoldings', { holdings: [{ id: 'h1', symbol: '005930', name: '삼성전자', qty: 2, avgPrice: null, account: 'ISA' }] });
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gazua:v1:p:p1:manualHoldings' }));
+    expect(app.manualHoldings.map((h) => h.id)).toEqual(['h1']);
+  });
+
   it('초대 링크(#/join/<코드>)는 온보딩 전 기기에서도 코드를 저장하고, 해시에는 남기지 않는다', () => {
     const code = 'A'.repeat(28) + 'b_-9';
     location.hash = `#/join/${code}`;

@@ -26,6 +26,7 @@
     isOpenToday,
     open = false,
     inline = false,
+    actions = true,
     returnFocus,
     restoredFocus,
     onclose,
@@ -40,6 +41,8 @@
     isOpenToday: boolean;
     open?: boolean;
     inline?: boolean;
+    /** false면 그룹 이동·삭제 단추를 숨긴다(보유 화면의 읽기 전용 그룹) */
+    actions?: boolean;
     /** 지우거나 옮겨 이 종목의 행이 사라진 뒤 포커스할 곳. 시트는 Sheet가, inline은 여기서 옮긴다. */
     returnFocus?: () => HTMLElement | null | undefined;
     /** 되돌리기 뒤 포커스할 곳(되돌린 행). groupId는 지웠던 그룹이다. */
@@ -199,11 +202,13 @@
     <span>상태</span><b class:ok={view.status === '정상 거래'} class:warn={view.status !== '정상 거래'}>{view.status}</b>
   </p>
 
+  {#if actions}
   <div class="btns">
     <button type="button" class="btn ghost" aria-expanded={picking} onclick={() => (picking = !picking)}>그룹 이동</button>
     <button type="button" class="btn danger" onclick={remove}>삭제</button>
   </div>
-  {#if picking}
+  {/if}
+  {#if actions && picking}
     <div class="pick">
       {#if others.length === 0}
         <p class="hint">옮길 다른 그룹이 없어요</p>
