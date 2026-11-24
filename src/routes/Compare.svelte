@@ -49,6 +49,8 @@
     group: Group;
     onchange: (g: Group) => void;
     onadd: () => void;
+    /** 당겨서 새로고침 때 시세와 함께 다시 받을 것(계좌 보유) */
+    refresh: () => Promise<void>;
     /** 앱 바 왼쪽(제목) */
     bar: Snippet;
     /** 본문 맨 위(시장 상황·계좌 칩·빈 상태) */
@@ -465,7 +467,7 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      await ctl.refresh();
+      await Promise.all([ctl.refresh(), holdings?.refresh()]);
     } finally {
       refreshing = false;
     }

@@ -12,6 +12,7 @@
   import { fmtPct, fmtWon, trendClass } from '../lib/ui/format';
   import { createHoldingsController } from '../lib/ui/holdings/holdingsController.svelte';
   import { signedWon } from '../lib/ui/perf/perfText';
+  import { kstDate } from '../lib/time/kst';
   import AddStockSheet from '../sheets/AddStockSheet.svelte';
   import ManualHoldingSheet, { type Draft } from '../sheets/ManualHoldingSheet.svelte';
   import Compare from './Compare.svelte';
@@ -32,13 +33,17 @@
   const manual = $derived(app.manualHoldings);
   const manualSymbols = $derived([...new Set(manual.map((m) => m.symbol))].sort().join(','));
 
-  // 공급자·프로필·직접 넣은 종목이 바뀌면 계좌 보유와 전일 종가를 다시 받는다.
+  const symbolList = () => (manualSymbols === '' ? [] : manualSymbols.split(','));
+  // 공급자·직접 넣은 종목·날짜가 바뀌면 계좌 보유와 전일 종가를 다시 받는다(켜 둔 채 날이 바뀌어도 「오늘」 기준이 맞게).
+  const today = $derived(kstDate(now));
   $effect(() => {
     const provider = app.provider;
-    void app.meta.activeProfileId;
-    const symbols = manualSymbols === '' ? [] : manualSymbols.split(',');
+    const symbols = symbolList();
+    void today;
     untrack(() => void ctl.load(provider, symbols));
   });
+  /** 당겨서 새로고침: 시세와 함께 계좌 보유(토스에서 사고판 것)도 다시 받는다. */
+  const refresh = () => ctl.load(app.provider, symbolList());
 
   const accountLabel = $derived(app.provider.id === 'demo' ? DEMO_LABEL : TOSS_LABEL);
   // 계좌 보유를 주는 공급자(토스·데모)인지. KIS는 직접 넣은 보유만 보인다.
@@ -102,10 +107,22 @@
     }
   }
   function remove(id: string) {
-    const prev = manual;
+    const at = manual.findIndex((m) => m.id === id);
+    if (at < 0) return;
+    const removed = manual[at];
     app.setManualHoldings(manual.filter((m) => m.id !== id));
     draft = null;
-    showSnackbar('보유 종목을 뺐어요', { label: '되돌리기', run: () => app.setManualHoldings(prev) });
+    // 되돌리기는 뺀 항목만 원래 자리에 다시 넣는다(그사이 넣은 보유는 그대로 둔다).
+    const undo = () => {
+      const cur = app.manualHoldings;
+      if (cur.some((m) => m.id === removed.id)) return;
+      try {
+        app.setManualHoldings([...cur.slice(0, at), removed, ...cur.slice(at)]);
+      } catch (e) {
+        showSnackbar(e instanceof Error ? e.message : '되돌리지 못했어요');
+      }
+    };
+    showSnackbar('보유 종목을 뺐어요', { label: '되돌리기', run: undo });
   }
 </script>
 
@@ -197,7 +214,7 @@
   </div>
 {/snippet}
 
-<Compare {app} {now} {sessions} {isOpenToday} {barEnd} {wide} holdings={{ group, onchange, onadd: () => (picking = true), bar: titleBar, top, below }} />
+<Compare {app} {now} {sessions} {isOpenToday} {barEnd} {wide} holdings={{ group, onchange, onadd: () => (picking = true), refresh, bar: titleBar, top, below }} />
 
 <AddStockSheet
   open={picking}

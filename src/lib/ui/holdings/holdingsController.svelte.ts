@@ -17,14 +17,19 @@ export function createHoldingsController(deps: { now: () => number }) {
   let prevClose = $state.raw<Record<string, number>>({});
   let indexes = $state.raw<IndexMove[]>([]);
   let gen = 0;
+  let lastProvider: MarketDataProvider | null = null;
 
+  /** 같은 공급자로 다시 부르면(직접 넣은 종목 변경·새로고침·날짜 변경) 새 응답까지 지금 값을 그대로 보여 준다. */
   async function load(provider: MarketDataProvider, manualSymbols: string[]) {
     const id = ++gen;
     loading = true;
     accountFailed = false;
     // 공급자가 바뀌면 이전 계좌의 보유를 새 응답 전까지 보이지 않게 비운다.
-    account = [];
-    prevClose = {};
+    if (provider !== lastProvider) {
+      lastProvider = provider;
+      account = [];
+      prevClose = {};
+    }
     let held: AccountHolding[] = [];
     if (provider.account) {
       try {

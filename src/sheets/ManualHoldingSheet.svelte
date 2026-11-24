@@ -3,6 +3,7 @@
   import { untrack } from 'svelte';
   import { Sheet } from '@sch0718/ui-svelte';
   import { ACCOUNT_LABEL_MAX, DEFAULT_ACCOUNT_LABEL } from '../lib/holdings/manual';
+  import { isImeComposing } from '../lib/ui/ime';
 
   export interface Draft {
     /** 수정이면 기존 항목 id */
@@ -85,7 +86,18 @@
       </label>
       <label>
         <span>계좌 라벨</span>
-        <input type="text" bind:value={account} maxlength={ACCOUNT_LABEL_MAX} placeholder={DEFAULT_ACCOUNT_LABEL} list="holding-labels" autocomplete="off" />
+        <input
+          type="text"
+          bind:value={account}
+          maxlength={ACCOUNT_LABEL_MAX}
+          placeholder={DEFAULT_ACCOUNT_LABEL}
+          list="holding-labels"
+          autocomplete="off"
+          onkeydown={(e) => {
+            // 한글 조합을 확정하는 Enter로는 제출하지 않는다(마지막 글자가 빠진 채 저장되지 않게).
+            if (e.key === 'Enter' && isImeComposing(e)) e.preventDefault();
+          }}
+        />
         <datalist id="holding-labels">
           {#each labels as l (l)}<option value={l}></option>{/each}
         </datalist>
