@@ -5,8 +5,8 @@ import { fromTemplate, TEMPLATES } from './templates';
 import { ruleIssues } from './validate';
 
 describe('템플릿(§3.4)', () => {
-  it('다섯 개, 첫 번째는 지금 새 전략과 같다', () => {
-    expect(TEMPLATES.map((t) => t.name)).toEqual(['하락 후 반등', '200일선 추세 추종', '골든크로스 50/200', '52주 신고가 돌파', 'RSI(2) 눌림목']);
+  it('여섯 개, 첫 번째는 지금 새 전략과 같다', () => {
+    expect(TEMPLATES.map((t) => t.name)).toEqual(['하락 후 반등', '200일선 추세 추종', '골든크로스 50/200', '52주 신고가 돌파', 'RSI(2) 눌림목', '급락 후 단기 반등']);
     const a = fromTemplate(TEMPLATES[0], 0, 'g0', '새 전략');
     expect({ ...a, id: 'x' }).toEqual({ ...newStrategy(0, 'g0', '새 전략'), id: 'x' });
   });

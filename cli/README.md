@@ -318,7 +318,7 @@ gazua alert stats --pretty
 | `AUTO_STRATEGY` | 필수 | 동기화한 전략 이름 또는 ID |
 | `AUTO_PROFILE` | 없음 | 프로필이 여럿일 때 이름 또는 ID |
 | `AUTO_MODE` | `dry` | 연습 `dry`, 실전 `live` |
-| `AUTO_DRY_PRESETS` | `off` | `all`이면 프리셋 5개도 연습, `off`면 끔. 실전에서는 실행하지 않아요 |
+| `AUTO_DRY_PRESETS` | `off` | `all`이면 프리셋 6개도 연습, `off`면 끔. 실전에서는 실행하지 않아요 |
 | `AUTO_DAY_CLOSE_AT` | `off` | `off` 또는 KST `15:00`~`15:10`의 `HH:MM`. 주 전략은 이 시각부터 매수를 멈추고 전량 매도를 시도해요 |
 | `AUTO_BUY_SLIPPAGE_PCT` | `1` | 현재가에 더할 매수 지정가 여유(%), 0~5 |
 | `AUTO_SELL_SLIPPAGE_PCT` | `2` | 현재가에서 뺄 매도 지정가 여유(%), 0~10 |
@@ -337,7 +337,7 @@ bash scripts/macos/auto-agent/install.sh
 
 실전 원장은 `auto-positions.json`, 연습 원장은 `auto-positions.dry.json`이고 권한은 600이에요. 주문 전 원장을 먼저 저장해 중간에 꺼져도 같은 주문을 다시 보내지 않아요. 같은 종목은 하루 한 번만 매수를 시도하고, 오늘 매도한 종목과 이미 가진 종목은 다시 사지 않아요. 원장이 손상되면 빈 원장으로 덮어쓰지 않고 멈춰요. 원장을 임의로 지우면 중복 방지 기록도 사라져요.
 
-`AUTO_DRY_PRESETS=all`이면 주 전략과 같은 관심 그룹·종목으로 프리셋 5개를 함께 연습해요. 자금·배분은 각 프리셋의 기본값이며 동기화 프로필은 바꾸지 않아요. 원장은 `auto-positions.dry.preset-<템플릿 id>.json`에 따로 저장하고 프리셋 거래는 ntfy로 보내지 않아요. 손상 원장이나 프리셋 전용 시세 조회 오류는 해당 프리셋만 건너뛰고 결과 `presets[].error`에 코드만 남겨요.
+`AUTO_DRY_PRESETS=all`이면 주 전략과 같은 관심 그룹·종목으로 프리셋 6개를 함께 연습해요. 자금·배분은 각 프리셋의 기본값이며 동기화 프로필은 바꾸지 않아요. 원장은 `auto-positions.dry.preset-<템플릿 id>.json`에 따로 저장하고 프리셋 거래는 ntfy로 보내지 않아요. 손상 원장이나 프리셋 전용 시세 조회 오류는 해당 프리셋만 건너뛰고 결과 `presets[].error`에 코드만 남겨요.
 
 `gazua auto digest`는 평일 KST 15:30 이후 오늘 판정한 연습 원장의 거래·보유 손익률을 한 번 요약해요. 판정 기록이 없는 날은 보내지 않고, 일부 전략만 판정했으면 나머지는 「오늘 기록 없음」으로 표시해요. 오늘 종가가 없으면 「평가 불가」로 표시하며, 성공한 날짜는 권한 600의 `auto-digest.json`에 저장해요. 전송에 실패하면 같은 날 `digest.sh`를 다시 실행해 보내요(다음 날에는 그날 기록만 요약해요). 평일 저녁 20시 예약과 직접 실행은 별도 잠금을 공유하는 아래 스크립트를 써요.
 

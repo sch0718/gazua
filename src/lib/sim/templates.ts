@@ -5,7 +5,7 @@ import { newStrategy } from './defaults';
 import type { Strategy } from './types';
 
 export interface StrategyTemplate {
-  id: 'rebound' | 'ma200' | 'golden' | 'breakout' | 'rsi2';
+  id: 'rebound' | 'ma200' | 'golden' | 'breakout' | 'rsi2' | 'crash';
   name: string;
   desc: string;
   /** 어디서 알려진 규칙인지(앱 기본은 null) */
@@ -61,6 +61,20 @@ export const TEMPLATES: readonly StrategyTemplate[] = [
     apply(s) {
       s.rules.buy = [{ conds: [{ kind: 'rsi', period: 2, level: 10, op: 'below' }, { kind: 'maPrice', period: 200, side: 'above' }] }];
       noExits(s);
+      s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 5, side: 'above' }] }] };
+    },
+  },
+  {
+    // RSI(2) 눌림목의 200일선 조건을 빼고 급락 조건을 더한 하락장용. 오래 들지 않게 기간 청산·손절을 둔다.
+    id: 'crash',
+    name: '급락 후 단기 반등',
+    desc: '5일 동안 10% 넘게 빠지고 RSI(2)가 10 아래면 사요. 종가가 5일선을 넘거나 5거래일이 지나면 팔고, 손절 −8%',
+    source: '단기 과매도 평균 회귀(Connors 계열)',
+    apply(s) {
+      s.rules.buy = [{ conds: [{ kind: 'change', days: 5, pct: -10, op: 'below' }, { kind: 'rsi', period: 2, level: 10, op: 'below' }] }];
+      noExits(s);
+      s.rules.sell.stopLoss = { ...s.rules.sell.stopLoss, on: true, pct: 8 };
+      s.rules.sell.timeExit = { on: true, days: 5 };
       s.rules.sell.signal = { on: true, groups: [{ conds: [{ kind: 'maPrice', period: 5, side: 'above' }] }] };
     },
   },
