@@ -15,7 +15,7 @@ describe('템플릿(§3.4)', () => {
       ['up', '상승장', ['ma200', 'breakout']],
       ['range', '횡보장', ['rsi2']],
       ['down', '하락장', ['rsi2', 'crash']],
-      ['crash', '급락 뒤', ['crash']],
+      ['crash', '급락·고변동장', ['crash']],
       ['other', '그 밖의 전략', ['rebound', 'golden']],
     ]);
   });

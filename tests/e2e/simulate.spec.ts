@@ -46,7 +46,7 @@ test('새 전략 시트: 시황별 프리셋과 근거를 보고 비교한 뒤 �
   await page.getByRole('button', { name: '＋ 새 전략' }).click();
 
   const sheet = page.getByRole('dialog', { name: '어떤 전략으로 시작할까요?' });
-  await expect(sheet.getByRole('heading', { level: 4 })).toHaveText(['상승장', '횡보장', '하락장', '급락 뒤', '그 밖의 전략']);
+  await expect(sheet.getByRole('heading', { level: 4 })).toHaveText(['상승장', '횡보장', '하락장', '급락·고변동장', '그 밖의 전략']);
   const rsi = sheet.getByRole('button', { name: /^RSI\(2\) 눌림목/ });
   const crash = sheet.getByRole('button', { name: /^급락 후 단기 반등/ });
   await expect(rsi).toHaveCount(2);

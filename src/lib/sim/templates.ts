@@ -10,7 +10,7 @@ export const REGIMES: readonly { id: Regime; title: string }[] = [
   { id: 'up', title: '상승장' },
   { id: 'range', title: '횡보장' },
   { id: 'down', title: '하락장' },
-  { id: 'crash', title: '급락 뒤' },
+  { id: 'crash', title: '급락·고변동장' },
 ];
 
 export interface StrategyTemplate {
@@ -84,7 +84,7 @@ export const TEMPLATES: readonly StrategyTemplate[] = [
     desc: '200일선 위 종목의 RSI(2)가 10 아래로 떨어지면 사고, 종가가 5일선을 넘으면 팔아요',
     source: 'Connors RSI(2) 평균 회귀',
     regimes: ['range', 'down'],
-    evidence: '과거 횡보장·하락장 구간에서 시험: 횡보장 5구간 중 4구간과 하락장 3구간 중 2구간에서 수익이 났어요. 구간은 지나고 나서 나눴어요.',
+    evidence: '과거 횡보장·하락장 구간에서 시험: 횡보장 5구간 중 4구간과 하락장 3구간 중 2구간에서 수익이 났어요. 횡보장에서는 그냥 보유했을 때보다 수익이 작았어요. 구간은 지나고 나서 나눴어요.',
     apply(s) {
       s.rules.buy = [{ conds: [{ kind: 'rsi', period: 2, level: 10, op: 'below' }, { kind: 'maPrice', period: 200, side: 'above' }] }];
       noExits(s);
@@ -98,7 +98,7 @@ export const TEMPLATES: readonly StrategyTemplate[] = [
     desc: '5일 동안 10% 넘게 빠지고 RSI(2)가 10 아래면 사요. 종가가 5일선을 넘거나 5거래일이 지나면 팔고, 손절 −8%',
     source: '단기 과매도 평균 회귀(Connors 계열)',
     regimes: ['down', 'crash'],
-    evidence: '과거 하락장·급락장 구간에서 시험: 하락장 3구간과 급락장 2구간에서 모두 수익이 났어요. 구간은 지나고 나서 나눴어요.',
+    evidence: '과거 하락장·급락·고변동장 구간에서 시험: 하락장 3구간과 급락·고변동장 2구간에서 모두 수익이 났어요. 구간은 지나고 나서 나눴어요.',
     apply(s) {
       s.rules.buy = [{ conds: [{ kind: 'change', days: 5, pct: -10, op: 'below' }, { kind: 'rsi', period: 2, level: 10, op: 'below' }] }];
       noExits(s);
