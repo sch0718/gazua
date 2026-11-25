@@ -21,7 +21,7 @@
   let confirm = $state<{ upload: string[]; download: number } | null>(null);
 
   const status = $derived(sync.status);
-  const fmtTime = (t: number) => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmtTime = (t: number) => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' });
   const PHASE: Record<string, string> = {
     off: '꺼짐',
     syncing: '동기화 중…',

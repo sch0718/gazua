@@ -1,6 +1,6 @@
 // 시장 데이터 파일(수집 스크립트 산출물)을 브라우저 IndexedDB에 하나만 보관한다. 기기 단위 데이터다(스펙 4).
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import { hasFlowFormat, hasMacroFormat, isV4, validateMarketData, type MarketDataFile } from './format';
+import { hasMacroFormat, summarizeMarketData, validateMarketData, type MarketDataFile } from './format';
 
 export type MarketSector = MarketDataFile['sectors'][number];
 /** 테마 선택 화면용 요약. 종목 목록은 본문에만 둔다. */
@@ -275,22 +275,11 @@ export function openMarketData(): MarketDataStore {
 
     const data = check.data;
     const v2 = hasMacroFormat(data);
-    const flowStocks = hasFlowFormat(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
-    const finStocks = isV4(data) ? data.stocks.filter((s) => s.fin !== undefined).length : 0;
     const next: MarketDataInfo = {
-      collectedAt: data.collectedAt,
-      stocks: data.stocks.length,
-      range: data.range,
+      ...summarizeMarketData(data),
       bytes: rawBytes,
-      version: data.version,
-      themeCount: v2 ? data.themes.length : 0,
-      hasFlow: flowStocks > 0,
-      flowStocks,
-      hasFin: finStocks > 0,
-      finStocks,
       importId: newImportId(),
       ...(sha256 && { sha256 }),
-      hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
     };
     const d = await db();
     const tx = d.transaction(STORE, 'readwrite');

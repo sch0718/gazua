@@ -238,8 +238,7 @@ const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 /** 두 키 묶음이 이 공급자에 대해 같은 키·프록시 토큰인지. */
 function sameCredentials(p: 'kis' | 'toss', a: Secrets, b: Secrets | null): boolean {
   if (!b || (a.proxyToken ?? '') !== (b.proxyToken ?? '')) return false;
-  if (p === 'kis') return !!a.kis && a.kis.appKey === b.kis?.appKey && a.kis.appSecret === b.kis?.appSecret;
-  return !!a.toss && a.toss.clientId === b.toss?.clientId && a.toss.clientSecret === b.toss?.clientSecret;
+  return !!a[p] && sameProviderKeys(p, a, b);
 }
 
 /** 한 공급자의 두 값(KIS appKey·appSecret, 토스 clientId·clientSecret)이 같은지. proxyToken은 보지 않는다. 둘 다 없으면 같다 */
@@ -962,7 +961,7 @@ export function createApp(deps: AppDeps): App {
     importData(json) {
       const res = importData(storage, json, now);
       if (res.ok) {
-        meta = loadMeta(storage);
+        meta = { ...meta, profiles: loadMeta(storage).profiles };
         storageTick++;
         syncable('changed', res.profileId);
       }

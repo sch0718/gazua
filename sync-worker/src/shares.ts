@@ -70,7 +70,7 @@ export async function listShares(env: SyncEnv, ctx: AuthContext) {
 }
 
 export async function revokeShare(env: SyncEnv, ctx: AuthContext, id: string, now: number): Promise<void> {
-  if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new HttpError(404, 'not-found');
+  checkId(id);
   const r = await env.DB.prepare('UPDATE shares SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL').bind(now, id, ctx.userId).run();
   if (r.meta.changes > 0) return;
   // 이미 철회했으면 그대로 성공, 남의 것이거나 없으면 404(있는지 알려 주지 않는다)

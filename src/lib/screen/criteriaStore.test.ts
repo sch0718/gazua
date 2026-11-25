@@ -3,7 +3,7 @@ import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
 import { MAX_CRITERIA, newCriteria } from './defaults';
-import { CRITERIA_CAP_MESSAGE, assertCriteriaCap, loadCriteria, saveCriteria } from './criteriaStore';
+import { CRITERIA_CAP_MESSAGE, assertCriteriaCap, loadCriteria } from './criteriaStore';
 
 const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ ...newCriteria(1_700_000_000_000, null, `기준 ${i}`), id: `c${i}` }));
 
@@ -15,7 +15,7 @@ describe('criteriaStore', () => {
   it('저장 후 다시 읽으면 같다', () => {
     const st = createSafeStorage(memoryBacking());
     const list = mk(2);
-    saveCriteria(st, 'p1', list);
+    st.set(profileKeys.criteria('p1'), { criteria: list });
     expect(loadCriteria(st, 'p1')).toEqual(list);
   });
 
@@ -53,12 +53,9 @@ describe('criteriaStore', () => {
     expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.criteria('p1')}`)!).criteria[0].rank.take).toBe(31);
   });
 
-  it('20개까지 저장되고 21개는 던진다(저장소는 그대로)', () => {
-    const st = createSafeStorage(memoryBacking());
-    saveCriteria(st, 'p1', mk(MAX_CRITERIA));
-    expect(() => saveCriteria(st, 'p1', mk(MAX_CRITERIA + 1))).toThrow(CRITERIA_CAP_MESSAGE);
-    expect(loadCriteria(st, 'p1')).toHaveLength(MAX_CRITERIA);
+  it('선정 기준은 20개까지 허용하고 21개는 거절한다', () => {
+    expect(() => assertCriteriaCap(mk(MAX_CRITERIA))).not.toThrow();
+    expect(() => assertCriteriaCap(mk(MAX_CRITERIA + 1))).toThrow(CRITERIA_CAP_MESSAGE);
     expect(CRITERIA_CAP_MESSAGE).toBe('선정 기준은 20개까지 저장할 수 있어요');
-    expect(() => assertCriteriaCap(mk(20))).not.toThrow();
   });
 });

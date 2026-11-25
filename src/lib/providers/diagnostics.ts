@@ -190,7 +190,7 @@ export async function runDiagnostics(args: DiagnosticsArgs): Promise<DiagStep[]>
       }
       const { res, json } = reply;
       if (isRedirect(res)) throw new StepFailure('proxy-redirect');
-      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, json, provider));
+      if (res.status < 200 || res.status >= 300) throw new StepFailure(classify(res.status, json));
       if (isRecord(json) && json.originAllowed === false) throw new StepFailure('cors-blocked');
       tossManaged = provider === 'toss' && isRecord(json) && json.tossToken === true;
     },

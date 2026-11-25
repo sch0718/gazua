@@ -11,7 +11,6 @@ export interface QuotePollerDeps {
   venue: (symbol: string) => Venue;
   inSession: () => boolean;
   onQuotes(q: Quote[]): void;
-  intervalMs?: number;
   doc?: VisibilityDoc;
 }
 
@@ -26,7 +25,6 @@ export interface QuotePoller {
 export const QUOTE_INTERVAL_MS = 5000;
 
 export function createQuotePoller(deps: QuotePollerDeps): QuotePoller {
-  const intervalMs = deps.intervalMs ?? QUOTE_INTERVAL_MS;
   const doc = deps.doc ?? (typeof document === 'undefined' ? undefined : document);
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
@@ -55,7 +53,7 @@ export function createQuotePoller(deps: QuotePollerDeps): QuotePoller {
   }
 
   const arm = () => {
-    if (timer === null) timer = setInterval(() => void poll(), intervalMs);
+    if (timer === null) timer = setInterval(() => void poll(), QUOTE_INTERVAL_MS);
   };
   const disarm = () => {
     if (timer !== null) clearInterval(timer);

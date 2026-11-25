@@ -216,7 +216,7 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
       const st = await profileState(p.id);
       const unsent = ops.filter((o) => o.profileId === p.id && o.sentAt === undefined);
       // 응답을 못 받은 업로드가 다른 내용이면, 그것이 다시 보내져 서버가 바뀐다. 지금 문서가 확인된 것과 같아도 뒤에 다시 올려야 한다.
-      const sentOther = ops.some((o) => o.profileId === p.id && o.kind === 'put' && o.sentAt !== undefined && o.hash !== hash);
+      const sentOther = unackedOther(ops, p.id, hash);
       if (st && !st.deleted && st.syncedHash === hash && !sentOther) {
         for (const o of unsent) await store.deleteOp(o.opId);
         continue;
@@ -603,5 +603,3 @@ export function createSyncEngine(deps: SyncEngineDeps): SyncEngine {
   });
   return engine;
 }
-
-export type { OutboxOp };

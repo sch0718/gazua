@@ -63,6 +63,7 @@
     type="button"
     class="ritem"
     class:on={route.name === 'settings'}
+    aria-current={route.name === 'settings' ? 'page' : undefined}
     onclick={() => app.navigate({ name: 'settings' })}
   >
     설정

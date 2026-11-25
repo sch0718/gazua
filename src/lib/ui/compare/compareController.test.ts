@@ -10,7 +10,7 @@ import {
 import { sessionsForDay } from '../../market/sessions';
 import { createDemoProvider } from '../../providers/demo';
 import { ApiError } from '../../providers/errors';
-import { issueView } from './loadIssue';
+import { issueView, META_ERROR } from './loadIssue';
 import { memoryCache } from '../../data/testCache';
 import type { MarketDataProvider, Quote } from '../../providers/types';
 import type { AppData } from '../../state/app.svelte';
@@ -18,7 +18,6 @@ import type { Period } from '../../state/schema';
 import { addDays, kstEpoch } from '../../time/kst';
 import {
   RELOAD_IN_SESSION_MS,
-  META_ERROR,
   RELOAD_OUTSIDE_MS,
   createCompareController,
   type CompareController,

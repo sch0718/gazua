@@ -3,6 +3,7 @@ import type { Command } from '../context';
 import { chooseProvider, readCreds } from '../env';
 import { CliError } from '../errors';
 import { buildProvider, proxyOf } from '../providers';
+import { pickVenue } from '../signals';
 
 const SYMBOL = /^Q?[0-9A-Z]{6}$/;
 /** 토스는 ETN을 Q 없는 6자리로 돌려준다 */
@@ -19,8 +20,7 @@ export const quote: Command = async (ctx) => {
   const creds = readCreds(ctx.env);
   const id = chooseProvider(creds, ctx.args.provider, proxyOf(ctx));
   const { provider } = buildProvider(ctx, id, creds);
-  const venues = provider.capabilities.venues;
-  const venue = venues.length === 0 || venues.includes('KRX') ? 'KRX' : venues[0];
+  const venue = pickVenue(provider);
   const unique = [...new Set(symbols)];
   const quotes = await provider.getQuotes(unique, venue).catch(async (e: unknown) => {
     if (!isMissingPrice(e)) throw e;

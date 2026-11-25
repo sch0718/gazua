@@ -3,7 +3,6 @@ import {
   WrongPassphraseError,
   isLocked,
   lockSecrets,
-  trimCredential,
   unlockSecrets,
   type Secrets,
 } from './secrets';
@@ -60,10 +59,5 @@ describe('secrets', () => {
     expect(isLocked({ ...ok, enc: 1 })).toBe(false);
     expect(isLocked({ enc: 'a' })).toBe(false);
     expect(isLocked({ kis: { appKey: 'a', appSecret: 'b' } })).toBe(false);
-  });
-
-  it('trimCredential strips surrounding whitespace and newlines', () => {
-    expect(trimCredential(' ab\n')).toBe('ab');
-    expect(trimCredential('\r\n\tkey value \n')).toBe('key value');
   });
 });

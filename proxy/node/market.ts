@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { hasFlowFormat, hasMacroFormat, isV4, validateMarketData, type MarketDataFile } from '../../src/lib/marketData/format';
+import { hasMacroFormat, summarizeMarketData, validateMarketData, type MarketDataFile } from '../../src/lib/marketData/format';
 import type { MarketDataInfo } from '../../src/lib/marketData/store';
 import type { WorkerRequest, WorkerResponse } from '../../src/lib/screen/runValidation';
 import { createWorkerHandler } from '../../src/lib/screen/workerHandler';
@@ -42,14 +42,7 @@ export function createMarketHandler({ directory = join(homedir(), 'gazua-data') 
         const check = validateMarketData(JSON.parse(gunzipSync(raw).toString('utf8')));
         if (!check.ok) throw new Error('시장 파일 형식이 맞지 않는다');
         const data = check.data;
-        const v2 = hasMacroFormat(data);
-        const flowStocks = hasFlowFormat(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
-        const finStocks = isV4(data) ? data.stocks.filter((s) => s.fin !== undefined).length : 0;
-        return { data, info: {
-          file, importId: key, collectedAt: data.collectedAt, stocks: data.stocks.length, range: data.range,
-          version: data.version, hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
-          themeCount: v2 ? data.themes.length : 0, hasFlow: flowStocks > 0, flowStocks, hasFin: finStocks > 0, finStocks,
-        } };
+        return { data, info: { ...summarizeMarketData(data), file, importId: key } };
       }).catch(() => { throw new MarketFileError(503, 'market-file-invalid'); });
       cache = { key, value };
     }

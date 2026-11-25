@@ -7,7 +7,7 @@ import type { PatternEntry, Strategy } from '../sim/types';
 import { kstEpoch } from '../time/kst';
 import { stockFin, type StockFin } from './fin';
 import { flowPrefix, flowStreak, subjectsOf, type FlowSubject, type StockFlow } from './flow';
-import { alignSeries, pairIndices, rollingBeta, type AlignedSeries } from './macro';
+import { alignSeries, iso, pairIndices, rollingBeta, type AlignedSeries } from './macro';
 import type { FlowWho, MacroSeriesKey, Rebalance, SelectionCriteria } from './types';
 import { macroOn, usesFin, usesFlow } from './validate';
 
@@ -142,14 +142,12 @@ export class MissingPatternError extends Error {
   }
 }
 
-const isoDate = (ymd: string): string => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
-
 /** 거래일 축: 지수 날짜 ∪ 종목 날짜(YYYY-MM-DD, 오름차순) */
 export function tradingAxis(data: MarketDataFile): string[] {
   const set = new Set<string>();
   for (const x of data.indices) for (const d of x.d) set.add(d);
   for (const x of data.stocks) for (const d of x.d) set.add(d);
-  return [...set].sort().map(isoDate);
+  return [...set].sort().map(iso);
 }
 
 const bucket = (date: string, every: Rebalance): string => {
@@ -232,7 +230,7 @@ export function precompute(data: MarketDataFile, criteria: SelectionCriteria, re
     wti: alignSeries('wti', v2?.macro.wti),
   };
   const stocks = data.stocks.map((st, j): StockSeries => {
-    const d = st.d.map(isoDate);
+    const d = st.d.map(iso);
     const close = st.c.slice();
     const sig = signals(d, st, reboundEntry);
     // 관측일 기준으로 짝지은 값으로 롤링 β를 한 번 계산한다. 공개 시점은 selectAt이 i*(p)로 자른다

@@ -1,7 +1,5 @@
 import { isAllowed, isProvider, UPSTREAM } from './allowlist.js';
 
-export { UPSTREAM };
-
 export interface ProxyEnv {
   ALLOWED_ORIGINS: string; // comma separated, exact match
   PROXY_TOKEN?: string;

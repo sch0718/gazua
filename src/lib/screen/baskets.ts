@@ -93,8 +93,3 @@ export function assertBasketsWritable(list: Basket[]): void {
     if (new Set(b.symbols).size !== b.symbols.length) throw new Error('묶음에 같은 종목이 두 번 들어 있어요');
   }
 }
-
-export function saveBaskets(st: SafeStorage, profileId: string, list: Basket[]): void {
-  assertBasketsWritable(list);
-  st.set(profileKeys.baskets(profileId), { baskets: list });
-}

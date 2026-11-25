@@ -1,5 +1,5 @@
 // 연결 폼(ConnectionForm)의 순수 로직: 키 가리기, 프록시 주소 정리, 키 합치기.
-import { trimCredential, type Secrets } from '../../state/secrets';
+import type { Secrets } from '../../state/secrets';
 
 /** 끝 4자리만 보인다. 4자 이하면 전부 가린다. */
 export function maskTail(v: string): string {
@@ -20,7 +20,7 @@ const LOCAL_DEV_ONLY = `${NEED_HTTPS} · http://localhost 프록시는 개발 �
  */
 export function normalizeProxyUrl(raw: string, opts: { allowLocalHttp?: boolean } = {}): UrlResult {
   const allowLocalHttp = opts.allowLocalHttp ?? import.meta.env.DEV;
-  const trimmed = trimCredential(raw);
+  const trimmed = raw.trim();
   if (trimmed === '') return { ok: true, url: '' };
   let u: URL;
   try {
@@ -44,7 +44,7 @@ export function normalizeProxyUrl(raw: string, opts: { allowLocalHttp?: boolean 
 export function localHttpOrigin(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   try {
-    const u = new URL(trimCredential(raw));
+    const u = new URL(raw.trim());
     return u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname) ? u.origin : null;
   } catch {
     return null;
@@ -69,8 +69,8 @@ export type MergeResult = { ok: true; secrets: Secrets | null } | { ok: false; r
  * 둘 다 비었으면 바뀐 게 없다(secrets: null).
  */
 export function mergeKeys(current: Secrets | null, provider: 'kis' | 'toss', first: string, second: string): MergeResult {
-  const a = trimCredential(first);
-  const b = trimCredential(second);
+  const a = first.trim();
+  const b = second.trim();
   if (a === '' && b === '') return { ok: true, secrets: null };
   const base: Secrets = { ...(current ?? {}) };
   if (provider === 'kis') {

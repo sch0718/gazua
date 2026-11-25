@@ -2,11 +2,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { socialAuthorizeUrl, socialNonce } from '@sch0718/firebase-session/client';
-import type { SocialProvider } from '@sch0718/firebase-session/worker';
+import { SESSION_TTL, type SocialProvider } from '@sch0718/firebase-session/worker';
 import { harness, ORIGIN, type Harness } from '../test/harness';
 import { doc } from '../test/docs';
 import { testServer, SYNC_BASE } from '../test/server';
-import { SESSION_TTL } from './session';
 
 const result = async (r: Response) => ({ status: r.status, body: await r.json() });
 const count = (h: Harness, table: string) => h.env.DB.raw.prepare(`SELECT count(*) AS n FROM ${table}`).get();

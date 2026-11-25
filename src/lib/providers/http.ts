@@ -114,7 +114,7 @@ export function createProxyClient(cfg: ProxyClientConfig): ProxyClient {
           throw new ApiError('proxy-unreachable');
         }
         if (res.status < 200 || res.status >= 300) {
-          throw new ApiError(classify(res.status, json, provider), undefined, {
+          throw new ApiError(classify(res.status, json), undefined, {
             status: res.status,
             retryAfterMs: retryAfterMs(res.headers),
           });

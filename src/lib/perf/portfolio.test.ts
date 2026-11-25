@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Candle } from '../data/metrics';
 import { kstEpoch } from '../time/kst';
-import { buildTimeline, splitFactor, splitFactors } from './portfolio';
+import { buildTimeline, splitFactorForDay, splitFactors } from './portfolio';
 import { reconcile } from './reconcile';
 import { viewOf } from './view';
 import type { BenchSeries, StockSeries, Trade } from './types';
@@ -346,23 +346,23 @@ describe('buildTimeline', () => {
     expect([factors.get(buy.orderId), factors.get(sell.orderId)]).toEqual([2, 1]);
   });
 
-  describe('splitFactor', () => {
+  describe('체결가 한 건의 보정 배율', () => {
     it('is 1 inside the bar (with a 3% margin) and the simplest ratio that fits outside it', () => {
-      expect(splitFactor(108, bar('2026-03-02', 100, 105, 95))).toBe(1);
+      expect(splitFactorForDay([108], bar('2026-03-02', 100, 105, 95))).toBe(1);
       // 200원 체결, 수정 봉 95~105 → 2:1 분할(반올림 오차 없이 2)
-      expect(splitFactor(201, bar('2026-03-02', 100, 105, 95))).toBe(2);
+      expect(splitFactorForDay([201], bar('2026-03-02', 100, 105, 95))).toBe(2);
       // 50:1 분할
-      expect(splitFactor(2_650_000, bar('2018-04-02', 53_000, 54_000, 52_300))).toBe(50);
+      expect(splitFactorForDay([2_650_000], bar('2018-04-02', 53_000, 54_000, 52_300))).toBe(50);
       // 무상증자 0.5주 배정(1.5배)
-      expect(splitFactor(15_000, bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(1.5);
+      expect(splitFactorForDay([15_000], bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(1.5);
       // 10:1 병합
-      expect(splitFactor(1_000, bar('2026-03-02', 10_000, 10_300, 9_800))).toBe(0.1);
-      expect(splitFactor(200, undefined)).toBe(1);
+      expect(splitFactorForDay([1_000], bar('2026-03-02', 10_000, 10_300, 9_800))).toBe(0.1);
+      expect(splitFactorForDay([200], undefined)).toBe(1);
       // 범위 안의 가장 둥근 비율: 5200원 체결(추정 52)도 50:1 분할로 본다
-      expect(splitFactor(5200, bar('2018-04-02', 100, 104, 96))).toBe(50);
+      expect(splitFactorForDay([5200], bar('2018-04-02', 100, 104, 96))).toBe(50);
       // 3:1 분할과 1:3 병합
-      expect(splitFactor(30_300, bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(3);
-      expect(splitFactor(3_000, bar('2026-03-02', 9_000, 9_200, 8_900))).toBeCloseTo(1 / 3, 12);
+      expect(splitFactorForDay([30_300], bar('2026-03-02', 10_000, 10_200, 9_900))).toBe(3);
+      expect(splitFactorForDay([3_000], bar('2026-03-02', 9_000, 9_200, 8_900))).toBeCloseTo(1 / 3, 12);
     });
   });
 

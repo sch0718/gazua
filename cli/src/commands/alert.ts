@@ -15,6 +15,7 @@ export async function sendNtfy(ctx: Ctx, cfg: AlertConfig, msg: { title: string;
   try {
     const res = await ctx.fetch(cfg.server.replace(/\/+$/, ''), {
       method: 'POST',
+      signal: AbortSignal.timeout(15_000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ topic: cfg.topic, title: msg.title, message: msg.body, ...(msg.tags ? { tags: msg.tags.split(',').map((t) => t.trim()).filter(Boolean) } : {}) }),
     });
