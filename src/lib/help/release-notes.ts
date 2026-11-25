@@ -5,6 +5,13 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.13.0',
+    date: '2026-11-25',
+    items: [
+      '새 전략 프리셋에 「급락 후 단기 반등」을 더했어요. 5일 동안 10% 넘게 빠지고 RSI(2)가 10 아래면 사고, 종가가 5일선을 넘거나 5거래일이 지나면 팔아요(손절 −8%).',
+    ],
+  },
+  {
     version: 'v0.12.1',
     date: '2026-11-24',
     items: [

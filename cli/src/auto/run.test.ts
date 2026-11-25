@@ -339,12 +339,12 @@ it('오류를 알린 뒤 처음 정상으로 끝난 실행에서 한 번만 정�
 });
 
 
-it('프리셋 원장 5개는 독립적이고 주 전략 원장·알림은 꺼짐과 같다', async () => {
+it('프리셋 원장(템플릿마다 하나)은 독립적이고 주 전략 원장·알림은 꺼짐과 같다', async () => {
   const off = fixture(), on = fixture();
   on.ctx.env.AUTO_DRY_PRESETS = 'all';
   await off.run();
   const result = await on.run();
-  expect(result.presets).toHaveLength(5);
+  expect(result.presets).toHaveLength(TEMPLATES.length);
   expect(on.ledger()).toEqual(off.ledger());
   expect(alerts(on)).toHaveLength(alerts(off).length);
   for (const t of TEMPLATES) {
