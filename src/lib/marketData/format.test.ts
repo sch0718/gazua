@@ -139,7 +139,7 @@ function sampleV2() {
 }
 
 describe('validateMarketData v2', () => {
-  it('정상 v2 파일은 ok이고 hasMacroFormat이 참, isV3는 거짓이다', () => {
+  it('정상 v2 파일은 ok이고 hasMacroFormat이 참, 버전 3이 아니다', () => {
     const r = validateMarketData(sampleV2());
     expect(r.ok).toBe(true);
     if (r.ok) {
@@ -309,7 +309,7 @@ function sampleV4(fin?: unknown, flow?: unknown) {
 }
 
 describe('validateMarketData v4', () => {
-  it('정상 v4 파일은 ok이고 isV4·hasFlowFormat·hasMacroFormat이 참, isV3는 거짓이다', () => {
+  it('정상 v4 파일은 ok이고 isV4·hasFlowFormat·hasMacroFormat이 참, 버전 3이 아니다', () => {
     const r = validateMarketData(sampleV4(FIN(), { from: '20261014', f: [1, -2], i: [3, 4], p: [-4, -2] }));
     expect(r.ok).toBe(true);
     if (r.ok) {
