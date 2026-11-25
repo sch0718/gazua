@@ -3,7 +3,7 @@
   import { tick } from 'svelte';
   import type { App } from '../../state/app.svelte';
   import { MAX_STRATEGIES, NAME_MAX } from '../../sim/defaults';
-  import { fromTemplate, TEMPLATES } from '../../sim/templates';
+  import { fromTemplate, templatesByRegime, type StrategyTemplate } from '../../sim/templates';
   import { STRATEGY_CAP_MESSAGE } from '../../sim/strategyStore';
   import type { Strategy } from '../../sim/types';
   import { kstDate } from '../../time/kst';
@@ -70,7 +70,9 @@
     cmp = null;
   }
 
-  function createFrom(t: (typeof TEMPLATES)[number]) {
+  const templateGroups = templatesByRegime();
+
+  function createFrom(t: StrategyTemplate) {
     const groupId = cmp && 'ok' in cmp && cmp.ok && cmpGroup ? cmpGroup : defaultGroup();
     closePicker();
     const s = fromTemplate(t, Date.now(), groupId, nextStrategyName(app.strategies));
@@ -241,23 +243,29 @@
         </p>
       </div>
     {/if}
-    <ul class="templates">
-      {#each TEMPLATES as t (t.id)}
-        {@const r = cmpOf(t.id)}
-        <li>
-          <button type="button" class="tpl" onclick={() => createFrom(t)}>
-            <b>{t.name}</b>
-            <span>{t.desc}</span>
-            {#if t.source}<small>근거: {t.source}</small>{/if}
-            {#if r}
-              <span class="stats">
-                총수익 {fmtReturnPct(r.summary.totalReturnPct, true)} · 최대 낙폭 {fmtReturnPct(-Math.abs(r.summary.mddPct))} · 거래 {r.summary.roundTrips}회{r.summary.winRatePct === null ? '' : ` · 승률 ${Math.round(r.summary.winRatePct)}%`}
-              </span>
-            {/if}
-          </button>
-        </li>
-      {/each}
-    </ul>
+    {#each templateGroups as group (group.id)}
+      <section>
+        <h4>{group.title}</h4>
+        <ul class="templates">
+          {#each group.templates as t (`${group.id}:${t.id}`)}
+            {@const r = cmpOf(t.id)}
+            <li>
+              <button type="button" class="tpl" onclick={() => createFrom(t)}>
+                <b>{t.name}</b>
+                <span>{t.desc}</span>
+                {#if t.source}<small>근거: {t.source}</small>{/if}
+                {#if t.evidence}<small class="evidence">{t.evidence}</small>{/if}
+                {#if r}
+                  <span class="stats">
+                    총수익 {fmtReturnPct(r.summary.totalReturnPct, true)} · 최대 낙폭 {fmtReturnPct(-Math.abs(r.summary.mddPct))} · 거래 {r.summary.roundTrips}회{r.summary.winRatePct === null ? '' : ` · 승률 ${Math.round(r.summary.winRatePct)}%`}
+                  </span>
+                {/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/each}
   </div>
 </Sheet>
 
@@ -312,6 +320,14 @@
     font-size: var(--fs-sub);
     color: var(--t1);
     font-weight: 600;
+  }
+  h4 {
+    margin: 0 0 6px;
+    font-size: var(--fs-sub);
+    color: var(--t2);
+  }
+  .tpl .evidence {
+    color: var(--t2);
   }
   .templates {
     list-style: none;

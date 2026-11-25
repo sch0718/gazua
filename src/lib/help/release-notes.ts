@@ -5,6 +5,13 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.14.0',
+    date: '2026-11-26',
+    items: [
+      '새 전략을 만들 때 시황별로 프리셋을 골라 쓸 수 있어요. 카드에서 과거 시황 구간을 나눠 시험한 결과도 볼 수 있어요.',
+    ],
+  },
+  {
     version: 'v0.13.0',
     date: '2026-11-25',
     items: [
