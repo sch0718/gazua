@@ -56,7 +56,6 @@ export interface CompareControllerDeps {
   /** 오늘 세션(자동 모드 현재가 거래소) */
   sessions: () => DaySession[];
   doc?: VisibilityDoc;
-  quoteIntervalMs?: number;
 }
 
 export interface CompareController {
@@ -90,7 +89,6 @@ export interface CompareController {
 
 export const RELOAD_IN_SESSION_MS = 60_000;
 export const RELOAD_OUTSIDE_MS = 600_000;
-export { META_ERROR }; // loadIssue로 옮겼다(시뮬레이션도 쓴다). 기존 import 경로는 그대로 둔다
 
 /** 행에 보이는 짧은 오류 문구. 오류 메시지 원문(요청 정보가 섞일 수 있음)은 쓰지 않는다. */
 export function errorText(e: unknown): string {
@@ -365,7 +363,6 @@ export function createCompareController(deps: CompareControllerDeps): CompareCon
       symbols: () => (query ? query.symbols.filter((s) => metas[s]) : []),
       venue: (s) => venueOf(provider, s),
       inSession: deps.inSession,
-      intervalMs: deps.quoteIntervalMs,
       doc,
       onQuotes(list) {
         if (destroyed || query?.provider !== provider) return;

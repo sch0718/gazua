@@ -9,7 +9,7 @@
   // 붙여넣으면 앞뒤 공백·줄바꿈을 지운다. 온보딩은 section으로 프록시 칸(③)과 키 칸(④)을 따로 쓴다.
   import { untrack } from 'svelte';
   import { KeyLockedElsewhereError, StoredKeysNotRemovedError, type App } from '../../state/app.svelte';
-  import { trimCredential, type Secrets } from '../../state/secrets';
+  import type { Secrets } from '../../state/secrets';
   import { showSnackbar } from '@sch0718/ui-svelte';
   import { KEY_FIELDS, maskTail, mergeKeys, normalizeProxyUrl } from './connection';
 
@@ -78,9 +78,9 @@
   }
 
   const savedToken = $derived(clearToken ? '' : (app.secrets?.proxyToken ?? ''));
-  const dirtyKeys = $derived(trimCredential(keyA) !== '' || trimCredential(keyB) !== '');
+  const dirtyKeys = $derived(keyA.trim() !== '' || keyB.trim() !== '');
   const dirtySecrets = $derived(
-    (showKeys && dirtyKeys) || (showProxy && (trimCredential(proxyToken) !== '' || clearToken)),
+    (showKeys && dirtyKeys) || (showProxy && (proxyToken.trim() !== '' || clearToken)),
   );
   const needsPassphrase = $derived(app.settings.keyLock && dirtySecrets);
 
@@ -88,7 +88,7 @@
     const text = e.clipboardData?.getData('text');
     if (text == null) return;
     e.preventDefault();
-    set(trimCredential(text));
+    set(text.trim());
   }
 
   async function save(e: SubmitEvent) {
@@ -113,7 +113,7 @@
       else if (section === 'keys' && !savedKey(fields[0].name)) return fail('keys', '키를 입력해 주세요');
     }
     if (showProxy) {
-      const token = trimCredential(proxyToken);
+      const token = proxyToken.trim();
       if (token) next.proxyToken = token;
       else if (clearToken) delete next.proxyToken;
     }

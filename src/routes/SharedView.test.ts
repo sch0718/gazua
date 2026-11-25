@@ -54,6 +54,15 @@ describe('SharedView', () => {
     await waitFor(() => expect(screen.getByText(/삼성전자\(005930\)/)).toBeTruthy());
   });
 
+  it('공유 만료일을 한국 시각 기준 날짜로 보여 준다', async () => {
+    const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({
+      ok: true,
+      data: { ...DATA, expiresAt: Date.UTC(2026, 10, 26, 15, 30) },
+    }));
+    render(SharedView, { capability: CAP, read, onexit: () => {}, universe: names });
+    expect(await screen.findByText(/2026년 11월 27일까지 볼 수 있어요/)).toBeTruthy();
+  });
+
   it('종목 목록을 받지 못하면 코드만 보여 준다', async () => {
     const read = vi.fn(async (): Promise<ApiResult<SharedRead>> => ({ ok: true, data: DATA }));
     const universe = vi.fn(async () => Promise.reject(new Error('offline')));

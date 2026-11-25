@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CertsUnavailableError } from '@sch0718/firebase-session/worker';
+import { CertsUnavailableError, REAUTH_WINDOW, SESSION_TTL } from '@sch0718/firebase-session/worker';
 import { ALLOWED_HEADERS, ALLOWED_METHODS } from './cors';
 import { DAY } from './env';
-import { REAUTH_WINDOW, SESSION_TTL } from './session';
 import { harness, ME, ORIGIN, OTHER } from '../test/harness';
 
 const body = async (r: Response) => (await r.json()) as Record<string, unknown>;

@@ -53,7 +53,7 @@ export function kisBodyCode(msgCd: unknown): ErrorCode | undefined {
 }
 
 /** Maps a non-2xx proxy/upstream response to an ErrorCode. */
-export function classify(status: number, body: unknown, _provider: 'kis' | 'toss'): ErrorCode {
+export function classify(status: number, body: unknown): ErrorCode {
   const rec = isRecord(body) ? body : {};
   const errorField = rec.error;
   const nestedCode = isRecord(errorField) && typeof errorField.code === 'string' ? errorField.code : undefined;

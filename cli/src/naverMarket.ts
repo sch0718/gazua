@@ -91,7 +91,7 @@ export function parseMarketStatus(json: unknown): string | null {
 
 export async function naverGet(ctx: Pick<Ctx, 'fetch' | 'sleep'>, url: string): Promise<unknown> {
   await ctx.sleep(100);
-  const res = await ctx.fetch(url, { headers: { 'User-Agent': NAVER_UA } });
+  const res = await ctx.fetch(url, { headers: { 'User-Agent': NAVER_UA }, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`naver ${res.status}`);
   return res.json();
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadUniverse, matchSpan, searchUniverse, toChosung, type UniverseItem } from './universe';
+import { loadUniverse, matchSpan, searchUniverse, type UniverseItem } from './universe';
 
 const items: UniverseItem[] = [
   { s: '000660', n: 'SK하이닉스', m: 'KOSPI', t: 'STOCK' },
@@ -10,14 +10,6 @@ const items: UniverseItem[] = [
   { s: '042700', n: '한미반도체', m: 'KOSPI', t: 'STOCK' },
   { s: '247540', n: '에코프로비엠', m: 'KOSDAQ', t: 'STOCK' },
 ];
-
-describe('toChosung', () => {
-  it('extracts initial consonants and keeps non-syllable characters', () => {
-    expect(toChosung('삼성전자')).toBe('ㅅㅅㅈㅈ');
-    expect(toChosung('SK하이닉스')).toBe('SKㅎㅇㄴㅅ');
-    expect(toChosung('KODEX 200')).toBe('KODEX 200');
-  });
-});
 
 describe('searchUniverse', () => {
   it('matches a chosung query', () => {

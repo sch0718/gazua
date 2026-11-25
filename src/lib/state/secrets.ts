@@ -102,8 +102,3 @@ export function isLocked(v: unknown): v is LockedSecrets {
     o.iter === ITER
   );
 }
-
-/** 붙여넣기로 딸려온 앞뒤 공백·줄바꿈 제거. */
-export function trimCredential(raw: string): string {
-  return raw.trim();
-}

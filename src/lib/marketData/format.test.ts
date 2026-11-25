@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasFlowFormat, hasMacroFormat, isV3, isV4, validateMarketData } from './format';
+import { hasFlowFormat, hasMacroFormat, isV4, validateMarketData } from './format';
 
 function sample() {
   return {
@@ -144,7 +144,7 @@ describe('validateMarketData v2', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(hasMacroFormat(r.data)).toBe(true);
-      expect(isV3(r.data)).toBe(false);
+      expect(r.data.version === 3).toBe(false);
     }
   });
 
@@ -215,11 +215,11 @@ function sampleV3(flow?: unknown) {
 }
 
 describe('validateMarketData v3', () => {
-  it('정상 v3 파일은 ok이고 isV3·hasMacroFormat이 참이다', () => {
+  it('정상 v3 파일은 버전이 3이고 매크로 형식이다', () => {
     const r = validateMarketData(sampleV3({ from: '20261014', f: [1, -2], i: [3, 4], p: [-4, -2] }));
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(isV3(r.data)).toBe(true);
+      expect(r.data.version).toBe(3);
       expect(hasMacroFormat(r.data)).toBe(true);
     }
   });
@@ -316,7 +316,7 @@ describe('validateMarketData v4', () => {
       expect(isV4(r.data)).toBe(true);
       expect(hasFlowFormat(r.data)).toBe(true);
       expect(hasMacroFormat(r.data)).toBe(true);
-      expect(isV3(r.data)).toBe(false);
+      expect(r.data.version === 3).toBe(false);
     }
   });
 

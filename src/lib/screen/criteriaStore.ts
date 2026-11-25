@@ -1,4 +1,4 @@
-// 프로필별 선정 기준 목록의 읽기·쓰기. 저장 모양은 { criteria: SelectionCriteria[] }.
+// 프로필별 선정 기준 목록 읽기. 저장 모양은 { criteria: SelectionCriteria[] }.
 import { profileKeys } from '../state/profileStore';
 import type { SafeStorage } from '../state/storage';
 import { MAX_CRITERIA } from './defaults';
@@ -21,9 +21,4 @@ export const CRITERIA_CAP_MESSAGE = `선정 기준은 ${MAX_CRITERIA}개까지 �
 
 export function assertCriteriaCap(list: SelectionCriteria[]): void {
   if (list.length > MAX_CRITERIA) throw new Error(CRITERIA_CAP_MESSAGE);
-}
-
-export function saveCriteria(st: SafeStorage, profileId: string, list: SelectionCriteria[]): void {
-  assertCriteriaCap(list);
-  st.set(profileKeys.criteria(profileId), { criteria: list });
 }

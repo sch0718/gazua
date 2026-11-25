@@ -4,7 +4,7 @@ import type { MacroSeries } from '../marketData/format';
 import { addDays, kstWeekday } from '../time/kst';
 import type { MacroSeriesKey } from './types';
 
-const iso = (ymd: string): string => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+export const iso = (ymd: string): string => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 
 /**
  * 관측일 obs(YYYYMMDD, 미국 날짜)의 값을 한국에서 쓸 수 있는 첫날(YYYY-MM-DD).

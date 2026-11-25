@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handle, tokenMatches, UPSTREAM, type ProxyEnv } from './handler.js';
+import { UPSTREAM } from './allowlist.js';
+import { handle, tokenMatches, type ProxyEnv } from './handler.js';
 
 const ORIGIN = 'https://sch0718.github.io';
 const env: ProxyEnv = { ALLOWED_ORIGINS: ` ${ORIGIN} , http://localhost:5173` };

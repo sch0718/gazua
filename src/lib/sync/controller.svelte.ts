@@ -6,7 +6,6 @@ import type { SafeStorage } from '../state/storage';
 import type { ShareKind, ShareSnapshot } from '../share/snapshot';
 import { createSyncApi, type ApiFail, type CliTokenRow, type DeviceSession, type IndexRow, type MemberRow, type ShareRow, type SyncApi } from './api';
 import { clearInvite, readInvite } from './invite';
-import { firebaseAuth, type AuthClient, type AuthUser } from './auth';
 import type { SyncConfig } from './config';
 import { APP_OUTDATED_TEXT, createSyncEngine, type Resolution, type SyncEngine, type SyncStatus } from './engine';
 import { APP_OUTDATED_CODE } from './dto';
@@ -31,7 +30,7 @@ import { checkMarketFiles, type MarketFileRow } from '../marketData/manifest';
 import { marketOwnerTag } from '../marketData/owner';
 import { checkVaultHead, KEY_ITER, type KeyProvider } from './keyWire';
 import { PROVIDER_NAMES, type LoginProvider, type SocialOutcome, type SocialReturn } from './social';
-import type { SocialProvider } from '@sch0718/firebase-session/client';
+import { firebaseAuth, type AuthClient, type AuthUser, type SocialProvider } from '@sch0718/firebase-session/client';
 
 /** 포커스로 다시 받는 최소 간격(할당량 절약). */
 export const FOCUS_PULL_INTERVAL = 5 * 60 * 1000;

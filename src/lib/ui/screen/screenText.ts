@@ -34,7 +34,6 @@ export const CONDITION_LABEL: Record<ConditionKey, string> = {
   volatility: '변동성',
   rebound: '반등 신호',
 };
-export const CONDITION_ORDER: ConditionKey[] = ['marketCap', 'tradingValue', 'leader', 'returnRange', 'vsMa', 'fromHigh', 'volatility', 'rebound'];
 
 export const NO_DATA_TEXT = '시장 데이터가 없어요. 수집 스크립트로 만든 파일을 가져와 주세요';
 export const NO_DATA_RUN_REASON = '시장 데이터를 가져오면 실행할 수 있어요';

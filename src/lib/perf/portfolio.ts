@@ -68,9 +68,6 @@ export function splitFactorForDay(prices: number[], bar: Candle | undefined): nu
   return r ? factorIn(r) : 1;
 }
 
-/** 체결 하나만 볼 때의 배율(splitFactorForDay와 같은 규칙) */
-export const splitFactor = (price: number, bar: Candle | undefined): number => splitFactorForDay([price], bar);
-
 /**
  * 원 단위 반올림(±0.5원)의 공통 구간 안에서, OHLC 비율이 뒷받침하는 보정만 쓴다.
  * 종가 비율보다 적은 가격 쌍이 지지하거나 두 쌍도 지지하지 않으면 종가 비율을 보존한다.

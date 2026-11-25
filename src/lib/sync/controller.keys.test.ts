@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AuthClient } from '@sch0718/firebase-session/client';
 import { createApp, KeyLockedElsewhereError, SecretsChangedError, StoredKeysNotRemovedError, type App } from '../state/app.svelte';
 import { createSafeStorage } from '../state/storage';
 import { memoryBacking } from '../state/testStorage';
 import { createMemoryOrderCache } from '../perf/orderCache';
 import { ME, OTHER } from '../../../sync-worker/test/harness';
 import { SYNC_BASE, testServer, type TestServer } from '../../../sync-worker/test/server';
-import type { AuthClient } from './auth';
 import { createSyncController, KEY_CHANNEL, type SyncController } from './controller.svelte';
 import { createMemoryKeyStore, type KeyStore } from './keyStore';
 import { KEY_TEXT } from './keySync';

@@ -4,31 +4,31 @@ import { createProxyClient } from './http';
 
 describe('classify', () => {
   const proxyErr = (code: string) => ({ error: { code } });
-  const cases: Array<[string, number, unknown, 'kis' | 'toss', ErrorCode]> = [
-    ['토스 프록시가 토큰을 맡음', 403, proxyErr('toss-token-managed'), 'toss', 'proxy-token-managed'],
-    ['토스 프록시 발급 실패', 502, proxyErr('toss-token-failed'), 'toss', 'upstream'],
-    ['proxy-path-blocked', 403, proxyErr('proxy-path-blocked'), 'kis', 'path-blocked'],
-    ['proxy-token-invalid', 401, proxyErr('proxy-token-invalid'), 'toss', 'proxy-token-invalid'],
-    ['origin-not-allowed', 403, proxyErr('origin-not-allowed'), 'kis', 'origin-not-allowed'],
-    ['upstream-unreachable', 502, proxyErr('upstream-unreachable'), 'kis', 'upstream'],
-    ['upstream-timeout (Node proxy)', 504, proxyErr('upstream-timeout'), 'kis', 'timeout'],
-    ['toss ip-not-allowed', 403, proxyErr('ip-not-allowed'), 'toss', 'ip-not-allowed'],
-    ['oauth access_denied', 403, { error: 'access_denied' }, 'toss', 'ip-not-allowed'],
-    ['oauth invalid_client', 401, { error: 'invalid_client' }, 'toss', 'invalid-credentials'],
-    ['other 401', 401, { error: { code: 'invalid-token' } }, 'toss', 'token-expired'],
-    ['401 without body', 401, null, 'kis', 'token-expired'],
-    ['KIS EGW00133', 403, { error_code: 'EGW00133', error_description: 'x' }, 'kis', 'token-throttled'],
-    ['429', 429, null, 'kis', 'rate-limited'],
-    ['500', 500, null, 'toss', 'upstream'],
-    ['body msg_cd EGW00123 on HTTP 500', 500, { rt_cd: '1', msg_cd: 'EGW00123' }, 'kis', 'token-expired'],
-    ['body msg_cd EGW00121 on HTTP 200', 200, { rt_cd: '1', msg_cd: 'EGW00121' }, 'kis', 'token-expired'],
-    ['body msg_cd EGW00201', 500, { rt_cd: '1', msg_cd: 'EGW00201' }, 'kis', 'rate-limited'],
-    ['inherited property name as proxy code', 500, { error: { code: 'toString' } }, 'kis', 'upstream'],
-    ['inherited property name as proxy code (constructor)', 403, { error: { code: 'constructor' } }, 'toss', 'upstream'],
-    ['404 other', 404, { message: 'x' }, 'kis', 'upstream'],
+  const cases: Array<[string, number, unknown, ErrorCode]> = [
+    ['토스 프록시가 토큰을 맡음', 403, proxyErr('toss-token-managed'), 'proxy-token-managed'],
+    ['토스 프록시 발급 실패', 502, proxyErr('toss-token-failed'), 'upstream'],
+    ['proxy-path-blocked', 403, proxyErr('proxy-path-blocked'), 'path-blocked'],
+    ['proxy-token-invalid', 401, proxyErr('proxy-token-invalid'), 'proxy-token-invalid'],
+    ['origin-not-allowed', 403, proxyErr('origin-not-allowed'), 'origin-not-allowed'],
+    ['upstream-unreachable', 502, proxyErr('upstream-unreachable'), 'upstream'],
+    ['upstream-timeout (Node proxy)', 504, proxyErr('upstream-timeout'), 'timeout'],
+    ['toss ip-not-allowed', 403, proxyErr('ip-not-allowed'), 'ip-not-allowed'],
+    ['oauth access_denied', 403, { error: 'access_denied' }, 'ip-not-allowed'],
+    ['oauth invalid_client', 401, { error: 'invalid_client' }, 'invalid-credentials'],
+    ['other 401', 401, { error: { code: 'invalid-token' } }, 'token-expired'],
+    ['401 without body', 401, null, 'token-expired'],
+    ['KIS EGW00133', 403, { error_code: 'EGW00133', error_description: 'x' }, 'token-throttled'],
+    ['429', 429, null, 'rate-limited'],
+    ['500', 500, null, 'upstream'],
+    ['body msg_cd EGW00123 on HTTP 500', 500, { rt_cd: '1', msg_cd: 'EGW00123' }, 'token-expired'],
+    ['body msg_cd EGW00121 on HTTP 200', 200, { rt_cd: '1', msg_cd: 'EGW00121' }, 'token-expired'],
+    ['body msg_cd EGW00201', 500, { rt_cd: '1', msg_cd: 'EGW00201' }, 'rate-limited'],
+    ['inherited property name as proxy code', 500, { error: { code: 'toString' } }, 'upstream'],
+    ['inherited property name as proxy code (constructor)', 403, { error: { code: 'constructor' } }, 'upstream'],
+    ['404 other', 404, { message: 'x' }, 'upstream'],
   ];
-  it.each(cases)('%s', (_name, status, body, provider, expected) => {
-    expect(classify(status, body, provider)).toBe(expected);
+  it.each(cases)('%s', (_name, status, body, expected) => {
+    expect(classify(status, body)).toBe(expected);
   });
 });
 

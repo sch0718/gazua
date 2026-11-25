@@ -16,7 +16,7 @@
   let shares = $state<ShareRow[] | null>(null);
   let members = $state<MembersResult | null>(null);
 
-  const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmt = (t: number) => new Date(t).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' });
   const nowMs = () => Date.now();
 
   const loadDevices = async () => {

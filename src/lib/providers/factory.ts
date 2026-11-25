@@ -57,7 +57,7 @@ export function createProvider(
     creds: toss && filled(toss.clientId, toss.clientSecret) ? toss : undefined,
     proxyManagesToken: () => proxyManagesTossToken(s.proxyUrl.trim(), fetchImpl),
     tokenStore: deps.tokenStore('toss'),
-    ...(deps.tokenLock?.('toss') ? { tokenLock: deps.tokenLock('toss') } : {}),
+    tokenLock: deps.tokenLock?.('toss'),
     now,
   });
 }

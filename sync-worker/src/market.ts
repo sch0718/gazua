@@ -5,9 +5,9 @@ import { HttpError } from '@sch0718/firebase-session/worker';
 import { checkMarketBody, MARKET_FILES_LIMIT, type MarketFileRow } from '../../src/lib/marketData/manifest';
 import { findForbidden } from '../../src/lib/sync/forbidden';
 import type { SyncDeps, SyncEnv } from './env';
+import { checkId } from './profiles';
 import type { AuthContext } from './session';
 
-const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
 const COLUMNS = `id, drive_file_id AS driveFileId, name, sha256, size, format_version AS version, collected_at AS collectedAt,
   range_from AS rangeFrom, range_to AS rangeTo, stocks, created_at AS createdAt, updated_at AS updatedAt`;
 type Raw = Omit<MarketFileRow, 'range'> & { rangeFrom: string; rangeTo: string };
@@ -44,7 +44,7 @@ export async function putMarketFile(env: SyncEnv, deps: SyncDeps, ctx: AuthConte
 }
 
 export async function deleteMarketFile(env: SyncEnv, ctx: AuthContext, id: string): Promise<void> {
-  if (!ID_RE.test(id)) throw new HttpError(404, 'not-found');
+  checkId(id);
   const r = await env.DB.prepare('DELETE FROM market_files WHERE id = ? AND user_id = ?').bind(id, ctx.userId).run();
   if (r.meta.changes === 0) throw new HttpError(404, 'not-found');
 }

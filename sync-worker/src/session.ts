@@ -4,13 +4,7 @@ import { createSessionAuth, socialLoginOptions, type AuthContext } from '@sch071
 import type { SyncDeps, SyncEnv } from './env';
 import { allowMember } from './members';
 
-export {
-  LABEL_MAX,
-  REAUTH_WINDOW,
-  SESSION_TTL,
-  TOUCH_INTERVAL,
-  type AuthContext,
-} from '@sch0718/firebase-session/worker';
+export type { AuthContext } from '@sch0718/firebase-session/worker';
 
 export const SESSION_HEADER = 'X-Gazua-Session';
 

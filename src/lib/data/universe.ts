@@ -30,13 +30,6 @@ function chosungOf(ch: string): string | null {
   return CHOSUNG[Math.floor((code - HANGUL_BASE) / SYLLABLES_PER_CHOSUNG)];
 }
 
-/** 한글 음절은 초성으로, 그 외 글자는 그대로 둔다. */
-export function toChosung(s: string): string {
-  let out = '';
-  for (const ch of s) out += chosungOf(ch) ?? ch;
-  return out;
-}
-
 /**
  * name[pos..]가 질의와 글자 단위로 맞는지 본다.
  * 질의 글자는 이름 글자와 같거나(대소문자 무시), 초성 자모이면 그 음절의 초성과 같아야 한다.

@@ -3,7 +3,7 @@ import { createSafeStorage } from '../state/storage';
 import { memoryBacking, seed } from '../state/testStorage';
 import { profileKeys } from '../state/profileStore';
 import { loadCriteria } from './criteriaStore';
-import { BASKET_CAP_MESSAGE, BASKET_SYMBOLS_MAX, MAX_BASKETS, assertBasketCap, assertBasketsWritable, loadBaskets, newBasket, sanitizeBaskets, saveBaskets } from './baskets';
+import { BASKET_CAP_MESSAGE, BASKET_SYMBOLS_MAX, MAX_BASKETS, assertBasketCap, assertBasketsWritable, loadBaskets, newBasket, sanitizeBaskets } from './baskets';
 
 const NOW = 1_700_000_000_000;
 const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ ...newBasket(NOW, `묶음 ${i}`, ['005930']), id: `b${i}` }));
@@ -18,7 +18,7 @@ describe('baskets', () => {
   it('저장 후 다시 읽으면 같다', () => {
     const st = createSafeStorage(memoryBacking());
     const list = mk(2);
-    saveBaskets(st, 'p1', list);
+    st.set(profileKeys.baskets('p1'), { baskets: list });
     expect(loadBaskets(st, 'p1')).toEqual(list);
   });
 
@@ -50,12 +50,10 @@ describe('baskets', () => {
     expect(JSON.parse(backing.getItem(`gazua:v1:${profileKeys.baskets('p1')}`)!)).toEqual(raw);
   });
 
-  it('31개면 던지고 저장하지 않는다', () => {
-    const st = createSafeStorage(memoryBacking());
+  it('묶음은 30개까지 허용하고 31개는 거절한다', () => {
     expect(() => assertBasketCap(mk(30))).not.toThrow();
-    expect(() => saveBaskets(st, 'p1', mk(31))).toThrow(BASKET_CAP_MESSAGE);
+    expect(() => assertBasketsWritable(mk(31))).toThrow(BASKET_CAP_MESSAGE);
     expect(BASKET_CAP_MESSAGE).toBe('내 묶음은 30개까지 저장할 수 있어요');
-    expect(loadBaskets(st, 'p1')).toEqual([]);
   });
 
   it('이름은 30자로 자르고 고침으로 센다', () => {
@@ -102,16 +100,13 @@ describe('baskets', () => {
     expect(st.issues.filter((i) => i.kind === 'corrupt').map((i) => i.key).sort()).toEqual([profileKeys.baskets('p1'), profileKeys.criteria('p1')].sort());
   });
 
-  it('쓸 때 종목이 없거나 300개를 넘거나 이름이 30자를 넘으면 던지고 쓰지 않는다', () => {
-    const st = createSafeStorage(memoryBacking());
+  it('쓰기 전 검사에서 종목 수와 이름 길이 한도를 확인한다', () => {
     const b = mk(1)[0];
-    expect(() => saveBaskets(st, 'p1', [{ ...b, symbols: [] }])).toThrow('묶음에는 종목이 1개 이상 있어야 해요');
+    expect(() => assertBasketsWritable([{ ...b, symbols: [] }])).toThrow('묶음에는 종목이 1개 이상 있어야 해요');
     const many = Array.from({ length: 301 }, (_, i) => String(100000 + i));
-    expect(() => saveBaskets(st, 'p1', [{ ...b, symbols: many }])).toThrow('묶음의 종목은 300개까지예요');
-    expect(() => saveBaskets(st, 'p1', [{ ...b, name: '가'.repeat(31) }])).toThrow('묶음 이름은 30자까지예요');
-    expect(loadBaskets(st, 'p1')).toEqual([]);
-    expect(st.issues).toEqual([]);
-    expect(() => saveBaskets(st, 'p1', [{ ...b, name: '가'.repeat(30), symbols: many.slice(0, 300) }])).not.toThrow();
+    expect(() => assertBasketsWritable([{ ...b, symbols: many }])).toThrow('묶음의 종목은 300개까지예요');
+    expect(() => assertBasketsWritable([{ ...b, name: '가'.repeat(31) }])).toThrow('묶음 이름은 30자까지예요');
+    expect(() => assertBasketsWritable([{ ...b, name: '가'.repeat(30), symbols: many.slice(0, 300) }])).not.toThrow();
   });
 
   it('쓰기 전 검사: 형식이 틀린 종목 코드와 묶음 안 중복 종목을 거절한다', () => {

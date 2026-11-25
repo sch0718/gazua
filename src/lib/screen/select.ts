@@ -86,7 +86,7 @@ const EOK = 1e8;
 const SELECTABLE = ['STOCK', 'ETF'];
 
 // a에서 x 이상인 첫 인덱스
-function lowerBound(a: string[], x: string): number {
+export function lowerBound(a: string[], x: string): number {
   let lo = 0;
   let hi = a.length;
   while (lo < hi) {

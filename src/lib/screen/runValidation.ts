@@ -8,10 +8,10 @@ import { addDays, kstEpoch } from '../time/kst';
 import type { Basket } from './baskets';
 import { holdSelection, type HoldSegment } from './holdSelection';
 import { rankFinOf } from './fin';
-import { lastKnown, trendAt } from './macro';
+import { iso, lastKnown, trendAt } from './macro';
 import { beatCount, curveStats } from './metrics';
 import { MissingPatternError, MissingStrategyError, precompute, rebalanceDates, resolveReboundEntry, tradingAxis, usesMacro, type Precomputed } from './precompute';
-import { betaMissingAt, finMissingAt, flowMissingAt, selectAt, type Selection } from './select';
+import { betaMissingAt, finMissingAt, flowMissingAt, lowerBound, selectAt, type Selection } from './select';
 import type { MacroSeriesKey, Market, SelectionCriteria } from './types';
 import { strategyRuleIssues, usesFin, usesFlow } from './validate';
 
@@ -93,24 +93,12 @@ const SIM_NON_FINITE = '평가액 계산 실패';
 const WARMUP_DAYS = 250;
 
 const ymd = (d: string): string => d.replaceAll('-', '');
-const iso = (d: string): string => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
 const toCandles = (d: string[], o: number[], h: number[], l: number[], c: number[], v: number[]): Candle[] =>
   d.map((x, i) => ({ t: kstEpoch(iso(x), '00:00:00'), o: o[i], h: h[i], l: l[i], c: c[i], v: v[i] }));
 const points = (days: string[], values: number[]): CurvePoint[] => days.map((date, i) => ({ date, value: values[i] }));
 
 /** 첫날·마지막 날 봉이 있어야 비교 곡선으로 쓴다(시뮬레이션과 같은 규칙) */
 const covers = (d: string[], days: string[]): boolean => d.includes(ymd(days[0])) && d.includes(ymd(days[days.length - 1]));
-
-function lowerBound(a: string[], x: string): number {
-  let lo = 0;
-  let hi = a.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (a[mid] < x) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
 
 /** 편집 화면 미리 보기: 마지막 거래일 다음 날의 선별 */
 export function preview(

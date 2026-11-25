@@ -83,12 +83,29 @@ export interface MarketDataFileV4 extends Omit<MarketDataFileV3, 'version' | 'st
 
 export type MarketDataFile = MarketDataFileV1 | MarketDataFileV2 | MarketDataFileV3 | MarketDataFileV4;
 
-export const isV3 = (f: MarketDataFile): f is MarketDataFileV3 => f.version === 3;
 export const isV4 = (f: MarketDataFile): f is MarketDataFileV4 => f.version === 4;
 // v2 이상이면 macro와 themes가 있다.
 export const hasMacroFormat = (f: MarketDataFile): f is MarketDataFileV2 | MarketDataFileV3 | MarketDataFileV4 => f.version >= 2;
 // v3 이상이면 종목에 flow가 있을 수 있다.
 export const hasFlowFormat = (f: MarketDataFile): f is MarketDataFileV3 | MarketDataFileV4 => f.version >= 3;
+
+export function summarizeMarketData(data: MarketDataFile) {
+  const v2 = hasMacroFormat(data);
+  const flowStocks = hasFlowFormat(data) ? data.stocks.filter((s) => s.flow !== undefined).length : 0;
+  const finStocks = isV4(data) ? data.stocks.filter((s) => s.fin !== undefined).length : 0;
+  return {
+    collectedAt: data.collectedAt,
+    stocks: data.stocks.length,
+    range: data.range,
+    version: data.version,
+    hasMacro: v2 && (data.macro.usdkrw.d.length > 0 || data.macro.wti.d.length > 0),
+    themeCount: v2 ? data.themes.length : 0,
+    hasFlow: flowStocks > 0,
+    flowStocks,
+    hasFin: finStocks > 0,
+    finStocks,
+  };
+}
 
 export type MarketDataCheck =
   | { ok: true; data: MarketDataFile }

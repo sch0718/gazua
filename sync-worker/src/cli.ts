@@ -6,7 +6,7 @@ import { marketOwnerTag } from '../../src/lib/marketData/owner';
 import { DAY, type SyncDeps, type SyncEnv } from './env';
 import { isActiveMember } from './members';
 import { deleteMarketFile, listMarketFiles, putMarketFile } from './market';
-import { getProfile, listProfiles, requestDocVersion } from './profiles';
+import { checkId, getProfile, listProfiles, requestDocVersion } from './profiles';
 import type { AuthContext } from './session';
 
 export const CLI_GRANT_TTL = 10 * 60 * 1000;
@@ -19,7 +19,6 @@ export const GEO_MAX = 64;
 export const TOKEN_TTL = 90 * DAY;
 export const CLI_TOUCH_INTERVAL = DAY;
 export const CLI_TOKEN_RE = /^gzc_[A-Za-z0-9_-]{43}$/;
-const ID_RE = /^[A-Za-z0-9-]{1,64}$/;
 const PROFILES_RE = /^\/v1\/profiles$/;
 const PROFILE_RE = /^\/v1\/profiles\/([^/]+)$/;
 const LOGOUT_RE = /^\/v1\/cli\/token$/;
@@ -285,7 +284,7 @@ export async function listCliTokens(env: SyncEnv, ctx: AuthContext, now: number)
 
 /** 이미 철회했으면 그대로 성공, 남의 것이거나 없으면 404(있는지 알려 주지 않는다) */
 export async function revokeCliToken(env: SyncEnv, ctx: AuthContext, id: string, now: number): Promise<void> {
-  if (!ID_RE.test(id)) throw new HttpError(404, 'not-found');
+  checkId(id);
   const r = await env.DB.prepare('UPDATE cli_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL').bind(now, id, ctx.userId).run();
   if (r.meta.changes > 0) return;
   const mine = await env.DB.prepare('SELECT 1 AS x FROM cli_tokens WHERE id = ? AND user_id = ?').bind(id, ctx.userId).first();

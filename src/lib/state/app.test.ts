@@ -893,6 +893,20 @@ describe('createApp — key lock', () => {
 });
 
 describe('createApp — profiles management, passphrase check, export/import', () => {
+  it('다른 탭에서 프로필을 바꾼 뒤 가져와도 현재 프로필을 유지한다', () => {
+    const backing = memoryBacking();
+    seed(backing, 'meta', META_TWO);
+    const app = make(backing);
+    const json = app.exportData(false);
+    seed(backing, 'meta', { ...META_TWO, activeProfileId: 'p2' });
+
+    const result = app.importData(json);
+
+    if (!result.ok) throw new Error(result.reason);
+    expect(app.meta.activeProfileId).toBe('p1');
+    expect(app.meta.profiles).toContainEqual({ id: result.profileId, name: '내 프로필 (가져옴)', createdAt: NOW });
+  });
+
   it('renameProfile trims the name and ignores a blank one', () => {
     const backing = memoryBacking();
     seed(backing, 'meta', META_ONE);
