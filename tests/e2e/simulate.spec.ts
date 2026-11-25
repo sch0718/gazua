@@ -38,6 +38,34 @@ async function expectMainValueFits(mainValue: Locator, path: 'cqi' | 'fallback')
   }
 }
 
+test('새 전략 시트: 시황별 프리셋과 근거를 보고 비교한 뒤 선택한다', async ({ page }) => {
+  await openApp(page);
+  await enterDemo(page);
+  await loadExampleGroup(page);
+  await page.getByRole('navigation').getByRole('button', { name: '시뮬레이션', exact: true }).click();
+  await page.getByRole('button', { name: '＋ 새 전략' }).click();
+
+  const sheet = page.getByRole('dialog', { name: '어떤 전략으로 시작할까요?' });
+  await expect(sheet.getByRole('heading', { level: 4 })).toHaveText(['상승장', '횡보장', '하락장', '급락·고변동장', '그 밖의 전략']);
+  const rsi = sheet.getByRole('button', { name: /^RSI\(2\) 눌림목/ });
+  const crash = sheet.getByRole('button', { name: /^급락 후 단기 반등/ });
+  await expect(rsi).toHaveCount(2);
+  await expect(crash).toHaveCount(2);
+  const trend = sheet.getByRole('button', { name: /^200일선 추세 추종/ });
+  await expect(trend.getByText(/과거 상승장 구간에서 시험: 4구간 모두 수익/)).toBeVisible();
+
+  await sheet.getByRole('button', { name: '비교', exact: true }).click();
+  for (const cards of [rsi, crash]) {
+    const stats = cards.getByText(/^총수익 .* · 최대 낙폭 /);
+    await expect(stats).toHaveCount(2);
+    await expect(stats.last()).toHaveText(await stats.first().innerText());
+  }
+
+  await rsi.last().click();
+  await expect(sheet).not.toBeVisible();
+  await expect(page.getByRole('button', { name: '시뮬레이션 실행' })).toBeVisible();
+});
+
 test('시뮬레이션: 새 전략 → 실행 → 결과 → 거래 차트 시트 → 규칙으로 돌아가기', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
