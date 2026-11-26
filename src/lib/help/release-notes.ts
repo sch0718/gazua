@@ -5,6 +5,15 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.14.1',
+    date: '2026-11-27',
+    items: [
+      '다른 탭에서 프로필을 바꾼 뒤 파일을 가져와도 이 탭의 프로필이 바뀌지 않아요.',
+      '공유 링크 만료일과 동기화 시각을 기기 시간대와 상관없이 한국 시간으로 보여 줘요.',
+      '도움말 「매매 규칙 시뮬레이션」에 시황별 프리셋 고르는 법을 더했어요.',
+    ],
+  },
+  {
     version: 'v0.14.0',
     date: '2026-11-26',
     items: [
