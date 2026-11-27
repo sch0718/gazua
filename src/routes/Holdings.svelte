@@ -5,7 +5,7 @@
   import { showSnackbar } from '@sch0718/ui-svelte';
   import { Badge } from '@sch0718/ui-svelte';
   import { DEMO_LABEL, TOSS_LABEL, cleanLabel, newManualHolding } from '../lib/holdings/manual';
-  import { accountLabels, buildRows, summarize, type HoldingRow } from '../lib/holdings/rows';
+  import { accountLabels, buildRows, sortByMine, summarize, symbolPnl, type HoldingRow, type MineSort } from '../lib/holdings/rows';
   import type { App } from '../lib/state/app.svelte';
   import type { Group, WatchItem } from '../lib/state/schema';
   import type { DaySession } from '../lib/market/sessions';
@@ -58,6 +58,11 @@
     if (filter !== 'all' && !labels.includes(filter)) filter = 'all';
   });
   const inFilter = (r: HoldingRow) => filter === 'all' || r.account === filter;
+  const holdingRows = (prices: Record<string, number>) =>
+    buildRows(ctl.account, accountLabel, manual, { prices, prevClose: ctl.prevClose });
+  const mine = (prices: Record<string, number>) => symbolPnl(holdingRows(prices).filter(inFilter));
+  let sort = $state<MineSort | null>(null);
+  const onsort = (key: MineSort | null) => (sort = key);
 
   // ── 차트용 읽기 전용 그룹 ────────────────────────────────
   // 색은 전체 보유에서의 자리로 정해 라벨을 바꿔도 같은 종목은 같은 색이다. 숨김·순서는 이 화면에서만 기억한다.
@@ -131,7 +136,7 @@
 {/snippet}
 
 {#snippet top(prices: Record<string, number>)}
-  {@const shownRows = buildRows(ctl.account, accountLabel, manual, { prices, prevClose: ctl.prevClose }).filter(inFilter)}
+  {@const shownRows = holdingRows(prices).filter(inFilter)}
   {@const total = summarize(shownRows)}
   <!-- 가격이 다 들어오기 전에는 일부 종목만 더한 합계를 보이지 않는다 -->
   {@const pending = shownRows.some((r) => r.price === null)}
@@ -195,8 +200,11 @@
 {/snippet}
 
 {#snippet below(prices: Record<string, number>)}
-  {@const allRows = buildRows(ctl.account, accountLabel, manual, { prices, prevClose: ctl.prevClose })}
+  {@const allRows = holdingRows(prices)}
   {@const rows = allRows.filter(inFilter)}
+  {@const ordered = sort
+    ? sortByMine(rows, sort, (r) => r.pnl !== null && r.pnlPct !== null ? { state: 'ok', pnl: r.pnl, pct: r.pnlPct } : undefined)
+    : rows}
   <div class="hbelow">
 
     {#if filter === 'all' && labels.length > 1}
@@ -213,8 +221,16 @@
       </ul>
     {/if}
 
+    {#if rows.length > 0}
+      <div class="chips" role="group" aria-label="보유 내역 정렬">
+        {#each [['pnl', '수익금순'], ['pct', '수익률순']] as const as [key, label] (key)}
+          <button type="button" class="chip" class:on={sort === key} aria-pressed={sort === key}
+            onclick={() => onsort(sort === key ? null : key)}>{label}</button>
+        {/each}
+      </div>
+    {/if}
     <ul class="rows" aria-label="보유 내역">
-      {#each rows as r (r.key)}
+      {#each ordered as r (r.key)}
         <li>
           <!-- 계좌에서 온 보유는 고칠 수 없어 단추가 아니다. 직접 넣은 보유만 눌러 고친다 -->
           <svelte:element
@@ -233,7 +249,13 @@
             </span>
             <span class="num qty"><span class="nw">{fmtWon(r.qty)}주</span>{#if r.avgPrice !== null} · <span class="nw">평단 {fmtWon(r.avgPrice)}원</span>{/if}</span>
             <span class="num price">{r.value === null ? '—' : `${fmtWon(r.value)}원`}</span>
-            <span class="num pnl {cls(r.pnl)}">{#if r.pnl === null}평단 없음{:else}<span class="nw">{fmtPct(r.pnlPct)}</span> <span class="nw">{signedWon(r.pnl)}</span>{/if}</span>
+            <span class="num pnl {cls(r.pnl)}">
+              {#if r.pnl !== null}
+                <span class="nw">{fmtPct(r.pnlPct)}</span> <span class="nw">{signedWon(r.pnl)}</span>
+              {:else}
+                {r.price === null && r.avgPrice !== null ? '—' : '평단 없음'}
+              {/if}
+            </span>
           </svelte:element>
         </li>
       {/each}
@@ -242,7 +264,7 @@
   </div>
 {/snippet}
 
-<Compare {app} {now} {sessions} {isOpenToday} {barEnd} {wide} holdings={{ group, onchange, onadd: () => (picking = true), refresh, bar: titleBar, top, below }} />
+<Compare {app} {now} {sessions} {isOpenToday} {barEnd} {wide} holdings={{ group, onchange, onadd: () => (picking = true), refresh, mine, sort, onsort, bar: titleBar, top, below }} />
 
 <AddStockSheet
   open={picking}

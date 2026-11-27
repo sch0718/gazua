@@ -52,4 +52,35 @@ describe('Holdings', () => {
     setup(true);
     await waitFor(() => expect(screen.getByText(/이 기기에만 저장/)).toBeTruthy());
   });
+
+  it('선택한 계좌의 수익만 표시하고 두 목록의 수익 정렬을 함께 바꿔요', async () => {
+    const app = setup();
+    app.setManualHoldings([
+      newManualHolding({ symbol: '005930', name: '삼성전자', qty: 1, avgPrice: null, account: '예시 계좌' }),
+      newManualHolding({ symbol: '000660', name: 'SK하이닉스', qty: 1, avgPrice: 1, account: '예시 계좌' }),
+    ]);
+    const chips = screen.getByRole('group', { name: '계좌 구분' });
+    // 데모 보유가 들어온 뒤에 필터를 눌러야 필터가 데모 행을 걸러내는지 확인된다
+    await within(chips).findByRole('button', { name: '데모' });
+    await fireEvent.click(await within(chips).findByRole('button', { name: '예시 계좌' }));
+    const board = within(screen.getByRole('region', { name: '리더보드' }));
+    const list = within(screen.getByRole('list', { name: '보유 내역' }));
+    const sort = within(screen.getByRole('group', { name: '보유 내역 정렬' }));
+    await board.findByText('평단 없음');
+    await board.findByText(/^수익 \+/);
+
+    const listOrder = () => list.getAllByRole('button').map((r) => r.getAttribute('aria-label'));
+    expect(listOrder()).toEqual(['삼성전자 수정', 'SK하이닉스 수정']);
+    await fireEvent.click(board.getByRole('button', { name: '수익금순' }));
+    expect(sort.getByRole('button', { name: '수익금순' }).getAttribute('aria-pressed')).toBe('true');
+    expect(listOrder()).toEqual(['SK하이닉스 수정', '삼성전자 수정']);
+
+    const rate = sort.getByRole('button', { name: '수익률순' });
+    await fireEvent.click(rate);
+    expect(board.getByRole('button', { name: '수익률순' }).getAttribute('aria-pressed')).toBe('true');
+    expect(board.getAllByRole('listitem').map((r) => r.dataset.symbol)).toEqual(['000660', '005930']);
+    await fireEvent.click(rate);
+    expect(board.getByRole('button', { name: '값 순' }).getAttribute('aria-pressed')).toBe('true');
+    expect(listOrder()).toEqual(['삼성전자 수정', 'SK하이닉스 수정']);
+  });
 });

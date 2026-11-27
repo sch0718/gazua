@@ -39,6 +39,12 @@ export interface Market {
   prevClose: Record<string, number>;
 }
 
+export type Mine =
+  | { state: 'ok'; pnl: number; pct: number }
+  | { state: 'pending' | 'noavg'; pnl: null; pct: null };
+
+export type MineSort = 'pnl' | 'pct';
+
 function makeRow(
   base: { key: string; symbol: string; name: string; account: string; qty: number; avgPrice: number | null; manualId: string | null },
   m: Market,
@@ -46,8 +52,10 @@ function makeRow(
   const price = m.prices[base.symbol] ?? null;
   const prev = m.prevClose[base.symbol] ?? null;
   const value = price === null ? null : price * base.qty;
-  const pnl = price !== null && base.avgPrice !== null ? (price - base.avgPrice) * base.qty : null;
-  const pnlPct = price !== null && base.avgPrice !== null ? (price / base.avgPrice - 1) * 100 : null;
+  const avg = base.avgPrice;
+  const hasCost = avg !== null && avg > 0 && base.qty > 0;
+  const pnl = price !== null && hasCost ? (price - avg) * base.qty : null;
+  const pnlPct = price !== null && hasCost ? (price / avg - 1) * 100 : null;
   const dayPct = price !== null && prev !== null && prev > 0 ? (price / prev - 1) * 100 : null;
   return { ...base, price, prevClose: prev, dayPct, value, pnl, pnlPct };
 }
@@ -89,6 +97,46 @@ export function summarize(rows: readonly HoldingRow[]): Summary {
     dayPnl,
     dayPct: dayBase > 0 ? (dayPnl / dayBase) * 100 : null,
   };
+}
+
+/** 같은 종목의 수익금을 더하고, 매수금액 합계로 수익률을 구해요. */
+export function symbolPnl(rows: readonly HoldingRow[]): Record<string, Mine> {
+  const totals = new Map<string, { pending: boolean; cost: number; pnl: number }>();
+  for (const row of rows) {
+    const total = totals.get(row.symbol) ?? { pending: false, cost: 0, pnl: 0 };
+    if (row.price === null) total.pending = true;
+    if (row.pnl !== null && row.avgPrice !== null && row.avgPrice > 0 && row.qty > 0) {
+      total.cost += row.avgPrice * row.qty;
+      total.pnl += row.pnl;
+    }
+    totals.set(row.symbol, total);
+  }
+  return Object.fromEntries([...totals].map(([symbol, { pending, cost, pnl }]): [string, Mine] => {
+    if (pending) return [symbol, { state: 'pending', pnl: null, pct: null }];
+    if (cost <= 0) return [symbol, { state: 'noavg', pnl: null, pct: null }];
+    return [symbol, { state: 'ok', pnl, pct: (pnl / cost) * 100 }];
+  }));
+}
+
+/** 고정한 종목이 먼저 와요. 나머지는 수익 내림차순이고, 값이 없거나 같으면 입력 순서를 지켜요. */
+export function sortByMine<T extends { symbol: string }>(
+  items: readonly T[],
+  key: MineSort,
+  pick: (item: T) => Mine | undefined,
+  frozen?: readonly string[] | null,
+): T[] {
+  const ranks = new Map(frozen?.map((symbol, index) => [symbol, index]));
+  return items
+    .map((item) => {
+      const mine = pick(item);
+      return {
+        item,
+        rank: ranks.get(item.symbol) ?? ranks.size,
+        value: mine?.state === 'ok' ? mine[key] : -Infinity,
+      };
+    })
+    .sort((a, b) => a.rank - b.rank || (a.value === b.value ? 0 : b.value - a.value))
+    .map(({ item }) => item);
 }
 
 /** 계좌 라벨 목록(등장 순서). 필터 칩에 쓴다. */
