@@ -172,6 +172,10 @@ it('장 상태를 읽지 못하면 주문 없이 건너뛰고 하루 한 번 알
   expect(posts(t)).toHaveLength(0);
   expect(alerts(t)).toHaveLength(1);
   expect(alerts(t)[0].body).toMatchObject({ title: '장 상태 확인 불가' });
+  const recovered = fixture({ live: true });
+  writeLedger(recovered.path, t.ledger());
+  await recovered.run();
+  expect(alerts(recovered).map((c) => (c.body as { title: string }).title)).toContain('자동 실행 정상');
 });
 it('실전 매수 전에 불명 원장을 저장하고 접수 뒤 확정한다', async () => {
   const t = fixture({ live: true });

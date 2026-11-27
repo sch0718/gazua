@@ -333,7 +333,7 @@ corepack pnpm --filter gazua-cli build
 bash scripts/macos/auto-agent/install.sh
 ```
 
-직접 한 번 실행할 때도 `bash scripts/macos/auto-agent/run.sh`를 써요. 예약 작업과 같은 `lockf` 잠금을 잡아 동시 실행을 막고, `alert.env` 다음에 `auto.env`를 Node 환경 파일로 읽어요. 평일 KST 09:05~15:20에만 실행하며 코스피 장 상태가 `OPEN`이 아니거나 상태를 모르면 건너뛰어요. 매도 판정을 먼저 하고 매수는 15:15 전까지예요. 오늘 네이버 봉이 없는 종목과 6자리 숫자가 아닌 종목은 결과 `skippedSymbols`에 남겨요.
+직접 한 번 실행할 때도 `bash scripts/macos/auto-agent/run.sh`를 써요. 예약 작업과 같은 `lockf` 잠금을 잡아 동시 실행을 막고, `alert.env` 다음에 `auto.env`를 Node 환경 파일로 읽어요. 평일 KST 09:05~15:20에만 실행하며 코스피 장 상태가 `OPEN`이 아니거나 상태를 모르면 건너뛰어요. 상태를 모를 때는 보유 종목 매도도 멈추므로 하루 한 번 「장 상태 확인 불가」를 알리고, 다시 읽게 되면 「자동 실행 정상」을 알려요. 매도 판정을 먼저 하고 매수는 15:15 전까지예요. 오늘 네이버 봉이 없는 종목과 6자리 숫자가 아닌 종목은 결과 `skippedSymbols`에 남겨요.
 
 실전 원장은 `auto-positions.json`, 연습 원장은 `auto-positions.dry.json`이고 권한은 600이에요. 주문 전 원장을 먼저 저장해 중간에 꺼져도 같은 주문을 다시 보내지 않아요. 같은 종목은 하루 한 번만 매수를 시도하고, 오늘 매도한 종목과 이미 가진 종목은 다시 사지 않아요. 원장이 손상되면 빈 원장으로 덮어쓰지 않고 멈춰요. 원장을 임의로 지우면 중복 방지 기록도 사라져요.
 

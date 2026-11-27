@@ -76,7 +76,12 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
       // 휴장과 달리 응답을 못 읽은 것이라 보유 종목 매도도 멈춘다. 사람이 알 수 있게 하루 한 번 알린다.
       path = ledgerPath(ctx.dir, mode);
       ledger = readLedger(path, today);
-      await once('market-unknown', '장 상태 확인 불가', '네이버 장 상태를 읽지 못해 자동 실행을 건너뛰고 있어요. 보유 종목 매도도 멈춰 있어요');
+      if (await once('market-unknown', '장 상태 확인 불가', '네이버 장 상태를 읽지 못해 자동 실행을 건너뛰고 있어요. 보유 종목 매도도 멈춰 있어요')
+        && !ledger.notified.includes(`${today}:${RECOVER}`)) {
+        // 다시 읽게 되면 「자동 실행 정상」을 한 번 알린다.
+        ledger.notified.push(`${today}:${RECOVER}`);
+        save();
+      }
       return { ...out, skipped: 'unknown' };
     }
     if (status !== 'OPEN') return { ...out, skipped: 'closed' };
