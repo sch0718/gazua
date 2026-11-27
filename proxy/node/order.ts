@@ -140,7 +140,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       const now = deps.now();
       day = dayOf(now);
       const lines = raw.split('\n');
-      const pendingSells = new Map<string, number>();
+      const pendingSells = new Map<string, number>(), pendingBuys = new Map<string, number>();
       for (const [index, line] of lines.entries()) {
         if (index === lines.length - 1 && line === '') continue;
         try {
@@ -152,6 +152,12 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
               spend({ side: 'SELL', amount: soldAmount });
             }
             pendingSells.delete(entry.clientOrderId);
+            // 토스가 4xx로 거절한 매수는 들어가지 않았으므로 총 가용 금액을 되돌린다.
+            const boughtAmount = pendingBuys.get(entry.clientOrderId);
+            if (boughtAmount !== undefined && typeof entry.status === 'number' && entry.status >= 400 && entry.status < 500) {
+              spend({ side: 'SELL', amount: boughtAmount });
+            }
+            pendingBuys.delete(entry.clientOrderId);
           }
           if (entry.event !== 'send') continue;
           const { side, quantity, price, amount: sentAmount, ts } = entry;
@@ -166,6 +172,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
           if (side === 'BUY') {
             if (!Number.isSafeInteger(invested + sentAmount)) throw new Error();
             spend({ side, amount: sentAmount });
+            if (typeof entry.clientOrderId === 'string') pendingBuys.set(entry.clientOrderId, sentAmount);
             if (now - sent < 60_000) recent.push(sent);
           } else if (typeof entry.clientOrderId === 'string') {
             // 결과가 없거나 거절된 매도는 총 가용 금액을 늘리지 않는다.
@@ -239,6 +246,7 @@ export function createOrderHandler(cfg: OrderConfig, deps: Dependencies): { hand
       // 4xx만 「토스가 거절함」이다. 2xx·3xx·5xx는 주문이 들어갔을 수 있으므로 502(결과 불명)로 돌려준다.
       // 3xx는 Location을 따라가지 않는다.
       if (upstream.status >= 400 && upstream.status < 500) {
+        if (order.side === 'BUY') spend({ side: 'SELL', amount: order.amount });
         return json(upstream.status, { error: { code: 'order-upstream', status: upstream.status, tossCode, message, data: { clientOrderId } } });
       }
       return json(502, { error: { code: 'upstream-unreachable', status: upstream.status, tossCode, data: { clientOrderId } } });

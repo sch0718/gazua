@@ -87,6 +87,17 @@ describe('주문 처리기', () => {
     if (status !== 200) expect(await code(await restored.handler(request()))).toBe('order-total-limit');
   });
 
+  it.each([422, 500])('토스가 4xx로 거절한 매수만 총 가용 금액을 되돌린다: 상류 %s', async (status) => {
+    const f = await fixture({ totalMaxAmount: 99, maxPerMinute: 10 });
+    f.fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'rejected' } }), { status }));
+    await f.handler(request());
+    const invested = status === 422 ? 0 : 99;
+    expect((await (await f.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(invested);
+    const restored = createOrderHandler(f.cfg, f.deps);
+    await restored.ready;
+    expect((await (await restored.handler(new Request('https://proxy.example/order/status'))).json()).invested).toBe(invested);
+  });
+
   it('결과가 없는 매도 기록은 총 가용 금액과 분당 매수 한도를 풀지 않는다', async () => {
     const f = await fixture({ totalMaxAmount: 297, maxPerMinute: 1 });
     await appendFile(f.cfg.auditLog, [
