@@ -14,7 +14,7 @@ import { runAuto } from './run';
 
 afterEach(() => { vi.restoreAllMocks(); cleanupDirs(); });
 const today = '2026-11-13';
-function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; failSymbol?: string; statusError?: boolean; total?: number | null; used?: number } = {}) {
+function fixture(o: { live?: boolean; price?: number; held?: number; error?: string; time?: string; closed?: boolean; unknown?: boolean; failSymbol?: string; statusError?: boolean; total?: number | null; used?: number } = {}) {
   const strategy = fullStrategyV2();
   strategy.rules.buy = [{ conds: [{ kind: 'maPrice', period: 2, side: 'above' }] }];
   strategy.rules.sell.signal.on = false;
@@ -29,7 +29,7 @@ function fixture(o: { live?: boolean; price?: number; held?: number; error?: str
   const f = fakeFetch((c) => {
     if (c.url.pathname.includes('/index/KOSPI') && o.statusError) return { status: 500 };
     if (o.failSymbol && c.url.pathname.includes(`/item/${o.failSymbol}/`)) return { status: 500 };
-    if (c.url.pathname.includes('/index/KOSPI')) return { body: { datas: [{ marketStatus: o.closed ? 'CLOSE' : 'OPEN' }] } };
+    if (c.url.pathname.includes('/index/KOSPI')) return { body: o.unknown ? { datas: [] } : { datas: [{ marketStatus: o.closed ? 'CLOSE' : 'OPEN' }] } };
     if (c.url.pathname.includes('/chart/domestic/item/')) return { body: [
       { localDate: '20261111', openPrice: 800, closePrice: 800 },
       { localDate: '20261112', openPrice: 850, closePrice: 850 },
@@ -164,6 +164,14 @@ it('장 상태가 닫혔으면 원장·시세·주문에 접근하지 않는다'
   const t = fixture({ closed: true });
   expect((await t.run()).skipped).toBe('closed');
   expect(t.f.calls).toHaveLength(1);
+});
+it('장 상태를 읽지 못하면 주문 없이 건너뛰고 하루 한 번 알린다', async () => {
+  const t = fixture({ live: true, unknown: true });
+  expect((await t.run()).skipped).toBe('unknown');
+  await t.run();
+  expect(posts(t)).toHaveLength(0);
+  expect(alerts(t)).toHaveLength(1);
+  expect(alerts(t)[0].body).toMatchObject({ title: '장 상태 확인 불가' });
 });
 it('실전 매수 전에 불명 원장을 저장하고 접수 뒤 확정한다', async () => {
   const t = fixture({ live: true });

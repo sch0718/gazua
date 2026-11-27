@@ -29,7 +29,7 @@ export interface AutoOrder {
   result: 'dry' | 'sent' | 'rejected' | 'unknown'; code?: string;
 }
 export interface AutoResult {
-  mode: 'dry' | 'live'; strategy: string; skipped: 'hours' | 'closed' | null;
+  mode: 'dry' | 'live'; strategy: string; skipped: 'hours' | 'closed' | 'unknown' | null;
   buys: AutoOrder[]; sells: AutoOrder[]; skippedSymbols: { symbol: string; reason: string }[]; notes: string[]; presets: PresetResult[];
 }
 
@@ -71,7 +71,15 @@ export async function runAuto(ctx: Ctx, deps: AutoDeps = {}): Promise<AutoResult
     mode = cfg.mode;
     const out: AutoResult = { mode, strategy: cfg.strategy, skipped: null, buys: [], sells: [], skippedSymbols: [], notes: [], presets: [] };
     if (!inHours(ctx.now())) return { ...out, skipped: 'hours' };
-    if (parseMarketStatus(await naverGet(ctx, NAVER.kospiStatus)) !== 'OPEN') return { ...out, skipped: 'closed' };
+    const status = parseMarketStatus(await naverGet(ctx, NAVER.kospiStatus));
+    if (status === null) {
+      // 휴장과 달리 응답을 못 읽은 것이라 보유 종목 매도도 멈춘다. 사람이 알 수 있게 하루 한 번 알린다.
+      path = ledgerPath(ctx.dir, mode);
+      ledger = readLedger(path, today);
+      await once('market-unknown', '장 상태 확인 불가', '네이버 장 상태를 읽지 못해 자동 실행을 건너뛰고 있어요. 보유 종목 매도도 멈춰 있어요');
+      return { ...out, skipped: 'unknown' };
+    }
+    if (status !== 'OPEN') return { ...out, skipped: 'closed' };
     // 알림 설정이 틀리면 주문을 시작하기 전에 멈춘다.
     ctx.redact.add(readAlertConfig(ctx.env).topic);
     path = ledgerPath(ctx.dir, mode);
