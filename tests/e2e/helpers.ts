@@ -9,7 +9,7 @@ export const WIDE_MIN_WIDTH = 1024;
 export const isWide = (page: Page): boolean => (page.viewportSize()?.width ?? 0) >= WIDE_MIN_WIDTH;
 
 /** 메뉴 처음 안내를 이미 본 것으로 둔다(안내 자체는 help.spec에서 본다). */
-const HELP_SEEN = JSON.stringify(['compare', 'add', 'groups', 'simulate', 'criteria', 'performance', 'settings']);
+const HELP_SEEN = JSON.stringify(['compare', 'holdings', 'add', 'groups', 'simulate', 'criteria', 'performance', 'settings']);
 
 /**
  * 시계를 고정하고 빈 저장소로 앱을 연다. 앱은 첫 실행이므로 온보딩이 뜬다.

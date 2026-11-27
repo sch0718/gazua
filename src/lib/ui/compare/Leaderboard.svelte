@@ -12,7 +12,10 @@
   import { MAX_ITEMS } from '../../state/watchlist';
   import { onDestroy, untrack } from 'svelte';
   import { Badge } from '@sch0718/ui-svelte';
+  import { sortByMine, type Mine, type MineSort } from '../../holdings/rows';
   import { fmtWon, trendClass } from '../format';
+  import { signedWon } from '../perf/perfText';
+  import { fmtReturnPct } from '../simulate/simText';
   import { formatMetricValue, prevDayBadge, staleBadge, type MetricUnit } from './compareText';
   import type { BoardOrder } from '../../state/schema';
   import { orderRows, type LeaderRow } from './rows';
@@ -36,6 +39,9 @@
     addLabel = '＋ 종목 추가',
     onfocuswithin,
     onorderchange,
+    mine,
+    mineSort = null,
+    onminesort,
   }: {
     rows: LeaderRow[];
     frozenOrder: string[] | null;
@@ -60,6 +66,9 @@
     onfocuswithin?: (order: string[] | null) => void;
     /** 머리줄의 `값 순`·`내 순서`로 정렬을 바꾼다. */
     onorderchange?: (order: BoardOrder) => void;
+    mine?: Record<string, Mine>;
+    mineSort?: MineSort | null;
+    onminesort?: (key: MineSort | null) => void;
   } = $props();
 
   const LONG_PRESS_MS = 500;
@@ -70,9 +79,15 @@
   const HINT_MS = 4000;
   const REORDER_HINT = '값 순에서는 순서를 바꿀 수 없어요 · 내 순서에서 바꿀 수 있어요';
 
-  const ordered = $derived(orderRows(rows, boardOrder, frozenOrder));
+  const canReorder = $derived(boardOrder === 'mine' && !mineSort);
+  const orderLabel = $derived(
+    mineSort === 'pnl' ? '수익금 순' : mineSort === 'pct' ? '수익률 순' : boardOrder === 'mine' ? '내 순서' : `${metricLabel} 순`,
+  );
+  const rowsInOrder = (frozen: string[] | null) =>
+    mineSort ? sortByMine(rows, mineSort, (r) => mine?.[r.symbol], frozen) : orderRows(rows, boardOrder, frozen);
+  const ordered = $derived(rowsInOrder(frozenOrder));
 
-  // 값 순에서 길게 누르거나 Alt+↑↓를 누르면 순서를 바꾸는 대신 어디서 바꾸는지 알린다. 정렬을 바꾸면 지운다.
+  // 값이나 수익으로 정렬할 때 길게 누르거나 Alt+↑↓를 누르면 내 순서에서 바꿀 수 있다고 알려요.
   let hint = $state('');
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
   function showReorderHint() {
@@ -82,13 +97,15 @@
   }
   // 키보드 고정 중에 정렬을 바꾸면(클릭이 포커스를 주지 않는 브라우저) 예전 정렬의 고정 순서가 남지 않게 새 정렬로 다시 고정한다.
   let prevOrder = untrack(() => boardOrder);
+  let prevMineSort = untrack(() => mineSort);
   $effect(() => {
-    if (boardOrder === prevOrder) return;
+    if (boardOrder === prevOrder && mineSort === prevMineSort) return;
     prevOrder = boardOrder;
+    prevMineSort = mineSort;
     clearTimeout(hintTimer);
     hint = '';
     untrack(() => {
-      if (focusInside) onfocuswithin?.(orderRows(rows, boardOrder, null).map((r) => r.symbol));
+      if (focusInside) onfocuswithin?.(rowsInOrder(null).map((r) => r.symbol));
     });
   });
   onDestroy(() => clearTimeout(hintTimer));
@@ -266,7 +283,7 @@
       y: e.clientY,
       timer: setTimeout(() => {
         press = null;
-        if (boardOrder !== 'mine') {
+        if (!canReorder) {
           // 끌기와 같이 뗀 뒤의 click은 상세를 열지 않는다.
           suppressClick = true;
           showReorderHint();
@@ -322,7 +339,7 @@
     suppressClick = false;
     if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
-    if (boardOrder !== 'mine') {
+    if (!canReorder) {
       showReorderHint();
       return;
     }
@@ -347,19 +364,25 @@
 
 <section class="board" aria-label="리더보드">
   <div class="board-head">
-    <span class="head-label"
-      >{boardOrder === 'mine' ? '내 순서' : `${metricLabel} 순`} · {count}/{MAX_ITEMS}{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span
+    <span class="head-label" class:holding={mine !== undefined}
+      >{orderLabel} · {count}/{MAX_ITEMS}{scrubLabel ? ` · ${scrubLabel} 값` : ''}</span
     >
     <div class="seg" role="group" aria-label="정렬">
       {#each [['value', '값 순'], ['mine', '내 순서']] as const as [id, label] (id)}
         <button
           type="button"
-          aria-pressed={boardOrder === id}
+          aria-pressed={!mineSort && boardOrder === id}
           onclick={() => {
+            if (mineSort) onminesort?.(null);
             if (boardOrder !== id) onorderchange?.(id);
           }}>{label}</button
         >
       {/each}
+      {#if mine}
+        {#each [['pnl', '수익금순'], ['pct', '수익률순']] as const as [key, label] (key)}
+          <button type="button" aria-pressed={mineSort === key} onclick={() => onminesort?.(key)}>{label}</button>
+        {/each}
+      {/if}
     </div>
     <button type="button" class="btn-add" bind:this={addBtn} onclick={onopenadd}>{addLabel}</button>
   </div>
@@ -367,6 +390,7 @@
   <ul bind:this={listEl} {onfocusin} {onfocusout} onkeydown={onlistkeydown} onpointerdown={onlistpointerdown}>
     {#each ordered as r (r.symbol)}
       {@const v = valueText(r)}
+      {@const m = mine?.[r.symbol]}
       {@const stale = r.prevDay !== undefined ? prevDayBadge(r.prevDay) : r.staleAt !== undefined ? staleBadge(r.staleAt, now) : null}
       <li
         class="lrow"
@@ -418,6 +442,17 @@
             <b class={v.cls}>{v.text}</b>
             <em>{r.price === null ? '—' : `${fmtWon(r.price)}원`}</em>
           </span>
+          {#if mine}
+            <span class="mine num {trendClass(m?.pnl ?? null, conv)}">
+              {#if m?.state === 'ok'}
+                수익 {fmtReturnPct(m.pct, true)} {signedWon(m.pnl)}
+              {:else if m?.state === 'noavg'}
+                평단 없음
+              {:else}
+                —
+              {/if}
+            </span>
+          {/if}
           {#if r.extra && !r.error && !r.loading}
             {@const x = r.extra}
             <span class="extra num">
@@ -455,9 +490,14 @@
     flex: 1;
     min-width: 0;
   }
+  .head-label.holding {
+    flex-basis: auto;
+  }
   .seg {
     display: inline-flex;
     flex: none;
+    flex-wrap: wrap;
+    max-width: 100%;
     gap: 2px;
     padding: 2px;
     border-radius: var(--r-chip);
@@ -528,6 +568,7 @@
     box-shadow: inset 0 2px 0 var(--accent);
   }
   .lrow.dim .nm,
+  .lrow.dim .mine,
   .lrow.dim .val {
     opacity: 0.4;
   }
@@ -610,6 +651,20 @@
     font-style: normal;
     font-size: 12px;
     color: var(--t2);
+  }
+  .mine {
+    flex-basis: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: var(--t2);
+  }
+  .mine.up {
+    color: var(--up);
+  }
+  .mine.down {
+    color: var(--down);
   }
   .extra {
     flex-basis: 100%;

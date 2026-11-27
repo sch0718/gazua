@@ -63,6 +63,51 @@ describe('Leaderboard', () => {
     expect(order()).toEqual(['C', 'A', 'D', 'B']);
   });
 
+  it('보유 종목은 수익을 표시하고 수익금 정렬 중에는 내 순서로 옮기지 않아요', async () => {
+    const onminesort = vi.fn();
+    const props = setup([row('A', 3), row('B', 1), row('C', 2), row('D', 0)], {
+      boardOrder: 'mine',
+      mineSort: 'pnl',
+      onminesort,
+      mine: {
+        A: { state: 'ok', pnl: 1_500, pct: 10 },
+        B: { state: 'ok', pnl: 3_400, pct: 1.2 },
+        C: { state: 'noavg', pnl: null, pct: null },
+        D: { state: 'pending', pnl: null, pct: null },
+      },
+    });
+    expect(order()).toEqual(['B', 'A', 'C', 'D']);
+    expect(within(rowOf('B')).getByText('수익 +1.2% +3,400원')).toBeTruthy();
+    expect(within(rowOf('C')).getByText('평단 없음')).toBeTruthy();
+    expect(within(rowOf('D')).getByText('—')).toBeTruthy();
+    expect(screen.getByText('수익금 순 · 4/10')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '수익금순' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '내 순서' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByRole('button', { name: '값 순' }).getAttribute('aria-pressed')).toBe('false');
+    await fireEvent.keyDown(mainBtn('B'), { altKey: true, key: 'ArrowDown' });
+    expect(props.onreorder).not.toHaveBeenCalled();
+    expect(screen.getByRole('status').textContent).toContain('내 순서에서 바꿀 수 있어요');
+    await fireEvent.click(screen.getByRole('button', { name: '내 순서' }));
+    expect(onminesort).toHaveBeenLastCalledWith(null);
+    expect(props.onorderchange).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: '수익률순' }));
+    expect(onminesort).toHaveBeenLastCalledWith('pct');
+  });
+
+  it('수익 기준을 바꾸면 포커스 고정 순서도 새 기준으로 바꿔요', async () => {
+    const onfocuswithin = vi.fn();
+    const props = setup([row('A', 3), row('B', 1)], {
+      mineSort: 'pnl',
+      frozenOrder: ['B', 'A'],
+      onfocuswithin,
+      mine: { A: { state: 'ok', pnl: 10, pct: 5 }, B: { state: 'ok', pnl: 20, pct: 2 } },
+    });
+    mainBtn('A').focus();
+    expect(onfocuswithin).toHaveBeenLastCalledWith(['B', 'A']);
+    await props.rerender({ mineSort: 'pct' });
+    expect(onfocuswithin).toHaveBeenLastCalledWith(['A', 'B']);
+  });
+
   it('leaderboard row shows 데이터 없음', () => {
     setup([row('A', null)]);
     expect(within(rowOf('A')).getByText('데이터 없음')).toBeTruthy();

@@ -9,6 +9,7 @@
   import type { Point } from '../lib/data/metrics';
   import { baseDateFor, indexBaseFor, metricPoints } from '../lib/data/seriesMetrics';
   import { RANK_LOOKBACK_MIN, SUB_WINDOW_MIN, volumePace, windowApplies, windowPoints, windowStart, type RecentWindow } from '../lib/data/windowMetrics';
+  import { sortByMine, type Mine, type MineSort } from '../lib/holdings/rows';
   import { fetchPlanFor, stepPeriod } from '../lib/market/periods';
   import type { DaySession } from '../lib/market/sessions';
   import { sessionLabelAt } from '../lib/market/tradable';
@@ -49,6 +50,9 @@
     group: Group;
     onchange: (g: Group) => void;
     onadd: () => void;
+    mine: (prices: Record<string, number>) => Record<string, Mine>;
+    sort: MineSort | null;
+    onsort: (key: MineSort | null) => void;
     /** 당겨서 새로고침 때 시세와 함께 다시 받을 것(계좌 보유) */
     refresh: () => Promise<void>;
     /** 앱 바 왼쪽(제목) */
@@ -350,6 +354,8 @@
     lastLive = Object.fromEntries(rows.flatMap((r) => (r.price === null ? [] : [[r.symbol, r.price]]))) as Record<string, number>;
     return lastLive;
   });
+  const mine = $derived(holdings?.mine(livePrices));
+  const mineSort = $derived(holdings?.sort ?? null);
   const scrubLabel = $derived(scrubT === null ? null : mode === 'intraday' ? kstHHMM(scrubT) : monthDay(kstDate(scrubT)));
 
   /** 스크럽을 시작할 때 보이던 순서를 고정한다(값이 바뀌어도 행이 튀지 않게). */
@@ -359,7 +365,12 @@
       scrubOrder = null;
       return;
     }
-    if (scrubT === null) scrubOrder = sortRows(rows, focusOrder).map((r) => r.symbol);
+    if (scrubT === null) {
+      const ordered = mineSort
+        ? sortByMine(rows, mineSort, (r) => mine?.[r.symbol], focusOrder)
+        : sortRows(rows, focusOrder);
+      scrubOrder = ordered.map((r) => r.symbol);
+    }
     scrubT = t;
   }
 
@@ -635,6 +646,9 @@
     {rows}
     {frozenOrder}
     boardOrder={app.settings.boardOrder}
+    {mine}
+    {mineSort}
+    onminesort={holdings?.onsort}
     {unit}
     conv={app.settings.colorConvention}
     {metricLabel}

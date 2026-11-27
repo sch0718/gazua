@@ -1,9 +1,63 @@
 import { describe, expect, it } from 'vitest';
 import { cleanLabel, sanitizeManualHoldings, DEFAULT_ACCOUNT_LABEL, type ManualHolding } from './manual';
-import { accountLabels, buildRows, summarize } from './rows';
+import { accountLabels, buildRows, sortByMine, summarize, symbolPnl, type Mine } from './rows';
 
 const manual = (over: Partial<ManualHolding> = {}): ManualHolding => ({
   id: 'm1', symbol: '005930', name: '삼성전자', qty: 10, avgPrice: 70000, account: '연금저축', ...over,
+});
+
+describe('symbolPnl', () => {
+  const sameSymbol = buildRows(
+    [{ symbol: '005930', name: '예시 종목', quantity: 2, avgPrice: 100 }],
+    '데모',
+    [manual({ qty: 1, avgPrice: 200 }), manual({ id: 'm2', qty: 5, avgPrice: null })],
+    { prices: { '005930': 150 }, prevClose: {} },
+  );
+
+  it('종목별 수익금 합계를 매수금액 합계로 나눠 수익률을 구해요', () => {
+    expect(symbolPnl(sameSymbol)).toEqual({ '005930': { state: 'ok', pnl: 50, pct: 12.5 } });
+  });
+
+  it('같은 종목에 가격 없는 행이 하나라도 있으면 가격을 기다려요', () => {
+    const [first, second] = sameSymbol;
+    expect(symbolPnl([first, { ...second, price: null }])['005930']).toEqual({ state: 'pending', pnl: null, pct: null });
+  });
+
+  it('유효한 평단과 수량이 있는 행이 없으면 평단 없음으로 표시해요', () => {
+    const rows = buildRows([], '데모', [
+      manual({ qty: 2, avgPrice: 0 }),
+      manual({ id: 'm2', qty: 0, avgPrice: 100 }),
+      manual({ id: 'm3', qty: 1, avgPrice: null }),
+    ], { prices: { '005930': 150 }, prevClose: {} });
+    expect(rows.map((r) => r.pnl)).toEqual([null, null, null]);
+    expect(symbolPnl(rows)['005930']).toEqual({
+      state: 'noavg', pnl: null, pct: null,
+    });
+  });
+});
+
+describe('sortByMine', () => {
+  const items: { symbol: string; mine?: Mine }[] = [
+    { symbol: 'A', mine: { state: 'noavg', pnl: null, pct: null } },
+    { symbol: 'B', mine: { state: 'ok', pnl: 10, pct: 5 } },
+    { symbol: 'C', mine: { state: 'ok', pnl: 20, pct: 2 } },
+    { symbol: 'D', mine: { state: 'ok', pnl: 20, pct: 3 } },
+    { symbol: 'E', mine: { state: 'pending', pnl: null, pct: null } },
+    { symbol: 'F', mine: { state: 'ok', pnl: -1, pct: -1 } },
+    { symbol: 'G' },
+  ];
+  const pick = (item: (typeof items)[number]) => item.mine;
+  const symbols = (rows: typeof items) => rows.map((r) => r.symbol);
+
+  it('수익금과 수익률을 각각 내림차순으로 정렬하고 동점과 값이 없는 행의 입력 순서를 지켜요', () => {
+    expect(symbols(sortByMine(items, 'pnl', pick))).toEqual(['C', 'D', 'B', 'F', 'A', 'E', 'G']);
+    expect(symbols(sortByMine(items, 'pct', pick))).toEqual(['B', 'D', 'C', 'F', 'A', 'E', 'G']);
+    expect(symbols(items)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+  });
+
+  it('고정한 종목 순서를 우선하고 나머지는 수익 순으로 붙여요', () => {
+    expect(symbols(sortByMine(items, 'pnl', pick, ['E', 'B', 'Z']))).toEqual(['E', 'B', 'C', 'D', 'F', 'A', 'G']);
+  });
 });
 
 describe('sanitizeManualHoldings', () => {

@@ -5,6 +5,14 @@ import type { ReleaseNote } from '@sch0718/app-update';
 // 릴리스를 만들 때 여기에 한 줄~세 줄을 더한다.
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: 'v0.15.0',
+    date: '2026-11-27',
+    items: [
+      '보유 종목 리더보드에 종목마다 내 평단 기준 수익률과 수익금이 실시간으로 보여요.',
+      '보유 내역 목록과 리더보드를 수익금순·수익률순으로 정렬할 수 있어요. 평단을 모르는 종목은 맨 뒤에 둬요.',
+    ],
+  },
+  {
     version: 'v0.14.1',
     date: '2026-11-27',
     items: [
